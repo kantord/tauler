@@ -49,7 +49,11 @@ impl Lifecycle for PanelSpec {
 
     fn reconcile_self(self, state: &mut PanelSpecData, _ctx: &mut (), output: &mut Sender<PanelCommand>) -> Result<(), anyhow::Error> {
         let new = self.0;
-        let dims_changed = new.width != state.width || new.height != state.height;
+        let phys_w = (new.width as f32 * new.dpr).round() as u32;
+        let phys_h = (new.height as f32 * new.dpr).round() as u32;
+        let state_phys_w = (state.width as f32 * state.dpr).round() as u32;
+        let state_phys_h = (state.height as f32 * state.dpr).round() as u32;
+        let phys_dims_changed = phys_w != state_phys_w || phys_h != state_phys_h;
         let pos_changed = new.x != state.x
             || new.y != state.y
             || new.anchor != state.anchor
@@ -57,16 +61,14 @@ impl Lifecycle for PanelSpec {
             || new.outer_gap != state.outer_gap;
         let render_changed = new.content != state.content || new.dpr != state.dpr;
 
-        let phys_w = (new.width as f32 * new.dpr).round() as u32;
-        let phys_h = (new.height as f32 * new.dpr).round() as u32;
-
-        if dims_changed {
+        if phys_dims_changed {
             let frame = PanelFrame {
                 pixels: render_frame(&new.content, phys_w, phys_h, new.dpr),
                 width: phys_w,
                 height: phys_h,
             };
             output.send(PanelCommand::Resize { spec: new.clone(), frame })?;
+            output.send(PanelCommand::Move(new.clone()))?;
         } else {
             if pos_changed {
                 output.send(PanelCommand::Move(new.clone()))?;
@@ -145,8 +147,8 @@ mod tests {
         let cmds: Vec<PanelCommand> = rx.try_iter().collect();
         assert!(cmds.iter().any(|c| matches!(c, PanelCommand::Resize { spec: s, .. } if s.id == "p1")),
             "reconcile_self must emit Resize when dimensions change");
-        assert!(!cmds.iter().any(|c| matches!(c, PanelCommand::Move(_))),
-            "reconcile_self must NOT emit Move when only dimensions change");
+        assert!(!cmds.iter().any(|c| matches!(c, PanelCommand::UpdatePicture { .. })),
+            "reconcile_self must NOT emit UpdatePicture when dimensions change");
     }
 
     #[test]
@@ -175,6 +177,59 @@ mod tests {
         let cmds: Vec<PanelCommand> = rx.try_iter().collect();
         assert!(cmds.iter().any(|c| matches!(c, PanelCommand::UpdatePicture { id, .. } if id == "p1")),
             "reconcile_self must emit UpdatePicture on content-only change; got {} commands", cmds.len());
+    }
+
+    #[test]
+    fn panel_spec_reconcile_self_emits_resize_not_update_picture_when_dpr_changes_phys_dims() {
+        // State has dpr=1.0, logical 100x30 → physical 100x30.
+        // New spec has dpr=2.0, logical 100x30 → physical 200x60.
+        // Physical dims changed, so reconcile_self must emit Resize (not UpdatePicture)
+        // and a Move so the presenter can reposition anchored panels.
+        let (mut tx, rx) = std::sync::mpsc::channel::<PanelCommand>();
+        let mut state = make_spec_data("p1");
+        // state starts with dpr=1.0 (default from make_spec_data)
+        assert_eq!(state.dpr, 1.0);
+        let mut next = make_spec_data("p1");
+        next.dpr = 2.0; // logical dims unchanged, but physical dims double
+        let spec = PanelSpec(next);
+        <PanelSpec as Lifecycle>::reconcile_self(spec, &mut state, &mut (), &mut tx).unwrap();
+        let cmds: Vec<PanelCommand> = rx.try_iter().collect();
+        assert!(
+            cmds.iter().any(|c| matches!(c, PanelCommand::Resize { spec: s, .. } if s.id == "p1")),
+            "reconcile_self must emit Resize when DPR change causes physical dims to change; got {:?} command variants",
+            cmds.iter().map(|c| match c {
+                PanelCommand::Create { .. } => "Create",
+                PanelCommand::Move(_) => "Move",
+                PanelCommand::Resize { .. } => "Resize",
+                PanelCommand::Delete { .. } => "Delete",
+                PanelCommand::UpdatePicture { .. } => "UpdatePicture",
+                PanelCommand::Shutdown => "Shutdown",
+            }).collect::<Vec<_>>()
+        );
+        assert!(
+            !cmds.iter().any(|c| matches!(c, PanelCommand::UpdatePicture { .. })),
+            "reconcile_self must NOT emit UpdatePicture when physical dims change due to DPR; got {:?} command variants",
+            cmds.iter().map(|c| match c {
+                PanelCommand::Create { .. } => "Create",
+                PanelCommand::Move(_) => "Move",
+                PanelCommand::Resize { .. } => "Resize",
+                PanelCommand::Delete { .. } => "Delete",
+                PanelCommand::UpdatePicture { .. } => "UpdatePicture",
+                PanelCommand::Shutdown => "Shutdown",
+            }).collect::<Vec<_>>()
+        );
+        assert!(
+            cmds.iter().any(|c| matches!(c, PanelCommand::Move(s) if s.id == "p1")),
+            "reconcile_self must emit Move after Resize so the presenter can reposition anchored panels; got {:?} command variants",
+            cmds.iter().map(|c| match c {
+                PanelCommand::Create { .. } => "Create",
+                PanelCommand::Move(_) => "Move",
+                PanelCommand::Resize { .. } => "Resize",
+                PanelCommand::Delete { .. } => "Delete",
+                PanelCommand::UpdatePicture { .. } => "UpdatePicture",
+                PanelCommand::Shutdown => "Shutdown",
+            }).collect::<Vec<_>>()
+        );
     }
 
     #[test]
