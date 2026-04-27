@@ -22,6 +22,17 @@ impl PanelAnchor {
     }
 }
 
+/// Per-monitor metadata, including physical pixel dimensions and device pixel ratio.
+#[derive(Debug, Clone)]
+pub struct OutputInfo {
+    pub name: String,
+    pub x: i16,
+    pub y: i16,
+    pub width: u32,
+    pub height: u32,
+    pub dpr: f32,
+}
+
 /// Logical-pixel description of a `<panel>` node extracted from the JSX root.
 /// All dimensions are in logical pixels; the display backend scales to physical pixels.
 #[derive(Debug, Clone)]

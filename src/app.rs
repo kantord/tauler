@@ -5,6 +5,7 @@ use std::thread;
 
 use costae::init_global_ctx;
 use costae::config::CostaeConfig;
+use costae::layout::OutputInfo;
 use costae::theme::{Theme, ThemeMode};
 use costae::theme::resolver::resolve_tw_in_json;
 use costae::data::data_loop::{DataLoopHandle, BuiltInSource, ProcessIdentity, ProcessSource, StreamSource};
@@ -96,6 +97,7 @@ pub(crate) fn stream_calls_to_specs(calls: &[(String, Option<String>)]) -> Vec<S
 fn apply_eval_result(
     out: &costae::jsx::EvalOutput,
     dpr: f32,
+    output_map: &HashMap<String, OutputInfo>,
     handle: &DataLoopHandle,
     panel_set: &mut ManagedSet<PanelSpec>,
     command_tx: &mut mpsc::Sender<PanelCommand>,
@@ -108,7 +110,12 @@ fn apply_eval_result(
             return false;
         }
     };
-    for spec in &mut specs { spec.dpr = dpr; }
+    for spec in &mut specs {
+        spec.dpr = spec.output.as_ref()
+            .and_then(|name| output_map.get(name))
+            .map(|o| o.dpr)
+            .unwrap_or(dpr);
+    }
     let mod_init = mod_init_fn(&specs);
 
     let module_bins: std::collections::HashSet<String> =
@@ -189,6 +196,7 @@ pub(crate) struct App {
     output_name: String,
     screen_width_logical: u32,
     screen_height_logical: u32,
+    output_map: HashMap<String, OutputInfo>,
     panels: ManagedSet<PanelSpec>,
     import_watches: ManagedSet<WatchedPath>,
     theme_file_watch: ManagedSet<WatchedPath>,
@@ -261,6 +269,7 @@ impl App {
         let output_name = panel_ctx.output_name.clone();
         let screen_width_logical = panel_ctx.screen_width_logical;
         let screen_height_logical = panel_ctx.screen_height_logical;
+        let output_map: HashMap<String, OutputInfo> = (*panel_ctx.output_map).clone();
         let (command_tx, command_rx) = mpsc::channel();
         let (event_tx, event_rx) = mpsc::channel();
         let pt = PresentationThread::new(panel_ctx);
@@ -277,6 +286,7 @@ impl App {
             output_name,
             screen_width_logical,
             screen_height_logical,
+            output_map,
             panels: ManagedSet::new(),
             import_watches: ManagedSet::new(),
             theme_file_watch: ManagedSet::new(),
@@ -336,6 +346,7 @@ impl App {
             output_name: String::new(),
             screen_width_logical: screen_width,
             screen_height_logical: screen_height,
+            output_map: HashMap::new(),
             panels: ManagedSet::new(),
             import_watches: ManagedSet::new(),
             theme_file_watch: ManagedSet::new(),
@@ -371,7 +382,7 @@ impl App {
         };
         let (dpr, dpi, sw, sh) = (self.dpr, self.dpi, self.screen_width_logical, self.screen_height_logical);
         let output_name = self.output_name.clone();
-        apply_eval_result(&resolved_out, dpr, &self.handle, &mut self.panels, &mut self.command_tx,
+        apply_eval_result(&resolved_out, dpr, &self.output_map, &self.handle, &mut self.panels, &mut self.command_tx,
             &move |specs| make_mod_init_value(specs, dpr, &output_name, dpi, sw, sh))
     }
 
@@ -502,11 +513,18 @@ impl App {
         while let Ok(event) = self.event_rx.try_recv() {
             match event {
                 PresenterEvent::NeedsRender => {} // no-op: reconciler handles rendering
-                PresenterEvent::OutputsChanged { screen_width, screen_height, dpr } => {
-                    self.jsx_ctx["screen_width"] = serde_json::json!(screen_width);
-                    self.jsx_ctx["screen_height"] = serde_json::json!(screen_height);
-                    self.dpr = dpr;
-                    tracing::info!(screen_width, screen_height, dpr, "Wayland output changed");
+                PresenterEvent::OutputsChanged { outputs } => {
+                    self.output_map = outputs.iter().map(|o| (o.name.clone(), o.clone())).collect();
+                    if let Some(primary) = outputs.first() {
+                        let screen_width = (primary.width as f32 / primary.dpr).round() as u32;
+                        let screen_height = (primary.height as f32 / primary.dpr).round() as u32;
+                        self.jsx_ctx["screen_width"] = serde_json::json!(screen_width);
+                        self.jsx_ctx["screen_height"] = serde_json::json!(screen_height);
+                        self.dpr = primary.dpr;
+                        self.screen_width_logical = screen_width;
+                        self.screen_height_logical = screen_height;
+                        tracing::info!(screen_width, screen_height, dpr = primary.dpr, "outputs changed");
+                    }
                     let eval_out = self.jsx_evaluator.as_ref().map(|e| e.eval(&self.stream_values));
                     if let Some(eval_result) = eval_out {
                         match eval_result {

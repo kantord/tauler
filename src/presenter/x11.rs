@@ -1,5 +1,6 @@
 use std::sync::{mpsc, Arc};
 
+use costae::layout::OutputInfo;
 use costae::presentation::{PanelCommand, PresentationThread, PresenterEvent};
 use costae::x11::outputs::build_output_map;
 use costae::x11::panel::X11PanelContext;
@@ -33,7 +34,10 @@ pub(crate) fn run_x11_presenter_thread(
         while let Some(event) = pt.dm.conn.poll_for_event().unwrap_or(None) {
             match event {
                 x11rb::protocol::Event::RandrScreenChangeNotify(_) => {
-                    pt.dm.output_map = Arc::new(build_output_map(&pt.dm.conn, pt.dm.root));
+                    let new_map = build_output_map(&pt.dm.conn, pt.dm.root);
+                    let outputs: Vec<OutputInfo> = new_map.values().cloned().collect();
+                    pt.dm.output_map = Arc::new(new_map);
+                    let _ = event_tx.send(PresenterEvent::OutputsChanged { outputs });
                 }
                 x11rb::protocol::Event::Expose(e) => {
                     if let Some(panel) = pt.presenter.panels.values().find(|p| p.win_id == e.window) {

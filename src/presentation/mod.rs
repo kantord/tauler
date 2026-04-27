@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use crate::display_manager::DisplayManager;
-use crate::layout::PanelSpecData;
+use crate::layout::{OutputInfo, PanelSpecData};
 
 /// A rasterized panel frame ready to be committed to a display.
 ///
@@ -37,8 +37,8 @@ pub enum PanelCommand {
 pub enum PresenterEvent {
     /// The pipeline should re-render all panels and flush.
     NeedsRender,
-    /// Wayland: the compositor's output geometry changed.
-    OutputsChanged { screen_width: u32, screen_height: u32, dpr: f32 },
+    /// The set of connected outputs (and their DPRs) has changed.
+    OutputsChanged { outputs: Vec<OutputInfo> },
     /// A click event, routed back for hit-testing in the pipeline.
     Click { panel_id: String, x: f32, y: f32, phys_width: u32, phys_height: u32, dpr: f32 },
 }

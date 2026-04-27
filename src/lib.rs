@@ -19,6 +19,7 @@ pub use takumi::rendering::MeasuredNode;
 pub use layout::{
     PanelAnchor,
     PanelSpecData,
+    OutputInfo,
     parse_layout,
     parse_root_node,
 };

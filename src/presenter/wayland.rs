@@ -1,5 +1,6 @@
 use std::sync::mpsc;
 
+use costae::layout::OutputInfo;
 use costae::presentation::{PanelCommand, PresentationThread, PresenterEvent};
 use costae::windowing::wayland::WaylandDisplayServer;
 use costae::windowing::{DisplayServer, WindowEvent};
@@ -40,11 +41,16 @@ pub(crate) fn run_wayland_presenter_thread(
                     match event {
                         WindowEvent::OutputsChanged => {
                             if let Some((w, h)) = pt.dm.primary_output_size() {
-                                let _ = event_tx.send(PresenterEvent::OutputsChanged {
-                                    screen_width: w,
-                                    screen_height: h,
-                                    dpr: pt.dm.primary_output_scale(),
-                                });
+                                let dpr = pt.dm.primary_output_scale();
+                                let outputs = vec![OutputInfo {
+                                    name: String::new(),
+                                    x: 0,
+                                    y: 0,
+                                    width: w,
+                                    height: h,
+                                    dpr,
+                                }];
+                                let _ = event_tx.send(PresenterEvent::OutputsChanged { outputs });
                             }
                         }
                         WindowEvent::Click { panel_id, x_logical, y_logical, .. } => {

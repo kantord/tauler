@@ -8,7 +8,7 @@ use x11rb::{
     wrapper::ConnectionExt as _,
 };
 
-use crate::layout::{PanelSpecData, PanelAnchor};
+use crate::layout::{PanelSpecData, PanelAnchor, OutputInfo};
 use crate::display_manager::DisplayManager;
 use crate::presentation::PanelFrame;
 
@@ -69,7 +69,8 @@ fn create_panel(
     let phys_height = (spec.height as f32 * spec.dpr).round() as u32;
 
     let (mon_x, mon_y, mon_width, mon_height) = spec.output.as_ref()
-        .and_then(|name| ctx.output_map.get(name).copied())
+        .and_then(|name| ctx.output_map.get(name))
+        .map(|o| (o.x, o.y, o.width, o.height))
         .unwrap_or((ctx.mon_x, ctx.mon_y, ctx.mon_width, ctx.mon_height));
 
     let (win_x, win_y) = match &spec.anchor {
@@ -147,7 +148,7 @@ pub struct X11PanelContext {
     pub xrootpmap_atom: Option<u32>,
     pub strut_atom: u32,
     pub strut_legacy_atom: u32,
-    pub output_map: Arc<HashMap<String, (i16, i16, u32, u32)>>,
+    pub output_map: Arc<HashMap<String, OutputInfo>>,
     pub dpi: f32,
     pub output_name: String,
     pub screen_width_logical: u32,
@@ -192,7 +193,8 @@ impl DisplayManager for X11PanelContext {
 
     fn update_position(&mut self, panel: &mut Panel, spec: &PanelSpecData) -> Result<(), anyhow::Error> {
         let (mon_x, mon_y, mon_width, mon_height) = spec.output.as_ref()
-            .and_then(|name| self.output_map.get(name).copied())
+            .and_then(|name| self.output_map.get(name))
+            .map(|o| (o.x, o.y, o.width, o.height))
             .unwrap_or((self.mon_x, self.mon_y, self.mon_width, self.mon_height));
 
         let (win_x, win_y) = match &spec.anchor {
@@ -200,8 +202,8 @@ impl DisplayManager for X11PanelContext {
             Some(PanelAnchor::Right) => (mon_x + mon_width as i16 - panel.phys_width as i16, mon_y),
             Some(PanelAnchor::Bottom) => (mon_x, mon_y + mon_height as i16 - panel.phys_height as i16),
             None => (
-                mon_x + (spec.x as f32 * self.dpr).round() as i16,
-                mon_y + (spec.y as f32 * self.dpr).round() as i16,
+                mon_x + (spec.x as f32 * spec.dpr).round() as i16,
+                mon_y + (spec.y as f32 * spec.dpr).round() as i16,
             ),
         };
 
@@ -218,8 +220,8 @@ impl DisplayManager for X11PanelContext {
     }
 
     fn update_dimensions(&mut self, panel: &mut Panel, spec: &PanelSpecData) -> Result<(), anyhow::Error> {
-        let new_phys_width = (spec.width as f32 * self.dpr).round() as u32;
-        let new_phys_height = (spec.height as f32 * self.dpr).round() as u32;
+        let new_phys_width = (spec.width as f32 * spec.dpr).round() as u32;
+        let new_phys_height = (spec.height as f32 * spec.dpr).round() as u32;
 
         if new_phys_width != panel.phys_width || new_phys_height != panel.phys_height {
             self.conn.configure_window(
@@ -233,7 +235,8 @@ impl DisplayManager for X11PanelContext {
 
             if let Some(anchor) = spec.anchor.clone() {
                 let (mon_x, mon_y, mon_width, mon_height) = spec.output.as_ref()
-                    .and_then(|name| self.output_map.get(name).copied())
+                    .and_then(|name| self.output_map.get(name))
+                    .map(|o| (o.x, o.y, o.width, o.height))
                     .unwrap_or((self.mon_x, self.mon_y, self.mon_width, self.mon_height));
 
                 let strut_vals = strut_partial_values_for_anchor(
