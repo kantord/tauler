@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use x11rb::{
-    connection::Connection,
+    connection::{Connection, RequestConnection},
     protocol::xproto::*,
     rust_connection::RustConnection,
     wrapper::ConnectionExt as _,
@@ -15,8 +15,38 @@ use crate::presentation::PanelFrame;
 const XRESOURCES_PROP_MAX_LEN: u32 = 65536;
 const MM_PER_INCH: f32 = 25.4;
 const FALLBACK_DPI: f32 = 96.0;
+const PUT_IMAGE_HEADER_BYTES: usize = 28; // 24-byte standard header + 4-byte BigRequests field
 use crate::render::init_global_ctx;
 use crate::x11::strut_partial_values_for_anchor;
+
+/// Send a BGRX pixel buffer via one or more PutImage requests, each within
+/// the X server's maximum request size. Large panels (e.g. 4K) exceed the
+/// ~16 MB default limit and must be sent as horizontal strips.
+pub fn put_image_chunked(
+    conn: &RustConnection,
+    drawable: u32,
+    gc: u32,
+    width: u32,
+    depth: u8,
+    bgrx: &[u8],
+) -> anyhow::Result<()> {
+    let stride = width as usize * 4;
+    if stride == 0 || bgrx.is_empty() {
+        return Ok(());
+    }
+    let available = conn.maximum_request_bytes().saturating_sub(PUT_IMAGE_HEADER_BYTES);
+    let rows_per_chunk = (available / stride).max(1);
+    for (i, chunk) in bgrx.chunks(rows_per_chunk * stride).enumerate() {
+        let chunk_rows = (chunk.len() / stride) as u16;
+        conn.put_image(
+            ImageFormat::Z_PIXMAP, drawable, gc,
+            width as u16, chunk_rows,
+            0, (i * rows_per_chunk) as i16,
+            0, depth, chunk,
+        ).map_err(|e| anyhow::anyhow!(e))?;
+    }
+    Ok(())
+}
 
 /// A live X11 panel window, created from a `PanelSpec` at runtime.
 pub struct Panel {
@@ -118,7 +148,7 @@ fn create_panel(
     ctx.conn.flush()?;
 
     let bgrx = frame.pixels.clone();
-    ctx.conn.put_image(ImageFormat::Z_PIXMAP, win_id, gc, phys_width as u16, phys_height as u16, 0, 0, 0, ctx.depth, &bgrx[..])?;
+    put_image_chunked(&ctx.conn, win_id, gc, phys_width, ctx.depth, &bgrx[..])?;
     ctx.conn.map_window(win_id)?;
     ctx.conn.flush()?;
 
@@ -175,18 +205,7 @@ impl DisplayManager for X11PanelContext {
 
     fn update_image(&mut self, panel: &mut Panel, bgrx: &[u8]) -> Result<(), anyhow::Error> {
         panel.bgrx = Arc::new(bgrx.to_vec());
-        self.conn.put_image(
-            ImageFormat::Z_PIXMAP,
-            panel.win_id,
-            panel.gc,
-            panel.phys_width as u16,
-            panel.phys_height as u16,
-            0,
-            0,
-            0,
-            self.depth,
-            bgrx,
-        ).map_err(|e| anyhow::anyhow!(e))?;
+        put_image_chunked(&self.conn, panel.win_id, panel.gc, panel.phys_width, self.depth, bgrx)?;
         self.conn.flush().map_err(|e| anyhow::anyhow!(e))?;
         Ok(())
     }

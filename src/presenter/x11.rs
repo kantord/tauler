@@ -3,10 +3,9 @@ use std::sync::{mpsc, Arc};
 use costae::layout::OutputInfo;
 use costae::presentation::{PanelCommand, PresentationThread, PresenterEvent};
 use costae::x11::outputs::build_output_map;
-use costae::x11::panel::X11PanelContext;
+use costae::x11::panel::{X11PanelContext, put_image_chunked};
 use x11rb::connection::Connection as _;
 use x11rb::protocol::randr::{ConnectionExt as RandrExt, NotifyMask};
-use x11rb::protocol::xproto::{ConnectionExt as _, ImageFormat};
 
 use super::drain_commands;
 
@@ -41,8 +40,10 @@ pub(crate) fn run_x11_presenter_thread(
                 }
                 x11rb::protocol::Event::Expose(e) => {
                     if let Some(panel) = pt.presenter.panels.values().find(|p| p.win_id == e.window) {
-                        let _ = pt.dm.conn.put_image(ImageFormat::Z_PIXMAP, panel.win_id, panel.gc,
-                            panel.phys_width as u16, panel.phys_height as u16, 0, 0, 0, pt.dm.depth, &panel.bgrx[..]);
+                        let _ = put_image_chunked(
+                            &pt.dm.conn, panel.win_id, panel.gc,
+                            panel.phys_width, pt.dm.depth, &panel.bgrx[..],
+                        );
                         let _ = pt.dm.conn.flush();
                     }
                 }
