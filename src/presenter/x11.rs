@@ -3,7 +3,7 @@ use std::sync::{mpsc, Arc};
 use costae::layout::OutputInfo;
 use costae::presentation::{PanelCommand, PresentationThread, PresenterEvent};
 use costae::x11::outputs::build_output_map;
-use costae::x11::panel::{X11PanelContext, put_image_chunked};
+use costae::x11::panel::{X11PanelContext, put_image_chunked, resolve_panel_dpr};
 use x11rb::connection::Connection as _;
 use x11rb::protocol::randr::{ConnectionExt as RandrExt, NotifyMask};
 
@@ -55,7 +55,7 @@ pub(crate) fn run_x11_presenter_thread(
                             y: e.event_y as f32,
                             phys_width: panel.phys_width,
                             phys_height: panel.phys_height,
-                            dpr: pt.dm.dpr,
+                            dpr: resolve_panel_dpr(panel.output.as_deref(), &pt.dm.output_map, pt.dm.dpr),
                         });
                     }
                 }

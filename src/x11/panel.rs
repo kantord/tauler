@@ -57,9 +57,17 @@ pub struct Panel {
     pub win_y: i16,
     pub phys_width: u32,
     pub phys_height: u32,
+    pub output: Option<String>,
     pub bgrx: Arc<Vec<u8>>,
 }
 
+
+pub fn resolve_panel_dpr(output: Option<&str>, output_map: &HashMap<String, OutputInfo>, fallback: f32) -> f32 {
+    output
+        .and_then(|name| output_map.get(name))
+        .map(|info| info.dpr)
+        .unwrap_or(fallback)
+}
 
 pub fn i3_dpi(conn: &RustConnection, root: Window, screen: &Screen) -> f32 {
     let from_xresources = (|| -> Option<f32> {
@@ -160,6 +168,7 @@ fn create_panel(
         win_y,
         phys_width,
         phys_height,
+        output: spec.output.clone(),
         bgrx,
     })
 }
@@ -553,6 +562,49 @@ mod tests {
 
         // Cleanup
         let _ = <super::X11PanelContext as DisplayManager>::delete_window(&mut ctx, panel);
+    }
+
+    // ---------------------------------------------------------------------------
+    // DPR-resolve-1: resolve_panel_dpr with a known output name returns that
+    // output's dpr from the map.
+    // ---------------------------------------------------------------------------
+    #[test]
+    fn resolve_panel_dpr_known_output_returns_output_dpr() {
+        use crate::layout::OutputInfo;
+        let mut map = HashMap::new();
+        map.insert("DP-1".to_string(), OutputInfo {
+            name: "DP-1".to_string(),
+            x: 0, y: 0, width: 2560, height: 1440, dpr: 2.0,
+        });
+        let result = super::resolve_panel_dpr(Some("DP-1"), &map, 1.0);
+        assert_eq!(result, 2.0, "resolve_panel_dpr must return the output's dpr when the output is found in the map");
+    }
+
+    // ---------------------------------------------------------------------------
+    // DPR-resolve-2: resolve_panel_dpr with an output name NOT in the map returns
+    // the fallback dpr.
+    // ---------------------------------------------------------------------------
+    #[test]
+    fn resolve_panel_dpr_unknown_output_returns_fallback() {
+        use crate::layout::OutputInfo;
+        let mut map = HashMap::new();
+        map.insert("DP-1".to_string(), OutputInfo {
+            name: "DP-1".to_string(),
+            x: 0, y: 0, width: 2560, height: 1440, dpr: 2.0,
+        });
+        let result = super::resolve_panel_dpr(Some("HDMI-1"), &map, 1.5);
+        assert_eq!(result, 1.5, "resolve_panel_dpr must return fallback when output name is not in the map");
+    }
+
+    // ---------------------------------------------------------------------------
+    // DPR-resolve-3: resolve_panel_dpr with output=None returns the fallback dpr.
+    // ---------------------------------------------------------------------------
+    #[test]
+    fn resolve_panel_dpr_no_output_returns_fallback() {
+        use crate::layout::OutputInfo;
+        let map: HashMap<String, OutputInfo> = HashMap::new();
+        let result = super::resolve_panel_dpr(None, &map, 1.25);
+        assert_eq!(result, 1.25, "resolve_panel_dpr must return fallback when output is None");
     }
 
     // ---------------------------------------------------------------------------
