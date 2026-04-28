@@ -132,13 +132,15 @@ fn init_x11() -> Result<X11Init, Box<dyn std::error::Error>> {
     let primary_output = conn.randr_get_output_primary(screen.root)?.reply()?.output;
     let output_info = conn.randr_get_output_info(primary_output, 0)?.reply()?;
     let output_name = String::from_utf8_lossy(&output_info.name).into_owned();
-    let crtc_info = conn.randr_get_crtc_info(output_info.crtc, 0)?.reply()?;
-    let mon_x = crtc_info.x;
-    let mon_y = crtc_info.y;
-    let mon_width = crtc_info.width as u32;
-    let mon_height = crtc_info.height as u32;
 
     let output_map = costae::x11::outputs::build_output_map(&conn, screen.root);
+
+    let (screen_width_logical, screen_height_logical) = output_map.get(&output_name)
+        .map(|o| (
+            (o.width as f32 / dpr).round() as u32,
+            (o.height as f32 / dpr).round() as u32,
+        ))
+        .unwrap_or((screen.width_in_pixels as u32, screen.height_in_pixels as u32));
 
     init_global_ctx();
 
@@ -153,9 +155,6 @@ fn init_x11() -> Result<X11Init, Box<dyn std::error::Error>> {
     let strut_atom = conn.intern_atom(false, b"_NET_WM_STRUT_PARTIAL")?.reply()?.atom;
     let strut_legacy_atom = conn.intern_atom(false, b"_NET_WM_STRUT")?.reply()?.atom;
 
-    let screen_width_logical = (mon_width as f32 / dpr).round() as u32;
-    let screen_height_logical = (mon_height as f32 / dpr).round() as u32;
-
     let panel_ctx = PanelContext {
         conn: Arc::clone(&conn),
         root: screen.root,
@@ -163,10 +162,6 @@ fn init_x11() -> Result<X11Init, Box<dyn std::error::Error>> {
         root_visual: screen.root_visual,
         black_pixel: screen.black_pixel,
         dpr,
-        mon_x,
-        mon_y,
-        mon_width,
-        mon_height,
         xrootpmap_atom,
         strut_atom,
         strut_legacy_atom,

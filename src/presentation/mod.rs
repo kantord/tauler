@@ -10,7 +10,7 @@ use crate::layout::{OutputInfo, PanelSpecData};
 /// the presenter's coalescing buffer share one allocation via ref-count.
 /// X11's existing `Panel::bgrx` is already this type, so the pipeline can
 /// clone the Arc directly with no byte copy.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct PanelFrame {
     pub pixels: Arc<Vec<u8>>,
     pub width: u32,
@@ -24,6 +24,7 @@ pub struct PanelFrame {
 /// `DM::update_image` call on the presenter thread as soon as it is drained
 /// from the command channel. `Shutdown` is intercepted by `drain_commands`
 /// before reaching `Presenter::apply` — it is never passed to `apply`.
+#[derive(Debug)]
 pub enum PanelCommand {
     Create { spec: PanelSpecData, frame: PanelFrame },
     Move(PanelSpecData),

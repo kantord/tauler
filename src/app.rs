@@ -97,6 +97,7 @@ pub(crate) fn stream_calls_to_specs(calls: &[(String, Option<String>)]) -> Vec<S
 fn apply_eval_result(
     out: &costae::jsx::EvalOutput,
     dpr: f32,
+    primary_output_name: &str,
     output_map: &HashMap<String, OutputInfo>,
     handle: &DataLoopHandle,
     panel_set: &mut ManagedSet<PanelSpec>,
@@ -110,11 +111,15 @@ fn apply_eval_result(
             return false;
         }
     };
+    // Panels whose output isn't in the map don't exist yet — skip them silently.
+    // "output not specified" means primary output; same rule applies.
+    specs.retain(|spec| {
+        let name = spec.output.as_deref().unwrap_or(primary_output_name);
+        output_map.contains_key(name)
+    });
     for spec in &mut specs {
-        spec.dpr = spec.output.as_ref()
-            .and_then(|name| output_map.get(name))
-            .map(|o| o.dpr)
-            .unwrap_or(dpr);
+        let name = spec.output.as_deref().unwrap_or(primary_output_name);
+        spec.dpr = output_map.get(name).map(|o| o.dpr).unwrap_or(dpr);
     }
     let mod_init = mod_init_fn(&specs);
 
@@ -382,7 +387,7 @@ impl App {
         };
         let (dpr, dpi, sw, sh) = (self.dpr, self.dpi, self.screen_width_logical, self.screen_height_logical);
         let output_name = self.output_name.clone();
-        apply_eval_result(&resolved_out, dpr, &self.output_map, &self.handle, &mut self.panels, &mut self.command_tx,
+        apply_eval_result(&resolved_out, dpr, &self.output_name, &self.output_map, &self.handle, &mut self.panels, &mut self.command_tx,
             &move |specs| make_mod_init_value(specs, dpr, &output_name, dpi, sw, sh))
     }
 
@@ -558,9 +563,99 @@ impl Drop for App {
 
 #[cfg(test)]
 mod tests {
-    use super::{load_theme_from_config, make_mod_init_value, stream_calls_to_specs, theme_file_watch_desired};
-    use costae::data::data_loop::StreamSource;
+    use super::{apply_eval_result, load_theme_from_config, make_mod_init_value, stream_calls_to_specs, theme_file_watch_desired};
+    use costae::data::data_loop::{DataLoop, StreamSource};
+    use costae::managed_set::ManagedSet;
+    use costae::panel::PanelSpec;
+    use costae::presentation::PanelCommand;
+    use costae::layout::OutputInfo;
+    use std::collections::HashMap;
     use std::path::PathBuf;
+    use std::sync::mpsc;
+
+    fn make_eval_output(layout: serde_json::Value) -> costae::jsx::EvalOutput {
+        costae::jsx::EvalOutput {
+            layout,
+            stream_calls: vec![],
+            module_calls: vec![],
+        }
+    }
+
+    fn noop_mod_init(_specs: &[costae::PanelSpecData]) -> serde_json::Value {
+        serde_json::Value::Null
+    }
+
+    /// Claim A: apply_eval_result silently excludes any panel spec whose resolved output
+    /// name is absent from the output_map. No PanelCommand::Create is sent for that spec.
+    #[test]
+    fn apply_eval_result_excludes_panel_with_unknown_output_name() {
+        let layout = serde_json::json!({
+            "type": "root",
+            "children": [{
+                "type": "panel",
+                "id": "test-panel",
+                "width": 100,
+                "height": 200,
+                "output": "HDMI-1",
+                "anchor": "left"
+            }]
+        });
+        let out = make_eval_output(layout);
+
+        // output_map does NOT contain "HDMI-1"
+        let output_map: HashMap<String, OutputInfo> = HashMap::new();
+
+        let (_data_loop, handle) = DataLoop::new();
+        let mut panel_set: ManagedSet<PanelSpec> = ManagedSet::new();
+        let (mut command_tx, command_rx) = mpsc::channel::<PanelCommand>();
+
+        apply_eval_result(&out, 1.0, "DP-4", &output_map, &handle, &mut panel_set, &mut command_tx, &noop_mod_init);
+
+        let cmds: Vec<PanelCommand> = command_rx.try_iter().collect();
+        let create_count = cmds.iter().filter(|cmd| matches!(cmd, PanelCommand::Create { .. })).count();
+        assert_eq!(
+            create_count, 0,
+            "expected no PanelCommand::Create for a panel whose output \"HDMI-1\" is absent from output_map, but got {} Create commands",
+            create_count
+        );
+    }
+
+    /// Claim B: A panel spec with output: None uses ctx.output_name (the primary output name)
+    /// as its resolved output. If that name is also absent from the output_map, the spec is
+    /// excluded and no PanelCommand::Create is sent.
+    #[test]
+    fn apply_eval_result_excludes_panel_with_null_output_when_primary_output_absent() {
+        let layout = serde_json::json!({
+            "type": "root",
+            "children": [{
+                "type": "panel",
+                "id": "test-panel-null-output",
+                "width": 100,
+                "height": 200,
+                "output": null,
+                "anchor": "left"
+            }]
+        });
+        let out = make_eval_output(layout);
+
+        // output_map is empty — the primary output name "DP-1" is also absent
+        let output_map: HashMap<String, OutputInfo> = HashMap::new();
+
+        let (_data_loop, handle) = DataLoop::new();
+        let mut panel_set: ManagedSet<PanelSpec> = ManagedSet::new();
+        let (mut command_tx, command_rx) = mpsc::channel::<PanelCommand>();
+
+        // primary output "DP-1" is not in output_map, so the null-output spec must be excluded
+        apply_eval_result(&out, 1.0, "DP-1", &output_map, &handle, &mut panel_set, &mut command_tx, &noop_mod_init);
+
+        let cmds: Vec<PanelCommand> = command_rx.try_iter().collect();
+        let create_count = cmds.iter().filter(|cmd| matches!(cmd, PanelCommand::Create { .. })).count();
+        assert_eq!(
+            create_count, 0,
+            "expected no PanelCommand::Create when panel output is None and primary output is absent from output_map, but got {} Create commands",
+            create_count
+        );
+    }
 
     fn left_spec(width: u32) -> costae::PanelSpecData {
         costae::PanelSpecData {

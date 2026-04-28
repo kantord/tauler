@@ -106,10 +106,10 @@ fn create_panel(
     let phys_width = (spec.width as f32 * spec.dpr).round() as u32;
     let phys_height = (spec.height as f32 * spec.dpr).round() as u32;
 
-    let (mon_x, mon_y, mon_width, mon_height) = spec.output.as_ref()
-        .and_then(|name| ctx.output_map.get(name))
-        .map(|o| (o.x, o.y, o.width, o.height))
-        .unwrap_or((ctx.mon_x, ctx.mon_y, ctx.mon_width, ctx.mon_height));
+    let output_name = spec.output.as_deref().unwrap_or(&ctx.output_name);
+    let output = ctx.output_map.get(output_name)
+        .ok_or_else(|| anyhow::anyhow!("output '{}' not in map", output_name))?;
+    let (mon_x, mon_y, mon_width, mon_height) = (output.x, output.y, output.width, output.height);
 
     let (win_x, win_y) = match &spec.anchor {
         Some(PanelAnchor::Left) | Some(PanelAnchor::Top) => (mon_x, mon_y),
@@ -180,10 +180,6 @@ pub struct X11PanelContext {
     pub root_visual: u32,
     pub black_pixel: u32,
     pub dpr: f32,
-    pub mon_x: i16,
-    pub mon_y: i16,
-    pub mon_width: u32,
-    pub mon_height: u32,
     pub xrootpmap_atom: Option<u32>,
     pub strut_atom: u32,
     pub strut_legacy_atom: u32,
@@ -220,10 +216,10 @@ impl DisplayManager for X11PanelContext {
     }
 
     fn update_position(&mut self, panel: &mut Panel, spec: &PanelSpecData) -> Result<(), anyhow::Error> {
-        let (mon_x, mon_y, mon_width, mon_height) = spec.output.as_ref()
-            .and_then(|name| self.output_map.get(name))
-            .map(|o| (o.x, o.y, o.width, o.height))
-            .unwrap_or((self.mon_x, self.mon_y, self.mon_width, self.mon_height));
+        let output_name = spec.output.as_deref().unwrap_or(&self.output_name);
+        let output = self.output_map.get(output_name)
+            .ok_or_else(|| anyhow::anyhow!("output '{}' not in map", output_name))?;
+        let (mon_x, mon_y, mon_width, mon_height) = (output.x, output.y, output.width, output.height);
 
         let (win_x, win_y) = match &spec.anchor {
             Some(PanelAnchor::Left) | Some(PanelAnchor::Top) => (mon_x, mon_y),
@@ -262,10 +258,9 @@ impl DisplayManager for X11PanelContext {
             panel.phys_height = new_phys_height;
 
             if let Some(anchor) = spec.anchor.clone() {
-                let (mon_x, mon_y, mon_width, mon_height) = spec.output.as_ref()
-                    .and_then(|name| self.output_map.get(name))
-                    .map(|o| (o.x, o.y, o.width, o.height))
-                    .unwrap_or((self.mon_x, self.mon_y, self.mon_width, self.mon_height));
+                let output_name = spec.output.as_deref().unwrap_or(&self.output_name);
+                let Some(out) = self.output_map.get(output_name) else { return Ok(()); };
+                let (mon_x, mon_y, mon_width, mon_height) = (out.x, out.y, out.width, out.height);
 
                 let strut_vals = strut_partial_values_for_anchor(
                     anchor, mon_x, mon_y, mon_width, mon_height, new_phys_width, new_phys_height,
@@ -323,16 +318,21 @@ mod tests {
             root_visual,
             black_pixel,
             dpr: 1.0,
-            mon_x: 0,
-            mon_y: 0,
-            mon_width,
-            mon_height,
             xrootpmap_atom,
             strut_atom,
             strut_legacy_atom,
-            output_map: Arc::new(HashMap::new()),
+            output_map: Arc::new({
+                let mut m = HashMap::new();
+                m.insert("test-output".to_string(), crate::layout::OutputInfo {
+                    name: "test-output".to_string(),
+                    x: 0, y: 0,
+                    width: mon_width, height: mon_height,
+                    dpr: 1.0,
+                });
+                m
+            }),
             dpi: 96.0,
-            output_name: String::new(),
+            output_name: "test-output".to_string(),
             screen_width_logical: mon_width,
             screen_height_logical: mon_height,
         })
