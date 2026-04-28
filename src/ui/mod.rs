@@ -16,6 +16,8 @@ pub enum Node {
 pub struct ContainerNode {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tw: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub style: Option<serde_json::Map<String, serde_json::Value>>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub children: Vec<Node>,
 }

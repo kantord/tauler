@@ -134,6 +134,7 @@ fn gen_container(el: &ParsedElement) -> TokenStream2 {
     quote! {
         crate::ui::Node::Container(crate::ui::ContainerNode {
             tw: #tw,
+            style: None,
             children: #children,
         })
     }
