@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+pub use costae_ui_macro::ui;
 
 pub mod components;
 pub mod registry;
@@ -37,18 +38,32 @@ pub struct ImageNode {
     pub height: Option<f32>,
 }
 
-/// Merge two Tailwind class strings.
+/// Merge two Tailwind class strings by appending `extra` after `base`.
 ///
-/// TODO: this is a naive concatenation — it does not resolve conflicts between classes in the
-/// same property group (e.g. `py-[10px]` followed by `py-[8px]` will both be present).
-/// A proper implementation should behave like tailwind-merge: for each conflict group, keep
-/// only the last value. Also worth investigating whether takumi already applies last-wins
-/// semantics when parsing duplicate properties, which would make concat correct as-is.
+/// Correct because takumi applies declarations in order via plain field assignment
+/// (`style.$longhand = value`), so later classes win. Appending `extra` last means
+/// the caller's overrides take precedence over `base`.
 pub fn tw_merge(base: &str, extra: &str) -> String {
     if extra.is_empty() {
         base.to_string()
     } else {
         format!("{base} {extra}")
+    }
+}
+
+pub trait IntoNodes {
+    fn into_nodes(self) -> Vec<Node>;
+}
+
+impl IntoNodes for Node {
+    fn into_nodes(self) -> Vec<Node> {
+        vec![self]
+    }
+}
+
+impl IntoNodes for Vec<Node> {
+    fn into_nodes(self) -> Vec<Node> {
+        self
     }
 }
 

@@ -1,0 +1,13 @@
+[package]
+name = "costae-ui-macro"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+proc-macro = true
+
+[dependencies]
+rstml = "0.12"
+syn = { version = "2", features = ["full"] }
+quote = "1"
+proc-macro2 = "1"
