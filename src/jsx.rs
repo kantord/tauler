@@ -17,7 +17,7 @@ type EvalResult = rquickjs::Result<EvalOutput>;
 
 use rquickjs::{CatchResultExt, Persistent};
 use rquickjs::function::Function;
-use rquickjs::loader::{Loader, Resolver};
+use rquickjs::loader::{BuiltinLoader, BuiltinResolver, Loader, Resolver};
 
 use std::path::PathBuf;
 
@@ -170,8 +170,21 @@ impl JsxEvaluator {
         let runtime = rquickjs::Runtime::new()?;
         let loaded_paths: Arc<Mutex<Vec<PathBuf>>> = Arc::new(Mutex::new(Vec::new()));
 
+        let builtin_resolver = crate::ui::registry::UI_COMPONENTS.iter().fold(
+            BuiltinResolver::default(),
+            |r, e| r.with_module(e.module_path),
+        );
+        let builtin_loader = crate::ui::registry::UI_COMPONENTS.iter().fold(
+            BuiltinLoader::default(),
+            |l, e| l.with_module(e.module_path, crate::ui::registry::synthetic_module_source(e)),
+        );
         if let Some(dir) = base_dir {
-            runtime.set_loader(CostaeResolver::new(dir.to_path_buf()), CostaeLoader::new(Arc::clone(&loaded_paths)));
+            runtime.set_loader(
+                (builtin_resolver, CostaeResolver::new(dir.to_path_buf())),
+                (builtin_loader, CostaeLoader::new(Arc::clone(&loaded_paths))),
+            );
+        } else {
+            runtime.set_loader(builtin_resolver, builtin_loader);
         }
 
         let context = rquickjs::Context::full(&runtime)?;
@@ -201,6 +214,7 @@ impl JsxEvaluator {
                     }
                 })?;
                 qjs_ctx.globals().set("registerModule", func2)?;
+                crate::ui::registry::register_ui_components(&qjs_ctx)?;
                 if !ctx.is_null() {
                     let js_ctx = rquickjs_serde::to_value(qjs_ctx.clone(), &ctx)
                         .map_err(|_| rquickjs::Error::Unknown)?;
