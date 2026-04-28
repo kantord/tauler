@@ -37,6 +37,21 @@ pub struct ImageNode {
     pub height: Option<f32>,
 }
 
+/// Merge two Tailwind class strings.
+///
+/// TODO: this is a naive concatenation — it does not resolve conflicts between classes in the
+/// same property group (e.g. `py-[10px]` followed by `py-[8px]` will both be present).
+/// A proper implementation should behave like tailwind-merge: for each conflict group, keep
+/// only the last value. Also worth investigating whether takumi already applies last-wins
+/// semantics when parsing duplicate properties, which would make concat correct as-is.
+pub fn tw_merge(base: &str, extra: &str) -> String {
+    if extra.is_empty() {
+        base.to_string()
+    } else {
+        format!("{base} {extra}")
+    }
+}
+
 pub trait IntoJsValue {
     fn into_js_value<'js>(self, ctx: rquickjs::Ctx<'js>) -> rquickjs::Result<rquickjs::Value<'js>>;
 }
