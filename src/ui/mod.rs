@@ -74,6 +74,10 @@ pub trait UiComponent {
 
     fn render(props: Self::Props) -> Node;
 
+    fn render_from_value(v: serde_json::Value) -> Node {
+        Self::render(serde_json::from_value(v).unwrap_or_default())
+    }
+
     fn js_fn<'js>(
         ctx: rquickjs::Ctx<'js>,
         props: rquickjs::Value<'js>,
