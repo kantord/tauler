@@ -16,6 +16,8 @@ pub enum Node {
 pub struct ContainerNode {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tw: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub style: Option<serde_json::Map<String, serde_json::Value>>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub children: Vec<Node>,
 }
@@ -64,6 +66,22 @@ impl IntoNodes for Node {
 impl IntoNodes for Vec<Node> {
     fn into_nodes(self) -> Vec<Node> {
         self
+    }
+}
+
+pub trait UiComponent {
+    type Props: for<'de> serde::Deserialize<'de> + Default;
+
+    fn render(props: Self::Props) -> Node;
+
+    fn js_fn<'js>(
+        ctx: rquickjs::Ctx<'js>,
+        props: rquickjs::Value<'js>,
+    ) -> rquickjs::Result<rquickjs::Value<'js>> {
+        let p = rquickjs_serde::from_value(props)
+            .map_err(|_| rquickjs::Error::Unknown)?;
+        rquickjs_serde::to_value(ctx, &Self::render(p))
+            .map_err(|_| rquickjs::Error::Unknown)
     }
 }
 
