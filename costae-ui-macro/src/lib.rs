@@ -56,13 +56,40 @@ fn gen_node(node: &ParsedNode) -> TokenStream2 {
 }
 
 fn gen_element(el: &ParsedElement) -> TokenStream2 {
-    match el.name().to_string().as_str() {
+    let name = el.name().to_string();
+    if name.chars().next().map(|c| c.is_uppercase()).unwrap_or(false) {
+        return gen_component_call(el);
+    }
+    match name.as_str() {
         "container" => gen_container(el),
         "text" => gen_text_el(el),
         "image" => gen_image_el(el),
-        name => {
-            let msg = format!("unknown ui element <{}>; use container, text, or image", name);
+        _ => {
+            let msg = format!("unknown ui element <{name}>; use container, text, image, or a PascalCase component");
             quote! { compile_error!(#msg) }
+        }
+    }
+}
+
+fn gen_component_call(el: &ParsedElement) -> TokenStream2 {
+    let name: proc_macro2::TokenStream = el.name().to_string().parse().unwrap();
+    let children = gen_children(&el.children);
+    let attr_entries: Vec<TokenStream2> = el.attributes().iter().filter_map(|attr| {
+        if let NodeAttribute::Attribute(kv) = attr {
+            let key = kv.key.to_string();
+            if let Some(expr) = kv.value() {
+                return Some(quote! { #key: (#expr) });
+            }
+        }
+        None
+    }).collect();
+    quote! {
+        {
+            let __children = #children;
+            #name::render_from_value(serde_json::json!({
+                #(#attr_entries,)*
+                "children": __children
+            }))
         }
     }
 }
