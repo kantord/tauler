@@ -1,0 +1,11 @@
+[package]
+name = "layout-poc"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+costae = { path = ".." }
+taffy = "0.10.1"
+anyhow = "1"
+rand = "0.8"

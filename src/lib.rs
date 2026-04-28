@@ -37,6 +37,7 @@ pub use panel::X11PanelContext;
 // render
 pub use render::{
     render_frame,
+    measure_layout_frame,
     init_global_ctx,
     preload_layout_images,
     with_global_ctx,

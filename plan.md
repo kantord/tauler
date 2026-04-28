@@ -1,365 +1,260 @@
-# Issue 40 + 28: Rust-based `@ui/*` component system + Card
+# Partial Rendering Plan
 
-## Context
+## Goal
 
-Implements issue #40 (`@ui/*` module loader infrastructure) using issue #28 (Card) as the
-first concrete component.
-
-**Approach**: build a working prototype end-to-end — Card fully implemented — to discover
-real implementation problems and let those drive the trait design. No phase split.
-The prototype covers: `costae::ui::Node`, `IntoJsValue`/`FromJsValue`, `Callback<P, O>`,
-`UiRegistry`, `register_ui_components`, `@ui/*` loader wiring, and the Card component itself.
-The `ui!` proc-macro (rstml syntax) is out of scope for the prototype but the function signatures
-and node construction must be written so it could eventually generate them.
+Skip redundant takumi work and reduce upload bandwidth by only re-rendering and
+re-uploading the screen regions that actually changed between frames.
 
 ---
 
-## Implementation Steps
+## Key findings from takumi source
 
-### 1. Define `costae::ui::Node`
-
-New file `src/ui/node.rs`, exposed as `pub mod ui` in `lib.rs`.
-
-```rust
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "type", rename_all = "camelCase")]
-pub enum Node {
-    Container(ContainerNode),
-    Text(TextNode),
-    Image(ImageNode),
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct ContainerNode {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub tw: Option<String>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub children: Vec<Node>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TextNode {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub tw: Option<String>,
-    pub text: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ImageNode {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub tw: Option<String>,
-    pub src: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub width: Option<f32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub height: Option<f32>,
-}
-```
-
-**Why a separate type and not `takumi::Node`**: takumi::Node is Deserialize-only (no Serialize
-impl, and ImageSourceInput has a skip_deserializing variant). More importantly, components should
-not be coupled to takumi — if the renderer is swapped out, all built-in components would need
-rewriting. This type is the component author's API; takumi is the renderer's API. They stay
-connected only via the JSON wire format.
-
-**Serde tag compatibility**: `tag = "type", rename_all = "camelCase"` produces `"container"`,
-`"text"`, `"image"` — exactly what takumi's NodeKind expects. The compatibility contract is
-enforced by a round-trip test: `parse_layout(serde_json::to_value(node)?)` must succeed.
-
-**`tw` is `Option<String>`**: takumi's `TailwindValues` deserializes from a plain string (its
-`Deserialize` impl calls `from_str`). So serializing as a string and letting takumi deserialize
-is correct. Theme token resolution (`resolve_tw_in_json`) still runs on the JSON before it
-reaches `parse_layout` — same as today.
-
-### 2. Implement `Card` component function
-
-```rust
-// src/ui/components/card.rs
-pub fn card<'js>(ctx: rquickjs::Ctx<'js>, props: rquickjs::Value<'js>)
-    -> rquickjs::Result<rquickjs::Value<'js>>
-{
-    let children: Vec<Node> = props
-        .get::<_, rquickjs::Value>("children")
-        .ok()
-        .and_then(|v| rquickjs_serde::from_value(v).ok())
-        .unwrap_or_default();
-
-    let node = Node::Container(ContainerNode {
-        tw: Some("rounded-lg border border-border bg-card text-card-foreground px-3 py-[10px]".into()),
-        children,
-    });
-
-    let json = serde_json::to_value(&node).map_err(|_| rquickjs::Error::Unknown)?;
-    rquickjs_serde::to_value(ctx, &json).map_err(|_| rquickjs::Error::Unknown)
-}
-```
-
-**tw string rationale**: matches what existing chezmoi components consistently use. Deviations
-from shadcn Card are intentional — see Shadcn Notes below.
-
-### 3. Trait-based component output
-
-The registry and component system must not be hardcoded to `costae::ui::Node`. The same
-infrastructure should be reusable for non-UI reconciler systems in the future (different node
-shapes, different output domains).
-
-The boundary trait is minimal — just "can be returned to JS":
-
-```rust
-pub trait IntoJsValue {
-    fn into_js_value<'js>(self, ctx: rquickjs::Ctx<'js>) -> rquickjs::Result<rquickjs::Value<'js>>;
-}
-```
-
-`costae::ui::Node` implements this via the serde round-trip. Any future node type does too, as
-long as it implements `Serialize`. A blanket impl covers the common case:
-
-```rust
-impl<T: serde::Serialize> IntoJsValue for T {
-    fn into_js_value<'js>(self, ctx: rquickjs::Ctx<'js>) -> rquickjs::Result<rquickjs::Value<'js>> {
-        let json = serde_json::to_value(&self).map_err(|_| rquickjs::Error::Unknown)?;
-        rquickjs_serde::to_value(ctx, &json).map_err(|_| rquickjs::Error::Unknown)
-    }
-}
-```
-
-Component functions are registered generically — the Rust component returns any `O: IntoJsValue`,
-and the registration helper wraps it into the `fn(Ctx, Value) -> Result<Value>` shape that
-rquickjs expects:
-
-```rust
-pub fn make_component_fn<P, O, F>(f: F)
-    -> impl Fn(rquickjs::Ctx, rquickjs::Value) -> rquickjs::Result<rquickjs::Value>
-where
-    P: for<'de> serde::Deserialize<'de>,
-    O: IntoJsValue,
-    F: Fn(P) -> O,
-{ ... }
-```
-
-This way:
-- Rust component functions are written against typed props and typed output, not raw rquickjs values
-- The JS boundary plumbing (deserialize props, serialize output) lives in one place
-- The same pattern works for any future output domain
-
-### 4. Add `UiRegistry` and `register_ui_components`
-
-```rust
-// src/ui/registry.rs
-pub struct UiEntry {
-    pub module_path: &'static str,   // e.g. "@ui/card"
-    pub export_name: &'static str,   // e.g. "Card"
-    pub global_name: &'static str,   // e.g. "__ui_card"
-}
-
-pub const UI_COMPONENTS: &[UiEntry] = &[
-    UiEntry { module_path: "@ui/card", export_name: "Card", global_name: "__ui_card" },
-];
-```
-
-`register_ui_components(ctx: &Ctx)` iterates `UI_COMPONENTS`, registers each Rust function as
-a JS global by `global_name`. Called from `JsxEvaluator::new`.
-
-The synthetic JS module source for each entry is generated from the registry:
-```js
-const Card = __ui_card;
-export { Card };
-```
-
-This way adding a new component is one registry entry + one Rust function. No other files change.
-
-### 4. Wire `@ui/*` into the loader/resolver
-
-rquickjs supports tuple-chained resolvers and loaders. Use `BuiltinResolver` and `BuiltinLoader`
-from rquickjs (already available, no custom impl needed) for the `@ui/*` names. Chain them with
-the existing `CostaeResolver`/`CostaeLoader` for file-based imports.
-
-**Key change**: the loader is currently only set when `base_dir` is `Some`. It must always be
-set so `@ui/*` imports work even without a base_dir (which is the case in all unit tests):
-
-```rust
-// Always build the builtin pair from the registry
-let builtin_resolver = UI_COMPONENTS.iter().fold(
-    BuiltinResolver::default(),
-    |r, e| r.with_module(e.module_path)
-);
-let builtin_loader = /* BuiltinLoader with synthetic source per entry */;
-
-if let Some(dir) = base_dir {
-    runtime.set_loader(
-        (builtin_resolver, CostaeResolver::new(dir)),
-        (builtin_loader, CostaeLoader::new(Arc::clone(&loaded_paths))),
-    );
-} else {
-    runtime.set_loader(builtin_resolver, builtin_loader);
-}
-```
-
-**Ordering matters**: builtins must be first in the tuple. If `CostaeResolver` runs first it
-rejects `@ui/*` (it only allows `./` and `../` prefixes) before `BuiltinResolver` gets a chance.
-
-**`BuiltinLoader.load()` calls `remove()`**: QuickJS caches compiled modules after first load, so
-the loader is never called twice for the same module name in the same runtime. Since each
-`JsxEvaluator` creates a fresh runtime, this is safe. The `BuiltinLoader` is consumed into the
-runtime and a new one is created for each evaluator instance.
+- `render_node()` skips any node where `is_invisible()` is true — which covers
+  `opacity: 0`, `display: none`, and `visibility: hidden`. Crucially,
+  `visibility: hidden` preserves layout (the node still takes up space) but
+  skips all rasterization (`draw_shell`, `draw_content`, `draw_inline` are
+  never called). This is the **only** mechanism that actually avoids
+  rasterization work.
+- **`overflow: hidden` does NOT skip rasterization.** When a node falls
+  outside the clipped region, takumi still runs font shaping, glyph
+  rasterization, gradient computation, etc. — it only skips the final pixel
+  writes via `compute_overlay_bounds` returning `None`. For text-heavy panels
+  this means `overflow: hidden` alone delivers no speedup for off-screen nodes.
+- CSS `transform: translateX() / translateY()` is fully supported and is a
+  render-time operation (applied via `Affine` accumulation during
+  `render_node`, after layout). It does not affect taffy layout. This is what
+  makes the viewport-shift trick work.
+- `Viewport` width/height control the canvas size that takumi allocates and
+  draws into.
+- `render()` calls layout first (`tree.compute_layout`) then drawing
+  (`render_node`). The two phases are sequential; layout always runs on the
+  full node tree regardless of visibility flags.
 
 ---
 
-## Acceptance Criteria & Tests
+## Design
 
-### Testable in unit tests (within `jsx.rs` using the existing `eval()` helper)
+### Phase 1 — Dirty region accumulation
 
-| Criterion | Test approach |
-|-----------|--------------|
-| `costae::ui::Node` serializes to the JSON shape `parse_layout` accepts | `parse_layout(&serde_json::to_value(Node::Container(...))?)` succeeds |
-| `import { Card } from '@ui/card'` resolves without error | `eval(r#"import { Card } from '@ui/card'; export default function render() { return <Card />; }"#)` does not panic |
-| Card returns `type: "container"` | `result["type"] == "container"` |
-| Card tw contains required tokens | `tw.contains("bg-card")`, `"border-border"`, `"rounded-lg"`, `"text-card-foreground"` |
-| Children pass through | `<Card><text tw="text-white">hi</text></Card>` → `result["children"][0]["type"] == "text"` |
-| `@ui/*` works without a base_dir | all above tests use `eval()` which passes `None` for base_dir |
-| Unknown `@ui/` module fails gracefully | `JsxEvaluator::new` with `import {} from '@ui/nonexistent'` returns `Err`, not a panic |
+Extend the reconciler's `enter()` / `update()` / `exit()` lifecycle hooks to
+emit bounding-box events as a side effect.
 
-### Not unit-testable, verify manually
+- The renderer maintains a **persistent `BoundingBoxTree`**: after every full
+  render, store each node's screen-space rect (already computed by takumi for
+  click handling).
+- `enter(node)` → mark node's **new** bounding box dirty.
+- `update(node)` → mark both **old** (from stored tree) and **new** bounding
+  boxes dirty.
+- `exit(node)` → mark node's **old** bounding box dirty.
+- Each dirty rect is expanded by a small constant buffer (e.g. 2 logical px ×
+  DPR) to catch anti-aliasing fringe.
+- Dirty rects live in a `DirtyRegions` value in shared render context; they are
+  flushed (consumed and cleared) at the start of each render.
 
-- Rendered pixels look correct with a real theme
-- `text-card-foreground` token resolves in your active theme (check theme YAML for `card-foreground` key)
+### Phase 2 — Dirty region resolution
 
----
+Two approaches, ordered by implementation complexity:
 
-## Shadcn Card Notes
+#### Option A — Fixed pixel grid (simpler, recommended first)
 
-Shadcn Card default classes: `"bg-card text-card-foreground flex flex-col gap-6 rounded-xl border py-6 shadow-sm"`
+Divide the panel into a fixed N×N grid of equal-sized cells at startup. When a
+dirty bounding box (with buffer) is produced in Phase 1, map it onto the grid:
+any cell whose pixel rect intersects the dirty box is marked dirty. At render
+time, each dirty cell is an independent render job.
 
-| Shadcn choice | Our choice | Reason |
-|---------------|-----------|--------|
-| `rounded-xl` | `rounded-lg` | Matches existing chezmoi components |
-| `border` (plain) | `border border-border` | Our theme system requires explicit color token; plain `border` doesn't resolve |
-| `flex flex-col gap-6` baked in | No layout classes | Card is a visual wrapper; layout belongs at the call site |
-| `py-6` | `px-3 py-[10px]` | Matches chezmoi component conventions |
-| `shadow-sm` | omit | Existing chezmoi components don't use it |
-| CardHeader / CardContent / CardFooter sub-components | Not implemented | No need yet; add when a real use case requires them |
+Benefits:
+- No interval merging or geometric collapsing needed — the grid is the output.
+- Cell size is fixed, so per-cell render cost is bounded and predictable.
+- Visibility culling (Phase 3 step 2) falls out for free: to find which nodes
+  to mark `visibility: hidden` for a given cell, intersect each node's bounding
+  box with the cell rect — this is exactly the same intersection test used to
+  mark the cell dirty in the first place, so no extra bookkeeping is needed.
+- Overlapping dirty boxes from multiple nodes naturally union onto the grid
+  without any explicit merge step.
 
----
+Recommended cell size: wide enough that the fixed layout cost per render is
+amortised (e.g. 1/8 of panel width × full height for a status bar). Too small
+and the layout overhead dominates; too large and savings shrink.
 
-## Component Authoring Notes (seed for future AI skill)
+#### Option B — Interval merge (general, higher complexity)
 
-These notes describe how to add a new built-in Rust component to the `@ui/*` system.
+Turn the raw dirty rects into a minimal non-overlapping set via interval merge.
 
-### Step-by-step
+For a horizontal panel (1D in practice):
+1. Project each rect onto the X axis → intervals `[x0, x1)`.
+2. Sort by `x0`, merge overlapping/adjacent intervals in one pass.
+3. Reconstruct full-height rects from merged intervals.
 
-1. **Check shadcn** for the component. Read the default className string. Scan for: baked-in
-   layout classes (flex, gap, grid — usually omit), shadow defaults, border-radius values, and
-   sub-component structure. Do not copy complexity that has no parallel in our system.
+For a 2D panel, use a scanline sweep on the Y axis, then apply the 1D merge
+per horizontal band.
 
-2. **Map to our token system**. shadcn uses CSS variables resolved at runtime; we use explicit
-   token names (`bg-card`, `border-border`, `text-foreground`, etc.) that our theme resolver
-   substitutes. Replace shadcn's plain `border` with `border border-border`. Replace `rounded-xl`
-   with the actual value from your theme's radius scale (`rounded-lg` = `lg` key in theme YAML).
+Output: `Vec<Rect<u32>>` with no overlaps, covering exactly the union of all
+dirty input rects.
 
-3. **Check the theme YAML** for any tokens you plan to use. If a token isn't defined, it passes
-   through to takumi as a literal class name and silently does nothing. Tokens are defined under
-   `colors.light`, `colors.dark`, and `radius` in the theme config.
+Implement Option B only if Option A's fixed cell granularity wastes too much
+work in practice.
 
-4. **Write the Rust function** in `src/ui/components/<name>.rs`:
-   - Signature: `pub fn component_name<'js>(ctx: Ctx<'js>, props: Value<'js>) -> Result<Value<'js>>`
-   - Extract children: `rquickjs_serde::from_value::<Vec<Node>>(props.get("children")?).unwrap_or_default()`
-   - Extract other props: `rquickjs_serde::from_value::<PropType>(props.get("field_name")?)`
-   - Build: construct `costae::ui::Node` using the `ContainerNode`/`TextNode`/`ImageNode` structs
-   - Return: `serde_json::to_value(&node)` → `rquickjs_serde::to_value(ctx, &json)`
+### Phase 3 — Partial takumi render
 
-5. **Register in `UI_COMPONENTS`** (one line in `src/ui/registry.rs`):
-   ```rust
-   UiEntry { module_path: "@ui/mycomp", export_name: "MyComp", global_name: "__ui_mycomp" },
+For each dirty rect `(dx, dy, dw, dh)`:
+
+1. **Viewport-shift via CSS overflow trick:**
+
+   Wrap the existing node tree in two extra layers injected at render time
+   (not part of the user's JSX):
+
+   ```
+   [outer: width=dw, height=dh, overflow=hidden]
+     [inner: position=absolute, left=-(dx), top=-(dy), width=panel_w, height=panel_h]
+       [original node tree]
    ```
 
-6. **No other files need changing.** The registry drives the resolver, loader, and global
-   registration automatically.
+   The outer container clips to the dirty region size; the inner container
+   shifts all content left/up so the dirty region appears at origin. Takumi's
+   layout sees `(panel_w, panel_h)` for the inner container, so child positions
+   are correct. The canvas allocated by takumi is `dw × dh`.
 
-7. **Write tests** asserting:
-   - The output `type` field is correct
-   - The `tw` string contains every token you intended
-   - Children are present in the output when passed in
+2. **Visibility culling — the load-bearing step:**
 
-### Design constraints
+   Walk the node tree before rendering. Mark any node whose bounding box (from
+   the stored `BoundingBoxTree`) does not intersect `(dx, dy, dw, dh)` as
+   `visibility: hidden`. Takumi skips all rasterization for those nodes while
+   keeping their layout positions intact.
 
-- `tw` is always a plain `String` — never pre-resolve tokens in Rust component code. Resolution
-  happens in the `resolve_tw_in_json` pass after the component returns.
-- Components must not access the rquickjs runtime directly beyond extracting props and returning
-  a value. Side effects (streams, modules) belong in the JS layer.
-- **Return `costae::ui::Node`, not `takumi::Node`**. Never construct `takumi::Node` in a
-  component — it cannot be serialized and couples the component to the renderer.
-- **Return any `IntoJsValue`, not just `costae::ui::Node`**. The system is trait-based; a
-  component's output type only needs to implement `IntoJsValue` (blanket-implemented for anything
-  `Serialize`). This keeps the component infrastructure reusable for non-UI domains.
-- Props deserialization can fail silently (use `unwrap_or_default`) for optional fields; children
-  in particular should default to an empty vec rather than erroring.
-- No layout classes on pure visual container components. The component provides visual identity
-  (background, border, radius, text color); the caller provides layout (flex, grid, gap, width).
+   This is what delivers the actual speedup. The viewport-shift trick produces
+   the correctly-sized output; visibility culling is what makes the render fast.
+   Without it, every node rasterizes regardless of the smaller canvas, because
+   `overflow: hidden` only skips pixel writes, not rasterization.
 
-### Phase 1 vs Phase 2 authoring syntax
+   The bounding boxes needed here come directly from the click-handler bounding
+   box tree — no additional tracking infrastructure is required.
 
-Phase 1 constructs nodes manually:
+3. **Blit into master framebuffer:**
+
+   The dirty-rect render returns a small `dw × dh` RGBA image. Copy it into
+   the master BGRX framebuffer at offset `(dx, dy)`.
+
+4. **Partial upload:**
+
+   - **X11:** call `put_image_chunked` only for the row range `[dy, dy+dh)`,
+     passing `y = dy` as the image origin.
+   - **Wayland:** update only the relevant region of the SHM buffer, then call
+     `damage_buffer(dx, dy, dw, dh)` instead of full-surface damage.
+
+### Phase 4 — Full-render fallback
+
+Keep the existing full-render path. Use it when:
+- No previous `BoundingBoxTree` exists (first frame).
+- Dirty region area > ~60% of panel area (partial path has more overhead than
+  it saves at that point).
+- Viewport or DPR changed (layout is invalidated globally).
+
+---
+
+## Performance model
+
+| Cost component | Full render | Partial render (D% dirty) |
+|---|---|---|
+| taffy layout | 1× (full tree) | 1× (full tree, unchanged) |
+| Node traversal | 1× | 1× (but most nodes hit `is_invisible()` early) |
+| Rasterization | 1× | ~D% (only visible nodes rasterize) |
+| Canvas allocation | `w×h×4` bytes | `dw×dh×4` bytes |
+| Upload (X11 PutImage) | full buffer | dirty rect only |
+| Wayland damage | full surface | dirty rect only |
+
+Rasterization (font shaping, glyph drawing, gradient fill) dominates render
+time for text-heavy status bars. Layout is cheap relative to glyph work.
+Therefore rendering a 10% dirty region with 90% of nodes marked invisible costs
+roughly 10–15% of a full render. The fixed costs (layout + traversal overhead)
+form a floor that is negligible at panel sizes.
+
+The partial path adds overhead only when the dirty region is large. The
+full-render fallback threshold (~60% dirty area) ensures the partial path is
+never slower than a full render by more than a small constant factor.
+
+---
+
+## Data structures
+
 ```rust
-fn card(props: CardProps) -> Node {
-    Node::Container(ContainerNode {
-        tw: Some("rounded-lg border border-border bg-card text-card-foreground px-3 py-[10px]".into()),
-        children: props.children,
-    })
+struct Rect { x: u32, y: u32, w: u32, h: u32 }
+
+struct DirtyRegions {
+    rects: Vec<Rect>,
+}
+
+impl DirtyRegions {
+    fn mark(&mut self, r: Rect, buffer_px: u32);
+    /// Returns collapsed non-overlapping set and clears self.
+    fn flush_collapsed(&mut self) -> Vec<Rect>;
+}
+
+struct BoundingBoxTree {
+    // keyed by stable node identity (structural path or explicit key)
+    nodes: HashMap<NodeKey, Rect>,
 }
 ```
 
-Phase 2 replaces this with `ui!` (rstml-based proc-macro) — same output, ergonomic syntax:
-```rust
-fn card(props: CardProps) -> Node {
-    ui! {
-        <container tw="rounded-lg border border-border bg-card text-card-foreground px-3 py-[10px]">
-            {props.children}
-        </container>
-    }
-}
-```
+---
 
-The macro rules:
-- Lowercase tag (`<container>`, `<text>`, `<image>`) → `Node::Container(...)` / `Node::Text(...)` / `Node::Image(...)`
-- PascalCase tag (`<Button />`) → direct Rust call to `button(ButtonProps { ... })` (snake_case of tag name)
+## Open questions
 
-**Naming convention locked in Phase 1**: component functions must be named as the snake_case of
-their PascalCase export name so the Phase 2 macro can derive the call correctly. `Card` export →
-`card` function, `Button` export → `button` function. Do not use other naming patterns.
+1. **Stable node identity:** The reconciler needs a stable key per node across
+   frames to match old bounding boxes to updated nodes. JSX `key` props are the
+   obvious source; structural path (parent-index chain) is the fallback.
 
-### Callable props
+2. **Nodes that span a dirty boundary:** Any node whose bounding box
+   *intersects* the dirty rect must stay visible — only fully-outside nodes are
+   hidden. This is conservative but correct; it avoids holes at region edges.
 
-Rust components can call each other directly (no JS involved):
-```rust
-fn card(props: CardProps) -> Node {
-    // Phase 2: ui! { <container tw="..."><Button label="ok" />{props.children}</container> }
-    Node::Container(ContainerNode {
-        tw: Some("...".into()),
-        children: vec![button(ButtonProps { label: "ok".into() }), props.children],
-    })
-}
-```
+3. **Reflow from sibling changes:** If node A changes size and causes adjacent
+   nodes to shift (flexbox reflow), those siblings' previous-frame bounding
+   boxes are stale. We'd incorrectly mark them invisible. For a status bar this
+   is rare (items are typically fixed-width or in stable-total-width flex
+   containers). When it does happen the artifact lasts one frame — the next
+   full-dirty render corrects it. Conservatively, expanding the dirty region to
+   cover any node whose flex sibling changed would catch most reflow cases.
 
-For callable props (a component or function passed as a prop value), use `Callback<P, O>` — an
-enum that holds either a Rust closure or a JS function, with a uniform `.call(ctx, props)`
-interface. The receiving component never knows which branch it is:
+3. **Background of unchanged region in master framebuffer:** The master
+   framebuffer is only updated at dirty rects. Unchanged regions must retain
+   their previous pixel values, so the framebuffer must persist across frames
+   (no allocation per frame).
 
-```rust
-pub enum Callback<P, O> {
-    Rust(Box<dyn Fn(P) -> rquickjs::Result<O>>),
-    Js { func: Persistent<Function<'static>>, _phantom: PhantomData<fn(P) -> O> },
-}
-impl<P: IntoJsValue, O: FromJsValue> Callback<P, O> {
-    pub fn call<'js>(&self, ctx: Ctx<'js>, props: P) -> rquickjs::Result<O> { ... }
-}
-// Rust side: From<fn(P) -> O>
-// JS side:   FromJsValue (receives rquickjs::Function from props)
-```
+4. **Wayland SHM pool management:** Currently the SHM buffer is fully
+   overwritten each frame. For partial upload the pool buffer must be kept alive
+   and mutated in-place for dirty regions only, then committed. This requires
+   holding a mutable reference to the mapped SHM memory across frames.
 
-- Rust-to-Rust: `Callback::Rust` branch — no serialization, no JS involved
-- From JS props: both pure JS functions and registered Rust globals arrive as `rquickjs::Function`
-  and are stored in `Callback::Js` — opaque to the receiving component
-- Components with callable props use `make_component_fn_with_ctx` (receives `Ctx`) instead of
-  `make_component_fn`
-- Deferred: `IntoJsValue for Callback<P, O>` (passing a Rust-created callback to JS) — requires
-  registering the closure as a new QuickJS function; not needed for Phase 1
+---
+
+## Testing approach
+
+### Step 1 — Validate the upload path
+
+Without changing takumi at all:
+- Render the full frame as normal.
+- Artificially split the output RGBA buffer into two halves at `y = height/2`.
+- Upload each half as a separate `PutImage` (X11) or SHM-partial + damage_buffer (Wayland).
+- Verify the composited result is pixel-perfect.
+
+This de-risks the upload side with zero risk to correctness.
+
+### Step 2 — Validate visibility culling + viewport-shift together
+
+Hardcode a dirty rect covering the right 30% of the panel. Mark all nodes
+whose previous-frame bounding boxes don't intersect it as `visibility: hidden`.
+Inject the wrapper-node trick to produce a 30%-wide canvas. Blit into a
+pre-initialized framebuffer containing the previous full render, upload. Verify
+only the right 30% changed and the result is pixel-perfect.
+
+Note: step 1 (upload path) can be tested without touching takumi at all by
+splitting the existing full RGBA buffer in half and uploading each piece
+separately. Do not attempt two separate takumi calls without the visibility
+culling + wrapper-node trick — the layout re-flows with a half-size viewport
+and produces wrong output.
+
+### Step 3 — Wire up dirty tracking
+
+Enable `enter/update/exit` side effects; remove hardcoded dirty rect. Run a
+panel where one value changes on a timer. Instrument to log how many bytes are
+uploaded per frame vs the full-frame baseline.

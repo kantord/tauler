@@ -1,5 +1,5 @@
 [workspace]
-members = [".", "costae-i3", "costae-luax", "costae-notify", "costae-lifecycle-derive", "costae-ui-macro"]
+members = [".", "costae-i3", "costae-luax", "costae-notify", "costae-lifecycle-derive", "costae-ui-macro", "layout-poc"]
 resolver = "2"
 
 [package]
