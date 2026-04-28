@@ -69,6 +69,22 @@ impl IntoNodes for Vec<Node> {
     }
 }
 
+pub trait UiComponent {
+    type Props: for<'de> serde::Deserialize<'de> + Default;
+
+    fn render(props: Self::Props) -> Node;
+
+    fn js_fn<'js>(
+        ctx: rquickjs::Ctx<'js>,
+        props: rquickjs::Value<'js>,
+    ) -> rquickjs::Result<rquickjs::Value<'js>> {
+        let p = rquickjs_serde::from_value(props)
+            .map_err(|_| rquickjs::Error::Unknown)?;
+        rquickjs_serde::to_value(ctx, &Self::render(p))
+            .map_err(|_| rquickjs::Error::Unknown)
+    }
+}
+
 pub trait IntoJsValue {
     fn into_js_value<'js>(self, ctx: rquickjs::Ctx<'js>) -> rquickjs::Result<rquickjs::Value<'js>>;
 }

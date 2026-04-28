@@ -1,4 +1,5 @@
-use crate::ui::components::{card::card, progress::progress};
+use crate::ui::UiComponent;
+use crate::ui::components::{card::Card, progress::Progress};
 
 pub struct UiEntry {
     pub module_path: &'static str,
@@ -20,7 +21,7 @@ pub fn synthetic_module_source(entry: &UiEntry) -> String {
 }
 
 pub fn register_ui_components<'js>(ctx: &rquickjs::Ctx<'js>) -> rquickjs::Result<()> {
-    ctx.globals().set("__ui_card", rquickjs::Function::new(ctx.clone(), card)?)?;
-    ctx.globals().set("__ui_progress", rquickjs::Function::new(ctx.clone(), progress)?)?;
+    ctx.globals().set("__ui_card", rquickjs::Function::new(ctx.clone(), Card::js_fn)?)?;
+    ctx.globals().set("__ui_progress", rquickjs::Function::new(ctx.clone(), Progress::js_fn)?)?;
     Ok(())
 }

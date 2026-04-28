@@ -128,13 +128,21 @@ fn gen_children(children: &[ParsedNode]) -> TokenStream2 {
     }
 }
 
+fn get_style(el: &ParsedElement) -> TokenStream2 {
+    match get_attr_expr(el, "style") {
+        Some(expr) => quote! { #expr },
+        None => quote! { None },
+    }
+}
+
 fn gen_container(el: &ParsedElement) -> TokenStream2 {
     let tw = get_tw(el);
+    let style = get_style(el);
     let children = gen_children(&el.children);
     quote! {
         crate::ui::Node::Container(crate::ui::ContainerNode {
             tw: #tw,
-            style: None,
+            style: #style,
             children: #children,
         })
     }
