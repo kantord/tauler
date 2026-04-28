@@ -4,7 +4,7 @@ use cached::proc_macro::cached;
 use takumi::{
     GlobalContext,
     layout::{Viewport, node::Node},
-    rendering::{RenderOptions, render},
+    rendering::{MeasuredNode, RenderOptions, measure_layout as takumi_measure_layout, render},
     resources::{font::FontResource, image::ImageSource},
 };
 
@@ -146,6 +146,30 @@ fn preload_layout_images_impl(layout: &serde_json::Value, global: &GlobalContext
             }
         }
     }
+}
+
+/// Cached layout-only pass (no rasterization). Same cache key as `render_frame`
+/// so click handling gets a warm cache hit after any render.
+#[cached(size = 6)]
+fn measure_layout_cached(canonical: String, width: u32, height: u32, dpr_bits: u32) -> Arc<MeasuredNode> {
+    let dpr = f32::from_bits(dpr_bits);
+    let layout = serde_json::from_str::<serde_json::Value>(&canonical)
+        .ok()
+        .and_then(|v| parse_layout(&v).map_err(|e| tracing::error!(error = %e, "layout parse error")).ok());
+    with_global_ctx(|global| {
+        let node = layout.unwrap_or_else(|| Node::container(vec![]));
+        let options = RenderOptions::builder()
+            .global(global)
+            .viewport(Viewport::new((Some(width), Some(height))).with_device_pixel_ratio(dpr))
+            .node(node)
+            .build();
+        Arc::new(takumi_measure_layout(options).expect("measure_layout"))
+    })
+}
+
+pub fn measure_layout_frame(content: &serde_json::Value, width: u32, height: u32, dpr: f32) -> Arc<MeasuredNode> {
+    let canonical = json_canon::to_string(content).unwrap_or_default();
+    measure_layout_cached(canonical, width, height, dpr.to_bits())
 }
 
 #[cfg(test)]

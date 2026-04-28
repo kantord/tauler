@@ -38,6 +38,7 @@ impl Lifecycle for PanelSpec {
         let spec = self.0.clone();
         let phys_w = (spec.width as f32 * spec.dpr).round() as u32;
         let phys_h = (spec.height as f32 * spec.dpr).round() as u32;
+
         let frame = PanelFrame {
             pixels: render_frame(&spec.content, phys_w, phys_h, spec.dpr),
             width: phys_w,

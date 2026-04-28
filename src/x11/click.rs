@@ -1,12 +1,8 @@
 use std::collections::HashMap;
 use std::sync::mpsc;
 
-use takumi::layout::Viewport;
-use takumi::rendering::{RenderOptions, measure_layout};
-
-use crate::layout::parse_layout;
 use crate::modules::hit_test;
-use crate::render::with_global_ctx;
+use crate::render::measure_layout_frame;
 
 fn dispatch_click(
     module_event_txs: &HashMap<String, mpsc::Sender<serde_json::Value>>,
@@ -52,18 +48,7 @@ pub fn do_hit_test(
     click_y: f32,
 ) {
     let Some(layout_json) = raw_layout.as_ref() else { return; };
-    let Some(node) = parse_layout(layout_json)
-        .map_err(|e| tracing::error!(error = %e, "layout parse error"))
-        .ok() else { return; };
-
-    let Some(measured) = with_global_ctx(|global| {
-        let options = RenderOptions::builder()
-            .global(global)
-            .viewport(Viewport::new((Some(phys_width), Some(phys_height))).with_device_pixel_ratio(dpr))
-            .node(node)
-            .build();
-        measure_layout(options).ok()
-    }) else { return; };
+    let measured = measure_layout_frame(layout_json, phys_width, phys_height, dpr);
 
     tracing::debug!(click_x, click_y, phys_width, phys_height, "hit test");
     let Some((hit_path, on_click)) = hit_test(&measured, layout_json, click_x, click_y) else {
