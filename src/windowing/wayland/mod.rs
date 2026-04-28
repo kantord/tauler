@@ -79,6 +79,9 @@ impl WaylandPanel {
 
     /// Paint a BGRX frame onto this panel's layer surface.
     pub fn render(&mut self, bgrx: &[u8]) {
+        if !self.configured {
+            return;
+        }
         let stride = self.width as i32 * 4;
         // Derive height from bgrx rather than self.height: the compositor may have
         // configured a different height than what the app rendered (configure race),
@@ -999,6 +1002,43 @@ mod tests {
         assert_eq!(
             anchor_for_panel(Some(&PanelAnchor::Bottom)),
             Anchor::BOTTOM | Anchor::LEFT | Anchor::RIGHT,
+        );
+    }
+
+    // ---------------------------------------------------------------------------
+    // render() on unconfigured panel must not commit a buffer
+    // ---------------------------------------------------------------------------
+
+    // render() called on a panel that has not yet received a configure event must
+    // not commit any buffer to the surface. If it did, the compositor would send a
+    // protocol error and the next roundtrip would fail.
+    #[test]
+    fn render_on_unconfigured_panel_leaves_connection_alive() {
+        use crate::windowing::DisplayServer;
+        let mut server = match WaylandDisplayServer::connect() {
+            Ok(s) => s,
+            Err(_) => {
+                println!("SKIP: no Wayland compositor available");
+                return;
+            }
+        };
+        let spec = minimal_spec();
+        let mut panel = server.create_panel(&spec).unwrap();
+        assert!(!panel.configured, "panel must start unconfigured");
+
+        let bgrx = vec![0u8; (spec.width * spec.height * 4) as usize];
+        panel.render(&bgrx);
+
+        // Flush then dispatch twice to give the compositor time to send its error
+        // response. Without the configured guard, render() commits a buffer to an
+        // unconfigured layer surface → compositor sends wl_display.error → at least
+        // one of the dispatches returns Err.
+        server.flush();
+        let r1 = server.dispatch();
+        let r2 = server.dispatch();
+        assert!(
+            r1.is_ok() && r2.is_ok(),
+            "compositor connection broken after render on unconfigured panel: r1={r1:?} r2={r2:?}",
         );
     }
 
