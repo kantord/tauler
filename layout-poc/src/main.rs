@@ -48,8 +48,6 @@ enum FakeNodeState {
     Text       { r: Rendered, content: String },
     Image      { r: Rendered },
     Collection { r: Rendered, tw: String, children: ManagedSet<FakeNode>,
-                 /// Arc pointers of children at last render — used to skip
-                 /// re-renders when nothing changed.
                  last_child_arcs: Vec<Arc<Vec<u8>>> },
 }
 
@@ -67,10 +65,9 @@ impl FakeNodeState {
 struct Ctx { render_calls: u32, skipped: u32 }
 
 // ---------------------------------------------------------------------------
-// Helpers
+// Image helpers
 // ---------------------------------------------------------------------------
 
-/// Encode RGBA bytes as PNG — needed to load pixels into takumi's image store.
 fn encode_png(pixels: &[u8], w: u32, h: u32) -> Vec<u8> {
     let img = ImageBuffer::<Rgba<u8>, Vec<u8>>::from_raw(w, h, pixels.to_vec())
         .expect("invalid pixel buffer");
@@ -79,7 +76,83 @@ fn encode_png(pixels: &[u8], w: u32, h: u32) -> Vec<u8> {
     buf.into_inner()
 }
 
-/// Render any JSON node to RGBA. Returns pixels + dimensions.
+fn base64_encode(data: &[u8]) -> String {
+    const C: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut out = String::with_capacity((data.len() + 2) / 3 * 4);
+    for chunk in data.chunks(3) {
+        let b0 = chunk[0] as u32;
+        let b1 = if chunk.len() > 1 { chunk[1] as u32 } else { 0 };
+        let b2 = if chunk.len() > 2 { chunk[2] as u32 } else { 0 };
+        let n = (b0 << 16) | (b1 << 8) | b2;
+        out.push(C[((n >> 18) & 63) as usize] as char);
+        out.push(C[((n >> 12) & 63) as usize] as char);
+        out.push(if chunk.len() > 1 { C[((n >> 6) & 63) as usize] as char } else { '=' });
+        out.push(if chunk.len() > 2 { C[(n & 63) as usize] as char } else { '=' });
+    }
+    out
+}
+
+fn pixels_to_data_uri(pixels: &[u8], w: u32, h: u32) -> String {
+    format!("data:image/png;base64,{}", base64_encode(&encode_png(pixels, w, h)))
+}
+
+// ---------------------------------------------------------------------------
+// Pixel diff
+// ---------------------------------------------------------------------------
+
+struct DiffResult {
+    different_pixels: u32,
+    total_pixels: u32,
+    mean_abs_diff: f64,
+    max_channel_diff: u8,
+    diff_image: Vec<u8>,   // RGBA, same dims as input
+}
+
+fn pixel_diff(a: &[u8], b: &[u8], w: u32, h: u32) -> DiffResult {
+    assert_eq!(a.len(), b.len());
+    let mut different = 0u32;
+    let mut total_diff = 0u64;
+    let mut max_diff = 0u8;
+    let mut diff_img = vec![0u8; a.len()];
+
+    for i in (0..a.len()).step_by(4) {
+        let dr = (a[i]   as i32 - b[i]   as i32).unsigned_abs() as u8;
+        let dg = (a[i+1] as i32 - b[i+1] as i32).unsigned_abs() as u8;
+        let db = (a[i+2] as i32 - b[i+2] as i32).unsigned_abs() as u8;
+        let m  = dr.max(dg).max(db);
+        max_diff = max_diff.max(m);
+
+        if m > 1 {
+            different += 1;
+            total_diff += (dr as u64 + dg as u64 + db as u64);
+            // Highlight differing pixels in bright magenta
+            diff_img[i]   = 255;
+            diff_img[i+1] = 0;
+            diff_img[i+2] = 255;
+            diff_img[i+3] = 255;
+        } else {
+            // Show matching pixels as a dim version of the full render
+            diff_img[i]   = a[i]   / 5;
+            diff_img[i+1] = a[i+1] / 5;
+            diff_img[i+2] = a[i+2] / 5;
+            diff_img[i+3] = 255;
+        }
+    }
+
+    let n = (w * h) as f64;
+    DiffResult {
+        different_pixels: different,
+        total_pixels: w * h,
+        mean_abs_diff: if n > 0.0 { total_diff as f64 / (n * 3.0) } else { 0.0 },
+        max_channel_diff: max_diff,
+        diff_image: diff_img,
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Takumi helpers
+// ---------------------------------------------------------------------------
+
 fn render_json(json: &serde_json::Value) -> (Arc<Vec<u8>>, u32, u32) {
     with_global_ctx(|global| {
         let node = parse_layout(json).unwrap_or_else(|_| Node::container(vec![]));
@@ -94,20 +167,15 @@ fn render_json(json: &serde_json::Value) -> (Arc<Vec<u8>>, u32, u32) {
     })
 }
 
-/// Render a collection by substituting each direct child with an image stub
-/// (the child's cached pixels pre-loaded into takumi's persistent image store).
-/// Takumi handles all layout, backgrounds, padding, gaps — no manual compositing.
 fn render_with_stubs(
     tw: &str,
     children_spec: &[FakeNode],
     child_set: &ManagedSet<FakeNode>,
     ctx: &mut Ctx,
 ) -> Rendered {
-    // Build stub JSON: each child becomes {"type":"image","src":"stub://<id>"}
     let stub_children: Vec<serde_json::Value> = children_spec.iter()
-        .filter_map(|spec| child_set.get(&spec.id().to_string()))
-        .zip(children_spec.iter())
-        .map(|(state, spec)| {
+        .filter_map(|spec| child_set.get(&spec.id().to_string()).map(|st| (spec, st)))
+        .map(|(spec, state)| {
             let r = state.rendered();
             serde_json::json!({
                 "type": "image",
@@ -121,18 +189,15 @@ fn render_with_stubs(
 
     ctx.render_calls += 1;
     with_global_ctx(|global| {
-        // Pre-load each child's pixels into the persistent image store so
-        // takumi can blit them when it encounters the stub image nodes.
-        for (spec, child_state) in children_spec.iter()
-            .filter_map(|s| child_set.get(&s.id().to_string()).map(|st| (s, st)))
-        {
-            let r = child_state.rendered();
-            let png = encode_png(&r.pixels, r.w, r.h);
-            if let Ok(source) = ImageSource::from_bytes(&png) {
-                global.persistent_image_store.insert(format!("stub://{}", spec.id()), source);
+        for spec in children_spec.iter() {
+            if let Some(state) = child_set.get(&spec.id().to_string()) {
+                let r = state.rendered();
+                let png = encode_png(&r.pixels, r.w, r.h);
+                if let Ok(source) = ImageSource::from_bytes(&png) {
+                    global.persistent_image_store.insert(format!("stub://{}", spec.id()), source);
+                }
             }
         }
-
         let node = parse_layout(&scene).unwrap_or_else(|_| Node::container(vec![]));
         let opts = RenderOptions::builder()
             .global(global)
@@ -145,7 +210,6 @@ fn render_with_stubs(
     })
 }
 
-/// Collect child pixel Arcs in spec order (for dirty detection).
 fn child_arcs(children_spec: &[FakeNode], child_set: &ManagedSet<FakeNode>) -> Vec<Arc<Vec<u8>>> {
     children_spec.iter()
         .filter_map(|s| child_set.get(&s.id().to_string()))
@@ -174,7 +238,6 @@ impl Lifecycle for FakeNode {
                 let (pixels, w, h) = render_json(&json);
                 Ok(FakeNodeState::Text { r: Rendered { pixels, w, h }, content })
             }
-
             FakeNode::Image { color, width, height, .. } => {
                 ctx.render_calls += 1;
                 let json = serde_json::json!({"type":"container",
@@ -182,7 +245,6 @@ impl Lifecycle for FakeNode {
                 let (pixels, _, _) = render_json(&json);
                 Ok(FakeNodeState::Image { r: Rendered { pixels, w: width, h: height } })
             }
-
             FakeNode::Collection { tw, children, .. } => {
                 let mut child_set: ManagedSet<FakeNode> = ManagedSet::new();
                 child_set.reconcile(children.clone(), ctx, &mut ());
@@ -205,7 +267,6 @@ impl Lifecycle for FakeNode {
                 }
                 Ok(())
             }
-
             (FakeNode::Image { color, width, height, .. }, FakeNodeState::Image { r }) => {
                 if width != r.w || height != r.h {
                     ctx.render_calls += 1;
@@ -216,18 +277,13 @@ impl Lifecycle for FakeNode {
                 }
                 Ok(())
             }
-
             (FakeNode::Collection { tw, children, .. },
              FakeNodeState::Collection { r, tw: old_tw, children: child_set, last_child_arcs }) =>
             {
                 child_set.reconcile(children.clone(), ctx, &mut ());
                 let new_arcs = child_arcs(&children, child_set);
-
-                // Only re-render if at least one child's pixels changed.
                 let dirty = new_arcs.len() != last_child_arcs.len()
-                    || new_arcs.iter().zip(last_child_arcs.iter())
-                               .any(|(a, b)| !Arc::ptr_eq(a, b));
-
+                    || new_arcs.iter().zip(last_child_arcs.iter()).any(|(a, b)| !Arc::ptr_eq(a, b));
                 if dirty {
                     *r = render_with_stubs(&tw, &children, child_set, ctx);
                     *last_child_arcs = new_arcs;
@@ -237,7 +293,6 @@ impl Lifecycle for FakeNode {
                 }
                 Ok(())
             }
-
             _ => Err(anyhow::anyhow!("node type mismatch")),
         }
     }
@@ -280,10 +335,10 @@ fn make_scene(clock: &str, cpu: &str) -> Vec<FakeNode> {
                 id: "right".into(),
                 tw: "flex flex-row items-center gap-1".into(),
                 children: vec![
-                    FakeNode::Text  { id: "cpu".into(),      content: cpu.into(),      tw: "text-white text-xs whitespace-nowrap".into() },
-                    FakeNode::Text  { id: "mem".into(),      content: "MEM 4G".into(), tw: "text-white text-xs whitespace-nowrap".into() },
+                    FakeNode::Text  { id: "cpu".into(),      content: cpu.into(),       tw: "text-white text-xs whitespace-nowrap".into() },
+                    FakeNode::Text  { id: "mem".into(),      content: "MEM 4G".into(),  tw: "text-white text-xs whitespace-nowrap".into() },
                     FakeNode::Image { id: "bat-icon".into(), color: "green-500".into(), width: 10, height: 10 },
-                    FakeNode::Text  { id: "bat".into(),      content: "87%".into(),    tw: "text-white text-xs whitespace-nowrap".into() },
+                    FakeNode::Text  { id: "bat".into(),      content: "87%".into(),     tw: "text-white text-xs whitespace-nowrap".into() },
                 ],
             },
         ],
@@ -314,51 +369,201 @@ fn make_full_scene_json(clock: &str, cpu: &str) -> serde_json::Value {
 }
 
 // ---------------------------------------------------------------------------
-// Benchmarks
+// Benchmark — runs full and incremental per-frame, collects pixels
 // ---------------------------------------------------------------------------
 
-struct FrameStats { elapsed: Duration, render_calls: u32, skipped: u32 }
-
-fn bench_full(frames: &[(String, String)]) -> Vec<FrameStats> {
-    frames.iter().map(|(clock, cpu)| {
-        let json = make_full_scene_json(clock, cpu);
-        let t = Instant::now();
-        with_global_ctx(|global| {
-            let node = parse_layout(&json).unwrap_or_else(|_| Node::container(vec![]));
-            let opts = RenderOptions::builder()
-                .global(global)
-                .viewport(Viewport::new((Some(400), Some(24))))
-                .node(node)
-                .build();
-            takumi_render(opts).expect("full render");
-        });
-        FrameStats { elapsed: t.elapsed(), render_calls: 1, skipped: 0 }
-    }).collect()
+struct FrameResult {
+    idx:          usize,
+    clock:        String,
+    cpu:          String,
+    full_time:    Duration,
+    incr_time:    Duration,
+    full_pixels:  Vec<u8>,
+    incr_pixels:  Vec<u8>,
+    w:            u32,
+    h:            u32,
+    render_calls: u32,
+    skipped:      u32,
 }
 
-fn bench_incremental(frames: &[(String, String)]) -> Vec<FrameStats> {
+fn run_all(frames: &[(String, String)]) -> Vec<FrameResult> {
     let mut ctx = Ctx::default();
     let mut set: ManagedSet<FakeNode> = ManagedSet::new();
 
-    frames.iter().map(|(clock, cpu)| {
-        let scene = make_scene(clock, cpu);
+    frames.iter().enumerate().map(|(idx, (clock, cpu))| {
+        // Full render
+        let json = make_full_scene_json(clock, cpu);
+        let t = Instant::now();
+        let (full_pixels, w, h) = with_global_ctx(|global| {
+            let node = parse_layout(&json).unwrap_or_else(|_| Node::container(vec![]));
+            let opts = RenderOptions::builder().global(global)
+                .viewport(Viewport::new((Some(400), Some(24)))).node(node).build();
+            let img = takumi_render(opts).expect("full render");
+            let (w, h) = img.dimensions();
+            (img.into_raw(), w, h)
+        });
+        let full_time = t.elapsed();
+
+        // Incremental
         ctx.render_calls = 0;
         ctx.skipped      = 0;
         let t = Instant::now();
-        set.reconcile(scene, &mut ctx, &mut ());
-        FrameStats { elapsed: t.elapsed(), render_calls: ctx.render_calls, skipped: ctx.skipped }
+        set.reconcile(make_scene(clock, cpu), &mut ctx, &mut ());
+        let incr_time = t.elapsed();
+
+        let incr_pixels = set.get(&"bar".to_string())
+            .map(|s| (*s.rendered().pixels).clone())
+            .unwrap_or_default();
+
+        FrameResult {
+            idx, clock: clock.clone(), cpu: cpu.clone(),
+            full_time, incr_time,
+            full_pixels, incr_pixels,
+            w, h,
+            render_calls: ctx.render_calls,
+            skipped: ctx.skipped,
+        }
     }).collect()
 }
 
 // ---------------------------------------------------------------------------
-// Save a frame's output for visual inspection
+// HTML report
 // ---------------------------------------------------------------------------
 
-fn save_frame(pixels: &[u8], w: u32, h: u32, path: &str) {
-    let img = ImageBuffer::<Rgba<u8>, Vec<u8>>::from_raw(w, h, pixels.to_vec())
-        .expect("invalid buffer");
-    img.save(path).expect("save PNG");
-    eprintln!("  saved {path}  ({w}×{h})");
+fn generate_report(results: &[FrameResult]) -> String {
+    let full_total: Duration  = results.iter().skip(1).map(|r| r.full_time).sum();
+    let incr_total: Duration  = results.iter().skip(1).map(|r| r.incr_time).sum();
+    let speedup = full_total.as_secs_f64() / incr_total.as_secs_f64().max(1e-9);
+
+    let mut frames_html = String::new();
+    for r in results {
+        let (fw, fh) = (r.w, r.h);
+        let iw = if r.incr_pixels.is_empty() { 0 } else { r.w };
+        let ih = if r.incr_pixels.is_empty() { 0 } else { r.h };
+
+        let full_uri = pixels_to_data_uri(&r.full_pixels, fw, fh);
+
+        let (diff, diff_uri, incr_uri) = if !r.incr_pixels.is_empty() && iw == fw && ih == fh {
+            let d = pixel_diff(&r.full_pixels, &r.incr_pixels, fw, fh);
+            let diff_uri = pixels_to_data_uri(&d.diff_image, fw, fh);
+            let incr_uri = pixels_to_data_uri(&r.incr_pixels, iw, ih);
+            (Some(d), diff_uri, incr_uri)
+        } else {
+            (None, String::new(), String::new())
+        };
+
+        let perfect = diff.as_ref().map(|d| d.different_pixels == 0).unwrap_or(false);
+        let badge = if perfect {
+            r#"<span class="badge ok">✓ pixel-perfect</span>"#
+        } else {
+            r#"<span class="badge diff">≠ differences</span>"#
+        };
+
+        let cold_tag = if r.idx == 0 { " <em>(cold)</em>" } else { "" };
+        let stats_row = if let Some(d) = &diff {
+            format!(
+                "<tr><td>Different pixels</td><td>{} / {} ({:.2}%)</td></tr>\
+                 <tr><td>Mean channel diff</td><td>{:.2}</td></tr>\
+                 <tr><td>Max channel diff</td><td>{}</td></tr>",
+                d.different_pixels, d.total_pixels,
+                d.different_pixels as f64 / d.total_pixels as f64 * 100.0,
+                d.mean_abs_diff, d.max_channel_diff
+            )
+        } else {
+            "<tr><td colspan='2'>dimension mismatch</td></tr>".into()
+        };
+
+        let diff_col = if !diff_uri.is_empty() {
+            format!(r#"<div class="img-box"><h3>Diff (magenta = differs)</h3>
+                <img src="{diff_uri}" style="width:{pw}px;height:{ph}px;image-rendering:pixelated">
+            </div>"#,
+            pw = fw * 3, ph = fh * 3)
+        } else { String::new() };
+
+        frames_html.push_str(&format!(r#"
+        <section class="frame {cls}">
+          <h2>Frame {idx} — {clock} · {cpu}{cold}{badge}</h2>
+          <div class="images">
+            <div class="img-box">
+              <h3>Full render <small>{ft:.1}ms</small></h3>
+              <img src="{full_uri}" style="width:{pw}px;height:{ph}px;image-rendering:pixelated">
+            </div>
+            <div class="img-box">
+              <h3>Incremental <small>{it:.1}ms · {rc} calls · {sk} skipped</small></h3>
+              <img src="{incr_uri}" style="width:{pw}px;height:{ph}px;image-rendering:pixelated">
+            </div>
+            {diff_col}
+          </div>
+          <table class="stats">
+            <tr><td>Full time</td><td>{ft:.2}ms</td></tr>
+            <tr><td>Incremental time</td><td>{it:.2}ms</td></tr>
+            <tr><td>Speedup (this frame)</td><td>{fs:.1}×</td></tr>
+            {stats_row}
+          </table>
+        </section>"#,
+            cls   = if perfect { "perfect" } else { "imperfect" },
+            idx   = r.idx,
+            clock = r.clock,
+            cpu   = r.cpu,
+            cold  = cold_tag,
+            badge = badge,
+            ft    = r.full_time.as_secs_f64() * 1000.0,
+            it    = r.incr_time.as_secs_f64() * 1000.0,
+            rc    = r.render_calls,
+            sk    = r.skipped,
+            fs    = r.full_time.as_secs_f64() / r.incr_time.as_secs_f64().max(1e-9),
+            pw    = fw * 3,
+            ph    = fh * 3,
+            full_uri = full_uri,
+            incr_uri = incr_uri,
+            diff_col = diff_col,
+            stats_row = stats_row,
+        ));
+    }
+
+    format!(r#"<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Partial Rendering PoC</title>
+<style>
+  body {{ font-family: system-ui, sans-serif; background: #111; color: #eee; padding: 2rem; }}
+  h1   {{ color: #fff; }}
+  h2   {{ font-size: 1rem; margin: 0 0 0.5rem; }}
+  h3   {{ font-size: 0.8rem; color: #aaa; margin: 0 0 0.3rem; font-weight: normal; }}
+  small{{ color: #888; }}
+  .summary {{ border-collapse: collapse; margin-bottom: 2rem; font-size: 1.1rem; }}
+  .summary td {{ padding: 0.3rem 1.5rem 0.3rem 0; }}
+  .summary .v {{ color: #4fc; font-weight: bold; }}
+  .frame   {{ background: #1a1a1a; border: 1px solid #333; border-radius: 8px;
+               padding: 1rem; margin-bottom: 1.5rem; }}
+  .frame.perfect   {{ border-color: #2a4; }}
+  .frame.imperfect {{ border-color: #a42; }}
+  .images  {{ display: flex; gap: 1.5rem; flex-wrap: wrap; margin-bottom: 0.75rem; }}
+  .img-box img {{ display: block; border: 1px solid #444; border-radius: 3px; }}
+  .stats   {{ border-collapse: collapse; font-size: 0.8rem; color: #ccc; }}
+  .stats td {{ padding: 0.1rem 1.2rem 0.1rem 0; }}
+  .badge   {{ display: inline-block; padding: 0.1rem 0.5rem; border-radius: 4px;
+               font-size: 0.75rem; font-weight: bold; margin-left: 0.5rem; }}
+  .badge.ok   {{ background: #1a3; color: #afa; }}
+  .badge.diff {{ background: #420; color: #faa; }}
+  em {{ color: #888; font-size: 0.85rem; }}
+</style>
+</head>
+<body>
+<h1>Partial Rendering PoC — Results</h1>
+<table class="summary">
+  <tr><td>Full recompute total (frames 1+)</td><td class="v">{ft:.1}ms</td></tr>
+  <tr><td>Incremental total (frames 1+)</td>  <td class="v">{it:.1}ms</td></tr>
+  <tr><td>Speedup</td>                         <td class="v">{sp:.1}×</td></tr>
+</table>
+{frames}
+</body></html>"#,
+        ft = full_total.as_secs_f64() * 1000.0,
+        it = incr_total.as_secs_f64() * 1000.0,
+        sp = speedup,
+        frames = frames_html,
+    )
 }
 
 // ---------------------------------------------------------------------------
@@ -375,89 +580,50 @@ fn main() {
         format!("CPU {}%", if i % 3 == 0 { i * 4 } else { 12 }),
     )).collect();
 
-    eprintln!("Running {} frames...\n", n);
+    eprintln!("Running {} frames...", n);
+    let results = run_all(&frames);
 
-    println!("{:<14} {:>5}  {:>10}  {:>12}  {:>9}",
-        "approach", "frame", "elapsed", "render_calls", "skipped");
-    println!("{}", "-".repeat(58));
-
-    let full = bench_full(&frames);
-    let incr = bench_incremental(&frames);
+    // Console summary
+    println!("{:<14} {:>5}  {:>10}  {:>12}  {:>9}  {}",
+        "approach", "frame", "elapsed", "render_calls", "skipped", "diff");
+    println!("{}", "-".repeat(72));
 
     let mut full_total = Duration::ZERO;
     let mut incr_total = Duration::ZERO;
 
-    for (i, (f, inc)) in full.iter().zip(incr.iter()).enumerate() {
-        let note = if i == 0 { " ← cold" }
-                   else if inc.render_calls > 4 { " ← clock+cpu" }
-                   else { " ← clock only" };
+    for r in &results {
+        let diff_summary = if !r.incr_pixels.is_empty() && r.w > 0 {
+            let d = pixel_diff(&r.full_pixels, &r.incr_pixels, r.w, r.h);
+            if d.different_pixels == 0 {
+                "✓ pixel-perfect".to_string()
+            } else {
+                format!("≠ {} px differ (max Δ={})", d.different_pixels, d.max_channel_diff)
+            }
+        } else { "n/a".into() };
 
-        println!("full          #{:<3}  {:>8.1}ms  {:>12}  {:>9}{}",
-            i, f.elapsed.as_secs_f64()*1000.0, f.render_calls, f.skipped, note);
-        println!("incremental   #{:<3}  {:>8.1}ms  {:>12}  {:>9}",
-            i, inc.elapsed.as_secs_f64()*1000.0, inc.render_calls, inc.skipped);
+        println!("full          #{:<3}  {:>8.1}ms  {:>12}  {:>9}",
+            r.idx, r.full_time.as_secs_f64()*1000.0, 1, 0);
+        println!("incremental   #{:<3}  {:>8.1}ms  {:>12}  {:>9}  {}",
+            r.idx, r.incr_time.as_secs_f64()*1000.0, r.render_calls, r.skipped,
+            diff_summary);
         println!();
 
-        if i > 0 { full_total += f.elapsed; incr_total += inc.elapsed; }
+        if r.idx > 0 {
+            full_total += r.full_time;
+            incr_total += r.incr_time;
+        }
     }
 
-    println!("{}", "=".repeat(58));
+    println!("{}", "=".repeat(72));
     println!("TOTALS (frames 1-{}):", n - 1);
     println!("  full recompute :  {:>7.1}ms", full_total.as_secs_f64()*1000.0);
     println!("  incremental    :  {:>7.1}ms", incr_total.as_secs_f64()*1000.0);
-    if incr_total.as_secs_f64() > 0.0 {
-        println!("  speedup        :  {:.1}×", full_total.as_secs_f64()/incr_total.as_secs_f64());
-    }
+    println!("  speedup        :  {:.1}×", full_total.as_secs_f64()/incr_total.as_secs_f64().max(1e-9));
 
-    // ------------------------------------------------------------------
-    // Save frame 0 (cold) and frame 5 for visual comparison
-    // ------------------------------------------------------------------
-    eprintln!("\nSaving reference images...");
-
-    // Full render — frame 0
-    let json0 = make_full_scene_json(&frames[0].0, &frames[0].1);
-    let (pixels0, w0, h0) = with_global_ctx(|global| {
-        let node = parse_layout(&json0).unwrap_or_else(|_| Node::container(vec![]));
-        let opts = RenderOptions::builder().global(global)
-            .viewport(Viewport::new((Some(400), Some(24)))).node(node).build();
-        let img = takumi_render(opts).expect("render");
-        let (w, h) = img.dimensions();
-        (img.into_raw(), w, h)
-    });
-    save_frame(&pixels0, w0, h0, "/tmp/poc_full_frame0.png");
-
-    // Incremental — rebuild from frame 0 and save root pixels
-    let mut ctx2 = Ctx::default();
-    let mut set2: ManagedSet<FakeNode> = ManagedSet::new();
-    set2.reconcile(make_scene(&frames[0].0, &frames[0].1), &mut ctx2, &mut ());
-    if let Some(root) = set2.get(&"bar".to_string()) {
-        let r = root.rendered();
-        save_frame(&r.pixels, r.w, r.h, "/tmp/poc_incremental_frame0.png");
-    }
-
-    // Incremental — advance to frame 5
-    for i in 1..=5 {
-        set2.reconcile(make_scene(&frames[i].0, &frames[i].1), &mut ctx2, &mut ());
-    }
-    if let Some(root) = set2.get(&"bar".to_string()) {
-        let r = root.rendered();
-        save_frame(&r.pixels, r.w, r.h, "/tmp/poc_incremental_frame5.png");
-    }
-
-    let json5 = make_full_scene_json(&frames[5].0, &frames[5].1);
-    let (pixels5, w5, h5) = with_global_ctx(|global| {
-        let node = parse_layout(&json5).unwrap_or_else(|_| Node::container(vec![]));
-        let opts = RenderOptions::builder().global(global)
-            .viewport(Viewport::new((Some(400), Some(24)))).node(node).build();
-        let img = takumi_render(opts).expect("render");
-        let (w, h) = img.dimensions();
-        (img.into_raw(), w, h)
-    });
-    save_frame(&pixels5, w5, h5, "/tmp/poc_full_frame5.png");
-
-    eprintln!("\nCompare:");
-    eprintln!("  full frame 0:        /tmp/poc_full_frame0.png");
-    eprintln!("  incremental frame 0: /tmp/poc_incremental_frame0.png");
-    eprintln!("  full frame 5:        /tmp/poc_full_frame5.png");
-    eprintln!("  incremental frame 5: /tmp/poc_incremental_frame5.png");
+    // HTML report
+    let report_path = "/tmp/poc_report.html";
+    eprintln!("\nGenerating HTML report...");
+    let html = generate_report(&results);
+    std::fs::write(report_path, html).expect("write report");
+    eprintln!("Report: file://{report_path}");
 }
