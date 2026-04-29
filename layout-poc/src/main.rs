@@ -1,9 +1,14 @@
-use std::sync::Arc;
+use std::collections::{HashMap, HashSet};
 use std::time::{Duration, Instant};
 
 use anyhow::Result;
 use image::{ImageBuffer, Rgba};
-use takumi::{GlobalContext, layout::{Viewport, node::Node}, rendering::{RenderOptions, render as takumi_render}, resources::{font::FontResource, image::ImageSource}};
+use takumi::{
+    GlobalContext,
+    layout::{Viewport, node::Node},
+    rendering::{MeasuredNode, RenderOptions, measure_layout as takumi_measure_layout, render as takumi_render},
+    resources::font::FontResource,
+};
 
 use costae::managed_set::{Lifecycle, ManagedSet};
 use costae::managed_set::reconcile::Reconcile;
@@ -11,7 +16,7 @@ use costae::layout::parse_layout;
 use costae::render::find_font_files;
 
 // ---------------------------------------------------------------------------
-// GlobalContext factory — loads system fonts into a fresh independent context
+// GlobalContext factory
 // ---------------------------------------------------------------------------
 
 fn new_ctx_with_fonts() -> GlobalContext {
@@ -47,169 +52,266 @@ impl FakeNode {
     fn id(&self) -> &str {
         match self { Self::Text{id,..}|Self::Image{id,..}|Self::Collection{id,..} => id }
     }
+
+    /// Generate the takumi layout JSON for this node.
+    fn to_json(&self) -> serde_json::Value {
+        match self {
+            Self::Text { content, tw, .. } =>
+                serde_json::json!({"type":"text","text":content,"tw":tw}),
+            Self::Image { color, width, height, .. } =>
+                // inline-block so explicit w/h are respected in the block containing context
+                serde_json::json!({"type":"container","style":{"display":"inline-block"},"tw":format!("w-[{}px] h-[{}px] bg-{}",width,height,color)}),
+            Self::Collection { tw, children, .. } => {
+                let ch: Vec<_> = children.iter().map(|c| c.to_json()).collect();
+                serde_json::json!({"type":"container","tw":tw,"children":ch})
+            }
+        }
+    }
 }
+
 impl std::fmt::Display for FakeNode {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result { write!(f, "{}", self.id()) }
 }
 
 // ---------------------------------------------------------------------------
-// Per-node render result + state
+// Per-node state (change tracking only — no pixel buffers)
 // ---------------------------------------------------------------------------
 
-#[derive(Clone)]
-struct Rendered {
-    pixels:          Arc<Vec<u8>>,
-    w:               u32,   // full image width  (content + 2 × overflow_padding)
-    h:               u32,   // full image height (content + 2 × overflow_padding)
-    content_w:       u32,   // logical content width  (for layout / stub sizing)
-    content_h:       u32,   // logical content height (for layout / stub sizing)
-    overflow_padding: u32,
+enum FakeNodeState {
+    Text       { id: String, content: String, tw: String },
+    Image      { id: String, color: String, width: u32, height: u32 },
+    Collection { id: String, tw: String, children: ManagedSet<FakeNode> },
 }
 
-enum FakeNodeState {
-    Text       { r: Rendered, content: String },
-    Image      { r: Rendered },
-    Collection { r: Rendered, tw: String, children: ManagedSet<FakeNode>, last_child_arcs: Vec<Arc<Vec<u8>>> },
-}
 impl FakeNodeState {
-    fn rendered(&self) -> &Rendered {
-        match self { Self::Text{r,..}|Self::Image{r,..}|Self::Collection{r,..} => r }
+    fn id(&self) -> &str {
+        match self { Self::Text{id,..}|Self::Image{id,..}|Self::Collection{id,..} => id }
     }
 }
 
 // ---------------------------------------------------------------------------
-// Context — owns an independent GlobalContext so full/incremental don't share
+// Context
 // ---------------------------------------------------------------------------
 
 struct Ctx {
     global:           GlobalContext,
-    render_calls:     u32,
-    skipped:          u32,
-    /// Extra transparent space added around every isolated node render to
-    /// capture overflow effects (shadows, glows). Defaults to 24px.
-    overflow_padding: u32,
+    changed_ids:      Vec<String>,
+    structure_changed: bool, // true if any node entered or exited this frame
 }
+
 impl Ctx {
-    fn fresh() -> Self { Self { global: new_ctx_with_fonts(), render_calls: 0, skipped: 0, overflow_padding: 24 } }
-    fn reset(&mut self) { self.render_calls = 0; self.skipped = 0; }
+    fn fresh() -> Self { Self { global: new_ctx_with_fonts(), changed_ids: Vec::new(), structure_changed: false } }
 }
 
 // ---------------------------------------------------------------------------
-// Render helpers (explicit GlobalContext, no shared static)
+// Bounding box
 // ---------------------------------------------------------------------------
 
-fn render_padded(json: &serde_json::Value, padding: u32, g: &GlobalContext) -> Rendered {
-    let wrapped = if padding > 0 {
-        serde_json::json!({"type":"container","tw":format!("p-[{}px]",padding),"children":[json]})
-    } else {
-        json.clone()
-    };
-    let node = parse_layout(&wrapped).unwrap_or_else(|_| Node::container(vec![]));
-    let img = takumi_render(
-        RenderOptions::builder().global(g).viewport(Viewport::new((None,None))).node(node).build()
-    ).expect("render");
-    let (w, h) = img.dimensions();
-    let content_w = w.saturating_sub(2 * padding);
-    let content_h = h.saturating_sub(2 * padding);
-    Rendered { pixels: Arc::new(img.into_raw()), w, h, content_w, content_h, overflow_padding: padding }
-}
+#[derive(Clone)]
+struct Rect { x: f32, y: f32, w: f32, h: f32 }
 
-fn render_with_stubs(tw: &str, spec: &[FakeNode], set: &ManagedSet<FakeNode>, ctx: &mut Ctx) -> Rendered {
-    let p = ctx.overflow_padding;
-    let stubs: Vec<serde_json::Value> = spec.iter()
-        .filter_map(|s| set.get(&s.id().to_string()).map(|st| (s, st)))
-        .map(|(s, st)| {
-            let r = st.rendered();
-            let p = r.overflow_padding;
-            // Forward layout-only classes (ml-auto, grow, shrink, flex-*, etc.) from the
-            // original node so the parent's flex layout is identical to the full render.
-            // Visual classes (shadow, bg, rounded) are intentionally dropped — they're
-            // already baked into the stub image.
-            let original_tw = match s {
-                FakeNode::Text { tw, .. } | FakeNode::Collection { tw, .. } => tw.as_str(),
-                FakeNode::Image { .. } => "",
-            };
-            let ltw = layout_classes(original_tw);
-            let neg = -(p as f32);
-            // Content-sized container participates in flex layout normally.
-            // The padded image is absolutely positioned with negative insets
-            // so the shadow bleeds out to all sides without affecting layout.
-            // Use raw `style` properties (not tw) to avoid Tailwind parser
-            // limitations with negative inset values.
-            serde_json::json!({
-                "type": "container",
-                "tw": ltw,
-                "style": {
-                    "position": "relative",
-                    "width": format!("{}px", r.content_w),
-                    "height": format!("{}px", r.content_h),
-                    "overflow": "visible"
-                },
-                "children": [{
-                    "type": "image",
-                    "src": format!("stub://{}", s.id()),
-                    "style": {
-                        "position": "absolute",
-                        "top": format!("{}px", neg),
-                        "left": format!("{}px", neg),
-                        "width": format!("{}px", r.w),
-                        "height": format!("{}px", r.h)
-                    }
-                }]
-            })
-        }).collect();
+// ---------------------------------------------------------------------------
+// Lifecycle — tracks which nodes changed, no rendering
+// ---------------------------------------------------------------------------
 
-    let inner = serde_json::json!({"type":"container","tw":tw,"children":stubs});
-    let scene = if p > 0 {
-        serde_json::json!({"type":"container","tw":format!("p-[{}px]",p),"children":[inner]})
-    } else { inner };
-    ctx.render_calls += 1;
+impl Lifecycle for FakeNode {
+    type Key=String; type State=FakeNodeState; type Context=Ctx; type Output=(); type Error=anyhow::Error;
+    fn key(&self) -> String { self.id().to_string() }
 
-    for s in spec {
-        if let Some(st) = set.get(&s.id().to_string()) {
-            let r = st.rendered();
-            if let Some(img) = ImageBuffer::<Rgba<u8>, _>::from_raw(r.w, r.h, (*r.pixels).clone()) {
-                ctx.global.persistent_image_store.insert(
-                    format!("stub://{}", s.id()),
-                    ImageSource::from(img),
-                );
+    fn enter(self, ctx: &mut Ctx, _: &mut ()) -> Result<FakeNodeState> {
+        ctx.changed_ids.push(self.id().to_string());
+        ctx.structure_changed = true;
+        match self {
+            FakeNode::Text { id, content, tw } =>
+                Ok(FakeNodeState::Text { id, content, tw }),
+            FakeNode::Image { id, color, width, height } =>
+                Ok(FakeNodeState::Image { id, color, width, height }),
+            FakeNode::Collection { id, tw, children } => {
+                let mut cs: ManagedSet<FakeNode> = ManagedSet::new();
+                cs.reconcile(children, ctx, &mut ());
+                Ok(FakeNodeState::Collection { id, tw, children: cs })
             }
         }
     }
+
+    fn reconcile_self(self, state: &mut FakeNodeState, ctx: &mut Ctx, _: &mut ()) -> Result<()> {
+        match (self, state) {
+            (FakeNode::Text{id,content,tw}, FakeNodeState::Text{content:oc,tw:otw,..}) => {
+                if content != *oc || tw != *otw {
+                    ctx.changed_ids.push(id);
+                    *oc = content; *otw = tw;
+                }
+                Ok(())
+            }
+            (FakeNode::Image{id,color,width,height}, FakeNodeState::Image{color:oc,width:ow,height:oh,..}) => {
+                if color != *oc || width != *ow || height != *oh {
+                    ctx.changed_ids.push(id);
+                    *oc = color; *ow = width; *oh = height;
+                }
+                Ok(())
+            }
+            (FakeNode::Collection{id,tw,children}, FakeNodeState::Collection{tw:otw,children:cs,..}) => {
+                if tw != *otw { ctx.changed_ids.push(id); *otw = tw; }
+                cs.reconcile(children, ctx, &mut ());
+                Ok(())
+            }
+            _ => Err(anyhow::anyhow!("type mismatch"))
+        }
+    }
+
+    fn exit(state: FakeNodeState, ctx: &mut Ctx, _: &mut ()) -> Result<()> {
+        ctx.changed_ids.push(state.id().to_string());
+        ctx.structure_changed = true;
+        if let FakeNodeState::Collection { mut children, .. } = state {
+            children.reconcile(vec![], ctx, &mut ());
+        }
+        Ok(())
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Bbox collection — walk MeasuredNode + FakeNode trees in parallel
+// ---------------------------------------------------------------------------
+
+fn collect_bboxes(measured: &MeasuredNode, node: &FakeNode, bboxes: &mut HashMap<String, Rect>) {
+    bboxes.insert(node.id().to_string(), Rect {
+        x: measured.transform[4],
+        y: measured.transform[5],
+        w: measured.width,
+        h: measured.height,
+    });
+    if let FakeNode::Collection { children, .. } = node {
+        for (m, f) in measured.children.iter().zip(children.iter()) {
+            collect_bboxes(m, f, bboxes);
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Flat tile scene — only nodes touching (tx, ty, tile+2*buf) x (tile+2*buf),
+// each absolutely positioned using pre-measured bboxes.
+// Layout is trivial: no flex computation, all positions already known.
+// ---------------------------------------------------------------------------
+
+fn collect_flat(
+    node: &FakeNode,
+    bboxes: &HashMap<String, Rect>,
+    // query region in scene coordinates (expanded by shadow buf)
+    qx: f32, qy: f32, qw: f32, qh: f32,
+    // offset so scene (qx,qy) → canvas (0,0)
+    out: &mut Vec<serde_json::Value>,
+) {
+    let Some(r) = bboxes.get(node.id()) else { return };
+    // skip nodes entirely outside query region
+    if r.x + r.w <= qx || r.x >= qx + qw || r.y + r.h <= qy || r.y >= qy + qh { return; }
+    let lx = r.x - qx;
+    let ly = r.y - qy;
+    match node {
+        FakeNode::Text { content, tw, .. } => {
+            out.push(serde_json::json!({
+                "type": "text", "text": content, "tw": tw,
+                "style": { "position": "absolute",
+                    "left": format!("{}px", lx), "top": format!("{}px", ly),
+                    "width": format!("{}px", r.w) }
+            }));
+        }
+        FakeNode::Image { color, width, height, .. } => {
+            out.push(serde_json::json!({
+                "type": "container",
+                "tw": format!("bg-{}", color),
+                "style": { "display": "block", "position": "absolute",
+                    "left": format!("{}px", lx), "top": format!("{}px", ly),
+                    "width": format!("{}px", width), "height": format!("{}px", height) }
+            }));
+        }
+        FakeNode::Collection { tw, children, .. } => {
+            // Render the container's own box (bg, shadow, rounded…) without children so it
+            // only contributes its own decorations. Style overrides win over tw.
+            out.push(serde_json::json!({
+                "type": "container", "tw": tw,
+                "style": { "position": "absolute",
+                    "left": format!("{}px", lx), "top": format!("{}px", ly),
+                    "width": format!("{}px", r.w), "height": format!("{}px", r.h) }
+            }));
+            for child in children { collect_flat(child, bboxes, qx, qy, qw, qh, out); }
+        }
+    }
+}
+
+/// Render a tile at scene pixel (px_x, px_y) using pre-computed bboxes.
+/// A `shadow_buf` pixel border is added around the tile so shadow bleed from
+/// nearby nodes is captured; the output is cropped back to tile×tile.
+fn render_tile(
+    root: &FakeNode,
+    bboxes: &HashMap<String, Rect>,
+    px_x: u32, px_y: u32, tile: u32, shadow_buf: u32,
+    g: &GlobalContext,
+) -> Vec<u8> {
+    let s = shadow_buf as f32;
+    let qx = px_x as f32 - s;
+    let qy = px_y as f32 - s;
+    let qw = tile as f32 + 2.0 * s;
+    let qh = tile as f32 + 2.0 * s;
+    let canvas = (tile + 2 * shadow_buf) as f32;
+
+    let mut nodes: Vec<serde_json::Value> = Vec::new();
+    collect_flat(root, bboxes, qx, qy, qw, qh, &mut nodes);
+
+    let scene = serde_json::json!({
+        "type": "container",
+        "style": { "display": "flex", "position": "relative",
+            "width": format!("{}px", canvas), "height": format!("{}px", canvas),
+            "overflow": "hidden" },
+        "children": nodes
+    });
     let node = parse_layout(&scene).unwrap_or_else(|_| Node::container(vec![]));
-    let img = takumi_render(
-        RenderOptions::builder().global(&ctx.global).viewport(Viewport::new((None,None))).node(node).build()
-    ).expect("render stubs");
-    let (w, h) = img.dimensions();
-    let content_w = w.saturating_sub(2 * p);
-    let content_h = h.saturating_sub(2 * p);
-    Rendered { pixels: Arc::new(img.into_raw()), w, h, content_w, content_h, overflow_padding: p }
-}
+    let raw = takumi_render(
+        RenderOptions::builder().global(g).viewport(Viewport::new((None,None))).node(node).build()
+    ).expect("tile render").into_raw();
 
-fn child_arcs(spec: &[FakeNode], set: &ManagedSet<FakeNode>) -> Vec<Arc<Vec<u8>>> {
-    spec.iter().filter_map(|s| set.get(&s.id().to_string())).map(|st| Arc::clone(&st.rendered().pixels)).collect()
+    if shadow_buf == 0 { return raw; }
+    // Crop the center tile×tile from the (tile+2*buf)×(tile+2*buf) render
+    let full_w = tile + 2 * shadow_buf;
+    crop_pixels(&raw, full_w, shadow_buf, shadow_buf, tile, tile)
 }
 
 // ---------------------------------------------------------------------------
-// Image utilities
+// Dirty tile marking
 // ---------------------------------------------------------------------------
 
-/// Extract Tailwind classes that affect parent flex layout but produce no pixels of their own.
-/// These need to be forwarded to stub wrapper containers so the parent's flex layout stays correct.
-fn layout_classes(tw: &str) -> String {
-    tw.split_whitespace()
-        .filter(|cls| {
-            let base = cls.trim_start_matches('-');
-            base.starts_with("m-")  || base.starts_with("ml-") || base.starts_with("mr-") ||
-            base.starts_with("mt-") || base.starts_with("mb-") || base.starts_with("mx-") ||
-            base.starts_with("my-") || base.starts_with("grow") || base.starts_with("shrink") ||
-            base.starts_with("flex-") || base.starts_with("basis-") ||
-            base.starts_with("order-") || base.starts_with("self-") ||
-            base == "grow" || base == "shrink"
-        })
-        .collect::<Vec<_>>()
-        .join(" ")
+fn mark_dirty(r: &Rect, tile: u32, scene_w: u32, scene_h: u32, dirty: &mut HashSet<(u32,u32)>) {
+    let t = tile as f32;
+    let col0 = (r.x / t).floor() as i32;
+    let row0 = (r.y / t).floor() as i32;
+    let col1 = ((r.x + r.w) / t).ceil() as i32;
+    let row1 = ((r.y + r.h) / t).ceil() as i32;
+    let max_col = ((scene_w + tile - 1) / tile) as i32;
+    let max_row = ((scene_h + tile - 1) / tile) as i32;
+    for row in row0.max(0)..row1.min(max_row) {
+        for col in col0.max(0)..col1.min(max_col) {
+            dirty.insert((col as u32, row as u32));
+        }
+    }
 }
+
+// ---------------------------------------------------------------------------
+// Stitching
+// ---------------------------------------------------------------------------
+
+fn stitch(frame: &mut Vec<u8>, frame_w: u32, frame_h: u32, tile_px: &[u8], tile: u32, px_x: u32, px_y: u32) {
+    let copy_w = tile.min(frame_w.saturating_sub(px_x));
+    let copy_h = tile.min(frame_h.saturating_sub(px_y));
+    for row in 0..copy_h {
+        let src = (row * tile * 4) as usize;
+        let dst = (((px_y + row) * frame_w + px_x) * 4) as usize;
+        frame[dst..dst + (copy_w * 4) as usize]
+            .copy_from_slice(&tile_px[src..src + (copy_w * 4) as usize]);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Image utilities (for HTML report)
+// ---------------------------------------------------------------------------
 
 fn crop_pixels(pixels: &[u8], src_w: u32, x: u32, y: u32, w: u32, h: u32) -> Vec<u8> {
     let mut out = Vec::with_capacity((w * h * 4) as usize);
@@ -244,10 +346,6 @@ fn data_uri(pixels: &[u8], w: u32, h: u32) -> String {
     format!("data:image/png;base64,{}", b64(&encode_png(pixels, w, h)))
 }
 
-/// Weighted diff: per-pixel weight = min(max_channel_diff / 10, 1.0).
-/// A channel difference of ≥10/255 counts as a fully different pixel;
-/// smaller differences count proportionally. The diff image uses magenta
-/// with intensity proportional to the weight.
 struct DiffResult { weighted: f64, total: u32, max_ch: u8, img: Vec<u8> }
 
 fn diff(a: &[u8], b: &[u8], w: u32, h: u32) -> DiffResult {
@@ -271,80 +369,11 @@ fn diff(a: &[u8], b: &[u8], w: u32, h: u32) -> DiffResult {
 }
 
 // ---------------------------------------------------------------------------
-// Lifecycle
-// ---------------------------------------------------------------------------
-
-impl Lifecycle for FakeNode {
-    type Key=String; type State=FakeNodeState; type Context=Ctx; type Output=(); type Error=anyhow::Error;
-    fn key(&self) -> String { self.id().to_string() }
-
-    fn enter(self, ctx: &mut Ctx, _: &mut ()) -> Result<FakeNodeState> {
-        match self {
-            FakeNode::Text { id: _, content, tw } => {
-                ctx.render_calls += 1;
-                let r = render_padded(&serde_json::json!({"type":"text","text":&content,"tw":&tw}), ctx.overflow_padding, &ctx.global);
-                Ok(FakeNodeState::Text { r, content })
-            }
-            FakeNode::Image { id: _, color, width, height } => {
-                ctx.render_calls += 1;
-                // display:inline-block so width/height are respected when this node
-                // participates in the inline layout of the outer padding wrapper.
-                let r = render_padded(&serde_json::json!({"type":"container","style":{"display":"inline-block"},"tw":format!("w-[{}px] h-[{}px] bg-{}",width,height,color)}), ctx.overflow_padding, &ctx.global);
-                Ok(FakeNodeState::Image { r })
-            }
-            FakeNode::Collection { id: _, tw, children } => {
-                let mut cs: ManagedSet<FakeNode> = ManagedSet::new();
-                cs.reconcile(children.clone(), ctx, &mut ());
-                let arcs = child_arcs(&children, &cs);
-                let r = render_with_stubs(&tw, &children, &cs, ctx);
-                Ok(FakeNodeState::Collection { r, tw, children: cs, last_child_arcs: arcs })
-            }
-        }
-    }
-
-    fn reconcile_self(self, state: &mut FakeNodeState, ctx: &mut Ctx, _: &mut ()) -> Result<()> {
-        match (self, state) {
-            (FakeNode::Text{content,tw,..}, FakeNodeState::Text{r,content:old}) => {
-                if content != *old {
-                    ctx.render_calls += 1;
-                    *r = render_padded(&serde_json::json!({"type":"text","text":&content,"tw":&tw}), ctx.overflow_padding, &ctx.global);
-                    *old = content;
-                }
-                Ok(())
-            }
-            (FakeNode::Image{color,width,height,..}, FakeNodeState::Image{r}) => {
-                if width!=r.content_w||height!=r.content_h {
-                    ctx.render_calls+=1;
-                    *r = render_padded(&serde_json::json!({"type":"container","tw":format!("w-[{}px] h-[{}px] bg-{}",width,height,color)}), ctx.overflow_padding, &ctx.global);
-                }
-                Ok(())
-            }
-            (FakeNode::Collection{tw,children,..}, FakeNodeState::Collection{r,tw:otw,children:cs,last_child_arcs:arcs}) => {
-                cs.reconcile(children.clone(), ctx, &mut ());
-                let new_arcs = child_arcs(&children, cs);
-                let dirty = new_arcs.len()!=arcs.len() || new_arcs.iter().zip(arcs.iter()).any(|(a,b)|!Arc::ptr_eq(a,b));
-                if dirty { *r=render_with_stubs(&tw,&children,cs,ctx); *arcs=new_arcs; *otw=tw; }
-                else { ctx.skipped+=1; }
-                Ok(())
-            }
-            _ => Err(anyhow::anyhow!("type mismatch"))
-        }
-    }
-
-    fn exit(state: FakeNodeState, ctx: &mut Ctx, _: &mut ()) -> Result<()> {
-        if let FakeNodeState::Collection{mut children,..}=state { children.reconcile(vec![],ctx,&mut ()); }
-        Ok(())
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Test suites
+// Test suites (unchanged)
 // ---------------------------------------------------------------------------
 
 struct SuiteFrame { label: String, scene: Vec<FakeNode>, full_json: serde_json::Value }
 struct TestSuite  { name: &'static str, description: &'static str, frames: Vec<SuiteFrame> }
-
-// --- Suite 1: simple status bar (baseline, no effects) ---
 
 fn suite_simple_bar() -> TestSuite {
     let frames = (0..10).map(|i| {
@@ -368,7 +397,7 @@ fn suite_simple_bar() -> TestSuite {
         ]}];
         let full_json = serde_json::json!({"type":"container","tw":"flex flex-row items-center justify-between w-[400px] h-[24px] bg-gray-900","children":[
             {"type":"container","tw":"flex flex-row items-center gap-1","children":[
-                {"type":"container","tw":"w-[16px] h-[16px] bg-blue-500"},
+                {"type":"container","style":{"display":"inline-block"},"tw":"w-[16px] h-[16px] bg-blue-500"},
                 {"type":"text","text":"1: term","tw":"text-white text-xs whitespace-nowrap"},
                 {"type":"text","text":"nvim main.rs","tw":"text-gray-400 text-xs whitespace-nowrap"}
             ]},
@@ -385,8 +414,6 @@ fn suite_simple_bar() -> TestSuite {
     }).collect();
     TestSuite{name:"Simple Status Bar",description:"Baseline — no effects. Clock ticks each frame, CPU every 3rd.",frames}
 }
-
-// --- Suite 2: shadow cards (box-shadow + rounded, changing counter, static card) ---
 
 fn suite_shadow_cards() -> TestSuite {
     let frames = (0..10).map(|i| {
@@ -419,10 +446,8 @@ fn suite_shadow_cards() -> TestSuite {
         ]});
         SuiteFrame{label,scene,full_json}
     }).collect();
-    TestSuite{name:"Shadow Cards",description:"Two rounded+shadow cards. Left changes each frame (counter+message), right is fully static — tests that shadow computation is skipped for the cached card.",frames}
+    TestSuite{name:"Shadow Cards",description:"Two rounded+shadow cards. Left changes each frame, right is fully static.",frames}
 }
-
-// --- Suite 3: blurred overlay panel (backdrop-blur + opacity) ---
 
 fn suite_blurred_overlay() -> TestSuite {
     let frames = (0..10).map(|i| {
@@ -454,10 +479,8 @@ fn suite_blurred_overlay() -> TestSuite {
         ]});
         SuiteFrame{label,scene,full_json}
     }).collect();
-    TestSuite{name:"Blurred Overlay",description:"Rounded panel with shadow-inner and opacity. Temperature value changes every frame; alert fires every 4th. The static badge (shadow-md, rounded) stays cached.",frames}
+    TestSuite{name:"Blurred Overlay",description:"Rounded panel. Temperature changes every frame; alert fires every 4th.",frames}
 }
-
-// --- Suite 4: dense metrics grid (6 shadow columns, only 2 update) ---
 
 fn suite_dense_metrics() -> TestSuite {
     let frames = (0..10).map(|i| {
@@ -492,25 +515,28 @@ fn suite_dense_metrics() -> TestSuite {
 
         SuiteFrame{label,scene,full_json}
     }).collect();
-    TestSuite{name:"Dense Metrics Grid",description:"6 shadow+rounded columns. CPU (col 0) and GPU (col 2) change each frame; the other 4 stay cached — tests that shadow-md is not recomputed for static columns.",frames}
+    TestSuite{name:"Dense Metrics Grid",description:"6 shadow+rounded columns. CPU and GPU change each frame; the other 4 stay static.",frames}
 }
 
 // ---------------------------------------------------------------------------
-// Benchmark — interleaved, separate GlobalContexts
+// Benchmark
 // ---------------------------------------------------------------------------
 
 struct FrameResult { label: String, full_time: Duration, incr_time: Duration, full_px: Vec<u8>, incr_px: Vec<u8>, w: u32, h: u32, render_calls: u32, skipped: u32 }
 struct SuiteResult { name: &'static str, description: &'static str, frames: Vec<FrameResult> }
 
+const TILE_SIZE: u32 = 32;
+const SHADOW_BUF: u32 = 32; // extra border around each tile to capture shadow bleed
+
 fn run_suite(suite: &TestSuite) -> SuiteResult {
-    // Two completely independent contexts: full gets a fresh one every frame,
-    // incremental keeps one alive across frames.
     let mut incr_ctx = Ctx::fresh();
     let mut incr_set: ManagedSet<FakeNode> = ManagedSet::new();
+    let mut frame_buf: Vec<u8> = Vec::new();
+    let mut prev_bboxes: HashMap<String, Rect> = HashMap::new();
 
     let frames: Vec<FrameResult> = suite.frames.iter().map(|f| {
-        // Full — fresh context per frame (no cross-frame caching)
-        let mut full_ctx = Ctx::fresh();
+        // ── Full render (fresh context, no caching) ──────────────────────────
+        let full_ctx = Ctx::fresh();
         let t = Instant::now();
         let (full_px, w, h) = {
             let node = parse_layout(&f.full_json).unwrap_or_else(|_| Node::container(vec![]));
@@ -521,37 +547,115 @@ fn run_suite(suite: &TestSuite) -> SuiteResult {
             let (w,h) = img.dimensions();
             (img.into_raw(), w, h)
         };
-        full_ctx.render_calls += 1;
         let full_time = t.elapsed();
 
-        // Incremental — persistent context
-        incr_ctx.reset();
+        // ── Tile-based incremental render ─────────────────────────────────────
+        incr_ctx.changed_ids.clear();
+        incr_ctx.structure_changed = false;
         let t = Instant::now();
-        incr_set.reconcile(f.scene.clone(), &mut incr_ctx, &mut ());
-        let incr_time = t.elapsed();
-        let incr_px = incr_set.get(&f.scene[0].id().to_string())
-            .map(|s| {
-                let r = s.rendered();
-                let p = r.overflow_padding;
-                if p > 0 {
-                    crop_pixels(&r.pixels, r.w, p, p, r.content_w, r.content_h)
-                } else {
-                    (*r.pixels).clone()
-                }
-            }).unwrap_or_default();
 
-        FrameResult {
-            label: f.label.clone(), full_time, incr_time,
-            full_px, incr_px, w, h,
-            render_calls: incr_ctx.render_calls, skipped: incr_ctx.skipped,
+        // 1. Reconcile — populates changed_ids and structure_changed
+        incr_set.reconcile(f.scene.clone(), &mut incr_ctx, &mut ());
+
+        // 2. Measure layout to get per-node bounding boxes.
+        //    Skip on content-only frames (no enter/exit): positions are stable,
+        //    reuse the bboxes from the previous frame to avoid a full layout pass.
+        let mut bboxes: HashMap<String, Rect> = HashMap::new();
+        if incr_ctx.structure_changed || frame_buf.is_empty() {
+            let scene_json = f.scene[0].to_json();
+            let node = parse_layout(&scene_json).unwrap_or_else(|_| Node::container(vec![]));
+            let measured = takumi_measure_layout(
+                RenderOptions::builder().global(&incr_ctx.global)
+                    .viewport(Viewport::new((None,None))).node(node).build()
+            ).expect("measure layout");
+            collect_bboxes(&measured, &f.scene[0], &mut bboxes);
+        } else {
+            bboxes = prev_bboxes.clone();
         }
+
+        // 3. Compute dirty tiles
+        let cols = (w + TILE_SIZE - 1) / TILE_SIZE;
+        let rows = (h + TILE_SIZE - 1) / TILE_SIZE;
+        let mut dirty: HashSet<(u32,u32)> = HashSet::new();
+
+        if frame_buf.len() != (w * h * 4) as usize {
+            // First frame: everything dirty
+            frame_buf = vec![0u8; (w * h * 4) as usize];
+            for ty in 0..rows { for tx in 0..cols { dirty.insert((tx, ty)); } }
+        } else {
+            for id in &incr_ctx.changed_ids {
+                if let Some(r) = bboxes.get(id.as_str()) {
+                    mark_dirty(r, TILE_SIZE, w, h, &mut dirty);
+                }
+            }
+        }
+
+        let render_calls = if dirty.is_empty() { 0u32 } else { 1 };
+        let skipped = cols * rows - dirty.len() as u32;
+
+        // 4. Batch all dirty tiles into a single render covering their union bbox,
+        //    then crop individual tiles from the result and stitch.
+        if !dirty.is_empty() {
+            let min_tx = dirty.iter().map(|&(tx,_)| tx).min().unwrap();
+            let max_tx = dirty.iter().map(|&(tx,_)| tx).max().unwrap();
+            let min_ty = dirty.iter().map(|&(_,ty)| ty).min().unwrap();
+            let max_ty = dirty.iter().map(|&(_,ty)| ty).max().unwrap();
+
+            let batch_px_x = min_tx * TILE_SIZE;
+            let batch_px_y = min_ty * TILE_SIZE;
+            let batch_w = (max_tx - min_tx + 1) * TILE_SIZE;
+            let batch_h = (max_ty - min_ty + 1) * TILE_SIZE;
+
+            // Render the combined region (with shadow buffer on all sides)
+            let buf = SHADOW_BUF as f32;
+            let qx = batch_px_x as f32 - buf;
+            let qy = batch_px_y as f32 - buf;
+            let qw = batch_w as f32 + 2.0 * buf;
+            let qh = batch_h as f32 + 2.0 * buf;
+            let canvas_w = batch_w + 2 * SHADOW_BUF;
+            let canvas_h = batch_h + 2 * SHADOW_BUF;
+
+            let mut nodes: Vec<serde_json::Value> = Vec::new();
+            collect_flat(&f.scene[0], &bboxes, qx, qy, qw, qh, &mut nodes);
+
+            let scene = serde_json::json!({
+                "type": "container",
+                "style": { "display": "flex", "position": "relative",
+                    "width": format!("{}px", canvas_w as f32),
+                    "height": format!("{}px", canvas_h as f32),
+                    "overflow": "hidden" },
+                "children": nodes
+            });
+            let node = parse_layout(&scene).unwrap_or_else(|_| Node::container(vec![]));
+            let batch_px = takumi_render(
+                RenderOptions::builder().global(&incr_ctx.global)
+                    .viewport(Viewport::new((None,None))).node(node).build()
+            ).expect("batch tile render").into_raw();
+
+            // Crop each dirty tile from the batch render and stitch
+            for &(tx, ty) in &dirty {
+                let px_x = tx * TILE_SIZE;
+                let px_y = ty * TILE_SIZE;
+                // Position within batch canvas (after shadow buf offset)
+                let off_x = SHADOW_BUF + (tx - min_tx) * TILE_SIZE;
+                let off_y = SHADOW_BUF + (ty - min_ty) * TILE_SIZE;
+                let tile_px = crop_pixels(&batch_px, canvas_w, off_x, off_y, TILE_SIZE.min(batch_w), TILE_SIZE.min(batch_h));
+                stitch(&mut frame_buf, w, h, &tile_px, TILE_SIZE, px_x, px_y);
+            }
+        }
+
+        let incr_time = t.elapsed();
+        let incr_px = frame_buf.clone();
+        prev_bboxes = bboxes;
+
+        FrameResult { label: f.label.clone(), full_time, incr_time, full_px, incr_px, w, h, render_calls, skipped }
     }).collect();
 
     SuiteResult { name: suite.name, description: suite.description, frames }
 }
 
 // ---------------------------------------------------------------------------
-// HTML report
+// HTML report (unchanged)
 // ---------------------------------------------------------------------------
 
 fn html_report(suites: &[SuiteResult]) -> String {
@@ -592,11 +696,11 @@ fn html_report(suites: &[SuiteResult]) -> String {
             <div class="frame {cls}">
               <div class="fhdr"><strong>Frame {i}</strong> — {lbl} {badge}
                 <span class="tm">full {ft:.1}ms · incr {it:.1}ms · {sp:.1}× speedup</span>
-                <span class="tm">{rc} renders · {sk} skipped</span>
+                <span class="tm">{rc} tiles rendered · {sk} skipped</span>
               </div>
               <div class="imgs">
                 <div><div class="cap">Full render</div><img src="{fu}" style="width:{pw}px;height:{ph}px;image-rendering:pixelated"></div>
-                <div><div class="cap">Incremental</div><img src="{iu}" style="width:{pw}px;height:{ph}px;image-rendering:pixelated"></div>
+                <div><div class="cap">Incremental (tiled)</div><img src="{iu}" style="width:{pw}px;height:{ph}px;image-rendering:pixelated"></div>
                 <div><div class="cap">Diff {ds}</div><img src="{du}" style="width:{pw}px;height:{ph}px;image-rendering:pixelated"></div>
               </div>
             </div>"#,
@@ -618,7 +722,7 @@ fn html_report(suites: &[SuiteResult]) -> String {
     }
 
     format!(r#"<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
-<title>Partial Rendering PoC</title>
+<title>Partial Rendering PoC — Tile-based</title>
 <style>
 body{{font-family:system-ui,sans-serif;background:#0d0d0d;color:#ddd;padding:2rem;max-width:1200px;margin:0 auto}}
 h1{{color:#fff;margin-bottom:0.3rem}} h2{{color:#eee;font-size:1.1rem;margin:1.5rem 0 0.2rem}}
@@ -638,7 +742,7 @@ img{{display:block;border:1px solid #333;border-radius:2px}}
 .ok{{background:#1a3;color:#afa;padding:1px 6px;border-radius:3px;font-size:0.72rem;font-weight:bold}}
 .diff{{background:#420;color:#faa;padding:1px 6px;border-radius:3px;font-size:0.72rem;font-weight:bold}}
 </style></head><body>
-<h1>Partial Rendering PoC — Multi-Suite Report</h1>
+<h1>Partial Rendering PoC — Tile-based</h1>
 <div class="hero">
   <div><div class="l">Overall speedup (all suites, frames 1+)</div><div class="v">{sp:.1}×</div></div>
   <div><div class="l">Full recompute total</div><div class="v">{ft:.0}ms</div></div>
@@ -658,8 +762,7 @@ img{{display:block;border:1px solid #333;border-radius:2px}}
 // ---------------------------------------------------------------------------
 
 fn main() {
-    eprintln!("Loading fonts into first context (used to verify font paths)...");
-    // Warm up font file discovery once; each suite creates its own contexts.
+    eprintln!("Loading fonts...");
     let _ = new_ctx_with_fonts();
 
     let suites_defs = vec![
@@ -671,10 +774,9 @@ fn main() {
 
     let mut results = Vec::new();
     for suite in &suites_defs {
-        eprintln!("Running suite: {} ({} frames)...", suite.name, suite.frames.len());
+        eprintln!("Running suite: {} ({} frames, tile={}px)...", suite.name, suite.frames.len(), TILE_SIZE);
         let result = run_suite(suite);
 
-        // Console summary
         let mut s_full = Duration::ZERO;
         let mut s_incr = Duration::ZERO;
         for (i, f) in result.frames.iter().enumerate() {
@@ -682,10 +784,10 @@ fn main() {
                 let d = diff(&f.full_px, &f.incr_px, f.w, f.h);
                 if d.weighted<0.5 { "✓".into() } else { format!("≠w={:.1}({:.2}%)",d.weighted,d.weighted/d.total as f64*100.0) }
             } else { "?".into() };
-            println!("  [{: >2}] full={:.1}ms incr={:.1}ms ×{:.1} calls={} skip={} {}  {}",
+            println!("  [{: >2}] full={:.1}ms incr={:.1}ms ×{:.1} tiles={}/{} {}  {}",
                 i, f.full_time.as_secs_f64()*1000.0, f.incr_time.as_secs_f64()*1000.0,
                 f.full_time.as_secs_f64()/f.incr_time.as_secs_f64().max(1e-9),
-                f.render_calls, f.skipped, d, f.label);
+                f.render_calls, f.render_calls+f.skipped, d, f.label);
             if i>0 { s_full+=f.full_time; s_incr+=f.incr_time; }
         }
         println!("  → suite speedup: {:.1}×\n", s_full.as_secs_f64()/s_incr.as_secs_f64().max(1e-9));
