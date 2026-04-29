@@ -2,7 +2,7 @@ mod common;
 
 fn eval_table(inner_jsx: &str) -> serde_json::Value {
     let source = format!(
-        "import {{ Table }} from '@ui/table';\nexport default function render() {{ return {inner_jsx}; }}"
+        "import {{ DataTable }} from '@ui/datatable';\nexport default function render() {{ return {inner_jsx}; }}"
     );
     common::eval_jsx(&source).layout
 }
@@ -13,7 +13,7 @@ fn eval_table(inner_jsx: &str) -> serde_json::Value {
 #[test]
 fn table_header_contains_column_labels() {
     let node = eval_table(
-        r#"<Table columns={[{key:"repo", label:"REPO"}, {key:"prs", label:"PR", width:24}]} rows={[]} />"#,
+        r#"<DataTable columns={[{key:"repo", label:"REPO"}, {key:"prs", label:"PR", width:24}]} rows={[]} />"#,
     );
     // Collect all text values from the node tree recursively.
     fn collect_texts(node: &serde_json::Value, out: &mut Vec<String>) {
@@ -44,7 +44,7 @@ fn table_header_contains_column_labels() {
 #[test]
 fn table_header_has_text_muted_foreground_tw() {
     let node = eval_table(
-        r#"<Table columns={[{key:"repo", label:"REPO"}, {key:"prs", label:"PR", width:24}]} rows={[]} />"#,
+        r#"<DataTable columns={[{key:"repo", label:"REPO"}, {key:"prs", label:"PR", width:24}]} rows={[]} />"#,
     );
     // The header is expected to be the first child of the root Table container.
     let header = &node["children"][0];
@@ -91,7 +91,7 @@ fn collect_containers_with_tw(node: &serde_json::Value, class: &str, out: &mut V
 #[test]
 fn table_rows_render_cell_text_values() {
     let node = eval_table(
-        r#"<Table
+        r#"<DataTable
             columns={[{key:"repo", label:"REPO"}, {key:"prs", label:"PR", width:24}]}
             rows={[{repo:"costae", prs:3}, {repo:"dotfiles", prs:1}]}
         />"#,
@@ -112,7 +112,7 @@ fn table_rows_render_cell_text_values() {
 #[test]
 fn table_row_containers_have_text_foreground_tw() {
     let node = eval_table(
-        r#"<Table
+        r#"<DataTable
             columns={[{key:"repo", label:"REPO"}, {key:"prs", label:"PR", width:24}]}
             rows={[{repo:"costae", prs:3}, {repo:"dotfiles", prs:1}]}
         />"#,
@@ -132,7 +132,7 @@ fn table_row_containers_have_text_foreground_tw() {
 #[test]
 fn table_header_has_border_border_tw() {
     let node = eval_table(
-        r#"<Table columns={[{key:"repo", label:"REPO"}]} rows={[]} />"#,
+        r#"<DataTable columns={[{key:"repo", label:"REPO"}]} rows={[]} />"#,
     );
     let header = &node["children"][0];
     let header_tw = header["tw"].as_str().unwrap_or("");
@@ -146,7 +146,7 @@ fn table_header_has_border_border_tw() {
 #[test]
 fn table_header_has_uppercase_tw() {
     let node = eval_table(
-        r#"<Table columns={[{key:"repo", label:"REPO"}]} rows={[]} />"#,
+        r#"<DataTable columns={[{key:"repo", label:"REPO"}]} rows={[]} />"#,
     );
     let header = &node["children"][0];
     let header_tw = header["tw"].as_str().unwrap_or("");
@@ -176,7 +176,7 @@ fn collect_row_tws(node: &serde_json::Value) -> Vec<String> {
 #[test]
 fn table_even_rows_have_bg_card_tw() {
     let node = eval_table(
-        r#"<Table
+        r#"<DataTable
             columns={[{key:"name", label:"NAME"}]}
             rows={[{name:"a"}, {name:"b"}, {name:"c"}]}
         />"#,
@@ -200,7 +200,7 @@ fn table_even_rows_have_bg_card_tw() {
 #[test]
 fn table_odd_rows_have_bg_muted_tw() {
     let node = eval_table(
-        r#"<Table
+        r#"<DataTable
             columns={[{key:"name", label:"NAME"}]}
             rows={[{name:"a"}, {name:"b"}, {name:"c"}]}
         />"#,

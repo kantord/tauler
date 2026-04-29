@@ -1,77 +1,91 @@
-use serde::Deserialize;
-use crate::ui::{Node, component, rsx};
+use crate::ui::{Node, component, rsx, tw_merge};
 
-/// A column definition for the Table component.
-#[derive(Deserialize)]
-pub struct ColumnDef {
-    pub key: String,
-    pub label: String,
-    pub width: Option<u32>,
-}
+const BASE_TW: &str = "flex flex-col w-full";
+const HEADER_BASE_TW: &str = "border-border";
+const BODY_BASE_TW: &str = "flex flex-col w-full";
+const ROW_BASE_TW: &str = "flex flex-row gap-[8px] px-[8px] py-[4px] w-full";
+const HEAD_BASE_TW: &str = "flex-1 text-muted-foreground uppercase text-[11px]";
+const CELL_BASE_TW: &str = "flex-1 text-foreground";
 
-/// A structured data grid. Renders a header row (uppercase, muted, with a bottom
-/// border) followed by data rows with alternating `bg-card` / `bg-muted/30`
-/// backgrounds. Each column definition maps a `key` (used to look up row values)
-/// to a `label` (shown in the header). An optional `width` constrains the column.
+/// Composable table primitives. Use these to build fully custom table layouts.
+/// For a data-driven table, use `DataTable` from `@ui/datatable` instead.
 ///
 /// # JSX
 /// ```jsx
-/// <Table
-///   columns={[{key:"service", label:"SERVICE"}, {key:"status", label:"STATUS"}, {key:"uptime", label:"UPTIME"}]}
-///   rows={[
-///     {service:"nginx", status:"running", uptime:"14d"},
-///     {service:"postgres", status:"running", uptime:"7d"},
-///     {service:"redis", status:"stopped", uptime:"—"},
-///   ]}
-/// />
+/// <Table>
+///   <TableHeader>
+///     <TableRow>
+///       <TableHead><text>SERVICE</text></TableHead>
+///       <TableHead><text>STATUS</text></TableHead>
+///       <TableHead><text>UPTIME</text></TableHead>
+///     </TableRow>
+///   </TableHeader>
+///   <TableBody>
+///     <TableRow>
+///       <TableCell><text>nginx</text></TableCell>
+///       <TableCell tw="text-green-500"><text>running</text></TableCell>
+///       <TableCell><text>14d</text></TableCell>
+///     </TableRow>
+///   </TableBody>
+/// </Table>
 /// ```
 ///
 /// # Shadcn
 /// https://ui.shadcn.com/docs/components/table
 #[component("@ui/table")]
-pub fn table(columns: Vec<ColumnDef>, rows: Option<serde_json::Value>) -> Node {
-    let header_children: Vec<Node> = columns
-        .iter()
-        .map(|col| rsx! { <text tw="flex-1">{col.label.clone()}</text> })
-        .collect();
-    let row_nodes: Vec<Node> = if let Some(serde_json::Value::Array(arr)) = rows {
-        arr.into_iter()
-            .enumerate()
-            .map(|(index, row)| {
-                let cells: Vec<Node> = columns
-                    .iter()
-                    .map(|col| {
-                        let val = row.get(&col.key)
-                            .and_then(|v| match v {
-                                serde_json::Value::String(s) => Some(s.clone()),
-                                serde_json::Value::Number(n) => Some(n.to_string()),
-                                _ => None,
-                            })
-                            .unwrap_or_default();
-                        rsx! { <text tw="flex-1">{val}</text> }
-                    })
-                    .collect();
-                let tw = if index % 2 == 0 {
-                    "text-foreground bg-card flex flex-row gap-[8px] px-[8px] py-[4px] w-full"
-                } else {
-                    "text-foreground bg-muted/30 flex flex-row gap-[8px] px-[8px] py-[4px] w-full"
-                };
-                rsx! {
-                    <container tw={tw}>
-                        {cells}
-                    </container>
-                }
-            })
-            .collect()
-    } else {
-        vec![]
-    };
+pub fn table(children: Vec<Node>, tw: Option<String>) -> Node {
+    let tw = tw_merge(BASE_TW, tw.as_deref().unwrap_or(""));
     rsx! {
-        <container tw="flex flex-col w-full">
-            <container tw="flex flex-row gap-[8px] px-[8px] py-[4px] text-muted-foreground border-border uppercase">
-                {header_children}
-            </container>
-            {row_nodes}
+        <container tw={tw}>
+            {children}
+        </container>
+    }
+}
+
+#[component("@ui/table")]
+pub fn table_header(children: Vec<Node>) -> Node {
+    rsx! {
+        <container tw={HEADER_BASE_TW}>
+            {children}
+        </container>
+    }
+}
+
+#[component("@ui/table")]
+pub fn table_body(children: Vec<Node>) -> Node {
+    rsx! {
+        <container tw={BODY_BASE_TW}>
+            {children}
+        </container>
+    }
+}
+
+#[component("@ui/table")]
+pub fn table_row(children: Vec<Node>, tw: Option<String>) -> Node {
+    let tw = tw_merge(ROW_BASE_TW, tw.as_deref().unwrap_or(""));
+    rsx! {
+        <container tw={tw}>
+            {children}
+        </container>
+    }
+}
+
+#[component("@ui/table")]
+pub fn table_head(children: Vec<Node>, tw: Option<String>) -> Node {
+    let tw = tw_merge(HEAD_BASE_TW, tw.as_deref().unwrap_or(""));
+    rsx! {
+        <container tw={tw}>
+            {children}
+        </container>
+    }
+}
+
+#[component("@ui/table")]
+pub fn table_cell(children: Vec<Node>, tw: Option<String>) -> Node {
+    let tw = tw_merge(CELL_BASE_TW, tw.as_deref().unwrap_or(""));
+    rsx! {
+        <container tw={tw}>
+            {children}
         </container>
     }
 }

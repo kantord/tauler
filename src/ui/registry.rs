@@ -1,7 +1,15 @@
 use crate::ui::components::{
     card::__UI_ENTRY_CARD,
+    datatable::__UI_ENTRY_DATA_TABLE,
     progress::__UI_ENTRY_PROGRESS,
-    table::__UI_ENTRY_TABLE,
+    table::{
+        __UI_ENTRY_TABLE,
+        __UI_ENTRY_TABLE_HEADER,
+        __UI_ENTRY_TABLE_BODY,
+        __UI_ENTRY_TABLE_ROW,
+        __UI_ENTRY_TABLE_HEAD,
+        __UI_ENTRY_TABLE_CELL,
+    },
     test_multi::{__UI_ENTRY_FOO_WIDGET, __UI_ENTRY_BAR_WIDGET},
 };
 
@@ -14,8 +22,14 @@ pub struct UiEntry {
 
 pub const UI_COMPONENTS: &[UiEntry] = &[
     __UI_ENTRY_CARD,
+    __UI_ENTRY_DATA_TABLE,
     __UI_ENTRY_PROGRESS,
     __UI_ENTRY_TABLE,
+    __UI_ENTRY_TABLE_HEADER,
+    __UI_ENTRY_TABLE_BODY,
+    __UI_ENTRY_TABLE_ROW,
+    __UI_ENTRY_TABLE_HEAD,
+    __UI_ENTRY_TABLE_CELL,
     __UI_ENTRY_FOO_WIDGET,
     __UI_ENTRY_BAR_WIDGET,
 ];

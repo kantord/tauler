@@ -22,6 +22,35 @@ Wraps arbitrary child nodes and accepts an optional `tw` prop for Tailwind overr
 </Card>
 ```
 
+## DataTable
+
+**Module:** `@ui/datatable`
+
+**Shadcn reference:** https://ui.shadcn.com/docs/components/table
+
+![DataTable screenshot](./assets/datatable.png)
+
+A data-driven table. Renders a header row followed by data rows with
+alternating `bg-card` / `bg-muted/30` backgrounds. Columns map a `key`
+(used to look up values in each row object) to a `label` (shown in the
+header). An optional `width` constrains the column.
+
+For full compositional control, use the `Table`, `TableHeader`, `TableBody`,
+`TableRow`, `TableHead`, and `TableCell` primitives from `@ui/table` instead.
+
+### Usage
+
+```jsx
+<DataTable
+  columns={[{key:"service", label:"SERVICE"}, {key:"status", label:"STATUS"}, {key:"uptime", label:"UPTIME"}]}
+  rows={[
+    {service:"nginx", status:"running", uptime:"14d"},
+    {service:"postgres", status:"running", uptime:"7d"},
+    {service:"redis", status:"stopped", uptime:"—"},
+  ]}
+/>
+```
+
 ## Progress
 
 **Module:** `@ui/progress`
@@ -54,21 +83,47 @@ fill colour; `tw` applies extra Tailwind classes to the track.
 
 ![Table screenshot](./assets/table.png)
 
-A structured data grid. Renders a header row (uppercase, muted, with a bottom
-border) followed by data rows with alternating `bg-card` / `bg-muted/30`
-backgrounds. Each column definition maps a `key` (used to look up row values)
-to a `label` (shown in the header). An optional `width` constrains the column.
+Composable table primitives. Use these to build fully custom table layouts.
+For a data-driven table, use `DataTable` from `@ui/datatable` instead.
 
 ### Usage
 
 ```jsx
-<Table
-  columns={[{key:"service", label:"SERVICE"}, {key:"status", label:"STATUS"}, {key:"uptime", label:"UPTIME"}]}
-  rows={[
-    {service:"nginx", status:"running", uptime:"14d"},
-    {service:"postgres", status:"running", uptime:"7d"},
-    {service:"redis", status:"stopped", uptime:"—"},
-  ]}
-/>
+<Table>
+  <TableHeader>
+    <TableRow>
+      <TableHead><text>SERVICE</text></TableHead>
+      <TableHead><text>STATUS</text></TableHead>
+      <TableHead><text>UPTIME</text></TableHead>
+    </TableRow>
+  </TableHeader>
+  <TableBody>
+    <TableRow>
+      <TableCell><text>nginx</text></TableCell>
+      <TableCell tw="text-green-500"><text>running</text></TableCell>
+      <TableCell><text>14d</text></TableCell>
+    </TableRow>
+  </TableBody>
+</Table>
 ```
+
+## TableBody
+
+**Module:** `@ui/table`
+
+## TableCell
+
+**Module:** `@ui/table`
+
+## TableHead
+
+**Module:** `@ui/table`
+
+## TableHeader
+
+**Module:** `@ui/table`
+
+## TableRow
+
+**Module:** `@ui/table`
 

@@ -1,4 +1,5 @@
 pub mod card;
+pub mod datatable;
 pub mod progress;
 pub mod table;
 pub mod test_multi;
