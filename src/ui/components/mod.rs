@@ -1,5 +1,7 @@
 pub mod card;
 pub mod progress;
+pub mod table;
+pub mod test_multi;
 
 #[cfg(test)]
 mod composition_tests {

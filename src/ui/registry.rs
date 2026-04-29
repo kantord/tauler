@@ -1,4 +1,9 @@
-use crate::ui::components::{card::__UI_ENTRY_CARD, progress::__UI_ENTRY_PROGRESS};
+use crate::ui::components::{
+    card::__UI_ENTRY_CARD,
+    progress::__UI_ENTRY_PROGRESS,
+    table::__UI_ENTRY_TABLE,
+    test_multi::{__UI_ENTRY_FOO_WIDGET, __UI_ENTRY_BAR_WIDGET},
+};
 
 pub struct UiEntry {
     pub module_path: &'static str,
@@ -10,6 +15,9 @@ pub struct UiEntry {
 pub const UI_COMPONENTS: &[UiEntry] = &[
     __UI_ENTRY_CARD,
     __UI_ENTRY_PROGRESS,
+    __UI_ENTRY_TABLE,
+    __UI_ENTRY_FOO_WIDGET,
+    __UI_ENTRY_BAR_WIDGET,
 ];
 
 pub fn synthetic_module_source(entry: &UiEntry) -> String {
@@ -18,6 +26,15 @@ pub fn synthetic_module_source(entry: &UiEntry) -> String {
         export = entry.export_name,
         global = entry.global_name,
     )
+}
+
+pub fn synthetic_module_source_for_entries(entries: &[&UiEntry]) -> String {
+    let bindings: Vec<String> = entries
+        .iter()
+        .map(|e| format!("const {} = {};", e.export_name, e.global_name))
+        .collect();
+    let exports: Vec<&str> = entries.iter().map(|e| e.export_name).collect();
+    format!("{} export {{ {} }};", bindings.join(" "), exports.join(", "))
 }
 
 pub fn register_ui_components<'js>(ctx: &rquickjs::Ctx<'js>) -> rquickjs::Result<()> {

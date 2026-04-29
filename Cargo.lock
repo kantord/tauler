@@ -608,6 +608,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "costae-docgen"
+version = "0.1.0"
+dependencies = [
+ "image",
+ "tempfile",
+]
+
+[[package]]
 name = "costae-i3"
 version = "0.1.0"
 dependencies = [
@@ -640,6 +648,15 @@ dependencies = [
  "serde_json",
  "tokio",
  "zbus",
+]
+
+[[package]]
+name = "costae-screenshot"
+version = "0.1.0"
+dependencies = [
+ "costae",
+ "image",
+ "serde_json",
 ]
 
 [[package]]

@@ -1,4 +1,4 @@
-use costae::{init_global_ctx, parse_layout, render_frame};
+use costae::{init_global_ctx, parse_layout, render_frame, render_frame_rgba};
 
 #[test]
 fn render_frame_respects_width_parameter() {
@@ -31,4 +31,25 @@ fn render_frame_with_layout_returns_correct_size() {
     });
     let bgrx = render_frame(&content, 100, 200, 1.0);
     assert_eq!(bgrx.len(), 100 * 200 * 4);
+}
+
+#[test]
+fn render_frame_rgba_transparent_pixels_have_alpha_zero() {
+    init_global_ctx();
+    let content = serde_json::json!({
+        "type": "container",
+        "tw": "w-full h-full",
+        "children": []
+    });
+    let rgba = render_frame_rgba(&content, 10, 10, 1.0);
+    assert_eq!(rgba.len(), 10 * 10 * 4, "expected 400 bytes for 10x10 RGBA");
+    for i in 0..(10 * 10) {
+        assert_eq!(
+            rgba[i * 4 + 3],
+            0,
+            "pixel {} alpha should be 0 (transparent), got {}",
+            i,
+            rgba[i * 4 + 3]
+        );
+    }
 }

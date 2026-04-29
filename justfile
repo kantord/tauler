@@ -1,3 +1,7 @@
+docs:
+    cargo build -p costae-screenshot
+    cargo run -p costae-docgen
+
 install:
     cargo install --path . --locked
     cargo install --path costae-i3 --locked

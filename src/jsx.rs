@@ -170,13 +170,26 @@ impl JsxEvaluator {
         let runtime = rquickjs::Runtime::new()?;
         let loaded_paths: Arc<Mutex<Vec<PathBuf>>> = Arc::new(Mutex::new(Vec::new()));
 
-        let builtin_resolver = crate::ui::registry::UI_COMPONENTS.iter().fold(
+        // Group UI components by module_path so shared paths emit a single
+        // multi-export module (a second `.with_module` call would overwrite the first).
+        let mut module_groups: std::collections::HashMap<&'static str, Vec<&crate::ui::registry::UiEntry>> =
+            std::collections::HashMap::new();
+        for e in crate::ui::registry::UI_COMPONENTS.iter() {
+            module_groups.entry(e.module_path).or_default().push(e);
+        }
+
+        let builtin_resolver = module_groups.keys().fold(
             BuiltinResolver::default(),
-            |r, e| r.with_module(e.module_path),
+            |r, path| r.with_module(*path),
         );
-        let builtin_loader = crate::ui::registry::UI_COMPONENTS.iter().fold(
+        let builtin_loader = module_groups.iter().fold(
             BuiltinLoader::default(),
-            |l, e| l.with_module(e.module_path, crate::ui::registry::synthetic_module_source(e)),
+            |l, (path, entries)| {
+                l.with_module(
+                    *path,
+                    crate::ui::registry::synthetic_module_source_for_entries(entries),
+                )
+            },
         );
         if let Some(dir) = base_dir {
             runtime.set_loader(
