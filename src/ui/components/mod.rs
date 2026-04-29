@@ -3,15 +3,14 @@ pub mod progress;
 
 #[cfg(test)]
 mod composition_tests {
-    use crate::ui::{Node, UiComponent, ui};
-    use super::card::Card;
+    use crate::ui::{Node, UiComponent, rsx};
     use super::progress::{Progress, ProgressProps};
 
     /// Style 1: render into a variable, interpolate with {bar}
     #[test]
     fn component_can_embed_another_via_variable() {
         let bar = Progress::render(ProgressProps { value: 60.0, ..Default::default() });
-        let node = ui! {
+        let node = rsx! {
             <container tw="flex flex-col gap-[4px]">
                 {bar}
             </container>
@@ -23,10 +22,11 @@ mod composition_tests {
         assert!(track.tw.as_deref().unwrap_or("").contains("bg-muted"));
     }
 
-    /// Style 2: <Component /> PascalCase syntax inside ui!
+    /// Style 2: <Component /> PascalCase syntax inside rsx!
     #[test]
     fn component_can_nest_another_with_pascal_case_syntax() {
-        let node = ui! {
+        use super::card::Card;
+        let node = rsx! {
             <Card>
                 <Progress value={60.0} />
             </Card>
@@ -42,8 +42,9 @@ mod composition_tests {
     /// Both styles mixed in one tree
     #[test]
     fn both_composition_styles_can_be_mixed() {
+        use super::card::Card;
         let bar = Progress::render(ProgressProps { value: 30.0, ..Default::default() });
-        let node = ui! {
+        let node = rsx! {
             <Card tw="mt-2">
                 {bar}
                 <Progress value={70.0} />

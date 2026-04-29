@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
-pub use costae_ui_macro::ui;
+pub use costae_ui_macro::rsx;
+pub use costae_ui_macro::component;
 
 pub mod components;
 pub mod registry;

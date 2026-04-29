@@ -1,7 +1,102 @@
 use proc_macro::TokenStream;
 use proc_macro2::TokenStream as TokenStream2;
-use quote::quote;
+use quote::{format_ident, quote};
 use rstml::node::{Infallible, Node, NodeAttribute, NodeElement};
+use syn::{FnArg, ItemFn, LitStr, Pat, Type};
+
+#[proc_macro_attribute]
+pub fn component(attr: TokenStream, item: TokenStream) -> TokenStream {
+    let path: Option<LitStr> = if attr.is_empty() {
+        None
+    } else {
+        match syn::parse::<LitStr>(attr) {
+            Ok(lit) => Some(lit),
+            Err(e) => return e.to_compile_error().into(),
+        }
+    };
+    let func = syn::parse_macro_input!(item as ItemFn);
+    gen_component(path, func).into()
+}
+
+fn capitalize(s: &str) -> String {
+    let mut c = s.chars();
+    match c.next() {
+        None => String::new(),
+        Some(f) => f.to_uppercase().to_string() + c.as_str(),
+    }
+}
+
+fn needs_serde_default(ty: &Type) -> bool {
+    if let Type::Path(tp) = ty {
+        if let Some(seg) = tp.path.segments.last() {
+            return matches!(seg.ident.to_string().as_str(), "Option" | "Vec");
+        }
+    }
+    false
+}
+
+fn gen_component(path: Option<LitStr>, func: ItemFn) -> TokenStream2 {
+    let vis = &func.vis;
+    let fn_name = &func.sig.ident;
+    let fn_str = fn_name.to_string();
+    let stmts = &func.block.stmts;
+
+    let component_name = format_ident!("{}", capitalize(&fn_str));
+    let props_name = format_ident!("{}Props", component_name);
+
+    let params: Vec<(syn::Ident, Type)> = func.sig.inputs.iter().filter_map(|arg| {
+        if let FnArg::Typed(pt) = arg {
+            if let Pat::Ident(pi) = &*pt.pat {
+                return Some((pi.ident.clone(), (*pt.ty).clone()));
+            }
+        }
+        None
+    }).collect();
+
+    let props_fields: Vec<TokenStream2> = params.iter().map(|(name, ty)| {
+        let default_attr = needs_serde_default(ty).then(|| quote! { #[serde(default)] });
+        quote! { #default_attr pub #name: #ty, }
+    }).collect();
+
+    let param_names: Vec<&syn::Ident> = params.iter().map(|(n, _)| n).collect();
+
+    let entry_code = path.map(|p| {
+        let module_path_str = p.value();
+        let export_name_str = component_name.to_string();
+        let global_name_str = format!("__ui_{fn_str}");
+        let register_fn = format_ident!("__register_{fn_str}");
+        let entry_const = format_ident!("__UI_ENTRY_{}", fn_str.to_uppercase());
+        quote! {
+            fn #register_fn(ctx: &rquickjs::Ctx<'_>) -> rquickjs::Result<()> {
+                use crate::ui::UiComponent as _;
+                ctx.globals().set(#global_name_str, rquickjs::Function::new(ctx.clone(), #component_name::js_fn)?)
+            }
+            #vis const #entry_const: crate::ui::registry::UiEntry = crate::ui::registry::UiEntry {
+                module_path: #module_path_str,
+                export_name: #export_name_str,
+                global_name: #global_name_str,
+                register: #register_fn,
+            };
+        }
+    });
+
+    quote! {
+        #[derive(::serde::Deserialize, Default)]
+        #vis struct #props_name { #(#props_fields)* }
+
+        #vis struct #component_name;
+
+        impl crate::ui::UiComponent for #component_name {
+            type Props = #props_name;
+            fn render(props: #props_name) -> crate::ui::Node {
+                let #props_name { #(#param_names),* } = props;
+                #(#stmts)*
+            }
+        }
+
+        #entry_code
+    }
+}
 
 type ParsedNode = Node<Infallible>;
 type ParsedElement = NodeElement<Infallible>;
@@ -21,7 +116,7 @@ type ParsedElement = NodeElement<Infallible>;
 /// }
 /// ```
 #[proc_macro]
-pub fn ui(input: TokenStream) -> TokenStream {
+pub fn rsx(input: TokenStream) -> TokenStream {
     let result = rstml::Parser::new(rstml::ParserConfig::default()).parse_recoverable(input);
     let (nodes_opt, diagnostics) = result.split();
 

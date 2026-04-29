@@ -1,27 +1,13 @@
-use serde::Deserialize;
-use crate::ui::{Node, UiComponent, tw_merge, ui};
+use crate::ui::{Node, component, rsx, tw_merge};
 
 const BASE_TW: &str = "rounded-lg border border-border bg-card text-card-foreground px-3 py-[10px]";
 
-#[derive(Deserialize, Default)]
-pub struct CardProps {
-    #[serde(default)]
-    pub children: Vec<Node>,
-    #[serde(default)]
-    pub tw: Option<String>,
-}
-
-pub struct Card;
-
-impl UiComponent for Card {
-    type Props = CardProps;
-
-    fn render(props: CardProps) -> Node {
-        let tw = tw_merge(BASE_TW, props.tw.as_deref().unwrap_or(""));
-        ui! {
-            <container tw={tw}>
-                {props.children}
-            </container>
-        }
+#[component("@ui/card")]
+pub fn card(children: Vec<Node>, tw: Option<String>) -> Node {
+    let tw = tw_merge(BASE_TW, tw.as_deref().unwrap_or(""));
+    rsx! {
+        <container tw={tw}>
+            {children}
+        </container>
     }
 }
