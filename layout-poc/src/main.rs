@@ -1,27 +1,31 @@
+use std::sync::Arc;
 use std::time::{Duration, Instant};
-use std::thread;
 
 use anyhow::Result;
-use rand::Rng;
-use taffy::prelude::*;
+use takumi::layout::{Viewport, node::Node};
+use takumi::rendering::{RenderOptions, render as takumi_render, measure_layout as takumi_measure_layout};
 
 use costae::managed_set::{Lifecycle, ManagedSet};
 use costae::managed_set::reconcile::Reconcile;
+use costae::layout::parse_layout;
+use costae::render::{init_global_ctx, with_global_ctx};
 
 // ---------------------------------------------------------------------------
-// Scene description — pure data, the "desired state" for each frame
+// Scene description
 // ---------------------------------------------------------------------------
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 enum FakeNode {
-    Text       { id: String, content: String },
-    Image      { id: String, width: u32, height: u32 },
-    Collection { id: String, children: Vec<FakeNode> },
+    Text       { id: String, content: String, tw: String },
+    Image      { id: String, color: String, width: u32, height: u32 },
+    Collection { id: String, tw: String, children: Vec<FakeNode> },
 }
 
 impl FakeNode {
     fn id(&self) -> &str {
-        match self { Self::Text { id, .. } | Self::Image { id, .. } | Self::Collection { id, .. } => id }
+        match self {
+            Self::Text { id, .. } | Self::Image { id, .. } | Self::Collection { id, .. } => id,
+        }
     }
 }
 
@@ -32,255 +36,310 @@ impl std::fmt::Display for FakeNode {
 }
 
 // ---------------------------------------------------------------------------
-// Persistent state — kept alive between frames
+// Per-node render result
 // ---------------------------------------------------------------------------
 
-struct TextState       { taffy_id: NodeId, content: String }
-struct ImageState      { taffy_id: NodeId, width: u32, height: u32 }
-struct CollectionState { taffy_id: NodeId, children: ManagedSet<FakeNode> }
+#[derive(Clone)]
+struct Rendered { pixels: Arc<Vec<u8>>, w: u32, h: u32 }
 
 enum FakeNodeState {
-    Text(TextState),
-    Image(ImageState),
-    Collection(CollectionState),
+    Text       { r: Rendered, content: String },
+    Image      { r: Rendered },
+    Collection { r: Rendered, tw: String, children: ManagedSet<FakeNode> },
+}
+
+impl FakeNodeState {
+    fn rendered(&self) -> &Rendered {
+        match self { Self::Text { r, .. } | Self::Image { r, .. } | Self::Collection { r, .. } => r }
+    }
 }
 
 // ---------------------------------------------------------------------------
-// Shared context — the taffy tree plus metrics, threaded through reconciliation
+// Shared context — just metrics, GlobalContext accessed via with_global_ctx
 // ---------------------------------------------------------------------------
 
-struct TaffyCtx {
-    tree:        TaffyTree<()>,
-    parent_id:   Option<NodeId>,
-    root_id:     Option<NodeId>,
-    shape_calls: u32,
-    shape_time:  Duration,
+#[derive(Default)]
+struct Ctx { render_calls: u32, stub_calls: u32 }
+
+// ---------------------------------------------------------------------------
+// Takumi helpers
+// ---------------------------------------------------------------------------
+
+/// Render any JSON node to RGBA. Returns pixels + dimensions.
+fn render_json(json: &serde_json::Value) -> (Arc<Vec<u8>>, u32, u32) {
+    with_global_ctx(|global| {
+        let node = parse_layout(json).unwrap_or_else(|_| Node::container(vec![]));
+        let opts = RenderOptions::builder()
+            .global(global)
+            .viewport(Viewport::new((None, None)))
+            .node(node)
+            .build();
+        let img = takumi_render(opts).expect("render");
+        let (w, h) = img.dimensions();
+        (Arc::new(img.into_raw()), w, h)
+    })
 }
 
-impl TaffyCtx {
-    fn new() -> Self {
-        Self {
-            tree:        TaffyTree::new(),
-            parent_id:   None,
-            root_id:     None,
-            shape_calls: 0,
-            shape_time:  Duration::ZERO,
+/// Stub layout: given a container's tw and the sizes of its children, return
+/// each child's (x, y) position using takumi for layout (no rasterization).
+fn stub_positions(container_tw: &str, child_sizes: &[(u32, u32)]) -> Vec<(u32, u32)> {
+    let stubs: Vec<serde_json::Value> = child_sizes.iter()
+        .map(|(w, h)| serde_json::json!({
+            "type": "container",
+            "tw": format!("w-[{}px] h-[{}px] shrink-0", w, h)
+        }))
+        .collect();
+
+    let scene = serde_json::json!({
+        "type": "container",
+        "tw": container_tw,
+        "children": stubs
+    });
+
+    with_global_ctx(|global| {
+        let node = parse_layout(&scene).unwrap_or_else(|_| Node::container(vec![]));
+        let opts = RenderOptions::builder()
+            .global(global)
+            .viewport(Viewport::new((None, None)))
+            .node(node)
+            .build();
+        let measured = takumi_measure_layout(opts).expect("measure_layout");
+        measured.children.iter()
+            .map(|c| (c.transform[4] as u32, c.transform[5] as u32))
+            .collect()
+    })
+}
+
+/// Blit src RGBA pixels into dst at (ox, oy). dst has stride dst_w * 4.
+fn blit(dst: &mut [u8], dst_w: u32, dst_h: u32, src: &[u8], src_w: u32, src_h: u32, ox: u32, oy: u32) {
+    for row in 0..src_h {
+        for col in 0..src_w {
+            let dx = ox + col;
+            let dy = oy + row;
+            if dx >= dst_w || dy >= dst_h { continue; }
+            let si = ((row * src_w + col) * 4) as usize;
+            let di = ((dy * dst_w + dx) * 4) as usize;
+            if si + 4 > src.len() || di + 4 > dst.len() { continue; }
+            let a = src[si + 3] as u32;
+            if a == 0 { continue; }
+            if a == 255 {
+                dst[di..di + 4].copy_from_slice(&src[si..si + 4]);
+            } else {
+                for c in 0..3 {
+                    dst[di + c] = ((src[si + c] as u32 * a + dst[di + c] as u32 * (255 - a)) / 255) as u8;
+                }
+                dst[di + 3] = (a + dst[di + 3] as u32 * (255 - a) / 255) as u8;
+            }
         }
     }
+}
 
-    /// Simulates text shaping: sleeps for a random duration, records the cost.
-    fn simulate_shaping(&mut self) {
-        let ms = rand::thread_rng().gen_range(2u64..8);
-        let t = Instant::now();
-        thread::sleep(Duration::from_millis(ms));
-        self.shape_calls += 1;
-        self.shape_time += t.elapsed();
+/// Composite children at stub-computed positions into a single RGBA image.
+fn composite(container_tw: &str, children_spec: &[FakeNode], child_set: &ManagedSet<FakeNode>, ctx: &mut Ctx) -> Rendered {
+    let results: Vec<&Rendered> = children_spec.iter()
+        .filter_map(|s| child_set.get(&s.id().to_string()))
+        .map(|state| state.rendered())
+        .collect();
+
+    if results.is_empty() { return Rendered { pixels: Arc::new(vec![]), w: 0, h: 0 }; }
+
+    let sizes: Vec<(u32, u32)> = results.iter().map(|r| (r.w, r.h)).collect();
+
+    ctx.stub_calls += 1;
+    let positions = stub_positions(container_tw, &sizes);
+
+    let total_w = positions.iter().zip(&sizes).map(|((x, _), (w, _))| x + w).max().unwrap_or(0);
+    let total_h = positions.iter().zip(&sizes).map(|((_, y), (_, h))| y + h).max().unwrap_or(0);
+
+    let mut output = vec![0u8; (total_w * total_h * 4) as usize];
+    for (r, (ox, oy)) in results.iter().zip(&positions) {
+        blit(&mut output, total_w, total_h, &r.pixels, r.w, r.h, *ox, *oy);
     }
 
-    fn attach_to_parent(&mut self, child: NodeId) {
-        if let Some(parent) = self.parent_id {
-            let _ = self.tree.add_child(parent, child);
-        }
-    }
+    Rendered { pixels: Arc::new(output), w: total_w, h: total_h }
 }
 
 // ---------------------------------------------------------------------------
-// Lifecycle — Collection is the only supervisor; Text and Image are leaves
+// Lifecycle
 // ---------------------------------------------------------------------------
 
 impl Lifecycle for FakeNode {
     type Key     = String;
     type State   = FakeNodeState;
-    type Context = TaffyCtx;
+    type Context = Ctx;
     type Output  = ();
     type Error   = anyhow::Error;
 
     fn key(&self) -> String { self.id().to_string() }
 
-    fn enter(self, ctx: &mut TaffyCtx, _: &mut ()) -> Result<FakeNodeState> {
+    fn enter(self, ctx: &mut Ctx, _: &mut ()) -> Result<FakeNodeState> {
         match self {
-            FakeNode::Text { content, .. } => {
-                ctx.simulate_shaping();
-                let taffy_id = ctx.tree.new_leaf(Style {
-                    size: Size { width: length(200.0), height: length(20.0) },
-                    ..Default::default()
-                })?;
-                ctx.attach_to_parent(taffy_id);
-                Ok(FakeNodeState::Text(TextState { taffy_id, content }))
+            FakeNode::Text { content, tw, .. } => {
+                ctx.render_calls += 1;
+                let json = serde_json::json!({"type": "text", "text": &content, "tw": &tw});
+                let (pixels, w, h) = render_json(&json);
+                Ok(FakeNodeState::Text { r: Rendered { pixels, w, h }, content })
             }
 
-            FakeNode::Image { width, height, .. } => {
-                let taffy_id = ctx.tree.new_leaf(Style {
-                    size: Size { width: length(width as f32), height: length(height as f32) },
-                    ..Default::default()
-                })?;
-                ctx.attach_to_parent(taffy_id);
-                Ok(FakeNodeState::Image(ImageState { taffy_id, width, height }))
+            FakeNode::Image { color, width, height, .. } => {
+                ctx.render_calls += 1;
+                let json = serde_json::json!({"type": "container",
+                    "tw": format!("w-[{}px] h-[{}px] bg-{}", width, height, color)});
+                let (pixels, _, _) = render_json(&json);
+                Ok(FakeNodeState::Image { r: Rendered { pixels, w: width, h: height } })
             }
 
-            FakeNode::Collection { children, .. } => {
-                let taffy_id = ctx.tree.new_leaf(Style {
-                    display: Display::Flex,
-                    flex_direction: FlexDirection::Row,
-                    size: Size { width: length(1920.0), height: length(40.0) },
-                    ..Default::default()
-                })?;
-                ctx.attach_to_parent(taffy_id);
-
-                // This collection is the root if it has no parent.
-                if ctx.parent_id.is_none() {
-                    ctx.root_id = Some(taffy_id);
-                }
-
-                // Recurse: reconcile children with this collection as their parent.
-                let prev_parent = ctx.parent_id.replace(taffy_id);
+            FakeNode::Collection { tw, children, .. } => {
                 let mut child_set: ManagedSet<FakeNode> = ManagedSet::new();
-                child_set.reconcile(children, ctx, &mut ());
-                ctx.parent_id = prev_parent;
-
-                Ok(FakeNodeState::Collection(CollectionState { taffy_id, children: child_set }))
+                child_set.reconcile(children.clone(), ctx, &mut ());
+                let r = composite(&tw, &children, &child_set, ctx);
+                Ok(FakeNodeState::Collection { r, tw, children: child_set })
             }
         }
     }
 
-    fn reconcile_self(self, state: &mut FakeNodeState, ctx: &mut TaffyCtx, _: &mut ()) -> Result<()> {
+    fn reconcile_self(self, state: &mut FakeNodeState, ctx: &mut Ctx, _: &mut ()) -> Result<()> {
         match (self, state) {
-            (FakeNode::Text { content, .. }, FakeNodeState::Text(s)) => {
-                if content != s.content {
-                    // Content changed — re-shape and mark taffy node dirty.
-                    ctx.simulate_shaping();
-                    ctx.tree.mark_dirty(s.taffy_id)?;
-                    s.content = content;
-                }
-                // Unchanged text: no shaping, no mark_dirty — taffy skips this node.
-                Ok(())
-            }
-
-            (FakeNode::Image { width, height, .. }, FakeNodeState::Image(s)) => {
-                if width != s.width || height != s.height {
-                    ctx.tree.set_style(s.taffy_id, Style {
-                        size: Size { width: length(width as f32), height: length(height as f32) },
-                        ..Default::default()
-                    })?;
-                    ctx.tree.mark_dirty(s.taffy_id)?;
-                    s.width = width;
-                    s.height = height;
+            (FakeNode::Text { content, tw, .. }, FakeNodeState::Text { r, content: old }) => {
+                if content != *old {
+                    ctx.render_calls += 1;
+                    let json = serde_json::json!({"type": "text", "text": &content, "tw": &tw});
+                    let (pixels, w, h) = render_json(&json);
+                    *r = Rendered { pixels, w, h };
+                    *old = content;
                 }
                 Ok(())
             }
 
-            (FakeNode::Collection { children, .. }, FakeNodeState::Collection(s)) => {
-                // Supervisor: drive child reconciliation, then let taffy propagate
-                // dirty state up from any changed children.
-                let prev_parent = ctx.parent_id.replace(s.taffy_id);
-                s.children.reconcile(children, ctx, &mut ());
-                ctx.parent_id = prev_parent;
+            (FakeNode::Image { color, width, height, .. }, FakeNodeState::Image { r }) => {
+                if width != r.w || height != r.h {
+                    ctx.render_calls += 1;
+                    let json = serde_json::json!({"type": "container",
+                        "tw": format!("w-[{}px] h-[{}px] bg-{}", width, height, color)});
+                    let (pixels, _, _) = render_json(&json);
+                    *r = Rendered { pixels, w: width, h: height };
+                }
                 Ok(())
             }
 
-            _ => Err(anyhow::anyhow!("node type mismatch in reconcile_self")),
+            (FakeNode::Collection { tw, children, .. }, FakeNodeState::Collection { r, children: child_set, tw: old_tw }) => {
+                child_set.reconcile(children.clone(), ctx, &mut ());
+                *r = composite(&tw, &children, child_set, ctx);
+                *old_tw = tw;
+                Ok(())
+            }
+
+            _ => Err(anyhow::anyhow!("node type mismatch")),
         }
     }
 
-    fn exit(state: FakeNodeState, ctx: &mut TaffyCtx, _: &mut ()) -> Result<()> {
-        match state {
-            FakeNodeState::Text(s)  => { ctx.tree.remove(s.taffy_id)?; }
-            FakeNodeState::Image(s) => { ctx.tree.remove(s.taffy_id)?; }
-            FakeNodeState::Collection(mut s) => {
-                // Exit children before removing the container.
-                s.children.reconcile(vec![], ctx, &mut ());
-                ctx.tree.remove(s.taffy_id)?;
-            }
+    fn exit(state: FakeNodeState, ctx: &mut Ctx, _: &mut ()) -> Result<()> {
+        if let FakeNodeState::Collection { mut children, .. } = state {
+            children.reconcile(vec![], ctx, &mut ());
         }
         Ok(())
     }
 }
 
 // ---------------------------------------------------------------------------
-// Scene builder — a realistic status-bar layout
+// Scene
 // ---------------------------------------------------------------------------
 
 fn make_scene(clock: &str, cpu: &str) -> Vec<FakeNode> {
     vec![FakeNode::Collection {
         id: "bar".into(),
+        tw: "flex flex-row items-center justify-between w-[400px] h-[24px] bg-gray-900".into(),
         children: vec![
             FakeNode::Collection {
                 id: "left".into(),
+                tw: "flex flex-row items-center gap-1".into(),
                 children: vec![
-                    FakeNode::Image { id: "logo".into(),         width: 24, height: 24 },
-                    FakeNode::Text  { id: "workspace".into(),    content: "1: term".into() },
-                    FakeNode::Text  { id: "window-title".into(), content: "nvim ~/main.rs".into() },
+                    FakeNode::Image  { id: "logo".into(),         color: "blue-500".into(),  width: 16, height: 16 },
+                    FakeNode::Text   { id: "workspace".into(),    content: "1: term".into(), tw: "text-white text-xs whitespace-nowrap".into() },
+                    FakeNode::Text   { id: "win-title".into(),    content: "nvim main.rs".into(), tw: "text-gray-400 text-xs whitespace-nowrap".into() },
                 ],
             },
             FakeNode::Collection {
                 id: "center".into(),
+                tw: "flex flex-row items-center".into(),
                 children: vec![
-                    FakeNode::Text { id: "clock".into(), content: clock.into() },
+                    FakeNode::Text { id: "clock".into(), content: clock.into(), tw: "text-white text-xs font-mono whitespace-nowrap".into() },
                 ],
             },
             FakeNode::Collection {
                 id: "right".into(),
+                tw: "flex flex-row items-center gap-1".into(),
                 children: vec![
-                    FakeNode::Text  { id: "cpu".into(),          content: cpu.into() },
-                    FakeNode::Text  { id: "mem".into(),          content: "MEM 4.2G".into() },
-                    FakeNode::Text  { id: "net".into(),          content: "↑ 1.2MB/s".into() },
-                    FakeNode::Image { id: "battery-icon".into(), width: 16, height: 16 },
-                    FakeNode::Text  { id: "battery".into(),      content: "87%".into() },
-                    FakeNode::Text  { id: "volume".into(),       content: "VOL 70%".into() },
-                    FakeNode::Image { id: "tray-1".into(),       width: 16, height: 16 },
-                    FakeNode::Image { id: "tray-2".into(),       width: 16, height: 16 },
+                    FakeNode::Text  { id: "cpu".into(),     content: cpu.into(),   tw: "text-white text-xs whitespace-nowrap".into() },
+                    FakeNode::Text  { id: "mem".into(),     content: "MEM 4G".into(), tw: "text-white text-xs whitespace-nowrap".into() },
+                    FakeNode::Image { id: "bat-icon".into(),color: "green-500".into(), width: 10, height: 10 },
+                    FakeNode::Text  { id: "bat".into(),     content: "87%".into(), tw: "text-white text-xs whitespace-nowrap".into() },
                 ],
             },
         ],
     }]
 }
 
-// ---------------------------------------------------------------------------
-// Benchmark runs
-// ---------------------------------------------------------------------------
-
-struct FrameResult {
-    elapsed:     Duration,
-    shape_calls: u32,
-    shape_time:  Duration,
+fn make_full_scene_json(clock: &str, cpu: &str) -> serde_json::Value {
+    serde_json::json!({
+        "type": "container",
+        "tw": "flex flex-row items-center justify-between w-[400px] h-[24px] bg-gray-900",
+        "children": [
+            {"type": "container", "tw": "flex flex-row items-center gap-1", "children": [
+                {"type": "container", "tw": "w-[16px] h-[16px] bg-blue-500"},
+                {"type": "text", "text": "1: term",     "tw": "text-white text-xs whitespace-nowrap"},
+                {"type": "text", "text": "nvim main.rs","tw": "text-gray-400 text-xs whitespace-nowrap"}
+            ]},
+            {"type": "container", "tw": "flex flex-row items-center", "children": [
+                {"type": "text", "text": clock, "tw": "text-white text-xs font-mono whitespace-nowrap"}
+            ]},
+            {"type": "container", "tw": "flex flex-row items-center gap-1", "children": [
+                {"type": "text", "text": cpu,         "tw": "text-white text-xs whitespace-nowrap"},
+                {"type": "text", "text": "MEM 4G",    "tw": "text-white text-xs whitespace-nowrap"},
+                {"type": "container", "tw": "w-[10px] h-[10px] bg-green-500"},
+                {"type": "text", "text": "87%",       "tw": "text-white text-xs whitespace-nowrap"}
+            ]}
+        ]
+    })
 }
 
-/// Full recompute: fresh TaffyTree and ManagedSet every frame.
-/// Every node is entered → every Text node triggers simulate_shaping().
-fn run_full_recompute(frames: &[(String, String)]) -> Vec<FrameResult> {
+// ---------------------------------------------------------------------------
+// Benchmarks
+// ---------------------------------------------------------------------------
+
+struct FrameStats { elapsed: Duration, render_calls: u32, stub_calls: u32 }
+
+fn bench_full(frames: &[(String, String)]) -> Vec<FrameStats> {
     frames.iter().map(|(clock, cpu)| {
-        let scene = make_scene(clock, cpu);
-        let mut ctx = TaffyCtx::new();
-        let mut set: ManagedSet<FakeNode> = ManagedSet::new();
-
+        let json = make_full_scene_json(clock, cpu);
         let t = Instant::now();
-        set.reconcile(scene, &mut ctx, &mut ());
-        let root = ctx.root_id.expect("root node must be set after reconcile");
-        ctx.tree.compute_layout(root, Size::MAX_CONTENT).unwrap();
-        let elapsed = t.elapsed();
-
-        FrameResult { elapsed, shape_calls: ctx.shape_calls, shape_time: ctx.shape_time }
+        with_global_ctx(|global| {
+            let node = parse_layout(&json).unwrap_or_else(|_| Node::container(vec![]));
+            let opts = RenderOptions::builder()
+                .global(global)
+                .viewport(Viewport::new((Some(400), Some(24))))
+                .node(node)
+                .build();
+            takumi_render(opts).expect("full render");
+        });
+        FrameStats { elapsed: t.elapsed(), render_calls: 1, stub_calls: 0 }
     }).collect()
 }
 
-/// Incremental: one TaffyTree and ManagedSet, kept alive across all frames.
-/// Only nodes whose content changed call simulate_shaping() and mark_dirty().
-fn run_incremental(frames: &[(String, String)]) -> Vec<FrameResult> {
-    let mut ctx = TaffyCtx::new();
+fn bench_incremental(frames: &[(String, String)]) -> Vec<FrameStats> {
+    let mut ctx = Ctx::default();
     let mut set: ManagedSet<FakeNode> = ManagedSet::new();
 
     frames.iter().map(|(clock, cpu)| {
         let scene = make_scene(clock, cpu);
-        ctx.shape_calls = 0;
-        ctx.shape_time  = Duration::ZERO;
+        ctx.render_calls = 0;
+        ctx.stub_calls   = 0;
 
         let t = Instant::now();
         set.reconcile(scene, &mut ctx, &mut ());
-        let root = ctx.root_id.expect("root node must be set after reconcile");
-        ctx.tree.compute_layout(root, Size::MAX_CONTENT).unwrap();
         let elapsed = t.elapsed();
 
-        FrameResult { elapsed, shape_calls: ctx.shape_calls, shape_time: ctx.shape_time }
+        FrameStats { elapsed, render_calls: ctx.render_calls, stub_calls: ctx.stub_calls }
     }).collect()
 }
 
@@ -289,58 +348,54 @@ fn run_incremental(frames: &[(String, String)]) -> Vec<FrameResult> {
 // ---------------------------------------------------------------------------
 
 fn main() {
-    let n_frames = 20;
+    eprintln!("Initialising takumi (loading fonts)...");
+    init_global_ctx();
 
-    // Frame 0: initial render (same for both approaches).
-    // Frames 1-N: clock ticks every frame, CPU updates every 5 frames.
-    let frames: Vec<(String, String)> = (0..n_frames).map(|i| {
-        let clock = format!("{:02}:{:02}:{:02}", 12, i / 60, i % 60);
-        let cpu   = format!("CPU {}%", if i % 5 == 0 { i * 3 } else { 12 });
-        (clock, cpu)
-    }).collect();
+    let n = 10;
+    let frames: Vec<(String, String)> = (0..n).map(|i| (
+        format!("{:02}:{:02}:{:02}", 12, i / 60, i % 60),
+        format!("CPU {}%", if i % 3 == 0 { i * 4 } else { 12 }),
+    )).collect();
 
-    println!("Running {} frames ({} nodes in scene)\n", n_frames, 13);
-    println!("{:<12} {:>10} {:>12} {:>12}   {}",
-        "approach", "frame", "shape_calls", "shape_time", "notes");
-    println!("{}", "-".repeat(70));
+    eprintln!("Running {} frames...\n", n);
 
-    let full   = run_full_recompute(&frames);
-    let incremental = run_incremental(&frames);
+    println!("{:<14} {:>5}  {:>10}  {:>12}  {:>11}",
+        "approach", "frame", "elapsed", "render_calls", "stub_calls");
+    println!("{}", "-".repeat(60));
 
-    let mut full_total      = Duration::ZERO;
-    let mut inc_total       = Duration::ZERO;
-    let mut full_shapes     = 0u32;
-    let mut inc_shapes      = 0u32;
+    let full  = bench_full(&frames);
+    let incr  = bench_incremental(&frames);
 
-    for (i, (f, inc)) in full.iter().zip(incremental.iter()).enumerate() {
-        let note = if i == 0 { "← cold (both identical)" }
-                   else if i % 5 == 0 { "← clock + cpu changed" }
-                   else { "← clock only changed" };
+    let mut full_total = Duration::ZERO;
+    let mut incr_total = Duration::ZERO;
+    let mut full_renders = 0u32;
+    let mut incr_renders = 0u32;
 
-        println!("full      #{:<3} {:>8.1}ms {:>12} {:>10.1}ms   {}",
-            i, f.elapsed.as_secs_f64() * 1000.0, f.shape_calls,
-            f.shape_time.as_secs_f64() * 1000.0, note);
-        println!("incremental #{:<3} {:>8.1}ms {:>12} {:>10.1}ms",
-            i, inc.elapsed.as_secs_f64() * 1000.0, inc.shape_calls,
-            inc.shape_time.as_secs_f64() * 1000.0);
+    for (i, (f, inc)) in full.iter().zip(incr.iter()).enumerate() {
+        let note = if i == 0 { " ← cold" }
+                   else if inc.render_calls > 1 { " ← clock+cpu" }
+                   else { " ← clock only" };
+
+        println!("full          #{:<3}  {:>8.1}ms  {:>12}  {:>11}{}",
+            i, f.elapsed.as_secs_f64() * 1000.0, f.render_calls, f.stub_calls, note);
+        println!("incremental   #{:<3}  {:>8.1}ms  {:>12}  {:>11}",
+            i, inc.elapsed.as_secs_f64() * 1000.0, inc.render_calls, inc.stub_calls);
         println!();
 
         if i > 0 {
-            full_total  += f.elapsed;
-            inc_total   += inc.elapsed;
-            full_shapes += f.shape_calls;
-            inc_shapes  += inc.shape_calls;
+            full_total   += f.elapsed;
+            incr_total   += inc.elapsed;
+            full_renders += f.render_calls;
+            incr_renders += inc.render_calls;
         }
     }
 
-    println!("{}", "=".repeat(70));
-    println!("TOTALS (frames 1-{}, excluding cold frame 0)", n_frames - 1);
-    println!("  full recompute : {:>8.1}ms  ({} shape calls)",
-        full_total.as_secs_f64() * 1000.0, full_shapes);
-    println!("  incremental    : {:>8.1}ms  ({} shape calls)",
-        inc_total.as_secs_f64() * 1000.0, inc_shapes);
-    println!("  speedup        : {:.1}×",
-        full_total.as_secs_f64() / inc_total.as_secs_f64());
-    println!("  shape calls    : {:.1}× fewer",
-        full_shapes as f64 / inc_shapes as f64);
+    println!("{}", "=".repeat(60));
+    println!("TOTALS  (frames 1-{}, excluding cold frame 0)", n - 1);
+    println!("  full recompute :  {:>7.1}ms  ({} takumi render calls)", full_total.as_secs_f64() * 1000.0, full_renders);
+    println!("  incremental    :  {:>7.1}ms  ({} takumi render calls + {} stub layouts)",
+        incr_total.as_secs_f64() * 1000.0, incr_renders, incr.iter().skip(1).map(|f| f.stub_calls).sum::<u32>());
+    if incr_total.as_secs_f64() > 0.0 {
+        println!("  speedup        :  {:.1}×", full_total.as_secs_f64() / incr_total.as_secs_f64());
+    }
 }

@@ -6,6 +6,6 @@ publish = false
 
 [dependencies]
 costae = { path = ".." }
-taffy = "0.10.1"
+takumi = "1.0.1"
+serde_json = "1"
 anyhow = "1"
-rand = "0.8"
