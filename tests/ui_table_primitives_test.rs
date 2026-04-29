@@ -55,6 +55,15 @@ fn table_header_tw_contains_border_border() {
 }
 
 #[test]
+fn table_header_tw_contains_flex_col() {
+    let tw = eval_table("<TableHeader />")["tw"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    assert!(tw.contains("flex-col"), "flex-col missing: {tw}");
+}
+
+#[test]
 fn table_header_renders_as_container() {
     assert_eq!(eval_table("<TableHeader />")["type"], "container");
 }
@@ -73,7 +82,7 @@ fn table_body_renders_as_container() {
 
 // ─── TableRow ────────────────────────────────────────────────────────────────
 
-const ROW_BASE_TW: &str = "flex flex-row gap-[8px] px-[8px] py-[4px] w-full";
+const ROW_BASE_TW: &str = "flex flex-row w-full border-b border-border";
 
 #[test]
 fn table_row_has_base_tw() {
@@ -131,21 +140,21 @@ fn table_head_tw_contains_text_muted_foreground() {
 }
 
 #[test]
-fn table_head_tw_contains_uppercase() {
+fn table_head_tw_contains_font_medium() {
     let tw = eval_table("<TableHead />")["tw"]
         .as_str()
         .unwrap()
         .to_string();
-    assert!(tw.contains("uppercase"), "uppercase missing: {tw}");
+    assert!(tw.contains("font-medium"), "font-medium missing: {tw}");
 }
 
 #[test]
-fn table_head_tw_contains_text_11px() {
+fn table_head_tw_contains_py_4px() {
     let tw = eval_table("<TableHead />")["tw"]
         .as_str()
         .unwrap()
         .to_string();
-    assert!(tw.contains("text-[11px]"), "text-[11px] missing: {tw}");
+    assert!(tw.contains("py-[4px]"), "py-[4px] missing: {tw}");
 }
 
 #[test]
@@ -196,6 +205,24 @@ fn table_cell_tw_contains_text_foreground() {
         tw.contains("text-foreground"),
         "text-foreground missing: {tw}"
     );
+}
+
+#[test]
+fn table_cell_tw_contains_px_4px() {
+    let tw = eval_table("<TableCell />")["tw"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    assert!(tw.contains("px-[4px]"), "px-[4px] missing: {tw}");
+}
+
+#[test]
+fn table_cell_tw_contains_py_4px() {
+    let tw = eval_table("<TableCell />")["tw"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    assert!(tw.contains("py-[4px]"), "py-[4px] missing: {tw}");
 }
 
 #[test]
