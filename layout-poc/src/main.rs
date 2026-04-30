@@ -388,7 +388,10 @@ fn diff(a: &[u8], b: &[u8], w: u32, h: u32) -> DiffResult {
                 (a[i+1]as i32-b[i+1]as i32).unsigned_abs()).max(
                 (a[i+2]as i32-b[i+2]as i32).unsigned_abs()) as u8;
         max_ch = max_ch.max(m);
-        let w_px = (m as f64 / 10.0).min(1.0);
+        // Quadratic weighting: diff=1 → 0.01, diff=10 → 1.0 (100× ratio vs linear's 10×).
+        // Small anti-aliasing deviations contribute almost nothing; real errors dominate.
+        let linear = (m as f64 / 10.0).min(1.0);
+        let w_px = linear * linear;
         weighted += w_px;
         let intensity = (w_px * 255.0) as u8;
         if intensity > 0 {
@@ -560,6 +563,70 @@ struct SuiteResult { name: &'static str, description: &'static str, frames: Vec<
 const TILE_SIZE: u32 = 32;
 const SHADOW_BUF: u32 = 32; // extra border around each tile to capture shadow bleed
 
+// Two tiles whose shadow-expanded intervals overlap are merged into one band.
+// Overlap condition: distance < 1 + 2*SHADOW_BUF/TILE_SIZE  →  distance ≤ MERGE_THRESHOLD.
+const MERGE_THRESHOLD: u32 = 2 * SHADOW_BUF / TILE_SIZE;
+
+// ---------------------------------------------------------------------------
+// Multi-band grouping — split dirty tiles into spatially contiguous clusters
+// so that distant regions each get their own (small) render call.
+// ---------------------------------------------------------------------------
+
+struct RenderBand {
+    min_tx: u32, max_tx: u32,
+    min_ty: u32, max_ty: u32,
+    tiles: Vec<(u32, u32)>,
+}
+
+/// Group dirty tiles into bands along the Y axis (primary key = row).
+fn compute_bands_y(dirty: &HashSet<(u32, u32)>) -> Vec<RenderBand> {
+    let mut tiles: Vec<(u32, u32)> = dirty.iter().copied().collect();
+    tiles.sort_by_key(|&(_, ty)| ty);
+    let mut bands: Vec<RenderBand> = Vec::new();
+    for (tx, ty) in tiles {
+        if let Some(b) = bands.last_mut() {
+            if ty - b.max_ty <= MERGE_THRESHOLD {
+                b.max_ty = b.max_ty.max(ty);
+                b.min_tx = b.min_tx.min(tx);
+                b.max_tx = b.max_tx.max(tx);
+                b.tiles.push((tx, ty));
+                continue;
+            }
+        }
+        bands.push(RenderBand { min_tx: tx, max_tx: tx, min_ty: ty, max_ty: ty, tiles: vec![(tx, ty)] });
+    }
+    bands
+}
+
+/// Group dirty tiles into bands along the X axis (primary key = column).
+fn compute_bands_x(dirty: &HashSet<(u32, u32)>) -> Vec<RenderBand> {
+    let mut tiles: Vec<(u32, u32)> = dirty.iter().copied().collect();
+    tiles.sort_by_key(|&(tx, _)| tx);
+    let mut bands: Vec<RenderBand> = Vec::new();
+    for (tx, ty) in tiles {
+        if let Some(b) = bands.last_mut() {
+            if tx - b.max_tx <= MERGE_THRESHOLD {
+                b.max_tx = b.max_tx.max(tx);
+                b.min_ty = b.min_ty.min(ty);
+                b.max_ty = b.max_ty.max(ty);
+                b.tiles.push((tx, ty));
+                continue;
+            }
+        }
+        bands.push(RenderBand { min_tx: tx, max_tx: tx, min_ty: ty, max_ty: ty, tiles: vec![(tx, ty)] });
+    }
+    bands
+}
+
+/// Estimated total render area across all bands (proxy for render cost).
+fn estimated_area(bands: &[RenderBand]) -> u64 {
+    bands.iter().map(|b| {
+        let w = ((b.max_tx - b.min_tx + 1) * TILE_SIZE + 2 * SHADOW_BUF) as u64;
+        let h = ((b.max_ty - b.min_ty + 1) * TILE_SIZE + 2 * SHADOW_BUF) as u64;
+        w * h
+    }).sum()
+}
+
 fn run_suite(suite: &TestSuite) -> SuiteResult {
     let mut incr_ctx = Ctx::fresh();
     let mut incr_set: ManagedSet<FakeNode> = ManagedSet::new();
@@ -682,23 +749,24 @@ fn run_suite(suite: &TestSuite) -> SuiteResult {
             }
         }
 
-        let render_calls = if dirty.is_empty() { 0u32 } else { 1 };
+        // 4. Group dirty tiles into bands, choose the axis (X or Y) with smaller
+        //    estimated total render area, then do one render call per band.
+        let bands = if dirty.is_empty() {
+            vec![]
+        } else {
+            let by = compute_bands_y(&dirty);
+            let bx = compute_bands_x(&dirty);
+            if estimated_area(&by) <= estimated_area(&bx) { by } else { bx }
+        };
+        let render_calls = bands.len() as u32;
         let skipped = cols * rows - dirty.len() as u32;
 
-        // 4. Batch all dirty tiles into a single render covering their union bbox,
-        //    then crop individual tiles from the result and stitch.
-        if !dirty.is_empty() {
-            let min_tx = dirty.iter().map(|&(tx,_)| tx).min().unwrap();
-            let max_tx = dirty.iter().map(|&(tx,_)| tx).max().unwrap();
-            let min_ty = dirty.iter().map(|&(_,ty)| ty).min().unwrap();
-            let max_ty = dirty.iter().map(|&(_,ty)| ty).max().unwrap();
+        for band in &bands {
+            let batch_px_x = band.min_tx * TILE_SIZE;
+            let batch_px_y = band.min_ty * TILE_SIZE;
+            let batch_w = (band.max_tx - band.min_tx + 1) * TILE_SIZE;
+            let batch_h = (band.max_ty - band.min_ty + 1) * TILE_SIZE;
 
-            let batch_px_x = min_tx * TILE_SIZE;
-            let batch_px_y = min_ty * TILE_SIZE;
-            let batch_w = (max_tx - min_tx + 1) * TILE_SIZE;
-            let batch_h = (max_ty - min_ty + 1) * TILE_SIZE;
-
-            // Render the combined region (with shadow buffer on all sides)
             let buf = SHADOW_BUF as f32;
             let qx = batch_px_x as f32 - buf;
             let qy = batch_px_y as f32 - buf;
@@ -719,19 +787,17 @@ fn run_suite(suite: &TestSuite) -> SuiteResult {
                 "children": nodes
             });
             let node = parse_layout(&scene).unwrap_or_else(|_| Node::container(vec![]));
-            let batch_px = takumi_render(
+            let band_px = takumi_render(
                 RenderOptions::builder().global(&incr_ctx.global)
                     .viewport(Viewport::new((None,None))).node(node).build()
-            ).expect("batch tile render").into_raw();
+            ).expect("band render").into_raw();
 
-            // Crop each dirty tile from the batch render and stitch
-            for &(tx, ty) in &dirty {
+            for &(tx, ty) in &band.tiles {
                 let px_x = tx * TILE_SIZE;
                 let px_y = ty * TILE_SIZE;
-                // Position within batch canvas (after shadow buf offset)
-                let off_x = SHADOW_BUF + (tx - min_tx) * TILE_SIZE;
-                let off_y = SHADOW_BUF + (ty - min_ty) * TILE_SIZE;
-                let tile_px = crop_pixels(&batch_px, canvas_w, off_x, off_y, TILE_SIZE.min(batch_w), TILE_SIZE.min(batch_h));
+                let off_x = SHADOW_BUF + (tx - band.min_tx) * TILE_SIZE;
+                let off_y = SHADOW_BUF + (ty - band.min_ty) * TILE_SIZE;
+                let tile_px = crop_pixels(&band_px, canvas_w, off_x, off_y, TILE_SIZE, TILE_SIZE);
                 stitch(&mut frame_buf, w, h, &tile_px, TILE_SIZE, px_x, px_y);
             }
         }
@@ -748,105 +814,215 @@ fn run_suite(suite: &TestSuite) -> SuiteResult {
 }
 
 // ---------------------------------------------------------------------------
-// HTML report (unchanged)
+// HTML report — tabbed (Summary + one tab per suite)
 // ---------------------------------------------------------------------------
 
+const PERFECT_THRESHOLD: f64 = 1.0; // quadratic weighted diff below which a frame is "pixel-perfect"
+
 fn html_report(suites: &[SuiteResult]) -> String {
+    // ── Timing totals ────────────────────────────────────────────────────────
     let mut all_full = Duration::ZERO;
     let mut all_incr = Duration::ZERO;
     for s in suites {
-        for (i,f) in s.frames.iter().enumerate() {
-            if i>0 { all_full+=f.full_time; all_incr+=f.incr_time; }
+        for (i, f) in s.frames.iter().enumerate() {
+            if i > 0 { all_full += f.full_time; all_incr += f.incr_time; }
         }
     }
     let overall_speedup = all_full.as_secs_f64() / all_incr.as_secs_f64().max(1e-9);
 
-    let mut suites_html = String::new();
-    for suite in suites {
+    // ── Per-suite passes ─────────────────────────────────────────────────────
+    // Collect worst imperfect frames across all suites for the summary page.
+    // Each entry: (weighted, suite_name, frame_idx, label, summary_snippet_html)
+    let mut imperfect: Vec<(f64, &str, usize, String, String)> = Vec::new();
+
+    let mut tab_btns = String::from(
+        r#"<button class="tab-btn active" onclick="showTab('tab-summary',this)">Summary</button>"#,
+    );
+    let mut suite_tabs = String::new();
+    let mut table_rows = String::new();
+
+    for (si, suite) in suites.iter().enumerate() {
+        let tab_id = format!("tab-suite-{si}");
+        tab_btns.push_str(&format!(
+            r#"<button class="tab-btn" onclick="showTab('{tab_id}',this)">{}</button>"#,
+            suite.name
+        ));
+
+        let mut frames_html = String::new();
         let mut s_full = Duration::ZERO;
         let mut s_incr = Duration::ZERO;
-        let mut frames_html = String::new();
+        let mut n_perfect = 0u32;
+        let mut n_total  = 0u32;
 
-        for (i, f) in suite.frames.iter().enumerate() {
-            if i>0 { s_full+=f.full_time; s_incr+=f.incr_time; }
+        for (fi, f) in suite.frames.iter().enumerate() {
+            if fi > 0 { s_full += f.full_time; s_incr += f.incr_time; }
+            n_total += 1;
 
             let full_uri = data_uri(&f.full_px, f.w, f.h);
-            let (d, incr_uri, diff_uri) = if !f.incr_px.is_empty() && f.incr_px.len()==f.full_px.len() {
+            let speedup_f = f.full_time.as_secs_f64() / f.incr_time.as_secs_f64().max(1e-9);
+            // Display size: 3× pixel-art scaling, capped so huge canvases stay scrollable
+            let pw = (f.w * 3).min(900).max(120);
+            let ph = (f.h * 3).min(600).max(36);
+
+            let (d, incr_uri, diff_uri) = if !f.incr_px.is_empty() && f.incr_px.len() == f.full_px.len() {
                 let d = diff(&f.full_px, &f.incr_px, f.w, f.h);
                 let du = data_uri(&d.img, f.w, f.h);
                 let iu = data_uri(&f.incr_px, f.w, f.h);
                 (Some(d), iu, du)
-            } else { (None, String::new(), String::new()) };
+            } else {
+                (None, String::new(), String::new())
+            };
 
-            let perfect = d.as_ref().map(|d|d.weighted<0.5).unwrap_or(false);
-            let badge = if perfect { r#"<span class="ok">✓ pixel-perfect</span>"# }
-                        else { r#"<span class="diff">≠ differs</span>"# };
-            let speedup_f = f.full_time.as_secs_f64()/f.incr_time.as_secs_f64().max(1e-9);
-            let pw = (f.w*3).max(120);
-            let ph = (f.h*3).max(36);
+            let perfect = d.as_ref().map(|d| d.weighted < PERFECT_THRESHOLD).unwrap_or(false);
+            if perfect { n_perfect += 1; }
+
+            let badge = if perfect { r#"<span class="ok">✓</span>"# } else { r#"<span class="diff">≠</span>"# };
+            let diff_stat = d.as_ref().map(|d| format!(
+                "diff={:.3} ({:.4}%)", d.weighted, d.weighted / d.total as f64 * 100.0
+            )).unwrap_or_default();
 
             frames_html.push_str(&format!(r#"
             <div class="frame {cls}">
-              <div class="fhdr"><strong>Frame {i}</strong> — {lbl} {badge}
-                <span class="tm">full {ft:.1}ms · incr {it:.1}ms · {sp:.1}× speedup</span>
-                <span class="tm">{rc} tiles rendered · {sk} skipped</span>
+              <div class="fhdr"><strong>Frame {fi}</strong> — {lbl} {badge}
+                <span class="tm">full {ft:.1}ms · incr {it:.1}ms · {sp:.1}×</span>
+                <span class="tm">{rc} renders · {sk} skipped · {ds}</span>
               </div>
               <div class="imgs">
-                <div><div class="cap">Full render</div><img src="{fu}" style="width:{pw}px;height:{ph}px;image-rendering:pixelated"></div>
-                <div><div class="cap">Incremental (tiled)</div><img src="{iu}" style="width:{pw}px;height:{ph}px;image-rendering:pixelated"></div>
-                <div><div class="cap">Diff {ds}</div><img src="{du}" style="width:{pw}px;height:{ph}px;image-rendering:pixelated"></div>
+                <div><div class="cap">Full</div><img src="{fu}" style="width:{pw}px;height:{ph}px;image-rendering:pixelated"></div>
+                <div><div class="cap">Incremental</div><img src="{iu}" style="width:{pw}px;height:{ph}px;image-rendering:pixelated"></div>
+                <div><div class="cap">Diff</div><img src="{du}" style="width:{pw}px;height:{ph}px;image-rendering:pixelated"></div>
               </div>
             </div>"#,
-                cls=if perfect{"perfect"}else{"imperfect"}, i=i, lbl=f.label, badge=badge,
-                ft=f.full_time.as_secs_f64()*1000.0, it=f.incr_time.as_secs_f64()*1000.0,
-                sp=speedup_f, rc=f.render_calls, sk=f.skipped,
-                fu=full_uri, iu=incr_uri, du=diff_uri, pw=pw, ph=ph,
-                ds=d.as_ref().map(|d|format!("(weighted {:.1}/{} = {:.2}%, max ch Δ={})",d.weighted,d.total,d.weighted/d.total as f64*100.0,d.max_ch)).unwrap_or_default(),
+                cls = if perfect { "perfect" } else { "imperfect" },
+                lbl = f.label, badge = badge,
+                ft = f.full_time.as_secs_f64() * 1000.0, it = f.incr_time.as_secs_f64() * 1000.0,
+                sp = speedup_f, rc = f.render_calls, sk = f.skipped,
+                fu = full_uri, iu = incr_uri, du = diff_uri,
+                pw = pw, ph = ph, ds = diff_stat,
             ));
+
+            // Collect for worst-20 (compact thumbnail in summary)
+            if let Some(ref dr) = d {
+                if !perfect {
+                    // Thumbnail: fit within 240×320 while preserving aspect ratio
+                    let tw = f.w.min(240);
+                    let th = (f.h * tw / f.w.max(1)).min(320).max(20);
+                    let snippet = format!(r#"
+                    <div class="frame imperfect">
+                      <div class="fhdr">{sn} · Frame {fi} — {lbl} {badge}
+                        <span class="tm">full {ft:.1}ms · incr {it:.1}ms · {sp:.1}×</span>
+                        <span class="tm">{ds}</span>
+                      </div>
+                      <div class="imgs">
+                        <div><div class="cap">Full</div><img src="{fu}" style="width:{tw}px;height:{th}px;image-rendering:pixelated"></div>
+                        <div><div class="cap">Incremental</div><img src="{iu}" style="width:{tw}px;height:{th}px;image-rendering:pixelated"></div>
+                        <div><div class="cap">Diff</div><img src="{du}" style="width:{tw}px;height:{th}px;image-rendering:pixelated"></div>
+                      </div>
+                    </div>"#,
+                        sn = suite.name, fi = fi, lbl = f.label, badge = badge,
+                        ft = f.full_time.as_secs_f64() * 1000.0, it = f.incr_time.as_secs_f64() * 1000.0,
+                        sp = speedup_f, ds = diff_stat,
+                        fu = full_uri, iu = incr_uri, du = diff_uri, tw = tw, th = th,
+                    );
+                    imperfect.push((dr.weighted, suite.name, fi, f.label.clone(), snippet));
+                }
+            }
         }
 
-        let ss = s_full.as_secs_f64()/s_incr.as_secs_f64().max(1e-9);
-        suites_html.push_str(&format!(r#"
-        <section class="suite">
-          <h2>{name} <span class="speedup">{ss:.1}× speedup (frames 1+)</span></h2>
+        let ss = s_full.as_secs_f64() / s_incr.as_secs_f64().max(1e-9);
+        table_rows.push_str(&format!(
+            r#"<tr><td>{name}</td><td class="num">{ss:.1}×</td><td class="num">{np}/{nt}</td></tr>"#,
+            name = suite.name, ss = ss, np = n_perfect, nt = n_total,
+        ));
+        suite_tabs.push_str(&format!(r#"
+        <div id="{tab_id}" class="tab-content" style="display:none">
+          <h2>{name} <span class="speedup">{ss:.1}× speedup</span></h2>
           <p class="desc">{desc}</p>
           {frames}
-        </section>"#, name=suite.name, ss=ss, desc=suite.description, frames=frames_html));
+        </div>"#,
+            tab_id = tab_id, name = suite.name, ss = ss,
+            desc = suite.description, frames = frames_html,
+        ));
     }
 
+    // ── Worst-20 section ─────────────────────────────────────────────────────
+    imperfect.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap());
+    let worst_html: String = if imperfect.is_empty() {
+        r#"<p style="color:#4fc;margin-top:1rem">All frames pixel-perfect!</p>"#.into()
+    } else {
+        imperfect.iter().take(20).enumerate().map(|(rank, (w, sn, fi, lbl, snip))| {
+            format!(r#"<div class="worst-entry">
+              <div class="worst-hdr">#{r} — {sn} · frame {fi} &ldquo;{lbl}&rdquo; — quadratic diff {w:.3}</div>
+              {snip}
+            </div>"#,
+                r = rank + 1, sn = sn, fi = fi, lbl = lbl, w = w, snip = snip)
+        }).collect()
+    };
+
+    // ── Summary tab ──────────────────────────────────────────────────────────
+    let summary_tab = format!(r#"
+    <div id="tab-summary" class="tab-content">
+      <div class="hero">
+        <div><div class="l">Overall speedup (frames 1+)</div><div class="v">{sp:.1}×</div></div>
+        <div><div class="l">Full render total</div><div class="v">{ft:.0}ms</div></div>
+        <div><div class="l">Incremental total</div><div class="v">{it:.0}ms</div></div>
+      </div>
+      <table class="suite-tbl">
+        <thead><tr><th>Suite</th><th>Speedup</th><th>Pixel-perfect</th></tr></thead>
+        <tbody>{rows}</tbody>
+      </table>
+      <h2>Worst imperfect frames — quadratic diff, highest first (max 20)</h2>
+      {worst}
+    </div>"#,
+        sp = overall_speedup,
+        ft = all_full.as_secs_f64() * 1000.0,
+        it = all_incr.as_secs_f64() * 1000.0,
+        rows = table_rows, worst = worst_html,
+    );
+
     format!(r#"<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
-<title>Partial Rendering PoC — Tile-based</title>
+<title>Partial Rendering PoC</title>
 <style>
-body{{font-family:system-ui,sans-serif;background:#0d0d0d;color:#ddd;padding:2rem;max-width:1200px;margin:0 auto}}
-h1{{color:#fff;margin-bottom:0.3rem}} h2{{color:#eee;font-size:1.1rem;margin:1.5rem 0 0.2rem}}
-.hero{{background:#1a1a2e;border:1px solid #333;border-radius:10px;padding:1rem 1.5rem;margin-bottom:2rem;display:flex;gap:3rem;align-items:center}}
-.hero .v{{font-size:2rem;font-weight:bold;color:#4fc}}
-.hero .l{{font-size:0.85rem;color:#888}}
-.suite{{margin-bottom:2.5rem}}
+body{{font-family:system-ui,sans-serif;background:#0d0d0d;color:#ddd;padding:2rem;max-width:1400px;margin:0 auto}}
+h1{{color:#fff;margin-bottom:1rem}} h2{{color:#eee;font-size:1.1rem;margin:1.5rem 0 0.4rem}}
+.hero{{background:#1a1a2e;border:1px solid #333;border-radius:10px;padding:1rem 1.5rem;margin-bottom:1.5rem;display:flex;gap:3rem;align-items:center}}
+.hero .v{{font-size:2rem;font-weight:bold;color:#4fc}} .hero .l{{font-size:0.85rem;color:#888}}
+.tabs{{display:flex;gap:4px;flex-wrap:wrap;border-bottom:1px solid #333;margin-bottom:1.5rem;padding-bottom:0}}
+.tab-btn{{background:#161616;border:1px solid #2a2a2a;border-bottom:none;color:#999;padding:7px 16px;border-radius:4px 4px 0 0;cursor:pointer;font-size:0.83rem;transition:background .12s,color .12s;margin-bottom:-1px}}
+.tab-btn:hover{{background:#222;color:#ddd}}
+.tab-btn.active{{background:#1a2a1a;border-color:#4fc;color:#4fc;border-bottom-color:#1a2a1a}}
+.suite-tbl{{border-collapse:collapse;font-size:0.85rem;margin-bottom:1.5rem}}
+.suite-tbl th,.suite-tbl td{{padding:6px 20px;border:1px solid #333}}
+.suite-tbl .num{{text-align:right}} .suite-tbl th{{background:#1a1a2e;color:#aaa}}
 .desc{{color:#888;font-size:0.82rem;margin:0 0 0.8rem}}
 .speedup{{font-size:0.85rem;color:#4fc;font-weight:normal;margin-left:0.5rem}}
 .frame{{background:#161616;border:1px solid #2a2a2a;border-radius:6px;padding:0.6rem 0.8rem;margin-bottom:0.6rem}}
 .frame.perfect{{border-color:#1d3a1d}}.frame.imperfect{{border-color:#3a1d1d}}
+.worst-entry{{margin-bottom:0.8rem}}
+.worst-hdr{{font-size:0.75rem;font-weight:bold;color:#f99;background:#1a0808;border:1px solid #3a1d1d;border-bottom:none;padding:5px 10px;border-radius:4px 4px 0 0}}
+.worst-entry>.frame{{border-radius:0 0 6px 6px;margin-bottom:0}}
 .fhdr{{display:flex;align-items:center;gap:0.6rem;flex-wrap:wrap;margin-bottom:0.4rem;font-size:0.85rem}}
 .tm{{color:#666;font-size:0.78rem}}
 .imgs{{display:flex;gap:0.8rem;flex-wrap:wrap}}
 .cap{{font-size:0.72rem;color:#666;margin-bottom:2px}}
-img{{display:block;border:1px solid #333;border-radius:2px}}
+img{{display:block;border:1px solid #333;border-radius:2px;max-width:100%}}
 .ok{{background:#1a3;color:#afa;padding:1px 6px;border-radius:3px;font-size:0.72rem;font-weight:bold}}
 .diff{{background:#420;color:#faa;padding:1px 6px;border-radius:3px;font-size:0.72rem;font-weight:bold}}
 </style></head><body>
 <h1>Partial Rendering PoC — Tile-based</h1>
-<div class="hero">
-  <div><div class="l">Overall speedup (all suites, frames 1+)</div><div class="v">{sp:.1}×</div></div>
-  <div><div class="l">Full recompute total</div><div class="v">{ft:.0}ms</div></div>
-  <div><div class="l">Incremental total</div><div class="v">{it:.0}ms</div></div>
-</div>
-{suites}
+<div class="tabs">{tab_btns}</div>
+{summary}
+{suite_tabs}
+<script>
+function showTab(id,btn){{
+  document.querySelectorAll('.tab-content').forEach(t=>t.style.display='none');
+  document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active'));
+  document.getElementById(id).style.display='block';
+  btn.classList.add('active');
+}}
+</script>
 </body></html>"#,
-        sp=overall_speedup,
-        ft=all_full.as_secs_f64()*1000.0,
-        it=all_incr.as_secs_f64()*1000.0,
-        suites=suites_html,
+        tab_btns = tab_btns, summary = summary_tab, suite_tabs = suite_tabs,
     )
 }
 
@@ -1096,7 +1272,7 @@ fn main() {
         for (i, f) in result.frames.iter().enumerate() {
             let d = if !f.incr_px.is_empty() && f.incr_px.len()==f.full_px.len() {
                 let d = diff(&f.full_px, &f.incr_px, f.w, f.h);
-                if d.weighted<0.5 { "✓".into() } else { format!("≠w={:.1}({:.2}%)",d.weighted,d.weighted/d.total as f64*100.0) }
+                if d.weighted<PERFECT_THRESHOLD { "✓".into() } else { format!("≠w={:.2}({:.3}%)",d.weighted,d.weighted/d.total as f64*100.0) }
             } else { "?".into() };
             println!("  [{: >2}] full={:.1}ms incr={:.1}ms ×{:.1} tiles={}/{} {}  {}",
                 i, f.full_time.as_secs_f64()*1000.0, f.incr_time.as_secs_f64()*1000.0,
