@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::time::{Duration, Instant};
 
 use anyhow::Result;
@@ -247,60 +247,92 @@ fn find_node<'a>(root: &'a FakeNode, id: &str) -> Option<&'a FakeNode> {
 // Layout is trivial: no flex computation, all positions already known.
 // ---------------------------------------------------------------------------
 
+/// Keep only visual Tailwind classes (bg, shadow, rounded, …) and strip layout
+/// classes.  Layout classes have no effect on absolute-positioned childless
+/// containers and trigger a takumi rendering bug at certain canvas positions.
+fn visual_tw(tw: &str) -> String {
+    tw.split_whitespace().filter(|c| {
+        c.starts_with("bg-") || c.starts_with("shadow") || c.starts_with("rounded")
+        || c.starts_with("border") || c.starts_with("ring") || c.starts_with("opacity")
+        || c.starts_with("blur") || c.starts_with("backdrop")
+        || c.starts_with("brightness") || c.starts_with("contrast")
+        || c.starts_with("saturate") || c.starts_with("grayscale")
+        || c.starts_with("invert") || c.starts_with("hue-rotate")
+        || c.starts_with("drop-shadow")
+    }).collect::<Vec<_>>().join(" ")
+}
+
+/// Collect every node whose bbox overlaps (qx,qy,qw,qh) into an absolutely-
+/// positioned flat list.  Used for the legacy bbox-query path (first frame / all
+/// tiles dirty) where the node set is not yet known.
 fn collect_flat(
     node: &FakeNode,
     bboxes: &HashMap<String, Rect>,
-    // query region in scene coordinates (expanded by shadow buf)
     qx: f32, qy: f32, qw: f32, qh: f32,
-    // offset so scene (qx,qy) → canvas (0,0)
     out: &mut Vec<serde_json::Value>,
 ) {
     let Some(r) = bboxes.get(node.id()) else { return };
-    // skip nodes entirely outside query region
     if r.x + r.w <= qx || r.x >= qx + qw || r.y + r.h <= qy || r.y >= qy + qh { return; }
     let lx = r.x - qx;
     let ly = r.y - qy;
     match node {
+        FakeNode::Text { content, tw, .. } =>
+            out.push(serde_json::json!({"type":"text","text":content,"tw":tw,
+                "style":{"position":"absolute","left":lx,"top":ly,"width":r.w}})),
+        FakeNode::Image { color, width, height, .. } =>
+            out.push(serde_json::json!({"type":"container","tw":format!("bg-{}",color),
+                "style":{"display":"block","position":"absolute","left":lx,"top":ly,
+                         "width":*width as f32,"height":*height as f32}})),
+        FakeNode::Collection { tw, children, .. } => {
+            out.push(serde_json::json!({"type":"container","tw":visual_tw(tw),
+                "style":{"position":"absolute","left":lx,"top":ly,"width":r.w,"height":r.h}}));
+            for child in children { collect_flat(child, bboxes, qx, qy, qw, qh, out); }
+        }
+    }
+}
+
+/// Like collect_flat but restricted to a whitelist of node ids — the node_set
+/// from a RenderCandidate.  Nodes not in the set are skipped; Collection nodes
+/// not in the set are still recursed (children may be in the set).
+/// Spatial cull still applied for early-exit on branches far from the region.
+fn collect_flat_whitelist(
+    node: &FakeNode,
+    bboxes: &HashMap<String, Rect>,
+    node_set: &BTreeSet<String>,
+    qx: f32, qy: f32, qw: f32, qh: f32,
+    out: &mut Vec<serde_json::Value>,
+) {
+    let Some(r) = bboxes.get(node.id()) else { return };
+    let buf = SHADOW_BUF as f32;
+    if r.x + r.w + buf <= qx || r.x - buf >= qx + qw
+    || r.y + r.h + buf <= qy || r.y - buf >= qy + qh { return; }
+
+    let in_set = node_set.contains(node.id());
+    let lx = r.x - qx;
+    let ly = r.y - qy;
+    match node {
         FakeNode::Text { content, tw, .. } => {
-            out.push(serde_json::json!({
-                "type": "text", "text": content, "tw": tw,
-                "style": { "position": "absolute", "left": lx, "top": ly, "width": r.w }
-            }));
+            if in_set {
+                out.push(serde_json::json!({"type":"text","text":content,"tw":tw,
+                    "style":{"position":"absolute","left":lx,"top":ly,"width":r.w}}));
+            }
         }
         FakeNode::Image { color, width, height, .. } => {
-            out.push(serde_json::json!({
-                "type": "container",
-                "tw": format!("bg-{}", color),
-                "style": { "display": "block", "position": "absolute",
-                    "left": lx, "top": ly,
-                    "width": *width as f32, "height": *height as f32 }
-            }));
+            if in_set {
+                out.push(serde_json::json!({"type":"container","tw":format!("bg-{}",color),
+                    "style":{"display":"block","position":"absolute","left":lx,"top":ly,
+                             "width":*width as f32,"height":*height as f32}}));
+            }
         }
         FakeNode::Collection { tw, children, .. } => {
-            // Only pass visual tw classes (bg, shadow, rounded, border, ring…).
-            // Layout classes (flex, gap, items-*, w-*, p-*, etc.) have no effect
-            // on a childless absolute box and trigger a takumi rendering bug that
-            // shifts sibling text glyphs at certain canvas positions.
-            let visual_tw: String = tw.split_whitespace()
-                .filter(|cls| {
-                    let c = *cls;
-                    c.starts_with("bg-") || c.starts_with("shadow")
-                    || c.starts_with("rounded") || c.starts_with("border")
-                    || c.starts_with("ring") || c.starts_with("opacity")
-                    || c.starts_with("blur") || c.starts_with("backdrop")
-                    || c.starts_with("brightness") || c.starts_with("contrast")
-                    || c.starts_with("saturate") || c.starts_with("grayscale")
-                    || c.starts_with("invert") || c.starts_with("hue-rotate")
-                    || c.starts_with("drop-shadow")
-                })
-                .collect::<Vec<_>>()
-                .join(" ");
-            out.push(serde_json::json!({
-                "type": "container", "tw": visual_tw,
-                "style": { "position": "absolute",
-                    "left": lx, "top": ly, "width": r.w, "height": r.h }
-            }));
-            for child in children { collect_flat(child, bboxes, qx, qy, qw, qh, out); }
+            if in_set {
+                out.push(serde_json::json!({"type":"container","tw":visual_tw(tw),
+                    "style":{"position":"absolute","left":lx,"top":ly,"width":r.w,"height":r.h}}));
+            }
+            // Always recurse — children may be in the set even if this container isn't.
+            for child in children {
+                collect_flat_whitelist(child, bboxes, node_set, qx, qy, qw, qh, out);
+            }
         }
     }
 }
@@ -567,6 +599,12 @@ const SHADOW_BUF: u32 = 32; // extra border around each tile to capture shadow b
 // Overlap condition: distance < 1 + 2*SHADOW_BUF/TILE_SIZE  →  distance ≤ MERGE_THRESHOLD.
 const MERGE_THRESHOLD: u32 = 2 * SHADOW_BUF / TILE_SIZE;
 
+// Cost-model coefficients for the greedy candidate-merge algorithm.
+// These are estimates; calibrate empirically (see PLAN.md tuning table).
+const O_FIXED_MS: f64 = 1.0;   // fixed per-render-call overhead (ms)
+const K_AREA:     f64 = 4e-5;   // ms per pixel of canvas area
+const K_NODES:    f64 = 0.3;    // ms per node in the render-node set
+
 // ---------------------------------------------------------------------------
 // Multi-band grouping — split dirty tiles into spatially contiguous clusters
 // so that distant regions each get their own (small) render call.
@@ -627,6 +665,122 @@ fn estimated_area(bands: &[RenderBand]) -> u64 {
     }).sum()
 }
 
+// ---------------------------------------------------------------------------
+// Categorical + spatial + cost-model candidate grouping
+// ---------------------------------------------------------------------------
+
+/// All tiles (tx, ty) whose shadow-expanded region overlaps a bbox.
+fn tiles_for_bbox(r: &Rect, cols: u32, rows: u32) -> Vec<(u32, u32)> {
+    let buf = SHADOW_BUF as f32;
+    let c0 = ((r.x - buf) / TILE_SIZE as f32).floor().max(0.0) as u32;
+    let r0 = ((r.y - buf) / TILE_SIZE as f32).floor().max(0.0) as u32;
+    let c1 = ((r.x + r.w + buf) / TILE_SIZE as f32).ceil().min(cols as f32) as u32;
+    let r1 = ((r.y + r.h + buf) / TILE_SIZE as f32).ceil().min(rows as f32) as u32;
+    let mut out = Vec::new();
+    for ty in r0..r1 { for tx in c0..c1 { out.push((tx, ty)); } }
+    out
+}
+
+/// Build the full tile→node map from scratch. For each tile, the set contains
+/// every node whose shadow-expanded bbox overlaps that tile.
+fn build_tile_node_map(
+    bboxes: &HashMap<String, Rect>,
+    cols: u32, rows: u32,
+) -> HashMap<(u32, u32), BTreeSet<String>> {
+    let mut map: HashMap<(u32, u32), BTreeSet<String>> = HashMap::new();
+    for (id, r) in bboxes {
+        for tile in tiles_for_bbox(r, cols, rows) {
+            map.entry(tile).or_default().insert(id.clone());
+        }
+    }
+    map
+}
+
+/// A render candidate: a spatial band paired with the exact set of nodes needed
+/// to render every dirty tile it covers (no more, no less).
+struct RenderCandidate {
+    min_tx: u32, max_tx: u32,
+    min_ty: u32, max_ty: u32,
+    tiles:    Vec<(u32, u32)>,
+    node_set: BTreeSet<String>,
+}
+
+fn candidate_cost(c: &RenderCandidate) -> f64 {
+    let w = ((c.max_tx - c.min_tx + 1) * TILE_SIZE + 2 * SHADOW_BUF) as f64;
+    let h = ((c.max_ty - c.min_ty + 1) * TILE_SIZE + 2 * SHADOW_BUF) as f64;
+    O_FIXED_MS + K_AREA * w * h + K_NODES * c.node_set.len() as f64
+}
+
+fn merge_candidates(a: &RenderCandidate, b: &RenderCandidate) -> RenderCandidate {
+    let mut tiles = a.tiles.clone();
+    tiles.extend_from_slice(&b.tiles);
+    let mut node_set = a.node_set.clone();
+    for id in &b.node_set { node_set.insert(id.clone()); }
+    RenderCandidate {
+        min_tx: a.min_tx.min(b.min_tx), max_tx: a.max_tx.max(b.max_tx),
+        min_ty: a.min_ty.min(b.min_ty), max_ty: a.max_ty.max(b.max_ty),
+        tiles, node_set,
+    }
+}
+
+/// Step 1: group dirty tiles by identical node set (categorical).
+/// Step 2: spatial-band within each group.
+/// Result: one RenderCandidate per (node-set, spatial-band) pair — maximally split.
+fn compute_candidates(
+    dirty: &HashSet<(u32, u32)>,
+    tile_node_map: &HashMap<(u32, u32), BTreeSet<String>>,
+) -> Vec<RenderCandidate> {
+    // Categorical grouping: key = sorted node-id vec (hashable proxy for BTreeSet).
+    let mut groups: HashMap<Vec<String>, HashSet<(u32, u32)>> = HashMap::new();
+    for &t in dirty {
+        let key: Vec<String> = tile_node_map.get(&t)
+            .map(|s| s.iter().cloned().collect())
+            .unwrap_or_default();
+        groups.entry(key).or_default().insert(t);
+    }
+    // Spatial banding within each categorical group.
+    let mut candidates = Vec::new();
+    for (node_vec, tiles) in groups {
+        let node_set: BTreeSet<String> = node_vec.into_iter().collect();
+        let by = compute_bands_y(&tiles);
+        let bx = compute_bands_x(&tiles);
+        let bands = if estimated_area(&by) <= estimated_area(&bx) { by } else { bx };
+        for band in bands {
+            candidates.push(RenderCandidate {
+                min_tx: band.min_tx, max_tx: band.max_tx,
+                min_ty: band.min_ty, max_ty: band.max_ty,
+                tiles: band.tiles,
+                node_set: node_set.clone(),
+            });
+        }
+    }
+    candidates
+}
+
+/// Greedily merge candidate pairs while doing so reduces total estimated cost.
+/// Stops when no beneficial merge exists (O(n² × |node_set|) per pass; n is small).
+fn greedy_merge_candidates(mut cs: Vec<RenderCandidate>) -> Vec<RenderCandidate> {
+    loop {
+        if cs.len() < 2 { break; }
+        let mut best_gain = 0.0f64;
+        let mut best = (0usize, 1usize);
+        for i in 0..cs.len() {
+            for j in i + 1..cs.len() {
+                let merged = merge_candidates(&cs[i], &cs[j]);
+                let gain = candidate_cost(&cs[i]) + candidate_cost(&cs[j])
+                         - candidate_cost(&merged);
+                if gain > best_gain { best_gain = gain; best = (i, j); }
+            }
+        }
+        if best_gain <= 0.0 { break; }
+        let (i, j) = best;
+        let merged = merge_candidates(&cs[i], &cs[j]);
+        cs.remove(j); cs.remove(i);
+        cs.push(merged);
+    }
+    cs
+}
+
 fn run_suite(suite: &TestSuite) -> SuiteResult {
     let mut incr_ctx = Ctx::fresh();
     let mut incr_set: ManagedSet<FakeNode> = ManagedSet::new();
@@ -635,6 +789,10 @@ fn run_suite(suite: &TestSuite) -> SuiteResult {
     // Bboxes from the PREVIOUS frame's stub layout (not full-measure), used for
     // moved-node detection so we compare stub vs stub and avoid false positives.
     let mut prev_stub_bboxes: HashMap<String, Rect> = HashMap::new();
+    // Persistent tile→node map: for each tile the set of nodes whose shadow-
+    // expanded bbox overlaps it.  Rebuilt each frame from current bboxes.
+    // (Incremental update is a future optimisation — rebuild is fast enough.)
+    let mut tile_node_map: HashMap<(u32,u32), BTreeSet<String>> = HashMap::new();
 
     let frames: Vec<FrameResult> = suite.frames.iter().map(|f| {
         // ── Full render (fresh context, no caching) ──────────────────────────
@@ -726,6 +884,10 @@ fn run_suite(suite: &TestSuite) -> SuiteResult {
         let rows = (h + TILE_SIZE - 1) / TILE_SIZE;
         let mut dirty: HashSet<(u32,u32)> = HashSet::new();
 
+        // Rebuild tile→node map from current bboxes (incremental update is a
+        // future optimisation; full rebuild is O(nodes × tiles_per_node) ≈ fast).
+        tile_node_map = build_tile_node_map(&bboxes, cols, rows);
+
         if frame_buf.len() != (w * h * 4) as usize {
             // First frame: everything dirty.
             frame_buf = vec![0u8; (w * h * 4) as usize];
@@ -742,8 +904,7 @@ fn run_suite(suite: &TestSuite) -> SuiteResult {
                     mark_dirty(r, TILE_SIZE, w, h, &mut dirty);
                 }
             }
-            // Nodes that moved due to layout reflow (e.g. clock shifts when CPU width changes).
-            // Compare stub vs prev_stub so both sides use the same coordinate system.
+            // Nodes that moved due to layout reflow.
             for (id, new_r) in &bboxes {
                 if let Some(old_r) = prev_stub_bboxes.get(id.as_str()) {
                     if (new_r.x - old_r.x).abs() > 0.5 || (new_r.y - old_r.y).abs() > 0.5 {
@@ -754,23 +915,36 @@ fn run_suite(suite: &TestSuite) -> SuiteResult {
             }
         }
 
-        // 4. Group dirty tiles into bands, choose the axis (X or Y) with smaller
-        //    estimated total render area, then do one render call per band.
-        let bands = if dirty.is_empty() {
+        // 4. Categorical + spatial grouping with cost-model greedy merge.
+        //
+        //    Cold frame (all tiles dirty): fall back to a single collect_flat call
+        //    with the bbox-query path — tile_node_map is freshly built but the
+        //    candidate machinery would create O(tiles) groups for no benefit.
+        //
+        //    Incremental frame: compute_candidates groups dirty tiles by their
+        //    exact intersecting-node set, applies spatial banding within each
+        //    group, then greedily merges candidates when doing so saves cost.
+        let candidates: Vec<RenderCandidate> = if dirty.len() as u32 == cols * rows {
+            // Cold / full-redraw: one candidate covering everything, bbox-query path.
+            vec![RenderCandidate {
+                min_tx: 0, max_tx: cols - 1, min_ty: 0, max_ty: rows - 1,
+                tiles: dirty.iter().copied().collect(),
+                node_set: BTreeSet::new(), // empty = use collect_flat fallback below
+            }]
+        } else if dirty.is_empty() {
             vec![]
         } else {
-            let by = compute_bands_y(&dirty);
-            let bx = compute_bands_x(&dirty);
-            if estimated_area(&by) <= estimated_area(&bx) { by } else { bx }
+            let raw = compute_candidates(&dirty, &tile_node_map);
+            greedy_merge_candidates(raw)
         };
-        let render_calls = bands.len() as u32;
+        let render_calls = candidates.len() as u32;
         let skipped = cols * rows - dirty.len() as u32;
 
-        for band in &bands {
-            let batch_px_x = band.min_tx * TILE_SIZE;
-            let batch_px_y = band.min_ty * TILE_SIZE;
-            let batch_w = (band.max_tx - band.min_tx + 1) * TILE_SIZE;
-            let batch_h = (band.max_ty - band.min_ty + 1) * TILE_SIZE;
+        for cand in &candidates {
+            let batch_px_x = cand.min_tx * TILE_SIZE;
+            let batch_px_y = cand.min_ty * TILE_SIZE;
+            let batch_w = (cand.max_tx - cand.min_tx + 1) * TILE_SIZE;
+            let batch_h = (cand.max_ty - cand.min_ty + 1) * TILE_SIZE;
 
             let buf = SHADOW_BUF as f32;
             let qx = batch_px_x as f32 - buf;
@@ -781,28 +955,33 @@ fn run_suite(suite: &TestSuite) -> SuiteResult {
             let canvas_h = batch_h + 2 * SHADOW_BUF;
 
             let mut nodes: Vec<serde_json::Value> = Vec::new();
-            collect_flat(&f.scene[0], &bboxes, qx, qy, qw, qh, &mut nodes);
+            if cand.node_set.is_empty() {
+                // Cold frame fallback: include all nodes in the query region.
+                collect_flat(&f.scene[0], &bboxes, qx, qy, qw, qh, &mut nodes);
+            } else {
+                collect_flat_whitelist(&f.scene[0], &bboxes, &cand.node_set,
+                                       qx, qy, qw, qh, &mut nodes);
+            }
 
             let scene = serde_json::json!({
                 "type": "container",
                 "style": { "display": "block", "position": "relative",
-                    "width": canvas_w as f32,
-                    "height": canvas_h as f32,
+                    "width": canvas_w as f32, "height": canvas_h as f32,
                     "overflow": "hidden" },
                 "children": nodes
             });
             let node = parse_layout(&scene).unwrap_or_else(|_| Node::container(vec![]));
-            let band_px = takumi_render(
+            let cand_px = takumi_render(
                 RenderOptions::builder().global(&incr_ctx.global)
                     .viewport(Viewport::new((None,None))).node(node).build()
-            ).expect("band render").into_raw();
+            ).expect("candidate render").into_raw();
 
-            for &(tx, ty) in &band.tiles {
+            for &(tx, ty) in &cand.tiles {
                 let px_x = tx * TILE_SIZE;
                 let px_y = ty * TILE_SIZE;
-                let off_x = SHADOW_BUF + (tx - band.min_tx) * TILE_SIZE;
-                let off_y = SHADOW_BUF + (ty - band.min_ty) * TILE_SIZE;
-                let tile_px = crop_pixels(&band_px, canvas_w, off_x, off_y, TILE_SIZE, TILE_SIZE);
+                let off_x = SHADOW_BUF + (tx - cand.min_tx) * TILE_SIZE;
+                let off_y = SHADOW_BUF + (ty - cand.min_ty) * TILE_SIZE;
+                let tile_px = crop_pixels(&cand_px, canvas_w, off_x, off_y, TILE_SIZE, TILE_SIZE);
                 stitch(&mut frame_buf, w, h, &tile_px, TILE_SIZE, px_x, px_y);
             }
         }
