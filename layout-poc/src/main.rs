@@ -210,9 +210,7 @@ fn collect_flat(
         FakeNode::Text { content, tw, .. } => {
             out.push(serde_json::json!({
                 "type": "text", "text": content, "tw": tw,
-                "style": { "position": "absolute",
-                    "left": format!("{}px", lx), "top": format!("{}px", ly),
-                    "width": format!("{}px", r.w) }
+                "style": { "position": "absolute", "left": lx, "top": ly, "width": r.w }
             }));
         }
         FakeNode::Image { color, width, height, .. } => {
@@ -220,18 +218,33 @@ fn collect_flat(
                 "type": "container",
                 "tw": format!("bg-{}", color),
                 "style": { "display": "block", "position": "absolute",
-                    "left": format!("{}px", lx), "top": format!("{}px", ly),
-                    "width": format!("{}px", width), "height": format!("{}px", height) }
+                    "left": lx, "top": ly,
+                    "width": *width as f32, "height": *height as f32 }
             }));
         }
         FakeNode::Collection { tw, children, .. } => {
-            // Render the container's own box (bg, shadow, rounded…) without children so it
-            // only contributes its own decorations. Style overrides win over tw.
+            // Only pass visual tw classes (bg, shadow, rounded, border, ring…).
+            // Layout classes (flex, gap, items-*, w-*, p-*, etc.) have no effect
+            // on a childless absolute box and trigger a takumi rendering bug that
+            // shifts sibling text glyphs at certain canvas positions.
+            let visual_tw: String = tw.split_whitespace()
+                .filter(|cls| {
+                    let c = *cls;
+                    c.starts_with("bg-") || c.starts_with("shadow")
+                    || c.starts_with("rounded") || c.starts_with("border")
+                    || c.starts_with("ring") || c.starts_with("opacity")
+                    || c.starts_with("blur") || c.starts_with("backdrop")
+                    || c.starts_with("brightness") || c.starts_with("contrast")
+                    || c.starts_with("saturate") || c.starts_with("grayscale")
+                    || c.starts_with("invert") || c.starts_with("hue-rotate")
+                    || c.starts_with("drop-shadow")
+                })
+                .collect::<Vec<_>>()
+                .join(" ");
             out.push(serde_json::json!({
-                "type": "container", "tw": tw,
+                "type": "container", "tw": visual_tw,
                 "style": { "position": "absolute",
-                    "left": format!("{}px", lx), "top": format!("{}px", ly),
-                    "width": format!("{}px", r.w), "height": format!("{}px", r.h) }
+                    "left": lx, "top": ly, "width": r.w, "height": r.h }
             }));
             for child in children { collect_flat(child, bboxes, qx, qy, qw, qh, out); }
         }
@@ -239,41 +252,6 @@ fn collect_flat(
 }
 
 /// Render a tile at scene pixel (px_x, px_y) using pre-computed bboxes.
-/// A `shadow_buf` pixel border is added around the tile so shadow bleed from
-/// nearby nodes is captured; the output is cropped back to tile×tile.
-fn render_tile(
-    root: &FakeNode,
-    bboxes: &HashMap<String, Rect>,
-    px_x: u32, px_y: u32, tile: u32, shadow_buf: u32,
-    g: &GlobalContext,
-) -> Vec<u8> {
-    let s = shadow_buf as f32;
-    let qx = px_x as f32 - s;
-    let qy = px_y as f32 - s;
-    let qw = tile as f32 + 2.0 * s;
-    let qh = tile as f32 + 2.0 * s;
-    let canvas = (tile + 2 * shadow_buf) as f32;
-
-    let mut nodes: Vec<serde_json::Value> = Vec::new();
-    collect_flat(root, bboxes, qx, qy, qw, qh, &mut nodes);
-
-    let scene = serde_json::json!({
-        "type": "container",
-        "style": { "display": "flex", "position": "relative",
-            "width": format!("{}px", canvas), "height": format!("{}px", canvas),
-            "overflow": "hidden" },
-        "children": nodes
-    });
-    let node = parse_layout(&scene).unwrap_or_else(|_| Node::container(vec![]));
-    let raw = takumi_render(
-        RenderOptions::builder().global(g).viewport(Viewport::new((None,None))).node(node).build()
-    ).expect("tile render").into_raw();
-
-    if shadow_buf == 0 { return raw; }
-    // Crop the center tile×tile from the (tile+2*buf)×(tile+2*buf) render
-    let full_w = tile + 2 * shadow_buf;
-    crop_pixels(&raw, full_w, shadow_buf, shadow_buf, tile, tile)
-}
 
 // ---------------------------------------------------------------------------
 // Dirty tile marking
@@ -561,7 +539,9 @@ fn run_suite(suite: &TestSuite) -> SuiteResult {
         //    Skip on content-only frames (no enter/exit): positions are stable,
         //    reuse the bboxes from the previous frame to avoid a full layout pass.
         let mut bboxes: HashMap<String, Rect> = HashMap::new();
-        if incr_ctx.structure_changed || frame_buf.is_empty() {
+        // Always remeasure: content changes can alter text widths, which shifts
+        // justify-between positions. Stale bboxes produce incorrect tile positions.
+        {
             let scene_json = f.scene[0].to_json();
             let node = parse_layout(&scene_json).unwrap_or_else(|_| Node::container(vec![]));
             let measured = takumi_measure_layout(
@@ -569,8 +549,6 @@ fn run_suite(suite: &TestSuite) -> SuiteResult {
                     .viewport(Viewport::new((None,None))).node(node).build()
             ).expect("measure layout");
             collect_bboxes(&measured, &f.scene[0], &mut bboxes);
-        } else {
-            bboxes = prev_bboxes.clone();
         }
 
         // 3. Compute dirty tiles
@@ -620,9 +598,9 @@ fn run_suite(suite: &TestSuite) -> SuiteResult {
 
             let scene = serde_json::json!({
                 "type": "container",
-                "style": { "display": "flex", "position": "relative",
-                    "width": format!("{}px", canvas_w as f32),
-                    "height": format!("{}px", canvas_h as f32),
+                "style": { "display": "block", "position": "relative",
+                    "width": canvas_w as f32,
+                    "height": canvas_h as f32,
                     "overflow": "hidden" },
                 "children": nodes
             });
@@ -761,9 +739,9 @@ img{{display:block;border:1px solid #333;border-radius:2px}}
 // Main
 // ---------------------------------------------------------------------------
 
+
 fn main() {
     eprintln!("Loading fonts...");
-    let _ = new_ctx_with_fonts();
 
     let suites_defs = vec![
         suite_simple_bar(),
