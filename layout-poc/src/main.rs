@@ -96,11 +96,20 @@ impl FakeNodeState {
 struct Ctx {
     global:           GlobalContext,
     changed_ids:      Vec<String>,
-    structure_changed: bool, // true if any node entered or exited this frame
+    structure_changed: bool,
+    // Cached natural dimensions (W, H) for each node, used by the stub layout pass.
+    node_dims: HashMap<String, (f32, f32)>,
 }
 
 impl Ctx {
-    fn fresh() -> Self { Self { global: new_ctx_with_fonts(), changed_ids: Vec::new(), structure_changed: false } }
+    fn fresh() -> Self {
+        Self {
+            global: new_ctx_with_fonts(),
+            changed_ids: Vec::new(),
+            structure_changed: false,
+            node_dims: HashMap::new(),
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -185,6 +194,47 @@ fn collect_bboxes(measured: &MeasuredNode, node: &FakeNode, bboxes: &mut HashMap
             collect_bboxes(m, f, bboxes);
         }
     }
+}
+
+// ---------------------------------------------------------------------------
+// Stub layout — replace every leaf with a fixed-size container so that
+// measure_layout only does flex geometry (zero text shaping).
+// The tree structure is preserved so collect_bboxes can still pair nodes.
+// ---------------------------------------------------------------------------
+
+fn stub_scene_json(node: &FakeNode, dims: &HashMap<String, (f32, f32)>) -> serde_json::Value {
+    match node {
+        FakeNode::Text { id, .. } | FakeNode::Image { id, .. } => {
+            let (w, h) = dims.get(id.as_str()).copied().unwrap_or((0.0, 0.0));
+            serde_json::json!({"type":"container","style":{"width":w,"height":h}})
+        }
+        FakeNode::Collection { tw, children, .. } => {
+            let ch: Vec<_> = children.iter().map(|c| stub_scene_json(c, dims)).collect();
+            serde_json::json!({"type":"container","tw":tw,"children":ch})
+        }
+    }
+}
+
+/// Measure a single node in isolation to obtain its natural (W, H).
+/// Only meaningful for leaf nodes (Text, Image); call on Collection returns its content size.
+fn measure_natural(node: &FakeNode, global: &GlobalContext) -> (f32, f32) {
+    let json = node.to_json();
+    let n = parse_layout(&json).unwrap_or_else(|_| Node::container(vec![]));
+    let m = takumi_measure_layout(
+        RenderOptions::builder().global(global).viewport(Viewport::new((None, None))).node(n).build()
+    ).expect("measure natural");
+    (m.width, m.height)
+}
+
+/// Walk the FakeNode tree and find the node with the given id.
+fn find_node<'a>(root: &'a FakeNode, id: &str) -> Option<&'a FakeNode> {
+    if root.id() == id { return Some(root); }
+    if let FakeNode::Collection { children, .. } = root {
+        for child in children {
+            if let Some(found) = find_node(child, id) { return Some(found); }
+        }
+    }
+    None
 }
 
 // ---------------------------------------------------------------------------
@@ -511,6 +561,9 @@ fn run_suite(suite: &TestSuite) -> SuiteResult {
     let mut incr_set: ManagedSet<FakeNode> = ManagedSet::new();
     let mut frame_buf: Vec<u8> = Vec::new();
     let mut prev_bboxes: HashMap<String, Rect> = HashMap::new();
+    // Bboxes from the PREVIOUS frame's stub layout (not full-measure), used for
+    // moved-node detection so we compare stub vs stub and avoid false positives.
+    let mut prev_stub_bboxes: HashMap<String, Rect> = HashMap::new();
 
     let frames: Vec<FrameResult> = suite.frames.iter().map(|f| {
         // ── Full render (fresh context, no caching) ──────────────────────────
@@ -535,35 +588,86 @@ fn run_suite(suite: &TestSuite) -> SuiteResult {
         // 1. Reconcile — populates changed_ids and structure_changed
         incr_set.reconcile(f.scene.clone(), &mut incr_ctx, &mut ());
 
-        // 2. Measure layout to get per-node bounding boxes.
-        //    Skip on content-only frames (no enter/exit): positions are stable,
-        //    reuse the bboxes from the previous frame to avoid a full layout pass.
+        // 2. Measure layout — two strategies depending on whether the structure changed.
+        //
+        //    Structure change  →  full measure_layout on the actual scene (shapes all text).
+        //    Content-only      →  (a) measure each changed text node in isolation to get its
+        //                             new (W, H), then (b) run a cheap stub-layout pass that
+        //                             replaces every node with a fixed-size container so taffy
+        //                             re-computes positions with zero additional text shaping.
         let mut bboxes: HashMap<String, Rect> = HashMap::new();
-        // Always remeasure: content changes can alter text widths, which shifts
-        // justify-between positions. Stale bboxes produce incorrect tile positions.
-        {
+
+        let stub_bboxes: HashMap<String, Rect>;
+
+        if incr_ctx.structure_changed || frame_buf.is_empty() {
+            // Full measure; seed the dims cache so subsequent frames can stub.
             let scene_json = f.scene[0].to_json();
             let node = parse_layout(&scene_json).unwrap_or_else(|_| Node::container(vec![]));
             let measured = takumi_measure_layout(
                 RenderOptions::builder().global(&incr_ctx.global)
-                    .viewport(Viewport::new((None,None))).node(node).build()
+                    .viewport(Viewport::new((None, None))).node(node).build()
             ).expect("measure layout");
             collect_bboxes(&measured, &f.scene[0], &mut bboxes);
+            for (id, r) in &bboxes { incr_ctx.node_dims.insert(id.clone(), (r.w, r.h)); }
+            // Also run the stub pass so prev_stub_bboxes is in the same coordinate
+            // system as future stub runs (avoids false-positive moved-node detection).
+            let stub_json = stub_scene_json(&f.scene[0], &incr_ctx.node_dims);
+            let snode = parse_layout(&stub_json).unwrap_or_else(|_| Node::container(vec![]));
+            let smeasured = takumi_measure_layout(
+                RenderOptions::builder().global(&incr_ctx.global)
+                    .viewport(Viewport::new((None, None))).node(snode).build()
+            ).expect("seed stub layout");
+            let mut sb = HashMap::new();
+            collect_bboxes(&smeasured, &f.scene[0], &mut sb);
+            stub_bboxes = sb;
+        } else {
+            // Step (a): remeasure only changed text nodes in isolation.
+            for id in &incr_ctx.changed_ids {
+                if let Some(node) = find_node(&f.scene[0], id) {
+                    if matches!(node, FakeNode::Text { .. }) {
+                        let dims = measure_natural(node, &incr_ctx.global);
+                        incr_ctx.node_dims.insert(id.clone(), dims);
+                    }
+                    // Images: dimensions come from the node definition, not content.
+                }
+            }
+            // Step (b): stub layout — replace all leaves with fixed-size containers.
+            let stub_json = stub_scene_json(&f.scene[0], &incr_ctx.node_dims);
+            let node = parse_layout(&stub_json).unwrap_or_else(|_| Node::container(vec![]));
+            let measured = takumi_measure_layout(
+                RenderOptions::builder().global(&incr_ctx.global)
+                    .viewport(Viewport::new((None, None))).node(node).build()
+            ).expect("stub layout");
+            let mut sb = HashMap::new();
+            collect_bboxes(&measured, &f.scene[0], &mut sb);
+            bboxes = sb.clone();
+            stub_bboxes = sb;
         }
 
-        // 3. Compute dirty tiles
+        // 3. Compute dirty tiles.
         let cols = (w + TILE_SIZE - 1) / TILE_SIZE;
         let rows = (h + TILE_SIZE - 1) / TILE_SIZE;
         let mut dirty: HashSet<(u32,u32)> = HashSet::new();
 
         if frame_buf.len() != (w * h * 4) as usize {
-            // First frame: everything dirty
+            // First frame: everything dirty.
             frame_buf = vec![0u8; (w * h * 4) as usize];
             for ty in 0..rows { for tx in 0..cols { dirty.insert((tx, ty)); } }
         } else {
+            // Changed-content tiles (new position).
             for id in &incr_ctx.changed_ids {
                 if let Some(r) = bboxes.get(id.as_str()) {
                     mark_dirty(r, TILE_SIZE, w, h, &mut dirty);
+                }
+            }
+            // Nodes that moved due to layout reflow (e.g. clock shifts when CPU width changes).
+            // Compare stub vs prev_stub so both sides use the same coordinate system.
+            for (id, new_r) in &bboxes {
+                if let Some(old_r) = prev_stub_bboxes.get(id.as_str()) {
+                    if (new_r.x - old_r.x).abs() > 0.5 || (new_r.y - old_r.y).abs() > 0.5 {
+                        mark_dirty(new_r, TILE_SIZE, w, h, &mut dirty);
+                        mark_dirty(old_r, TILE_SIZE, w, h, &mut dirty);
+                    }
                 }
             }
         }
@@ -625,6 +729,7 @@ fn run_suite(suite: &TestSuite) -> SuiteResult {
         let incr_time = t.elapsed();
         let incr_px = frame_buf.clone();
         prev_bboxes = bboxes;
+        prev_stub_bboxes = stub_bboxes;
 
         FrameResult { label: f.label.clone(), full_time, incr_time, full_px, incr_px, w, h, render_calls, skipped }
     }).collect();
