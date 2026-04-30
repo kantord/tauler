@@ -1247,6 +1247,35 @@ fn suite_realistic_sidebar() -> TestSuite {
 }
 
 // ---------------------------------------------------------------------------
+// Shrink-bug regression suite
+// ---------------------------------------------------------------------------
+
+fn suite_shrink_bug() -> TestSuite {
+    // A single text node with no siblings cycles between wide and narrow values.
+    // No reflow occurs (nothing moves), so the stale-old-bbox bug causes the
+    // right-side pixels of the wide text to persist after it shrinks.
+    let frames = ["WWWWWWWWWWWWWWWWWWWWWWWWW", "W", "WWWWWWWWWWWWWWWWWWWWWWWWW", "W"]
+        .iter().enumerate().map(|(i, &text)| {
+        let scene = vec![FakeNode::Collection {
+            id: "bar".into(),
+            tw: "w-[400px] h-[24px] bg-blue-900 flex items-center".into(),
+            children: vec![FakeNode::Text {
+                id: "label".into(),
+                content: text.into(),
+                tw: "text-white text-xs font-mono whitespace-nowrap".into(),
+            }],
+        }];
+        let full_json = scene[0].to_json();
+        SuiteFrame { label: format!("frame {i}: «{text}»"), scene, full_json }
+    }).collect();
+    TestSuite {
+        name: "Shrink Bug",
+        description: "Single text node, no siblings. Wide→narrow transition should erase the right portion — stale pixels here prove the old-bbox bug.",
+        frames,
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Main
 // ---------------------------------------------------------------------------
 
@@ -1260,6 +1289,7 @@ fn main() {
         suite_blurred_overlay(),
         suite_dense_metrics(),
         suite_realistic_sidebar(),
+        suite_shrink_bug(),
     ];
 
     let mut results = Vec::new();
