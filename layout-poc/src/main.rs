@@ -731,9 +731,14 @@ fn run_suite(suite: &TestSuite) -> SuiteResult {
             frame_buf = vec![0u8; (w * h * 4) as usize];
             for ty in 0..rows { for tx in 0..cols { dirty.insert((tx, ty)); } }
         } else {
-            // Changed-content tiles (new position).
+            // Changed-content tiles: mark both the new bbox AND the old bbox.
+            // The old bbox is needed when a node shrank — the tiles at its former
+            // right/bottom edge still hold stale pixels and must be re-rendered.
             for id in &incr_ctx.changed_ids {
                 if let Some(r) = bboxes.get(id.as_str()) {
+                    mark_dirty(r, TILE_SIZE, w, h, &mut dirty);
+                }
+                if let Some(r) = prev_stub_bboxes.get(id.as_str()) {
                     mark_dirty(r, TILE_SIZE, w, h, &mut dirty);
                 }
             }
