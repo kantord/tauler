@@ -599,11 +599,19 @@ const SHADOW_BUF: u32 = 32; // extra border around each tile to capture shadow b
 // Overlap condition: distance < 1 + 2*SHADOW_BUF/TILE_SIZE  →  distance ≤ MERGE_THRESHOLD.
 const MERGE_THRESHOLD: u32 = 2 * SHADOW_BUF / TILE_SIZE;
 
-// Cost-model coefficients for the greedy candidate-merge algorithm.
-// These are estimates; calibrate empirically (see PLAN.md tuning table).
-const O_FIXED_MS: f64 = 1.0;   // fixed per-render-call overhead (ms)
-const K_AREA:     f64 = 4e-5;   // ms per pixel of canvas area
-const K_NODES:    f64 = 0.3;    // ms per node in the render-node set
+// Default cost-model coefficients (overridden at runtime by self-calibration).
+const O_FIXED_MS: f64 = 1.0;
+const K_AREA:     f64 = 4e-5;
+const K_NODES:    f64 = 0.3;
+
+#[derive(Clone)]
+struct CostModel { o_fixed: f64, k_area: f64, k_nodes: f64 }
+
+impl Default for CostModel {
+    fn default() -> Self { Self { o_fixed: O_FIXED_MS, k_area: K_AREA, k_nodes: K_NODES } }
+}
+
+struct CalibrationResult { model: CostModel, r_squared: f64, n_samples: usize }
 
 // ---------------------------------------------------------------------------
 // Multi-band grouping — split dirty tiles into spatially contiguous clusters
@@ -705,10 +713,10 @@ struct RenderCandidate {
     node_set: BTreeSet<String>,
 }
 
-fn candidate_cost(c: &RenderCandidate) -> f64 {
+fn candidate_cost(c: &RenderCandidate, cm: &CostModel) -> f64 {
     let w = ((c.max_tx - c.min_tx + 1) * TILE_SIZE + 2 * SHADOW_BUF) as f64;
     let h = ((c.max_ty - c.min_ty + 1) * TILE_SIZE + 2 * SHADOW_BUF) as f64;
-    O_FIXED_MS + K_AREA * w * h + K_NODES * c.node_set.len() as f64
+    cm.o_fixed + cm.k_area * w * h + cm.k_nodes * c.node_set.len() as f64
 }
 
 fn merge_candidates(a: &RenderCandidate, b: &RenderCandidate) -> RenderCandidate {
@@ -759,7 +767,7 @@ fn compute_candidates(
 
 /// Greedily merge candidate pairs while doing so reduces total estimated cost.
 /// Stops when no beneficial merge exists (O(n² × |node_set|) per pass; n is small).
-fn greedy_merge_candidates(mut cs: Vec<RenderCandidate>) -> Vec<RenderCandidate> {
+fn greedy_merge_candidates(mut cs: Vec<RenderCandidate>, cm: &CostModel) -> Vec<RenderCandidate> {
     loop {
         if cs.len() < 2 { break; }
         let mut best_gain = 0.0f64;
@@ -767,8 +775,8 @@ fn greedy_merge_candidates(mut cs: Vec<RenderCandidate>) -> Vec<RenderCandidate>
         for i in 0..cs.len() {
             for j in i + 1..cs.len() {
                 let merged = merge_candidates(&cs[i], &cs[j]);
-                let gain = candidate_cost(&cs[i]) + candidate_cost(&cs[j])
-                         - candidate_cost(&merged);
+                let gain = candidate_cost(&cs[i], cm) + candidate_cost(&cs[j], cm)
+                         - candidate_cost(&merged, cm);
                 if gain > best_gain { best_gain = gain; best = (i, j); }
             }
         }
@@ -781,7 +789,77 @@ fn greedy_merge_candidates(mut cs: Vec<RenderCandidate>) -> Vec<RenderCandidate>
     cs
 }
 
-fn run_suite(suite: &TestSuite) -> SuiteResult {
+// ---------------------------------------------------------------------------
+// OLS self-calibration
+// ---------------------------------------------------------------------------
+
+/// Fit  time_ms = o_fixed + k_area × canvas_area + k_nodes × n_nodes
+/// from observed render samples using ordinary least squares.
+///
+/// area is scaled by 1e4 internally to improve numerical conditioning.
+/// Returns None if fewer than 4 samples or the system is degenerate.
+fn fit_cost_model(samples: &[(f64, f64, f64)]) -> Option<CalibrationResult> {
+    let n = samples.len();
+    if n < 4 { return None; }
+
+    const SCALE: f64 = 1e4; // area normalisation: avoids large XtX diagonal entries
+    let mut xtx = [[0.0f64; 3]; 3];
+    let mut xty = [0.0f64; 3];
+    for &(area, nodes, time) in samples {
+        let x = [1.0, area / SCALE, nodes];
+        for i in 0..3 {
+            xty[i] += x[i] * time;
+            for j in 0..3 { xtx[i][j] += x[i] * x[j]; }
+        }
+    }
+
+    // Gaussian elimination with partial pivoting on the 3×3 normal equations.
+    let mut a = xtx;
+    let mut b = xty;
+    for col in 0..3 {
+        let mut pivot = col;
+        for r in (col + 1)..3 {
+            if a[r][col].abs() > a[pivot][col].abs() { pivot = r; }
+        }
+        a.swap(col, pivot);
+        b.swap(col, pivot);
+        let p = a[col][col];
+        if p.abs() < 1e-14 { return None; }
+        for row in (col + 1)..3 {
+            let f = a[row][col] / p;
+            for k in col..3 { a[row][k] -= f * a[col][k]; }
+            b[row] -= f * b[col];
+        }
+    }
+    let mut sol = [0.0f64; 3];
+    for i in (0..3).rev() {
+        sol[i] = b[i];
+        for j in (i + 1)..3 { sol[i] -= a[i][j] * sol[j]; }
+        sol[i] /= a[i][i];
+    }
+    let (o_raw, k_area_raw, k_nodes_raw) = (sol[0], sol[1] / SCALE, sol[2]);
+
+    // R² over the raw samples using the fitted (un-clamped) coefficients.
+    let mean_t = samples.iter().map(|&(_, _, t)| t).sum::<f64>() / n as f64;
+    let ss_tot: f64 = samples.iter().map(|&(_, _, t)| (t - mean_t).powi(2)).sum();
+    let ss_res: f64 = samples.iter().map(|&(area, nd, t)| {
+        (t - (o_raw + k_area_raw * area + k_nodes_raw * nd)).powi(2)
+    }).sum();
+    let r_squared = if ss_tot > 1e-15 { (1.0 - ss_res / ss_tot).max(0.0) } else { 0.0 };
+
+    // Clamp to physically meaningful positive values.
+    Some(CalibrationResult {
+        model: CostModel {
+            o_fixed: o_raw.max(0.05),
+            k_area:  k_area_raw.max(1e-7),
+            k_nodes: k_nodes_raw.max(0.001),
+        },
+        r_squared,
+        n_samples: n,
+    })
+}
+
+fn run_suite(suite: &TestSuite, cm: &CostModel, cal_samples: &mut Vec<(f64, f64, f64)>) -> SuiteResult {
     let mut incr_ctx = Ctx::fresh();
     let mut incr_set: ManagedSet<FakeNode> = ManagedSet::new();
     let mut frame_buf: Vec<u8> = Vec::new();
@@ -935,7 +1013,7 @@ fn run_suite(suite: &TestSuite) -> SuiteResult {
             vec![]
         } else {
             let raw = compute_candidates(&dirty, &tile_node_map);
-            greedy_merge_candidates(raw)
+            greedy_merge_candidates(raw, cm)
         };
         let render_calls = candidates.len() as u32;
         let skipped = cols * rows - dirty.len() as u32;
@@ -971,10 +1049,16 @@ fn run_suite(suite: &TestSuite) -> SuiteResult {
                 "children": nodes
             });
             let node = parse_layout(&scene).unwrap_or_else(|_| Node::container(vec![]));
+            let t_render = Instant::now();
             let cand_px = takumi_render(
                 RenderOptions::builder().global(&incr_ctx.global)
                     .viewport(Viewport::new((None,None))).node(node).build()
             ).expect("candidate render").into_raw();
+            cal_samples.push((
+                canvas_w as f64 * canvas_h as f64,
+                nodes.len() as f64,
+                t_render.elapsed().as_secs_f64() * 1000.0,
+            ));
 
             for &(tx, ty) in &cand.tiles {
                 let px_x = tx * TILE_SIZE;
@@ -1003,7 +1087,7 @@ fn run_suite(suite: &TestSuite) -> SuiteResult {
 
 const PERFECT_THRESHOLD: f64 = 1.0; // quadratic weighted diff below which a frame is "pixel-perfect"
 
-fn html_report(suites: &[SuiteResult]) -> String {
+fn html_report(suites: &[SuiteResult], cal_note: &str) -> String {
     // ── Timing totals ────────────────────────────────────────────────────────
     let mut all_full = Duration::ZERO;
     let mut all_incr = Duration::ZERO;
@@ -1151,6 +1235,7 @@ fn html_report(suites: &[SuiteResult]) -> String {
         <div><div class="l">Full render total</div><div class="v">{ft:.0}ms</div></div>
         <div><div class="l">Incremental total</div><div class="v">{it:.0}ms</div></div>
       </div>
+      <div class="cal-box">{cal}</div>
       <table class="suite-tbl">
         <thead><tr><th>Suite</th><th>Speedup</th><th>Pixel-perfect</th></tr></thead>
         <tbody>{rows}</tbody>
@@ -1162,6 +1247,7 @@ fn html_report(suites: &[SuiteResult]) -> String {
         ft = all_full.as_secs_f64() * 1000.0,
         it = all_incr.as_secs_f64() * 1000.0,
         rows = table_rows, worst = worst_html,
+        cal = cal_note,
     );
 
     format!(r#"<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
@@ -1192,6 +1278,7 @@ h1{{color:#fff;margin-bottom:1rem}} h2{{color:#eee;font-size:1.1rem;margin:1.5re
 img{{display:block;border:1px solid #333;border-radius:2px;max-width:100%}}
 .ok{{background:#1a3;color:#afa;padding:1px 6px;border-radius:3px;font-size:0.72rem;font-weight:bold}}
 .diff{{background:#420;color:#faa;padding:1px 6px;border-radius:3px;font-size:0.72rem;font-weight:bold}}
+.cal-box{{background:#111a11;border:1px solid #2a3a2a;border-radius:6px;padding:0.6rem 1rem;font-size:0.82rem;color:#8c8;margin-bottom:1rem;font-family:monospace;white-space:pre}}
 </style></head><body>
 <h1>Partial Rendering PoC — Tile-based</h1>
 <div class="tabs">{tab_btns}</div>
@@ -1464,9 +1551,25 @@ fn suite_shrink_bug() -> TestSuite {
 // ---------------------------------------------------------------------------
 
 
-fn main() {
-    eprintln!("Loading fonts...");
+fn print_suite_results(result: &SuiteResult) {
+    let mut s_full = Duration::ZERO;
+    let mut s_incr = Duration::ZERO;
+    for (i, f) in result.frames.iter().enumerate() {
+        let d = if !f.incr_px.is_empty() && f.incr_px.len() == f.full_px.len() {
+            let d = diff(&f.full_px, &f.incr_px, f.w, f.h);
+            if d.weighted < PERFECT_THRESHOLD { "✓".into() }
+            else { format!("≠w={:.2}({:.3}%)", d.weighted, d.weighted / d.total as f64 * 100.0) }
+        } else { "?".into() };
+        println!("  [{: >2}] full={:.1}ms incr={:.1}ms ×{:.1} tiles={}/{} {}  {}",
+            i, f.full_time.as_secs_f64() * 1000.0, f.incr_time.as_secs_f64() * 1000.0,
+            f.full_time.as_secs_f64() / f.incr_time.as_secs_f64().max(1e-9),
+            f.render_calls, f.render_calls + f.skipped, d, f.label);
+        if i > 0 { s_full += f.full_time; s_incr += f.incr_time; }
+    }
+    println!("  → suite speedup: {:.1}×\n", s_full.as_secs_f64() / s_incr.as_secs_f64().max(1e-9));
+}
 
+fn main() {
     let suites_defs = vec![
         suite_simple_bar(),
         suite_shadow_cards(),
@@ -1476,29 +1579,48 @@ fn main() {
         suite_shrink_bug(),
     ];
 
+    // ── Pass 1: calibration run ───────────────────────────────────────────────
+    // Run all suites with default cost-model constants to collect
+    // (canvas_area, n_nodes, render_time_ms) samples for OLS regression.
+    eprintln!("Pass 1/2 — collecting calibration samples (default cost model)...");
+    let mut cal_samples: Vec<(f64, f64, f64)> = Vec::new();
+    let default_cm = CostModel::default();
+    for suite in &suites_defs {
+        run_suite(suite, &default_cm, &mut cal_samples);
+    }
+
+    // ── OLS fit ───────────────────────────────────────────────────────────────
+    let cal = fit_cost_model(&cal_samples);
+    let cm = cal.as_ref().map(|c| c.model.clone()).unwrap_or_default();
+
+    let cal_note = match &cal {
+        Some(c) => {
+            let msg = format!(
+                "Cost model calibrated from {} samples  R²={:.3}\n  O_FIXED = {:.4} ms   K_AREA = {:.3e} ms/px   K_NODES = {:.4} ms/node",
+                c.n_samples, c.r_squared, c.model.o_fixed, c.model.k_area, c.model.k_nodes
+            );
+            eprintln!("{msg}");
+            msg
+        }
+        None => {
+            let msg = "Calibration skipped (insufficient samples) — using default constants.".into();
+            eprintln!("{}", msg);
+            msg
+        }
+    };
+
+    // ── Pass 2: benchmark with calibrated constants ───────────────────────────
+    eprintln!("Pass 2/2 — benchmark with calibrated cost model...");
     let mut results = Vec::new();
+    let mut _discard: Vec<(f64, f64, f64)> = Vec::new();
     for suite in &suites_defs {
         eprintln!("Running suite: {} ({} frames, tile={}px)...", suite.name, suite.frames.len(), TILE_SIZE);
-        let result = run_suite(suite);
-
-        let mut s_full = Duration::ZERO;
-        let mut s_incr = Duration::ZERO;
-        for (i, f) in result.frames.iter().enumerate() {
-            let d = if !f.incr_px.is_empty() && f.incr_px.len()==f.full_px.len() {
-                let d = diff(&f.full_px, &f.incr_px, f.w, f.h);
-                if d.weighted<PERFECT_THRESHOLD { "✓".into() } else { format!("≠w={:.2}({:.3}%)",d.weighted,d.weighted/d.total as f64*100.0) }
-            } else { "?".into() };
-            println!("  [{: >2}] full={:.1}ms incr={:.1}ms ×{:.1} tiles={}/{} {}  {}",
-                i, f.full_time.as_secs_f64()*1000.0, f.incr_time.as_secs_f64()*1000.0,
-                f.full_time.as_secs_f64()/f.incr_time.as_secs_f64().max(1e-9),
-                f.render_calls, f.render_calls+f.skipped, d, f.label);
-            if i>0 { s_full+=f.full_time; s_incr+=f.incr_time; }
-        }
-        println!("  → suite speedup: {:.1}×\n", s_full.as_secs_f64()/s_incr.as_secs_f64().max(1e-9));
+        let result = run_suite(suite, &cm, &mut _discard);
+        print_suite_results(&result);
         results.push(result);
     }
 
     let path = "/tmp/poc_report.html";
-    std::fs::write(path, html_report(&results)).expect("write report");
+    std::fs::write(path, html_report(&results, &cal_note)).expect("write report");
     eprintln!("Report: file://{path}");
 }
