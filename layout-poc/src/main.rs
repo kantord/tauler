@@ -841,6 +841,226 @@ img{{display:block;border:1px solid #333;border-radius:2px}}
 }
 
 // ---------------------------------------------------------------------------
+// Realistic sidebar suite — mirrors actual costae layout
+// ---------------------------------------------------------------------------
+
+fn suite_realistic_sidebar() -> TestSuite {
+    let ws_data: &[(&str, &str, Option<&str>)] = &[
+        ("1",  "term",    Some("main")),
+        ("2",  "browser", None),
+        ("3",  "costae",  Some("partial-rendering")),
+        ("4",  "slack",   None),
+        ("5",  "docs",    Some("arch-notes")),
+        ("6",  "api",     Some("v2-refactor")),
+        ("7",  "fe",      Some("dashboard")),
+        ("8",  "debug",   None),
+        ("9",  "infra",   Some("tf-migration")),
+        ("10", "mail",    None),
+        ("11", "music",   None),
+        ("12", "monitor", Some("grafana")),
+    ];
+
+    // Each variable changes independently so we can see realistic per-event
+    // speedups rather than a pathological "everything dirty at once" worst case.
+    //   time:       changes every frame (most common real event)
+    //   focus:      changes every 4 frames (i3 workspace switch)
+    //   claude_pct: changes every 5 frames (60-second poll)
+    let frames = (0..10).map(|i| {
+        let focused    = (i / 4) % ws_data.len();
+        let time_str   = format!("{}:{:02}", 14, i * 7 % 60);
+        let claude_pct = 45usize + (i / 5) * 10;
+
+        let changed = if i == 0 { "cold".into() } else {
+            let mut parts = vec![format!("time={}", time_str)];
+            if i % 4 == 0 { parts.push(format!("focus→ws{}", ws_data[focused].0)); }
+            if i % 5 == 0 { parts.push(format!("claude={}%", claude_pct)); }
+            parts.join(" ")
+        };
+        let label = changed;
+
+        let ws_cards: Vec<FakeNode> = ws_data.iter().enumerate().map(|(j, (key, name, sub))| {
+            let is_focused = j == focused;
+            let card_tw = if is_focused {
+                "flex flex-col justify-center px-3 h-[52px] rounded-lg bg-gray-800 border border-blue-500 w-full"
+            } else {
+                "flex flex-col justify-center px-3 h-[52px] rounded-lg bg-gray-800 border border-gray-700 w-full"
+            };
+            let badge_tw = if is_focused {
+                "flex items-center justify-center flex-shrink-0 w-[26px] py-[2px] rounded bg-blue-500 border border-blue-600"
+            } else {
+                "flex items-center justify-center flex-shrink-0 w-[26px] py-[2px] rounded bg-gray-700 border border-gray-600"
+            };
+            let name_tw = if is_focused {
+                "text-[13px] text-white font-bold truncate"
+            } else {
+                "text-[13px] text-gray-300 truncate"
+            };
+
+            let mut lbl_children = vec![FakeNode::Text {
+                id: format!("ws-{j}-name"), content: name.to_string(), tw: name_tw.into(),
+            }];
+            if let Some(s) = sub {
+                lbl_children.push(FakeNode::Text {
+                    id: format!("ws-{j}-sub"), content: s.to_string(),
+                    tw: "text-[11px] text-gray-500 truncate".into(),
+                });
+            }
+
+            FakeNode::Collection {
+                id: format!("ws-{j}"), tw: card_tw.into(),
+                children: vec![FakeNode::Collection {
+                    id: format!("ws-{j}-inner"), tw: "flex flex-row items-center gap-2 w-full".into(),
+                    children: vec![
+                        FakeNode::Collection {
+                            id: format!("ws-{j}-badge"), tw: badge_tw.into(),
+                            children: vec![FakeNode::Text {
+                                id: format!("ws-{j}-key"), content: key.to_string(),
+                                tw: "text-[12px] text-white font-bold".into(),
+                            }],
+                        },
+                        FakeNode::Collection {
+                            id: format!("ws-{j}-lbl"), tw: "flex flex-col min-w-0 flex-1".into(),
+                            children: lbl_children,
+                        },
+                    ],
+                }],
+            }
+        }).collect();
+
+        let scene = vec![FakeNode::Collection {
+            id: "sidebar".into(),
+            tw: "flex flex-col w-[300px] h-[2500px] px-4 py-4 bg-gray-900".into(),
+            children: vec![
+                // Workspace list fills the top (flex-1 pushes bottom cards down)
+                FakeNode::Collection {
+                    id: "ws-area".into(),
+                    tw: "flex-1 flex flex-col w-full".into(),
+                    children: vec![FakeNode::Collection {
+                        id: "ws-list".into(),
+                        tw: "flex flex-col gap-2 w-full pt-4".into(),
+                        children: ws_cards,
+                    }],
+                },
+                // Bottom info cards
+                FakeNode::Collection {
+                    id: "bottom".into(),
+                    tw: "flex flex-col gap-[10px] w-full".into(),
+                    children: vec![
+                        // GitHub WIP (fully static)
+                        FakeNode::Collection {
+                            id: "gh-card".into(),
+                            tw: "flex flex-col gap-1 px-3 py-2 bg-gray-800 rounded-xl w-full".into(),
+                            children: vec![
+                                FakeNode::Collection { id: "gh-hdr".into(),
+                                    tw: "flex flex-row items-baseline".into(),
+                                    children: vec![
+                                        FakeNode::Text { id: "gh-ttl".into(),  content: "GITHUB WIP".into(), tw: "flex-1 text-[10px] text-gray-400".into() },
+                                        FakeNode::Text { id: "gh-pr-h".into(), content: "PR".into(),         tw: "w-[24px] text-right text-[8px] text-gray-400".into() },
+                                        FakeNode::Text { id: "gh-tsk-h".into(),content: "tsk".into(),        tw: "w-[24px] text-right text-[8px] text-gray-400".into() },
+                                    ],
+                                },
+                                FakeNode::Collection { id: "gh-r1".into(),
+                                    tw: "flex flex-row items-baseline".into(),
+                                    children: vec![
+                                        FakeNode::Text { id: "gh-n1".into(), content: "costae".into(), tw: "flex-1 text-[11px] text-white".into() },
+                                        FakeNode::Text { id: "gh-p1".into(), content: "3".into(),       tw: "w-[24px] text-right text-[11px] text-white".into() },
+                                        FakeNode::Text { id: "gh-t1".into(), content: "—".into(),       tw: "w-[24px] text-right text-[11px] text-gray-400".into() },
+                                    ],
+                                },
+                                FakeNode::Collection { id: "gh-r2".into(),
+                                    tw: "flex flex-row items-baseline".into(),
+                                    children: vec![
+                                        FakeNode::Text { id: "gh-n2".into(), content: "takumi".into(), tw: "flex-1 text-[11px] text-white".into() },
+                                        FakeNode::Text { id: "gh-p2".into(), content: "1".into(),       tw: "w-[24px] text-right text-[11px] text-white".into() },
+                                        FakeNode::Text { id: "gh-t2".into(), content: "2".into(),       tw: "w-[24px] text-right text-[11px] text-white".into() },
+                                    ],
+                                },
+                            ],
+                        },
+                        // Weather (static in this suite)
+                        FakeNode::Collection {
+                            id: "wx-card".into(),
+                            tw: "flex flex-col gap-1 px-3 py-2 bg-gray-800 rounded-xl w-full".into(),
+                            children: vec![
+                                FakeNode::Collection { id: "wx-r1".into(),
+                                    tw: "flex flex-row items-baseline justify-between".into(),
+                                    children: vec![
+                                        FakeNode::Text { id: "wx-temp".into(),  content: "21°C".into(),       tw: "text-[15px] text-white font-bold".into() },
+                                        FakeNode::Text { id: "wx-feels".into(), content: "feels 19°C".into(), tw: "text-[10px] text-gray-400".into() },
+                                    ],
+                                },
+                                FakeNode::Collection { id: "wx-r2".into(),
+                                    tw: "flex flex-row justify-between".into(),
+                                    children: vec![
+                                        FakeNode::Text { id: "wx-cond".into(), content: "Partly cloudy".into(), tw: "text-[10px] text-gray-400".into() },
+                                        FakeNode::Text { id: "wx-rh".into(),   content: "RH 62%".into(),        tw: "text-[10px] text-gray-400".into() },
+                                    ],
+                                },
+                            ],
+                        },
+                        // Claude usage (pct and progress bar change every 2 frames)
+                        FakeNode::Collection {
+                            id: "claude-card".into(),
+                            tw: "flex flex-col gap-1 px-3 py-2 bg-gray-800 rounded-xl w-full".into(),
+                            children: vec![
+                                FakeNode::Text { id: "claude-lbl".into(), content: "Claude · main".into(), tw: "text-[10px] text-gray-400".into() },
+                                FakeNode::Collection { id: "claude-row".into(),
+                                    tw: "flex flex-row items-baseline justify-between".into(),
+                                    children: vec![
+                                        FakeNode::Text { id: "claude-pct".into(),  content: format!("{claude_pct}%"), tw: "text-[15px] text-white font-bold".into() },
+                                        FakeNode::Text { id: "claude-rst".into(),  content: "resets 2h".into(),       tw: "text-[10px] text-gray-400".into() },
+                                    ],
+                                },
+                                FakeNode::Collection {
+                                    id: "claude-prog".into(),
+                                    tw: "w-full h-[4px] bg-gray-700 rounded-full".into(),
+                                    children: vec![FakeNode::Image {
+                                        id: "claude-fill".into(),
+                                        color: "green-400".into(),
+                                        width: ((claude_pct * 200 / 100) as u32).min(200),
+                                        height: 4,
+                                    }],
+                                },
+                            ],
+                        },
+                        // DateTime (time changes every frame)
+                        FakeNode::Collection {
+                            id: "dt-card".into(),
+                            tw: "flex flex-row gap-[10px] px-3 py-2 bg-gray-800 rounded-xl w-full".into(),
+                            children: vec![
+                                FakeNode::Collection { id: "dt-date".into(),
+                                    tw: "flex-1 flex flex-col gap-1".into(),
+                                    children: vec![
+                                        FakeNode::Text { id: "dt-dl".into(), content: "DATE".into(),   tw: "text-[10px] text-gray-400".into() },
+                                        FakeNode::Text { id: "dt-dv".into(), content: "Apr 30".into(), tw: "text-[14px] text-white".into() },
+                                    ],
+                                },
+                                FakeNode::Collection { id: "dt-time".into(),
+                                    tw: "flex-1 flex flex-col gap-1".into(),
+                                    children: vec![
+                                        FakeNode::Text { id: "dt-tl".into(), content: "TIME".into(),        tw: "text-[10px] text-gray-400".into() },
+                                        FakeNode::Text { id: "dt-tv".into(), content: time_str.clone(),     tw: "text-[14px] text-white font-mono".into() },
+                                    ],
+                                },
+                            ],
+                        },
+                    ],
+                },
+            ],
+        }];
+
+        let full_json = scene[0].to_json();
+        SuiteFrame { label, scene, full_json }
+    }).collect();
+
+    TestSuite {
+        name: "Realistic Sidebar",
+        description: "300×2500 px sidebar: workspace list (focus cycles), GitHub WIP, weather, Claude usage, datetime. Most tiles static.",
+        frames,
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Main
 // ---------------------------------------------------------------------------
 
@@ -853,6 +1073,7 @@ fn main() {
         suite_shadow_cards(),
         suite_blurred_overlay(),
         suite_dense_metrics(),
+        suite_realistic_sidebar(),
     ];
 
     let mut results = Vec::new();
