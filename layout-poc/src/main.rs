@@ -204,10 +204,14 @@ fn collect_bboxes(measured: &MeasuredNode, node: &FakeNode, bboxes: &mut HashMap
 
 fn stub_scene_json(node: &FakeNode, dims: &HashMap<String, (f32, f32)>) -> serde_json::Value {
     match node {
-        FakeNode::Text { id, .. } | FakeNode::Image { id, .. } => {
+        FakeNode::Text { id, .. } => {
             let (w, h) = dims.get(id.as_str()).copied().unwrap_or((0.0, 0.0));
             serde_json::json!({"type":"container","style":{"width":w,"height":h}})
         }
+        // Images don't involve text shaping so we reuse their exact JSON — this
+        // preserves display:inline-block and tw-based dimensions, ensuring the stub
+        // layout places the image at the same position as the full layout would.
+        FakeNode::Image { .. } => node.to_json(),
         FakeNode::Collection { tw, children, .. } => {
             let ch: Vec<_> = children.iter().map(|c| stub_scene_json(c, dims)).collect();
             serde_json::json!({"type":"container","tw":tw,"children":ch})
@@ -621,14 +625,20 @@ fn run_suite(suite: &TestSuite) -> SuiteResult {
             collect_bboxes(&smeasured, &f.scene[0], &mut sb);
             stub_bboxes = sb;
         } else {
-            // Step (a): remeasure only changed text nodes in isolation.
+            // Step (a): update node_dims for any leaf whose dimensions may have changed.
             for id in &incr_ctx.changed_ids {
                 if let Some(node) = find_node(&f.scene[0], id) {
-                    if matches!(node, FakeNode::Text { .. }) {
-                        let dims = measure_natural(node, &incr_ctx.global);
-                        incr_ctx.node_dims.insert(id.clone(), dims);
+                    match node {
+                        FakeNode::Text { .. } => {
+                            let dims = measure_natural(node, &incr_ctx.global);
+                            incr_ctx.node_dims.insert(id.clone(), dims);
+                        }
+                        FakeNode::Image { width, height, .. } => {
+                            // Dimensions are declared on the node; no shaping needed.
+                            incr_ctx.node_dims.insert(id.clone(), (*width as f32, *height as f32));
+                        }
+                        _ => {}
                     }
-                    // Images: dimensions come from the node definition, not content.
                 }
             }
             // Step (b): stub layout — replace all leaves with fixed-size containers.
