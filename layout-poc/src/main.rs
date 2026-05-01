@@ -202,11 +202,38 @@ fn collect_bboxes(measured: &MeasuredNode, node: &FakeNode, bboxes: &mut HashMap
 // The tree structure is preserved so collect_bboxes can still pair nodes.
 // ---------------------------------------------------------------------------
 
+/// Extract layout-affecting Tailwind classes from a text node's tw.
+/// Preserved on the stub so the flex container places the stub at the same
+/// position as the full text node (e.g. ml-auto, flex-1).
+/// Visual classes (font size, color, etc.) are dropped — they are irrelevant
+/// to flex geometry and would trigger unnecessary text shaping.
+fn layout_tw(tw: &str) -> String {
+    tw.split_whitespace().filter(|c| {
+        matches!(*c,
+            "ml-auto"|"mr-auto"|"mx-auto"|"mt-auto"|"mb-auto"|"my-auto")
+        || c.starts_with("flex-")
+        || c.starts_with("grow") || c.starts_with("shrink")
+        || c.starts_with("self-") || c.starts_with("justify-self-")
+        || c.starts_with("order-")
+        || c.starts_with("w-") || c.starts_with("h-")
+        || c.starts_with("min-w-") || c.starts_with("max-w-")
+        || c.starts_with("min-h-") || c.starts_with("max-h-")
+    }).collect::<Vec<_>>().join(" ")
+}
+
 fn stub_scene_json(node: &FakeNode, dims: &HashMap<String, (f32, f32)>) -> serde_json::Value {
     match node {
-        FakeNode::Text { id, .. } => {
+        FakeNode::Text { id, tw, .. } => {
             let (w, h) = dims.get(id.as_str()).copied().unwrap_or((0.0, 0.0));
-            serde_json::json!({"type":"container","style":{"width":w,"height":h}})
+            let ltw = layout_tw(tw);
+            // Preserve layout-affecting classes (ml-auto, flex-1, …) so the flex
+            // container places this stub at the same position the real text node
+            // would occupy.  Explicit style width/height provide the measured size.
+            if ltw.is_empty() {
+                serde_json::json!({"type":"container","style":{"width":w,"height":h}})
+            } else {
+                serde_json::json!({"type":"container","tw":ltw,"style":{"width":w,"height":h}})
+            }
         }
         // Images don't involve text shaping so we reuse their exact JSON — this
         // preserves display:inline-block and tw-based dimensions, ensuring the stub
@@ -262,9 +289,113 @@ fn visual_tw(tw: &str) -> String {
     }).collect::<Vec<_>>().join(" ")
 }
 
+/// True if `tw` contains an overflow clipping class.
+/// Containers with overflow-hidden must clip their children; we preserve that
+/// relationship by nesting children inside the container rather than emitting
+/// them as flat siblings (which would bypass the clip entirely).
+fn has_overflow_clip(tw: &str) -> bool {
+    tw.split_whitespace().any(|c| c.starts_with("overflow-"))
+}
+
+/// Emit `node` and its subtree into `out`, with all coordinates expressed
+/// relative to (`parent_x`, `parent_y`).  Called when we are inside a clipping
+/// container and need its children positioned within it.
+fn collect_nested(
+    node: &FakeNode,
+    bboxes: &HashMap<String, Rect>,
+    parent_x: f32, parent_y: f32,
+    out: &mut Vec<serde_json::Value>,
+) {
+    let Some(r) = bboxes.get(node.id()) else { return };
+    let lx = r.x - parent_x;
+    let ly = r.y - parent_y;
+    match node {
+        FakeNode::Text { content, tw, .. } =>
+            out.push(serde_json::json!({"type":"text","text":content,"tw":tw,
+                "style":{"position":"absolute","left":lx,"top":ly,"width":r.w}})),
+        FakeNode::Image { color, width, height, .. } =>
+            out.push(serde_json::json!({"type":"container","tw":format!("bg-{}",color),
+                "style":{"display":"block","position":"absolute","left":lx,"top":ly,
+                         "width":*width as f32,"height":*height as f32}})),
+        FakeNode::Collection { tw, children, .. } => {
+            if has_overflow_clip(tw) {
+                // New clip context: children positioned relative to this container.
+                let mut ch = Vec::new();
+                for child in children { collect_nested(child, bboxes, r.x, r.y, &mut ch); }
+                out.push(serde_json::json!({"type":"container","tw":visual_tw(tw),
+                    "style":{"position":"absolute","left":lx,"top":ly,
+                             "width":r.w,"height":r.h,"overflow":"hidden"},
+                    "children":ch}));
+            } else {
+                // Non-clipping: emit flat, children still relative to original parent.
+                out.push(serde_json::json!({"type":"container","tw":visual_tw(tw),
+                    "style":{"position":"absolute","left":lx,"top":ly,"width":r.w,"height":r.h}}));
+                for child in children { collect_nested(child, bboxes, parent_x, parent_y, out); }
+            }
+        }
+    }
+}
+
+/// Whitelist variant of collect_nested: only emits nodes present in `node_set`.
+fn collect_nested_whitelist(
+    node: &FakeNode,
+    bboxes: &HashMap<String, Rect>,
+    node_set: &BTreeSet<String>,
+    parent_x: f32, parent_y: f32,
+    out: &mut Vec<serde_json::Value>,
+) {
+    let Some(r) = bboxes.get(node.id()) else { return };
+    let lx = r.x - parent_x;
+    let ly = r.y - parent_y;
+    let in_set = node_set.contains(node.id());
+    match node {
+        FakeNode::Text { content, tw, .. } => {
+            if in_set {
+                out.push(serde_json::json!({"type":"text","text":content,"tw":tw,
+                    "style":{"position":"absolute","left":lx,"top":ly,"width":r.w}}));
+            }
+        }
+        FakeNode::Image { color, width, height, .. } => {
+            if in_set {
+                out.push(serde_json::json!({"type":"container","tw":format!("bg-{}",color),
+                    "style":{"display":"block","position":"absolute","left":lx,"top":ly,
+                             "width":*width as f32,"height":*height as f32}}));
+            }
+        }
+        FakeNode::Collection { tw, children, .. } => {
+            if has_overflow_clip(tw) {
+                let mut ch = Vec::new();
+                for child in children {
+                    collect_nested_whitelist(child, bboxes, node_set, r.x, r.y, &mut ch);
+                }
+                if in_set {
+                    out.push(serde_json::json!({"type":"container","tw":visual_tw(tw),
+                        "style":{"position":"absolute","left":lx,"top":ly,
+                                 "width":r.w,"height":r.h,"overflow":"hidden"},
+                        "children":ch}));
+                } else {
+                    // Container not in set but children might be — emit children
+                    // without the clip (acceptable limitation).
+                    out.extend(ch);
+                }
+            } else {
+                if in_set {
+                    out.push(serde_json::json!({"type":"container","tw":visual_tw(tw),
+                        "style":{"position":"absolute","left":lx,"top":ly,"width":r.w,"height":r.h}}));
+                }
+                for child in children {
+                    collect_nested_whitelist(child, bboxes, node_set, parent_x, parent_y, out);
+                }
+            }
+        }
+    }
+}
+
 /// Collect every node whose bbox overlaps (qx,qy,qw,qh) into an absolutely-
 /// positioned flat list.  Used for the legacy bbox-query path (first frame / all
 /// tiles dirty) where the node set is not yet known.
+/// Containers with overflow-hidden have their children nested inside them so
+/// the clip relationship is preserved.
 fn collect_flat(
     node: &FakeNode,
     bboxes: &HashMap<String, Rect>,
@@ -284,9 +415,18 @@ fn collect_flat(
                 "style":{"display":"block","position":"absolute","left":lx,"top":ly,
                          "width":*width as f32,"height":*height as f32}})),
         FakeNode::Collection { tw, children, .. } => {
-            out.push(serde_json::json!({"type":"container","tw":visual_tw(tw),
-                "style":{"position":"absolute","left":lx,"top":ly,"width":r.w,"height":r.h}}));
-            for child in children { collect_flat(child, bboxes, qx, qy, qw, qh, out); }
+            if has_overflow_clip(tw) {
+                let mut ch = Vec::new();
+                for child in children { collect_nested(child, bboxes, r.x, r.y, &mut ch); }
+                out.push(serde_json::json!({"type":"container","tw":visual_tw(tw),
+                    "style":{"position":"absolute","left":lx,"top":ly,
+                             "width":r.w,"height":r.h,"overflow":"hidden"},
+                    "children":ch}));
+            } else {
+                out.push(serde_json::json!({"type":"container","tw":visual_tw(tw),
+                    "style":{"position":"absolute","left":lx,"top":ly,"width":r.w,"height":r.h}}));
+                for child in children { collect_flat(child, bboxes, qx, qy, qw, qh, out); }
+            }
         }
     }
 }
@@ -295,6 +435,7 @@ fn collect_flat(
 /// from a RenderCandidate.  Nodes not in the set are skipped; Collection nodes
 /// not in the set are still recursed (children may be in the set).
 /// Spatial cull still applied for early-exit on branches far from the region.
+/// Containers with overflow-hidden have their children nested to preserve clip.
 fn collect_flat_whitelist(
     node: &FakeNode,
     bboxes: &HashMap<String, Rect>,
@@ -325,13 +466,28 @@ fn collect_flat_whitelist(
             }
         }
         FakeNode::Collection { tw, children, .. } => {
-            if in_set {
-                out.push(serde_json::json!({"type":"container","tw":visual_tw(tw),
-                    "style":{"position":"absolute","left":lx,"top":ly,"width":r.w,"height":r.h}}));
-            }
-            // Always recurse — children may be in the set even if this container isn't.
-            for child in children {
-                collect_flat_whitelist(child, bboxes, node_set, qx, qy, qw, qh, out);
+            if has_overflow_clip(tw) {
+                let mut ch = Vec::new();
+                for child in children {
+                    collect_nested_whitelist(child, bboxes, node_set, r.x, r.y, &mut ch);
+                }
+                if in_set {
+                    out.push(serde_json::json!({"type":"container","tw":visual_tw(tw),
+                        "style":{"position":"absolute","left":lx,"top":ly,
+                                 "width":r.w,"height":r.h,"overflow":"hidden"},
+                        "children":ch}));
+                } else {
+                    out.extend(ch);
+                }
+            } else {
+                if in_set {
+                    out.push(serde_json::json!({"type":"container","tw":visual_tw(tw),
+                        "style":{"position":"absolute","left":lx,"top":ly,"width":r.w,"height":r.h}}));
+                }
+                // Always recurse — children may be in the set even if this container isn't.
+                for child in children {
+                    collect_flat_whitelist(child, bboxes, node_set, qx, qy, qw, qh, out);
+                }
             }
         }
     }
