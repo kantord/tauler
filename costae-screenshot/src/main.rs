@@ -92,36 +92,62 @@ fn main() {
     let mut layout = eval_output.layout;
     resolve_tw_in_json(&mut layout, &theme, theme_mode);
 
-    // Wrap in a background container so screenshots render on a solid background
-    // rather than transparent, making borders and subtle colors visible.
+    // 16px margin on all sides: baked into the canvas wrapper as padding so the
+    // component sits at (16, 16) and the crop region works out automatically.
+    const PAD: u32 = 16;
+    const CANVAS_H: u32 = 2000;
+    let render_w = width;
+
+    // Inject a w-full frame wrapper so every component renders at the full content
+    // width (render_w - 2×PAD). This gives consistent screenshot widths regardless
+    // of whether the component uses w-full itself.
+    let frame = serde_json::json!({
+        "type": "container",
+        "tw": "w-full flex flex-col",
+        "children": [layout]
+    });
     let mut canvas = serde_json::json!({
         "type": "container",
-        "tw": "bg-background w-full flex flex-col",
-        "children": [layout]
+        "tw": "bg-background w-full flex flex-col p-[16px]",
+        "children": [frame]
     });
     resolve_tw_in_json(&mut canvas, &theme, theme_mode);
 
-    // Render at fixed width, tall canvas — then crop to content height.
-    const PAD: u32 = 8;
-    const CANVAS_H: u32 = 2000;
-    let render_w = width + PAD * 2;
-
-    // Use the same render_frame path as the bar (BGRX output).
     let bgrx = costae::render_frame(&canvas, render_w, CANVAS_H, 1.0);
-
-    // Measure content height (cache-warm after render).
     let measured = costae::measure_layout_frame(&canvas, render_w, CANVAS_H, 1.0);
-    let content_h = (measured.height.ceil() as u32).max(1);
-    let final_h = (content_h + PAD * 2).min(CANVAS_H);
 
-    // Crop to final_h rows and convert BGRX → RGBA for PNG.
-    let row_bytes = (render_w * 4) as usize;
-    let rgba: Vec<u8> = bgrx[..row_bytes * final_h as usize]
-        .chunks_exact(4)
-        .flat_map(|px| [px[2], px[1], px[0], 255u8])
-        .collect();
-    let img = RgbaImage::from_raw(render_w, final_h, rgba)
+    // Frame bounds: the injected w-full wrapper is always content-area wide,
+    // so obj_w = render_w - 2*PAD and obj_h = actual component height.
+    let (obj_x, obj_y, obj_w, obj_h) = if let Some(child) = measured.children.first() {
+        let x = child.transform[4].floor() as u32;
+        let y = child.transform[5].floor() as u32;
+        let w = child.width.ceil() as u32;
+        let h = child.height.ceil() as u32;
+        (x, y, w, h)
+    } else {
+        (PAD, PAD, render_w.saturating_sub(2 * PAD), measured.height.ceil() as u32)
+    };
+
+    // Crop: 16px margin around the object on all four sides.
+    let x0 = obj_x.saturating_sub(PAD);
+    let y0 = obj_y.saturating_sub(PAD);
+    let x1 = (obj_x + obj_w + PAD).min(render_w);
+    let y1 = (obj_y + obj_h + PAD).min(CANVAS_H);
+    let crop_w = x1 - x0;
+    let crop_h = y1 - y0;
+
+    // Convert BGRX → RGBA for the cropped region.
+    let src_row = (render_w * 4) as usize;
+    let mut rgba: Vec<u8> = Vec::with_capacity((crop_w * crop_h * 4) as usize);
+    for y in y0..y1 {
+        let row = y as usize * src_row;
+        for px in bgrx[row + x0 as usize * 4..row + x1 as usize * 4].chunks_exact(4) {
+            rgba.extend_from_slice(&[px[2], px[1], px[0], 255u8]);
+        }
+    }
+
+    let img = RgbaImage::from_raw(crop_w, crop_h, rgba)
         .expect("RgbaImage::from_raw failed");
     img.save(&output_path).expect("save PNG failed");
-    eprintln!("wrote {} ({}x{})", output_path, render_w, final_h);
+    eprintln!("wrote {} ({}x{})", output_path, crop_w, crop_h);
 }
