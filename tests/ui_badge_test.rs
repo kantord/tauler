@@ -15,55 +15,50 @@ fn eval_badge(inner_jsx: &str) -> serde_json::Value {
     common::eval_jsx(&source).layout
 }
 
-// --- node shape ---
+mod node_shape {
+    use super::*;
 
-#[test]
-fn badge_renders_as_container_node() {
-    assert_eq!(eval_badge("<Badge />")["type"], "container");
+    #[test]
+    fn renders_as_container_node() {
+        assert_eq!(eval_badge("<Badge />")["type"], "container");
+    }
 }
 
-// --- variant classes ---
+mod variant_classes {
+    use super::*;
 
-#[test]
-fn badge_default_variant_applies_base_and_default_variant_classes() {
-    let expected = format!("{BASE_TW} {DEFAULT_VARIANT_TW}");
-    assert_eq!(eval_badge("<Badge />")["tw"], expected);
+    fn assert_variant(variant: &str, expected_variant_tw: &str) {
+        let expected = format!("{BASE_TW} {expected_variant_tw}");
+        assert_eq!(eval_badge(&format!(r#"<Badge variant="{variant}" />"#))["tw"], expected);
+    }
+
+    #[test]
+    fn default_variant_applies_base_and_default_classes() {
+        assert_eq!(eval_badge("<Badge />")["tw"], format!("{BASE_TW} {DEFAULT_VARIANT_TW}"));
+    }
+
+    #[test]
+    fn secondary_variant_applies_correct_classes() {
+        assert_variant("secondary", SECONDARY_VARIANT_TW);
+    }
+
+    #[test]
+    fn destructive_variant_applies_correct_classes() {
+        assert_variant("destructive", DESTRUCTIVE_VARIANT_TW);
+    }
+
+    #[test]
+    fn outline_variant_applies_correct_classes() {
+        assert_variant("outline", OUTLINE_VARIANT_TW);
+    }
 }
 
-#[test]
-fn badge_secondary_variant_applies_base_and_secondary_classes() {
-    let expected = format!("{BASE_TW} {SECONDARY_VARIANT_TW}");
-    assert_eq!(
-        eval_badge(r#"<Badge variant="secondary" />"#)["tw"],
-        expected
-    );
-}
+mod tw_prop {
+    use super::*;
 
-#[test]
-fn badge_destructive_variant_applies_base_and_destructive_classes() {
-    let expected = format!("{BASE_TW} {DESTRUCTIVE_VARIANT_TW}");
-    assert_eq!(
-        eval_badge(r#"<Badge variant="destructive" />"#)["tw"],
-        expected
-    );
-}
-
-#[test]
-fn badge_outline_variant_applies_base_and_outline_classes() {
-    let expected = format!("{BASE_TW} {OUTLINE_VARIANT_TW}");
-    assert_eq!(
-        eval_badge(r#"<Badge variant="outline" />"#)["tw"],
-        expected
-    );
-}
-
-// --- tw prop ---
-
-#[test]
-fn badge_extra_tw_prop_is_appended_after_variant_classes() {
-    let expected = format!("{BASE_TW} {DEFAULT_VARIANT_TW} extra-class");
-    assert_eq!(
-        eval_badge(r#"<Badge tw="extra-class" />"#)["tw"],
-        expected
-    );
+    #[test]
+    fn extra_tw_is_appended_after_variant_classes() {
+        let expected = format!("{BASE_TW} {DEFAULT_VARIANT_TW} extra-class");
+        assert_eq!(eval_badge(r#"<Badge tw="extra-class" />"#)["tw"], expected);
+    }
 }

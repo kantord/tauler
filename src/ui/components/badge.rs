@@ -14,8 +14,6 @@ const BADGE_VARIANTS: Cva = Cva {
 };
 
 /// A small inline label for status, category, or count.
-/// Accepts a `variant` prop (`default`, `secondary`, `destructive`, `outline`)
-/// and an optional `tw` prop for Tailwind overrides.
 ///
 /// # JSX
 /// ```jsx
