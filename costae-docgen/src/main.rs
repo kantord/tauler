@@ -1,17 +1,18 @@
+use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-/// A single extracted component entry.
 struct Component {
-    /// The `@ui/...` module path from the `#[component("...")]` attribute.
     module_path: String,
-    /// PascalCase export name derived from the function name.
     export_name: String,
-    /// Prose lines from `///` doc comments (excluding `# JSX` / `# Shadcn` sections).
     prose: Vec<String>,
-    /// Lines inside the `# JSX` fenced code block, if present.
     jsx_block: Option<Vec<String>>,
-    /// The URL that follows `# Shadcn`, if present.
+    shadcn_url: Option<String>,
+}
+
+struct DocComments {
+    prose: Vec<String>,
+    jsx_block: Option<Vec<String>>,
     shadcn_url: Option<String>,
 }
 
@@ -35,7 +36,6 @@ fn collect_doc_comment_lines(lines: &[&str], attr_line_idx: usize) -> Vec<String
     while idx >= 0 {
         let line = lines[idx as usize].trim();
         if let Some(rest) = line.strip_prefix("///") {
-            // strip one leading space if present
             let content = rest.strip_prefix(' ').unwrap_or(rest);
             doc_lines.push(content.to_string());
             idx -= 1;
@@ -47,10 +47,7 @@ fn collect_doc_comment_lines(lines: &[&str], attr_line_idx: usize) -> Vec<String
     doc_lines
 }
 
-/// Parse doc-comment lines into prose, optional JSX block, and optional Shadcn URL.
-fn parse_doc_comments(
-    raw: &[String],
-) -> (Vec<String>, Option<Vec<String>>, Option<String>) {
+fn parse_doc_comments(raw: &[String]) -> DocComments {
     let mut prose: Vec<String> = Vec::new();
     let mut jsx_block: Option<Vec<String>> = None;
     let mut shadcn_url: Option<String> = None;
@@ -60,7 +57,6 @@ fn parse_doc_comments(
         let line = &raw[i];
 
         if line.trim() == "# JSX" {
-            // Collect the fenced code block that follows.
             i += 1;
             // skip opening fence (e.g. "```jsx")
             if i < raw.len() && raw[i].trim_start().starts_with("```") {
@@ -80,7 +76,6 @@ fn parse_doc_comments(
         }
 
         if line.trim() == "# Shadcn" {
-            // The URL is on the next line.
             i += 1;
             if i < raw.len() {
                 shadcn_url = Some(raw[i].trim().to_string());
@@ -89,20 +84,15 @@ fn parse_doc_comments(
             continue;
         }
 
-        // Regular prose — skip section headers that belong to JSX/Shadcn blocks.
         prose.push(line.clone());
         i += 1;
     }
 
-    (prose, jsx_block, shadcn_url)
+    DocComments { prose, jsx_block, shadcn_url }
 }
 
-/// Scan a single `.rs` file and return any components found.
-fn extract_components(path: &Path) -> Vec<Component> {
-    let source = match fs::read_to_string(path) {
-        Ok(s) => s,
-        Err(_) => return vec![],
-    };
+fn extract_components(path: &Path) -> Result<Vec<Component>, std::io::Error> {
+    let source = fs::read_to_string(path)?;
 
     let lines: Vec<&str> = source.lines().collect();
     let mut components = Vec::new();
@@ -110,7 +100,6 @@ fn extract_components(path: &Path) -> Vec<Component> {
     for (i, line) in lines.iter().enumerate() {
         let trimmed = line.trim();
 
-        // Match `#[component("@ui/...")]`
         if let Some(inner) = trimmed
             .strip_prefix("#[component(\"")
             .and_then(|s| s.strip_suffix("\")]"))
@@ -149,22 +138,21 @@ fn extract_components(path: &Path) -> Vec<Component> {
             let export_name = to_pascal_case(&fn_name);
 
             let raw_docs = collect_doc_comment_lines(&lines, i);
-            let (prose, jsx_block, shadcn_url) = parse_doc_comments(&raw_docs);
+            let doc_comments = parse_doc_comments(&raw_docs);
 
             components.push(Component {
                 module_path,
                 export_name,
-                prose,
-                jsx_block,
-                shadcn_url,
+                prose: doc_comments.prose,
+                jsx_block: doc_comments.jsx_block,
+                shadcn_url: doc_comments.shadcn_url,
             });
         }
     }
 
-    components
+    Ok(components)
 }
 
-/// Collect all `.rs` files under `dir` recursively.
 fn collect_rs_files(dir: &Path) -> Vec<PathBuf> {
     let mut result = Vec::new();
     let entries = match fs::read_dir(dir) {
@@ -182,8 +170,13 @@ fn collect_rs_files(dir: &Path) -> Vec<PathBuf> {
     result
 }
 
+const SCREENSHOT_BINARY_CANDIDATES: &[&str] = &[
+    "target/debug/costae-screenshot",
+    "target/release/costae-screenshot",
+];
+
 fn find_screenshot_binary() -> Option<PathBuf> {
-    for candidate in &["target/debug/costae-screenshot", "target/release/costae-screenshot"] {
+    for candidate in SCREENSHOT_BINARY_CANDIDATES {
         let p = PathBuf::from(candidate);
         if p.exists() {
             return Some(p);
@@ -192,7 +185,8 @@ fn find_screenshot_binary() -> Option<PathBuf> {
     None
 }
 
-fn build_jsx_module(jsx_block: &[String], all_components: &[Component]) -> String {
+fn collect_jsx_imports(jsx_block: &[String], all_components: &[Component]) -> String {
+    let mut seen: HashSet<String> = HashSet::new();
     let mut imports = String::new();
     for line in jsx_block {
         let mut rest = line.as_str();
@@ -206,9 +200,12 @@ fn build_jsx_module(jsx_block: &[String], all_components: &[Component]) -> Strin
                         .collect();
                     let name = format!("{}{}", first, tail);
                     if let Some(dep) = all_components.iter().find(|c| c.export_name == name) {
-                        let line = format!("import {{ {} }} from '{}';\n", dep.export_name, dep.module_path);
-                        if !imports.contains(&line) {
-                            imports.push_str(&line);
+                        let import_line = format!(
+                            "import {{ {} }} from '{}';\n",
+                            dep.export_name, dep.module_path
+                        );
+                        if seen.insert(import_line.clone()) {
+                            imports.push_str(&import_line);
                         }
                     }
                     rest = &rest[name.len()..];
@@ -216,6 +213,11 @@ fn build_jsx_module(jsx_block: &[String], all_components: &[Component]) -> Strin
             }
         }
     }
+    imports
+}
+
+fn build_jsx_module(jsx_block: &[String], all_components: &[Component]) -> String {
+    let imports = collect_jsx_imports(jsx_block, all_components);
     let body = jsx_block.join("\n");
     format!("{imports}export default function render() {{\n  return (\n{body}\n  );\n}}\n")
 }
@@ -229,20 +231,27 @@ fn render_screenshot(
     let bin = find_screenshot_binary()?;
 
     let source = build_jsx_module(jsx_block, all_components);
-    let tmp_input = std::env::temp_dir().join(format!("costae-docgen-{}.jsx", component.export_name.to_lowercase()));
-    fs::write(&tmp_input, &source).ok()?;
+    let tmp_jsx_file = std::env::temp_dir()
+        .join(format!("costae-docgen-{}.jsx", component.export_name.to_lowercase()));
+    fs::write(&tmp_jsx_file, &source).ok()?;
 
     fs::create_dir_all(assets_dir).ok()?;
     let output_path = assets_dir.join(format!("{}.png", component.export_name.to_lowercase()));
 
     let status = std::process::Command::new(&bin)
-        .arg("--input").arg(&tmp_input)
+        .arg("--input").arg(&tmp_jsx_file)
         .arg("--output").arg(&output_path)
         .status()
         .ok()?;
 
-    let _ = fs::remove_file(&tmp_input);
+    let _ = fs::remove_file(&tmp_jsx_file);
     if status.success() { Some(output_path) } else { None }
+}
+
+fn trim_blank_lines(lines: &[String]) -> &[String] {
+    let start = lines.iter().position(|l| !l.trim().is_empty()).unwrap_or(lines.len());
+    let end = lines.iter().rposition(|l| !l.trim().is_empty()).map(|i| i + 1).unwrap_or(0);
+    if start <= end { &lines[start..end] } else { &[] }
 }
 
 fn render_markdown(components: &[Component], screenshots: &[Option<PathBuf>]) -> String {
@@ -263,21 +272,12 @@ fn render_markdown(components: &[Component], screenshots: &[Option<PathBuf>]) ->
             out.push_str(&format!("![{} screenshot](./assets/{})\n\n", comp.export_name, filename));
         }
 
-        // Prose (skip blank-only leading/trailing lines)
-        let prose_trimmed: Vec<&String> = comp
-            .prose
-            .iter()
-            .skip_while(|l| l.trim().is_empty())
-            .collect();
-        let mut end = prose_trimmed.len();
-        while end > 0 && prose_trimmed[end - 1].trim().is_empty() {
-            end -= 1;
-        }
-        for line in &prose_trimmed[..end] {
+        let prose_trimmed = trim_blank_lines(&comp.prose);
+        for line in prose_trimmed {
             out.push_str(line);
             out.push('\n');
         }
-        if !prose_trimmed[..end].is_empty() {
+        if !prose_trimmed.is_empty() {
             out.push('\n');
         }
 
@@ -296,8 +296,6 @@ fn render_markdown(components: &[Component], screenshots: &[Option<PathBuf>]) ->
 }
 
 fn main() {
-    // Resolve paths relative to the workspace root.
-    // When run via `cargo run -p costae-docgen` the cwd is the workspace root.
     let components_dir = Path::new("src/ui/components");
     let docs_dir = Path::new("docs");
     let output_path = docs_dir.join("components.md");
@@ -319,14 +317,19 @@ fn main() {
                 .contains("test")
         })
         .collect();
-    rs_files.sort(); // deterministic ordering
+    rs_files.sort();
 
     let mut all_components: Vec<Component> = rs_files
         .iter()
-        .flat_map(|p| extract_components(p))
+        .flat_map(|p| match extract_components(p) {
+            Ok(comps) => comps,
+            Err(e) => {
+                eprintln!("warning: failed to read {}: {}", p.display(), e);
+                vec![]
+            }
+        })
         .collect();
 
-    // Sort by export name for stable output.
     all_components.sort_by(|a, b| a.export_name.cmp(&b.export_name));
 
     if all_components.is_empty() {
