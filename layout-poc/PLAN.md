@@ -296,6 +296,138 @@ Diff pattern guide for new suites:
 - **Wrong alpha / compositing** → flat-render ordering or node-set inclusion bug
 - **Text at wrong position with stale old text visible** → text node `tw` lost in stub (ml-auto / flex-1 bug)
 
+## Visual regression tests
+
+### Principle
+
+Each test stores **two independent golden PNG snapshots** — one for the full renderer, one for the incremental renderer — and asserts both are byte-identical on every subsequent run. They are **not** compared against each other; each is its own baseline.
+
+```
+layout-poc/test-snapshots/
+  reg_overflow_clip_rounding__full_f1.png
+  reg_overflow_clip_rounding__incr_f1.png
+  ...
+```
+
+Because the renderer is deterministic, the comparison is exact byte equality — no tolerance, no perceptual metric, no AA weighting. Updating a snapshot requires an explicit opt-in (`UPDATE_SNAPSHOTS=1 cargo test`), which signals intentional behaviour change and prompts human review.
+
+### Crates
+
+| Crate | Role |
+|---|---|
+| `image` | Already in codebase; encodes pixel buffers to PNG for storage and loading |
+
+`insta` is useful for text snapshots but does not have a binary feature — PNG files are better handled with direct file comparison, which also keeps the snapshots openable as real images in any viewer.
+
+`pixelmatch` and `dssim` are **not needed** — those are for comparing two renders of the same scene where small differences are expected (like incremental vs full). Regression snapshots use exact byte matching because the renderer is deterministic.
+
+### Dev-dependency setup
+
+No extra dependencies needed beyond `image` (already present).
+
+### Snapshot update workflow
+
+```sh
+# Write/update golden files (after intentional change, review visually then commit)
+UPDATE_SNAPSHOTS=1 cargo test -p layout-poc
+
+# Verify (normal CI run)
+cargo test -p layout-poc
+
+# On failure: the new PNG is written to test-snapshots/<name>.new.png for comparison
+```
+
+### Test list
+
+#### Bug regression guards — each is a canary for a specific fixed bug
+
+**`reg_ml_auto_positioning`**
+- Scene: flex row with a text node carrying `ml-auto` (like the keyframe phase label)
+- Frames: cold + the frame immediately after a content change that triggers re-render of the `ml-auto` node
+- Snapshots: `full_f0`, `full_f1`, `incr_f0`, `incr_f1`
+- Guards against: text stub dropping layout-affecting `tw` classes → node rendered at wrong x position, stale old text left at original position
+
+**`reg_overflow_clip_rounding`** ← PoC implemented
+- Scene: `rounded-full overflow-hidden` container with a partial-width Image child that grows each frame (progress fill)
+- Frames: f1 (14% fill, left rounded edge visible)
+- Snapshots: `full_f1`, `incr_f1`
+- Guards against: flat render emitting parent and child as siblings → clip broken → fill has square left corner
+
+**`reg_node_shrink_stale_pixels`**
+- Scene: single text node cycling `WWWWWWWWW` → `W` → `WWWWWWWWW`
+- Frames: f1 (after shrink), f2 (after grow)
+- Snapshots: `incr_f1`, `incr_f2` (full is ground truth; the bug only manifests in incr)
+- Guards against: old-bbox not marked dirty on shrink → pixels linger at right edge
+
+**`reg_image_resize_dirty_region`**
+- Scene: Image node growing from width=0 to width=150 over 5 frames
+- Frames: f1, f3 (mid-growth)
+- Snapshots: `full_f1`, `incr_f1`, `full_f3`, `incr_f3`
+- Guards against: Image stub not updating `node_dims` → dirty region too small → stale pixels at new right edge
+
+**`reg_moved_node_clears_old_position`**
+- Scene: node slides right via flex spacer (like Moving Ball suite)
+- Frames: f1 (first move from rest)
+- Snapshots: `incr_f1`
+- Guards against: moved-node detection not firing → ghost pixels at old position
+
+**`reg_structure_change_no_ghost`**
+- Scene: a node that appears (f0), disappears (f1), reappears at a different position (f2)
+- Snapshots: `incr_f1`, `incr_f2`
+- Guards against: removed node's old bbox not marked dirty → ghost at old position after removal
+
+#### Compositing correctness
+
+**`test_shadow_tile_boundary`**
+- Scene: `shadow-2xl` element whose edge sits at x=32 (a tile boundary); content changes each frame
+- Snapshots: `full_f1`, `incr_f1`
+- Guards against: SHADOW_BUF too small → shadow bleed cut at tile edge
+
+**`test_rounded_clip_all_widths`**
+- Scene: full progress fill sequence 0% → 100% → 30% reset → 0% reset
+- Snapshots: `full_f1`, `incr_f1`, `full_f7`, `incr_f7`, `full_f8`, `incr_f8`
+- Guards against: clip relationship breaking at any fill width or on reset
+
+**`test_ml_auto_all_phases`**
+- All four keyframe phase transitions
+- Snapshots: full + incr at each transition frame (IDLE→RISING, RISING→PEAK, PEAK→FALLING, FALLING→IDLE)
+- Guards against: `ml-auto` fix regressing for different label widths
+
+#### Golden representative cases
+
+**`golden_cold_frame_exact_match`** ← highest priority
+- For each suite, frame 0: full render and incremental render must be bit-identical
+- Snapshots: `full_f0` and `incr_f0` for Simple Status Bar, Progress Fill, and Notification Panel
+- Any divergence means the cold frame path is broken
+
+**`golden_clock_tick`**
+- Simple status bar, frames 1–3 (clock only changes)
+- Snapshots: `full_f1..f3`, `incr_f1..f3`
+- Most common real-world event; high regression sensitivity
+
+**`golden_workspace_focus_change`**
+- Realistic sidebar frame 4 (focus switches workspace)
+- Snapshots: `full_f4`, `incr_f4`
+- Guards against regressions in two-band rendering for large dirty regions
+
+**`golden_notification_rotation`**
+- Notification panel frames 0, 2, 4 (each change of active item)
+- Snapshots: `full_f0`, `incr_f0`, `full_f2`, `incr_f2`, `full_f4`, `incr_f4`
+
+**`golden_scroll_frame`**
+- Scroll list frames 1, 5, 10 (different scroll depths)
+- Snapshots: `full_f1`, `incr_f1`, `full_f5`, `incr_f5`, `full_f10`, `incr_f10`
+- Verifies pixel-accurate scroll rendering in both paths
+
+### Summary
+
+| Category | Tests | Snapshots |
+|---|---|---|
+| Bug regression guards | 6 | ~16 |
+| Compositing | 3 | ~12 |
+| Golden representatives | 5 | ~20 |
+| **Total** | **14** | **~48** |
+
 ## Performance results (release build, realistic sidebar suite)
 
 | Event | Speedup | Notes |

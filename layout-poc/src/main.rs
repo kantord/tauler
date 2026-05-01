@@ -2524,3 +2524,76 @@ fn main() {
     }
     eprintln!("Frames: /tmp/poc_frames/");
 }
+
+// ---------------------------------------------------------------------------
+// Visual regression tests
+//
+// For each snapshot:
+//   1. The PNG is always written to test-snapshots/<name>.png so it is
+//      available for visual inspection regardless of pass/fail.
+//   2. A hash of the raw pixel data is asserted via insta — this is what
+//      actually fails the test and requires human approval.
+//
+// Workflow:
+//   cargo test -p layout-poc          # CI: fails if any hash changed
+//   cargo insta review                # inspect old→new hash, accept or reject
+//                                     # open the PNG to decide visually
+// ---------------------------------------------------------------------------
+#[cfg(test)]
+mod visual_regression {
+    use super::*;
+    use std::path::{Path, PathBuf};
+
+    fn snapshot_dir() -> PathBuf {
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("test-snapshots")
+    }
+
+    /// Deterministic LCG hash of raw pixel data.  Not cryptographic, but stable
+    /// across Rust versions and requires no extra dependencies.
+    fn pixel_hash(pixels: &[u8]) -> String {
+        let h = pixels.iter().fold(0u64, |h, &b| {
+            h.wrapping_mul(6364136223846793005).wrapping_add(b as u64)
+        });
+        format!("{h:016x}  ({} px)", pixels.len() / 4)
+    }
+
+    /// Write the PNG to `test-snapshots/` for visual inspection, then assert
+    /// the pixel hash via insta.  Insta owns the "approved" state; the PNG is
+    /// always the current render so a reviewer can open it after `cargo insta
+    /// review` highlights a hash change.
+    fn assert_snapshot(name: &str, pixels: &[u8], w: u32, h: u32) {
+        let dir = snapshot_dir();
+        std::fs::create_dir_all(&dir).expect("create test-snapshots/");
+        std::fs::write(dir.join(format!("{name}.png")), encode_png(pixels, w, h))
+            .expect("write PNG");
+        insta::assert_snapshot!(name, pixel_hash(pixels));
+    }
+
+    /// Run `suite`, extract frame `frame_idx`, and snapshot both renders.
+    fn assert_render_snapshots(suite: &TestSuite, frame_idx: usize, name: &str) {
+        let cm = CostModel::default();
+        let mut discard = Vec::new();
+        let result = run_suite(suite, &cm, &mut discard);
+        let f = &result.frames[frame_idx];
+        insta::with_settings!({ snapshot_path => snapshot_dir(), prepend_module_to_snapshot => false }, {
+            assert_snapshot(&format!("{name}__full_f{frame_idx}"),  &f.full_px, f.w, f.h);
+            assert_snapshot(&format!("{name}__incr_f{frame_idx}"),  &f.incr_px, f.w, f.h);
+        });
+    }
+
+    // ── Bug regression guards ────────────────────────────────────────────────
+
+    /// Guards the overflow-hidden clip fix.
+    ///
+    /// Before the fix, `bar-bg` (rounded-full overflow-hidden) and `bar-fill`
+    /// were flat siblings so the clip never applied — the fill had a square
+    /// left corner in the incremental render.  After the fix both renders show
+    /// correct rounded corners.
+    ///
+    /// Frame 1 = 14% fill: the left rounded edge is clearly visible and small
+    /// enough that a 1-pixel regression is immediately obvious.
+    #[test]
+    fn reg_overflow_clip_rounding() {
+        assert_render_snapshots(&suite_progress_fill(), 1, "reg_overflow_clip_rounding");
+    }
+}
