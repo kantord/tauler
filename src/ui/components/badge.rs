@@ -20,10 +20,10 @@ const BADGE_VARIANTS: Cva = Cva {
 /// # JSX
 /// ```jsx
 /// <container tw="flex flex-row gap-[8px]">
-///   <Badge>Default</Badge>
-///   <Badge variant="secondary">Secondary</Badge>
-///   <Badge variant="destructive">Destructive</Badge>
-///   <Badge variant="outline">Outline</Badge>
+///   <Badge><text>Default</text></Badge>
+///   <Badge variant="secondary"><text>Secondary</text></Badge>
+///   <Badge variant="destructive"><text>Destructive</text></Badge>
+///   <Badge variant="outline"><text>Outline</text></Badge>
 /// </container>
 /// ```
 ///
