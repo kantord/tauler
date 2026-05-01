@@ -3,6 +3,7 @@ pub use costae_ui_macro::rsx;
 pub use costae_ui_macro::component;
 
 pub mod components;
+pub mod cva;
 pub mod registry;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
