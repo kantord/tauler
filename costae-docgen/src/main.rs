@@ -36,8 +36,7 @@ fn collect_doc_comment_lines(lines: &[&str], attr_line_idx: usize) -> Vec<String
     while idx >= 0 {
         let line = lines[idx as usize].trim();
         if let Some(rest) = line.strip_prefix("///") {
-            let content = rest.strip_prefix(' ').unwrap_or(rest);
-            doc_lines.push(content.to_string());
+            doc_lines.push(rest.strip_prefix(' ').unwrap_or(rest).to_string());
             idx -= 1;
         } else {
             break;
@@ -47,109 +46,72 @@ fn collect_doc_comment_lines(lines: &[&str], attr_line_idx: usize) -> Vec<String
     doc_lines
 }
 
-fn parse_doc_comments(raw: &[String]) -> DocComments {
-    let mut prose: Vec<String> = Vec::new();
-    let mut jsx_block: Option<Vec<String>> = None;
-    let mut shadcn_url: Option<String> = None;
+fn parse_fenced_code_block(raw: &[String], i: &mut usize) -> Option<Vec<String>> {
+    if !raw.get(*i)?.trim_start().starts_with("```") {
+        return None;
+    }
+    *i += 1;
+    let mut block = Vec::new();
+    while *i < raw.len() && !raw[*i].trim_start().starts_with("```") {
+        block.push(raw[*i].clone());
+        *i += 1;
+    }
+    if *i < raw.len() { *i += 1; }
+    Some(block)
+}
 
+fn parse_doc_comments(raw: &[String]) -> DocComments {
+    let mut prose = Vec::new();
+    let mut jsx_block = None;
+    let mut shadcn_url = None;
     let mut i = 0;
     while i < raw.len() {
-        let line = &raw[i];
-
-        if line.trim() == "# JSX" {
+        if raw[i].trim() == "# JSX" {
             i += 1;
-            // skip opening fence (e.g. "```jsx")
-            if i < raw.len() && raw[i].trim_start().starts_with("```") {
-                i += 1;
-                let mut block: Vec<String> = Vec::new();
-                while i < raw.len() && !raw[i].trim_start().starts_with("```") {
-                    block.push(raw[i].clone());
-                    i += 1;
-                }
-                // skip closing fence
-                if i < raw.len() {
-                    i += 1;
-                }
-                jsx_block = Some(block);
-            }
-            continue;
-        }
-
-        if line.trim() == "# Shadcn" {
+            jsx_block = parse_fenced_code_block(raw, &mut i);
+        } else if raw[i].trim() == "# Shadcn" {
             i += 1;
-            if i < raw.len() {
-                shadcn_url = Some(raw[i].trim().to_string());
-                i += 1;
-            }
-            continue;
+            if i < raw.len() { shadcn_url = Some(raw[i].trim().to_string()); i += 1; }
+        } else {
+            prose.push(raw[i].clone());
+            i += 1;
         }
-
-        prose.push(line.clone());
-        i += 1;
     }
-
     DocComments { prose, jsx_block, shadcn_url }
+}
+
+fn component_module_path(line: &str) -> Option<String> {
+    let inner = line.trim()
+        .strip_prefix("#[component(\"")
+        .and_then(|s| s.strip_suffix("\")]"))?;
+    if inner.starts_with('@') { Some(inner.to_string()) } else { None }
+}
+
+fn fn_name_after_attr(lines: &[&str], attr_idx: usize) -> Option<String> {
+    let j = (attr_idx + 1..lines.len()).find(|&j| !lines[j].trim().is_empty())?;
+    let fn_line = lines[j].trim();
+    // Accept both `pub fn name` and `fn name`.
+    let after_fn = fn_line.strip_prefix("pub fn ").or_else(|| fn_line.strip_prefix("fn "))?;
+    let name: String = after_fn.chars().take_while(|c| c.is_alphanumeric() || *c == '_').collect();
+    if name.is_empty() { None } else { Some(name) }
 }
 
 fn extract_components(path: &Path) -> Result<Vec<Component>, std::io::Error> {
     let source = fs::read_to_string(path)?;
-
     let lines: Vec<&str> = source.lines().collect();
     let mut components = Vec::new();
-
     for (i, line) in lines.iter().enumerate() {
-        let trimmed = line.trim();
-
-        if let Some(inner) = trimmed
-            .strip_prefix("#[component(\"")
-            .and_then(|s| s.strip_suffix("\")]"))
-        {
-            if !inner.starts_with('@') {
-                continue;
-            }
-            let module_path = inner.to_string();
-
-            // The next non-empty line should be the `pub fn <name>(...)` declaration.
-            let fn_line_idx = (i + 1..lines.len())
-                .find(|&j| !lines[j].trim().is_empty());
-
-            let fn_name = fn_line_idx.and_then(|j| {
-                let fn_line = lines[j].trim();
-                // Accept both `pub fn name` and `fn name`.
-                let after_fn = fn_line
-                    .strip_prefix("pub fn ")
-                    .or_else(|| fn_line.strip_prefix("fn "))?;
-                let name: String = after_fn
-                    .chars()
-                    .take_while(|c| c.is_alphanumeric() || *c == '_')
-                    .collect();
-                if name.is_empty() {
-                    None
-                } else {
-                    Some(name)
-                }
-            });
-
-            let fn_name = match fn_name {
-                Some(n) => n,
-                None => continue,
-            };
-
-            let export_name = to_pascal_case(&fn_name);
-
-            let raw_docs = collect_doc_comment_lines(&lines, i);
-            let doc_comments = parse_doc_comments(&raw_docs);
-
-            components.push(Component {
-                module_path,
-                export_name,
-                prose: doc_comments.prose,
-                jsx_block: doc_comments.jsx_block,
-                shadcn_url: doc_comments.shadcn_url,
-            });
-        }
+        let Some(module_path) = component_module_path(line) else { continue };
+        let Some(fn_name) = fn_name_after_attr(&lines, i) else { continue };
+        let doc = parse_doc_comments(&collect_doc_comment_lines(&lines, i));
+        components.push(Component {
+            module_path,
+            export_name: to_pascal_case(&fn_name),
+            prose: doc.prose,
+            jsx_block: doc.jsx_block,
+            shadcn_url: doc.shadcn_url,
+        });
     }
-
     Ok(components)
 }
 
@@ -170,6 +132,27 @@ fn collect_rs_files(dir: &Path) -> Vec<PathBuf> {
     result
 }
 
+fn component_rs_files(components_dir: &Path) -> Vec<PathBuf> {
+    let mut files: Vec<PathBuf> = collect_rs_files(components_dir)
+        .into_iter()
+        .filter(|p| !p.file_stem().and_then(|s| s.to_str()).unwrap_or("").contains("test"))
+        .collect();
+    files.sort();
+    files
+}
+
+fn load_all_components(components_dir: &Path) -> Vec<Component> {
+    let mut components: Vec<Component> = component_rs_files(components_dir)
+        .iter()
+        .flat_map(|p| match extract_components(p) {
+            Ok(comps) => comps,
+            Err(e) => { eprintln!("warning: failed to read {}: {}", p.display(), e); vec![] }
+        })
+        .collect();
+    components.sort_by(|a, b| a.export_name.cmp(&b.export_name));
+    components
+}
+
 const SCREENSHOT_BINARY_CANDIDATES: &[&str] = &[
     "target/debug/costae-screenshot",
     "target/release/costae-screenshot",
@@ -178,42 +161,46 @@ const SCREENSHOT_BINARY_CANDIDATES: &[&str] = &[
 fn find_screenshot_binary() -> Option<PathBuf> {
     for candidate in SCREENSHOT_BINARY_CANDIDATES {
         let p = PathBuf::from(candidate);
-        if p.exists() {
-            return Some(p);
-        }
+        if p.exists() { return Some(p); }
     }
     None
 }
 
-fn collect_jsx_imports(jsx_block: &[String], all_components: &[Component]) -> String {
-    let mut seen: HashSet<String> = HashSet::new();
-    let mut imports = String::new();
+fn parse_pascal_tag_name(s: &str) -> Option<(&str, String)> {
+    let mut chars = s.chars();
+    let first = chars.next().filter(|c| c.is_uppercase())?;
+    let tail: String = chars.take_while(|c| c.is_alphanumeric() || *c == '_').collect();
+    let name = format!("{}{}", first, tail);
+    Some((&s[name.len()..], name))
+}
+
+fn jsx_component_names(jsx_block: &[String]) -> Vec<String> {
+    let mut names = Vec::new();
     for line in jsx_block {
         let mut rest = line.as_str();
         while let Some(lt_pos) = rest.find('<') {
             rest = &rest[lt_pos + 1..];
-            let mut name_chars = rest.chars();
-            if let Some(first) = name_chars.next() {
-                if first.is_uppercase() {
-                    let tail: String = name_chars
-                        .take_while(|c| c.is_alphanumeric() || *c == '_')
-                        .collect();
-                    let name = format!("{}{}", first, tail);
-                    if let Some(dep) = all_components.iter().find(|c| c.export_name == name) {
-                        let import_line = format!(
-                            "import {{ {} }} from '{}';\n",
-                            dep.export_name, dep.module_path
-                        );
-                        if seen.insert(import_line.clone()) {
-                            imports.push_str(&import_line);
-                        }
-                    }
-                    rest = &rest[name.len()..];
-                }
+            if let Some((remaining, name)) = parse_pascal_tag_name(rest) {
+                rest = remaining;
+                names.push(name);
             }
         }
     }
-    imports
+    names
+}
+
+fn format_import(comp: &Component) -> String {
+    format!("import {{ {} }} from '{}';\n", comp.export_name, comp.module_path)
+}
+
+fn collect_jsx_imports(jsx_block: &[String], all_components: &[Component]) -> String {
+    let mut seen: HashSet<&str> = HashSet::new();
+    jsx_component_names(jsx_block)
+        .into_iter()
+        .filter_map(|name| all_components.iter().find(|c| c.export_name == name))
+        .filter(|dep| seen.insert(dep.export_name.as_str()))
+        .map(format_import)
+        .collect()
 }
 
 fn build_jsx_module(jsx_block: &[String], all_components: &[Component]) -> String {
@@ -254,44 +241,39 @@ fn trim_blank_lines(lines: &[String]) -> &[String] {
     if start <= end { &lines[start..end] } else { &[] }
 }
 
+fn render_prose(out: &mut String, prose: &[String]) {
+    let trimmed = trim_blank_lines(prose);
+    for line in trimmed { out.push_str(line); out.push('\n'); }
+    if !trimmed.is_empty() { out.push('\n'); }
+}
+
+fn render_jsx_usage(out: &mut String, block: &[String]) {
+    out.push_str("### Usage\n\n```jsx\n");
+    for line in block { out.push_str(line); out.push('\n'); }
+    out.push_str("```\n\n");
+}
+
+fn render_component_section(comp: &Component, screenshot: &Option<PathBuf>) -> String {
+    let mut out = String::new();
+    out.push_str(&format!("## {}\n\n**Module:** `{}`\n\n", comp.export_name, comp.module_path));
+    if let Some(url) = &comp.shadcn_url {
+        out.push_str(&format!("**Shadcn reference:** {}\n\n", url));
+    }
+    if let Some(path) = screenshot {
+        let filename = path.file_name().unwrap().to_string_lossy();
+        out.push_str(&format!("![{} screenshot](./assets/{})\n\n", comp.export_name, filename));
+    }
+    render_prose(&mut out, &comp.prose);
+    if let Some(block) = &comp.jsx_block { render_jsx_usage(&mut out, block); }
+    out
+}
+
 fn render_markdown(components: &[Component], screenshots: &[Option<PathBuf>]) -> String {
     let mut out = String::new();
-    out.push_str("# Components\n\n");
-    out.push_str("Auto-generated by `costae-docgen`. Do not edit by hand.\n\n");
-
+    out.push_str("# Components\n\nAuto-generated by `costae-docgen`. Do not edit by hand.\n\n");
     for (comp, screenshot) in components.iter().zip(screenshots.iter()) {
-        out.push_str(&format!("## {}\n\n", comp.export_name));
-        out.push_str(&format!("**Module:** `{}`\n\n", comp.module_path));
-
-        if let Some(url) = &comp.shadcn_url {
-            out.push_str(&format!("**Shadcn reference:** {}\n\n", url));
-        }
-
-        if let Some(path) = screenshot {
-            let filename = path.file_name().unwrap().to_string_lossy();
-            out.push_str(&format!("![{} screenshot](./assets/{})\n\n", comp.export_name, filename));
-        }
-
-        let prose_trimmed = trim_blank_lines(&comp.prose);
-        for line in prose_trimmed {
-            out.push_str(line);
-            out.push('\n');
-        }
-        if !prose_trimmed.is_empty() {
-            out.push('\n');
-        }
-
-        if let Some(block) = &comp.jsx_block {
-            out.push_str("### Usage\n\n");
-            out.push_str("```jsx\n");
-            for line in block {
-                out.push_str(line);
-                out.push('\n');
-            }
-            out.push_str("```\n\n");
-        }
+        out.push_str(&render_component_section(comp, screenshot));
     }
-
     out
 }
 
@@ -301,37 +283,11 @@ fn main() {
     let output_path = docs_dir.join("components.md");
 
     if !components_dir.exists() {
-        eprintln!(
-            "error: components directory not found at {}",
-            components_dir.display()
-        );
+        eprintln!("error: components directory not found at {}", components_dir.display());
         std::process::exit(1);
     }
 
-    let mut rs_files: Vec<PathBuf> = collect_rs_files(components_dir)
-        .into_iter()
-        .filter(|p| {
-            !p.file_stem()
-                .and_then(|s| s.to_str())
-                .unwrap_or("")
-                .contains("test")
-        })
-        .collect();
-    rs_files.sort();
-
-    let mut all_components: Vec<Component> = rs_files
-        .iter()
-        .flat_map(|p| match extract_components(p) {
-            Ok(comps) => comps,
-            Err(e) => {
-                eprintln!("warning: failed to read {}: {}", p.display(), e);
-                vec![]
-            }
-        })
-        .collect();
-
-    all_components.sort_by(|a, b| a.export_name.cmp(&b.export_name));
-
+    let all_components = load_all_components(components_dir);
     if all_components.is_empty() {
         eprintln!("warning: no components found — docs/components.md will only contain a header");
     }
@@ -348,17 +304,11 @@ fn main() {
         eprintln!("error: could not create docs/ directory: {}", e);
         std::process::exit(1);
     }
-
     if let Err(e) = fs::write(&output_path, &markdown) {
         eprintln!("error: could not write {}: {}", output_path.display(), e);
         std::process::exit(1);
     }
-
-    println!(
-        "wrote {} ({} component(s))",
-        output_path.display(),
-        all_components.len()
-    );
+    println!("wrote {} ({} component(s))", output_path.display(), all_components.len());
 }
 
 #[cfg(test)]
