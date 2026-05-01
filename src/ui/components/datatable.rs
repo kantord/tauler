@@ -1,5 +1,5 @@
 use serde::Deserialize;
-use crate::ui::{Node, component, rsx};
+use crate::ui::{Node, UiComponent, component, rsx};
 use super::table::{Table, TableProps, TableRow, TableRowProps};
 
 /// A column definition for DataTable.
@@ -32,42 +32,43 @@ pub struct ColumnDef {
 ///
 /// # Shadcn
 /// https://ui.shadcn.com/docs/components/table
-#[component("@ui/datatable")]
-pub fn data_table(columns: Vec<ColumnDef>, rows: Option<serde_json::Value>) -> Node {
-    let header_children: Vec<Node> = columns
+fn header_row(columns: &[ColumnDef]) -> Node {
+    let cells: Vec<Node> = columns
         .iter()
         .map(|col| rsx! { <text tw="flex-1">{col.label.clone()}</text> })
         .collect();
-    let mut all_children = vec![
-        TableRow::render(TableRowProps {
-            children: header_children,
-            tw: Some("text-muted-foreground border-border uppercase".to_string()),
-        }),
-    ];
+    TableRow::render(TableRowProps {
+        children: cells,
+        tw: Some("text-muted-foreground border-border uppercase".to_string()),
+    })
+}
+
+fn cell_value(row: &serde_json::Value, key: &str) -> String {
+    row.get(key)
+        .and_then(|v| match v {
+            serde_json::Value::String(s) => Some(s.clone()),
+            serde_json::Value::Number(n) => Some(n.to_string()),
+            _ => None,
+        })
+        .unwrap_or_default()
+}
+
+fn data_row(columns: &[ColumnDef], row: &serde_json::Value, index: usize) -> Node {
+    let cells: Vec<Node> = columns
+        .iter()
+        .map(|col| rsx! { <text tw="flex-1">{cell_value(row, &col.key)}</text> })
+        .collect();
+    let bg = if index % 2 == 0 { "bg-card text-foreground" } else { "bg-muted/30 text-foreground" };
+    TableRow::render(TableRowProps { children: cells, tw: Some(bg.to_string()) })
+}
+
+#[component("@ui/datatable")]
+pub fn data_table(columns: Vec<ColumnDef>, rows: Option<serde_json::Value>) -> Node {
+    let mut all_children = vec![header_row(&columns)];
     if let Some(serde_json::Value::Array(arr)) = rows {
         for (index, row) in arr.into_iter().enumerate() {
-            let cells: Vec<Node> = columns
-                .iter()
-                .map(|col| {
-                    let val = row.get(&col.key)
-                        .and_then(|v| match v {
-                            serde_json::Value::String(s) => Some(s.clone()),
-                            serde_json::Value::Number(n) => Some(n.to_string()),
-                            _ => None,
-                        })
-                        .unwrap_or_default();
-                    rsx! { <text tw="flex-1">{val}</text> }
-                })
-                .collect();
-            let bg = if index % 2 == 0 { "bg-card text-foreground" } else { "bg-muted/30 text-foreground" };
-            all_children.push(TableRow::render(TableRowProps {
-                children: cells,
-                tw: Some(bg.to_string()),
-            }));
+            all_children.push(data_row(&columns, &row, index));
         }
     }
-    Table::render(TableProps {
-        children: all_children,
-        tw: None,
-    })
+    Table::render(TableProps { children: all_children, tw: None })
 }
