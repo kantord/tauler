@@ -97,9 +97,8 @@ impl FakeNodeState {
 // ---------------------------------------------------------------------------
 
 struct Ctx {
-    global:           GlobalContext,
-    changed_ids:      Vec<String>,
-    structure_changed: bool,
+    global:      GlobalContext,
+    changed_ids: Vec<String>,
     // Cached natural dimensions (W, H) for each node, used by the stub layout pass.
     node_dims: HashMap<String, (f32, f32)>,
 }
@@ -109,7 +108,6 @@ impl Ctx {
         Self {
             global: new_ctx_with_fonts(),
             changed_ids: Vec::new(),
-            structure_changed: false,
             node_dims: HashMap::new(),
         }
     }
@@ -132,7 +130,6 @@ impl Lifecycle for FakeNode {
 
     fn enter(self, ctx: &mut Ctx, _: &mut ()) -> Result<FakeNodeState> {
         ctx.changed_ids.push(self.id().to_string());
-        ctx.structure_changed = true;
         match self {
             FakeNode::Text { id, content, tw } =>
                 Ok(FakeNodeState::Text { id, content, tw }),
@@ -173,7 +170,6 @@ impl Lifecycle for FakeNode {
 
     fn exit(state: FakeNodeState, ctx: &mut Ctx, _: &mut ()) -> Result<()> {
         ctx.changed_ids.push(state.id().to_string());
-        ctx.structure_changed = true;
         if let FakeNodeState::Collection { mut children, .. } = state {
             children.reconcile(vec![], ctx, &mut ());
         }
@@ -260,16 +256,6 @@ fn measure_natural(node: &FakeNode, global: &GlobalContext) -> (f32, f32) {
     (m.width, m.height)
 }
 
-/// Walk the FakeNode tree and find the node with the given id.
-fn find_node<'a>(root: &'a FakeNode, id: &str) -> Option<&'a FakeNode> {
-    if root.id() == id { return Some(root); }
-    if let FakeNode::Collection { children, .. } = root {
-        for child in children {
-            if let Some(found) = find_node(child, id) { return Some(found); }
-        }
-    }
-    None
-}
 
 // ---------------------------------------------------------------------------
 // Flat tile scene — only nodes touching (tx, ty, tile+2*buf) x (tile+2*buf),
@@ -300,46 +286,8 @@ fn has_overflow_clip(tw: &str) -> bool {
     tw.split_whitespace().any(|c| c.starts_with("overflow-"))
 }
 
-/// Emit `node` and its subtree into `out`, with all coordinates expressed
-/// relative to (`parent_x`, `parent_y`).  Called when we are inside a clipping
-/// container and need its children positioned within it.
-fn collect_nested(
-    node: &FakeNode,
-    bboxes: &HashMap<String, Rect>,
-    parent_x: f32, parent_y: f32,
-    out: &mut Vec<serde_json::Value>,
-) {
-    let Some(r) = bboxes.get(node.id()) else { return };
-    let lx = r.x - parent_x;
-    let ly = r.y - parent_y;
-    match node {
-        FakeNode::Text { content, tw, .. } =>
-            out.push(serde_json::json!({"type":"text","text":content,"tw":tw,
-                "style":{"position":"absolute","left":lx,"top":ly,"width":r.w}})),
-        FakeNode::Image { color, width, height, .. } =>
-            out.push(serde_json::json!({"type":"container","tw":format!("bg-{}",color),
-                "style":{"display":"block","position":"absolute","left":lx,"top":ly,
-                         "width":*width as f32,"height":*height as f32}})),
-        FakeNode::Collection { tw, children, .. } => {
-            if has_overflow_clip(tw) {
-                // New clip context: children positioned relative to this container.
-                let mut ch = Vec::new();
-                for child in children { collect_nested(child, bboxes, r.x, r.y, &mut ch); }
-                out.push(serde_json::json!({"type":"container","tw":visual_tw(tw),
-                    "style":{"position":"absolute","left":lx,"top":ly,
-                             "width":r.w,"height":r.h,"overflow":"hidden"},
-                    "children":ch}));
-            } else {
-                // Non-clipping: emit flat, children still relative to original parent.
-                out.push(serde_json::json!({"type":"container","tw":visual_tw(tw),
-                    "style":{"position":"absolute","left":lx,"top":ly,"width":r.w,"height":r.h}}));
-                for child in children { collect_nested(child, bboxes, parent_x, parent_y, out); }
-            }
-        }
-    }
-}
-
-/// Whitelist variant of collect_nested: only emits nodes present in `node_set`.
+/// Whitelist variant: emit `node` and its subtree into `out`, only for nodes in `node_set`,
+/// with coordinates relative to (`parent_x`, `parent_y`).  Used inside clipping containers.
 fn collect_nested_whitelist(
     node: &FakeNode,
     bboxes: &HashMap<String, Rect>,
@@ -394,47 +342,7 @@ fn collect_nested_whitelist(
     }
 }
 
-/// Collect every node whose bbox overlaps (qx,qy,qw,qh) into an absolutely-
-/// positioned flat list.  Used for the legacy bbox-query path (first frame / all
-/// tiles dirty) where the node set is not yet known.
-/// Containers with overflow-hidden have their children nested inside them so
-/// the clip relationship is preserved.
-fn collect_flat(
-    node: &FakeNode,
-    bboxes: &HashMap<String, Rect>,
-    qx: f32, qy: f32, qw: f32, qh: f32,
-    out: &mut Vec<serde_json::Value>,
-) {
-    let Some(r) = bboxes.get(node.id()) else { return };
-    if r.x + r.w <= qx || r.x >= qx + qw || r.y + r.h <= qy || r.y >= qy + qh { return; }
-    let lx = r.x - qx;
-    let ly = r.y - qy;
-    match node {
-        FakeNode::Text { content, tw, .. } =>
-            out.push(serde_json::json!({"type":"text","text":content,"tw":tw,
-                "style":{"position":"absolute","left":lx,"top":ly,"width":r.w}})),
-        FakeNode::Image { color, width, height, .. } =>
-            out.push(serde_json::json!({"type":"container","tw":format!("bg-{}",color),
-                "style":{"display":"block","position":"absolute","left":lx,"top":ly,
-                         "width":*width as f32,"height":*height as f32}})),
-        FakeNode::Collection { tw, children, .. } => {
-            if has_overflow_clip(tw) {
-                let mut ch = Vec::new();
-                for child in children { collect_nested(child, bboxes, r.x, r.y, &mut ch); }
-                out.push(serde_json::json!({"type":"container","tw":visual_tw(tw),
-                    "style":{"position":"absolute","left":lx,"top":ly,
-                             "width":r.w,"height":r.h,"overflow":"hidden"},
-                    "children":ch}));
-            } else {
-                out.push(serde_json::json!({"type":"container","tw":visual_tw(tw),
-                    "style":{"position":"absolute","left":lx,"top":ly,"width":r.w,"height":r.h}}));
-                for child in children { collect_flat(child, bboxes, qx, qy, qw, qh, out); }
-            }
-        }
-    }
-}
-
-/// Like collect_flat but restricted to a whitelist of node ids — the node_set
+/// Collect nodes in `node_set` into an absolutely-positioned flat list.
 /// from a RenderCandidate.  Nodes not in the set are skipped; Collection nodes
 /// not in the set are still recursed (children may be in the set).
 /// Spatial cull still applied for early-exit on branches far from the region.
@@ -587,11 +495,24 @@ fn fnv_mix(mut h: u64, bytes: &[u8]) -> u64 {
 ///
 /// Collision risk: FNV-64 has a ~10⁻¹⁸ false-hit probability per tile per
 /// frame — negligible for a UI renderer.
+/// Flat id→node map built once per frame; avoids repeated O(N) tree walks.
+fn build_node_map(root: &FakeNode) -> HashMap<&str, &FakeNode> {
+    let mut map = HashMap::new();
+    let mut stack = vec![root];
+    while let Some(node) = stack.pop() {
+        map.insert(node.id(), node);
+        if let FakeNode::Collection { children, .. } = node {
+            stack.extend(children.iter());
+        }
+    }
+    map
+}
+
 fn tile_fingerprint(
     tx: u32, ty: u32,
     tile_node_map: &HashMap<(u32, u32), BTreeSet<String>>,
     bboxes: &HashMap<String, Rect>,
-    root: &FakeNode,
+    node_map: &HashMap<&str, &FakeNode>,
 ) -> u64 {
     let empty = BTreeSet::new();
     let node_set = tile_node_map.get(&(tx, ty)).unwrap_or(&empty);
@@ -608,7 +529,7 @@ fn tile_fingerprint(
             h = fnv_mix(h, &r.w.to_bits().to_le_bytes());
             h = fnv_mix(h, &r.h.to_bits().to_le_bytes());
         }
-        if let Some(node) = find_node(root, id) {
+        if let Some(&node) = node_map.get(id.as_str()) {
             match node {
                 FakeNode::Text { content, tw, .. } => {
                     h = fnv_mix(h, b"T");
@@ -1176,31 +1097,45 @@ fn run_suite(suite: &TestSuite, cm: &CostModel, cal_samples: &mut Vec<(f64, f64,
 
         // ── Tile-based incremental render ─────────────────────────────────────
         incr_ctx.changed_ids.clear();
-        incr_ctx.structure_changed = false;
         let t = Instant::now();
 
-        // 1. Reconcile — populates changed_ids and structure_changed
+        // 1. Reconcile — populates changed_ids
         incr_set.reconcile(f.scene.clone(), &mut incr_ctx, &mut ());
+
+        let cols = (w + TILE_SIZE - 1) / TILE_SIZE;
+        let rows = (h + TILE_SIZE - 1) / TILE_SIZE;
+
+        // No-op short-circuit: if nothing changed and frame_buf is already
+        // populated, every tile is identical to last frame — skip all remaining
+        // work.  Static frames (no clock tick, no focus change, etc.) cost
+        // essentially nothing in the real pipeline.
+        if incr_ctx.changed_ids.is_empty() && !frame_buf.is_empty() {
+            let incr_time = t.elapsed();
+            let incr_px = frame_buf.clone();
+            let my_prev_full = std::mem::replace(&mut prev_full, full_px.clone());
+            return FrameResult {
+                label: f.label.clone(), full_time, incr_time, full_px,
+                prev_full_px: my_prev_full, incr_px, w, h,
+                render_calls: 0, skipped: cols * rows, cache_hits: 0,
+                dirty_tiles: HashSet::new(),
+            };
+        }
 
         // 2. Measure layout — always via the stub-layout path.
         //
         //    (a) Measure each changed leaf in isolation to update node_dims.
         //        On the first frame every node enters → changed_ids contains all
-        //        nodes → node_dims is fully bootstrapped here, no separate
-        //        full-measure pass needed.
+        //        nodes → node_dims is fully bootstrapped here.
         //    (b) Stub layout: replace every leaf with a fixed-size container so
         //        taffy re-computes positions with zero text shaping.
         //
-        //    Using the same path for cold and warm frames means frame 0 tiles and
-        //    all subsequent tiles share the same stub-layout coordinate system,
-        //    eliminating the subpixel seam the old full-measure cold-frame path
-        //    caused at dirty/clean tile boundaries.
-        let bboxes: HashMap<String, Rect>;
-        let stub_bboxes: HashMap<String, Rect>;
+        //    node_map is built once and shared by both the measure step (O(1)
+        //    lookup vs the old O(N) find_node) and later fingerprinting.
+        let node_map = build_node_map(&f.scene[0]);
 
         // Step (a): update node_dims for any leaf whose dimensions may have changed.
         for id in &incr_ctx.changed_ids {
-            if let Some(node) = find_node(&f.scene[0], id) {
+            if let Some(&node) = node_map.get(id.as_str()) {
                 match node {
                     FakeNode::Text { .. } => {
                         let dims = measure_natural(node, &incr_ctx.global);
@@ -1214,7 +1149,8 @@ fn run_suite(suite: &TestSuite, cm: &CostModel, cal_samples: &mut Vec<(f64, f64,
             }
         }
         // Step (b): stub layout — replace all leaves with fixed-size containers.
-        {
+        // bboxes and prev_stub_bboxes are always the same map; no clone needed.
+        let bboxes: HashMap<String, Rect> = {
             let stub_json = stub_scene_json(&f.scene[0], &incr_ctx.node_dims);
             let node = parse_layout(&stub_json).unwrap_or_else(|_| Node::container(vec![]));
             let measured = takumi_measure_layout(
@@ -1223,13 +1159,10 @@ fn run_suite(suite: &TestSuite, cm: &CostModel, cal_samples: &mut Vec<(f64, f64,
             ).expect("stub layout");
             let mut sb = HashMap::new();
             collect_bboxes(&measured, &f.scene[0], &mut sb);
-            bboxes = sb.clone();
-            stub_bboxes = sb;
-        }
+            sb
+        };
 
         // 3. Compute dirty tiles.
-        let cols = (w + TILE_SIZE - 1) / TILE_SIZE;
-        let rows = (h + TILE_SIZE - 1) / TILE_SIZE;
         let mut dirty: HashSet<(u32,u32)> = HashSet::new();
 
         // Rebuild tile→node map from current bboxes (incremental update is a
@@ -1263,13 +1196,15 @@ fn run_suite(suite: &TestSuite, cm: &CostModel, cal_samples: &mut Vec<(f64, f64,
             }
         }
 
-        // 4. Cache lookup — fingerprint each dirty tile, stitch hits immediately,
-        //    remove them from dirty so they don't inflate candidate band areas.
+        // 4. Cache lookup — fingerprint each dirty tile upfront, stitch hits
+        //    immediately and remove from dirty so they don't inflate band areas.
         let skipped = cols * rows - dirty.len() as u32; // tiles that were never dirty
+        let fps: HashMap<(u32,u32), u64> = dirty.iter()
+            .map(|&(tx,ty)| ((tx,ty), tile_fingerprint(tx, ty, &tile_node_map, &bboxes, &node_map)))
+            .collect();
         let mut cache_hits = 0u32;
         dirty.retain(|&(tx, ty)| {
-            let fp = tile_fingerprint(tx, ty, &tile_node_map, &bboxes, &f.scene[0]);
-            match tile_cache.get(&fp).cloned() {
+            match tile_cache.get(&fps[&(tx,ty)]).cloned() {
                 Some(px) => {
                     stitch(&mut frame_buf, w, h, &px, TILE_SIZE, tx * TILE_SIZE, ty * TILE_SIZE);
                     cache_hits += 1;
@@ -1280,22 +1215,9 @@ fn run_suite(suite: &TestSuite, cm: &CostModel, cal_samples: &mut Vec<(f64, f64,
         });
 
         // 5. Categorical + spatial grouping with cost-model greedy merge.
-        //
-        //    Cold frame (all tiles dirty): fall back to a single collect_flat call
-        //    with the bbox-query path — tile_node_map is freshly built but the
-        //    candidate machinery would create O(tiles) groups for no benefit.
-        //
-        //    Incremental frame: compute_candidates groups dirty tiles by their
-        //    exact intersecting-node set, applies spatial banding within each
-        //    group, then greedily merges candidates when doing so saves cost.
-        let candidates: Vec<RenderCandidate> = if dirty.len() as u32 == cols * rows {
-            // Cold / full-redraw: one candidate covering everything, bbox-query path.
-            vec![RenderCandidate {
-                min_tx: 0, max_tx: cols - 1, min_ty: 0, max_ty: rows - 1,
-                tiles: dirty.iter().copied().collect(),
-                node_set: BTreeSet::new(), // empty = use collect_flat fallback below
-            }]
-        } else if dirty.is_empty() {
+        //    compute_candidates handles all frames uniformly — cold frame (all
+        //    tiles dirty) and incremental alike.  No special-case sentinel needed.
+        let candidates: Vec<RenderCandidate> = if dirty.is_empty() {
             vec![]
         } else {
             let raw = compute_candidates(&dirty, &tile_node_map);
@@ -1318,13 +1240,8 @@ fn run_suite(suite: &TestSuite, cm: &CostModel, cal_samples: &mut Vec<(f64, f64,
             let canvas_h = batch_h + 2 * SHADOW_BUF;
 
             let mut nodes: Vec<serde_json::Value> = Vec::new();
-            if cand.node_set.is_empty() {
-                // Cold frame fallback: include all nodes in the query region.
-                collect_flat(&f.scene[0], &bboxes, qx, qy, qw, qh, &mut nodes);
-            } else {
-                collect_flat_whitelist(&f.scene[0], &bboxes, &cand.node_set,
-                                       qx, qy, qw, qh, &mut nodes);
-            }
+            collect_flat_whitelist(&f.scene[0], &bboxes, &cand.node_set,
+                                   qx, qy, qw, qh, &mut nodes);
 
             let scene = serde_json::json!({
                 "type": "container",
@@ -1352,8 +1269,7 @@ fn run_suite(suite: &TestSuite, cm: &CostModel, cal_samples: &mut Vec<(f64, f64,
                 let off_y = SHADOW_BUF + (ty - cand.min_ty) * TILE_SIZE;
                 let tile_px = crop_pixels(&cand_px, canvas_w, off_x, off_y, TILE_SIZE, TILE_SIZE);
                 stitch(&mut frame_buf, w, h, &tile_px, TILE_SIZE, px_x, px_y);
-                let fp = tile_fingerprint(tx, ty, &tile_node_map, &bboxes, &f.scene[0]);
-                tile_cache.put(fp, tile_px);
+                tile_cache.put(fps[&(tx,ty)], tile_px);
             }
         }
 
@@ -1361,7 +1277,7 @@ fn run_suite(suite: &TestSuite, cm: &CostModel, cal_samples: &mut Vec<(f64, f64,
         let incr_px = frame_buf.clone();
         let my_prev_full = std::mem::replace(&mut prev_full, full_px.clone());
         let saved_dirty = dirty.clone();
-        prev_stub_bboxes = stub_bboxes;
+        prev_stub_bboxes = bboxes;
 
         FrameResult { label: f.label.clone(), full_time, incr_time, full_px, prev_full_px: my_prev_full, incr_px, w, h, render_calls, skipped, cache_hits, dirty_tiles: saved_dirty }
     }).collect();
