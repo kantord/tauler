@@ -1,6 +1,10 @@
-use crate::ui::{Node, component, rsx, tw_merge};
+use crate::ui::{Node, component, rsx, cva::Cva};
 
-const BASE_TW: &str = "rounded-lg border border-border bg-card text-card-foreground px-3 py-[10px]";
+const CARD_VARIANTS: Cva = Cva {
+    base: "rounded-lg border border-border bg-card text-card-foreground px-3 py-[10px]",
+    variants: &[],
+    defaults: &[],
+};
 
 /// A styled container with rounded corners, a border, and card background colour.
 /// Wraps arbitrary child nodes and accepts an optional `tw` prop for Tailwind overrides.
@@ -17,7 +21,7 @@ const BASE_TW: &str = "rounded-lg border border-border bg-card text-card-foregro
 /// https://ui.shadcn.com/docs/components/card
 #[component("@ui/card")]
 pub fn card(children: Vec<Node>, tw: Option<String>) -> Node {
-    let tw = tw_merge(BASE_TW, tw.as_deref().unwrap_or(""));
+    let tw = CARD_VARIANTS.resolve(&[], tw.as_deref().unwrap_or(""));
     rsx! {
         <container tw={tw}>
             {children}
