@@ -639,7 +639,7 @@ fn diff_masked(a: &[u8], b: &[u8], mask: &[bool], _w: u32, _h: u32) -> DiffResul
 // Test suites (unchanged)
 // ---------------------------------------------------------------------------
 
-struct SuiteFrame { label: String, scene: Vec<FakeNode>, full_json: serde_json::Value }
+struct SuiteFrame { label: String, scene: Vec<FakeNode> }
 struct TestSuite  { name: &'static str, description: &'static str, frames: Vec<SuiteFrame> }
 
 fn suite_simple_bar() -> TestSuite {
@@ -662,22 +662,7 @@ fn suite_simple_bar() -> TestSuite {
                 FakeNode::Text{id:"bat".into(),content:"87%".into(),tw:"text-white text-xs whitespace-nowrap".into()},
             ]},
         ]}];
-        let full_json = serde_json::json!({"type":"container","tw":"flex flex-row items-center justify-between w-[400px] h-[24px] bg-gray-900","children":[
-            {"type":"container","tw":"flex flex-row items-center gap-1","children":[
-                {"type":"container","style":{"display":"inline-block"},"tw":"w-[16px] h-[16px] bg-blue-500"},
-                {"type":"text","text":"1: term","tw":"text-white text-xs whitespace-nowrap"},
-                {"type":"text","text":"nvim main.rs","tw":"text-gray-400 text-xs whitespace-nowrap"}
-            ]},
-            {"type":"container","tw":"flex flex-row items-center","children":[
-                {"type":"text","text":&clock,"tw":"text-white text-xs font-mono whitespace-nowrap"}
-            ]},
-            {"type":"container","tw":"flex flex-row items-center gap-1","children":[
-                {"type":"text","text":&cpu,"tw":"text-white text-xs whitespace-nowrap"},
-                {"type":"text","text":"MEM 4G","tw":"text-white text-xs whitespace-nowrap"},
-                {"type":"text","text":"87%","tw":"text-white text-xs whitespace-nowrap"}
-            ]}
-        ]});
-        SuiteFrame{label,scene,full_json}
+        SuiteFrame{label,scene}
     }).collect();
     TestSuite{name:"Simple Status Bar",description:"Baseline — no effects. Clock ticks each frame, CPU every 3rd.",frames}
 }
@@ -701,17 +686,7 @@ fn suite_shadow_cards() -> TestSuite {
                 FakeNode::Text{id:"static-sub".into(),content:"All services running".into(),tw:"text-gray-500 text-xs whitespace-nowrap".into()},
             ]},
         ]}];
-        let full_json = serde_json::json!({"type":"container","tw":"flex flex-row gap-4 p-4 bg-gray-100 w-[440px] h-[90px]","children":[
-            {"type":"container","tw":"flex flex-col justify-between p-3 bg-white rounded-xl shadow-2xl w-[190px]","children":[
-                {"type":"text","text":format!("{count} new"),"tw":"text-gray-900 text-sm font-bold whitespace-nowrap"},
-                {"type":"text","text":msg,"tw":"text-gray-500 text-xs whitespace-nowrap"}
-            ]},
-            {"type":"container","tw":"flex flex-col justify-center items-center p-3 bg-white rounded-xl shadow-2xl w-[190px]","children":[
-                {"type":"text","text":"System OK","tw":"text-green-600 text-sm font-bold whitespace-nowrap"},
-                {"type":"text","text":"All services running","tw":"text-gray-500 text-xs whitespace-nowrap"}
-            ]}
-        ]});
-        SuiteFrame{label,scene,full_json}
+        SuiteFrame{label,scene}
     }).collect();
     TestSuite{name:"Shadow Cards",description:"Two rounded+shadow cards. Left changes each frame, right is fully static.",frames}
 }
@@ -734,17 +709,7 @@ fn suite_blurred_overlay() -> TestSuite {
                 FakeNode::Text{id:"alert".into(),content:alert.clone(),tw:"text-yellow-300 text-xs whitespace-nowrap".into()},
             ]},
         ]}];
-        let full_json = serde_json::json!({"type":"container","tw":"flex flex-row items-center gap-4 px-4 w-[440px] h-[40px] bg-slate-900/80 rounded-2xl shadow-inner","children":[
-            {"type":"container","tw":"flex items-center justify-center w-[32px] h-[32px] bg-blue-600 rounded-lg shadow-md","children":[
-                {"type":"text","text":"⚡","tw":"text-white text-sm"}
-            ]},
-            {"type":"text","text":&value,"tw":"text-white text-sm font-mono font-bold whitespace-nowrap"},
-            {"type":"text","text":"GPU Temp","tw":"text-slate-400 text-xs whitespace-nowrap"},
-            {"type":"container","tw":"flex items-center ml-auto px-2 py-0.5 bg-slate-700 rounded-md","children":[
-                {"type":"text","text":&alert,"tw":"text-yellow-300 text-xs whitespace-nowrap"}
-            ]}
-        ]});
-        SuiteFrame{label,scene,full_json}
+        SuiteFrame{label,scene}
     }).collect();
     TestSuite{name:"Blurred Overlay",description:"Rounded panel. Temperature changes every frame; alert fires every 4th.",frames}
 }
@@ -772,15 +737,7 @@ fn suite_dense_metrics() -> TestSuite {
         let scene = vec![FakeNode::Collection{id:"grid".into(),
             tw:"flex flex-row gap-1 p-1 bg-gray-900 w-[360px] h-[36px]".into(),children:cols}];
 
-        let full_cols: Vec<serde_json::Value> = metrics.iter().map(|(name,val)|
-            serde_json::json!({"type":"container","tw":"flex flex-col items-center px-2 bg-gray-800 rounded-lg shadow-md","children":[
-                {"type":"text","text":name,"tw":"text-gray-400 text-[10px] whitespace-nowrap"},
-                {"type":"text","text":val,"tw":"text-white text-xs font-mono font-bold whitespace-nowrap"}
-            ]})
-        ).collect();
-        let full_json = serde_json::json!({"type":"container","tw":"flex flex-row gap-1 p-1 bg-gray-900 w-[360px] h-[36px]","children":full_cols});
-
-        SuiteFrame{label,scene,full_json}
+        SuiteFrame{label,scene}
     }).collect();
     TestSuite{name:"Dense Metrics Grid",description:"6 shadow+rounded columns. CPU and GPU change each frame; the other 4 stay static.",frames}
 }
@@ -1085,7 +1042,7 @@ fn run_suite(suite: &TestSuite, cm: &CostModel, cal_samples: &mut Vec<(f64, f64,
         let full_ctx = Ctx::fresh();
         let t = Instant::now();
         let (full_px, w, h) = {
-            let node = parse_layout(&f.full_json).unwrap_or_else(|_| Node::container(vec![]));
+            let node = parse_layout(&f.scene[0].to_json()).unwrap_or_else(|_| Node::container(vec![]));
             let img = takumi_render(
                 RenderOptions::builder().global(&full_ctx.global)
                     .viewport(Viewport::new((None,None))).node(node).build()
@@ -1768,8 +1725,7 @@ fn suite_realistic_sidebar() -> TestSuite {
             ],
         }];
 
-        let full_json = scene[0].to_json();
-        SuiteFrame { label, scene, full_json }
+        SuiteFrame { label, scene }
     }).collect();
 
     TestSuite {
@@ -1798,8 +1754,7 @@ fn suite_shrink_bug() -> TestSuite {
                 tw: "text-white text-xs font-mono whitespace-nowrap".into(),
             }],
         }];
-        let full_json = scene[0].to_json();
-        SuiteFrame { label: format!("frame {i}: «{text}»"), scene, full_json }
+        SuiteFrame { label: format!("frame {i}: «{text}»"), scene }
     }).collect();
     TestSuite {
         name: "Shrink Bug",
@@ -1849,8 +1804,7 @@ fn suite_moving_ball() -> TestSuite {
                 },
             ],
         }];
-        let full_json = scene[0].to_json();
-        SuiteFrame { label: format!("frame {i}: x={bx} sz={sz}"), scene, full_json }
+        SuiteFrame { label: format!("frame {i}: x={bx} sz={sz}"), scene }
     }).collect();
     TestSuite {
         name: "Moving Ball",
@@ -1882,8 +1836,7 @@ fn suite_tile_crossing() -> TestSuite {
                 },
             ],
         }];
-        let full_json = scene[0].to_json();
-        SuiteFrame { label: format!("frame {i}: tile-x={}", bx / TILE_SIZE), scene, full_json }
+        SuiteFrame { label: format!("frame {i}: tile-x={}", bx / TILE_SIZE), scene }
     }).collect();
     TestSuite {
         name: "Tile Crossing",
@@ -1920,8 +1873,7 @@ fn suite_panel_focus() -> TestSuite {
                 }
             }).collect(),
         }];
-        let full_json = scene[0].to_json();
-        SuiteFrame { label: format!("frame {i}: active={active} count={count}"), scene, full_json }
+        SuiteFrame { label: format!("frame {i}: active={active} count={count}"), scene }
     }).collect();
     TestSuite {
         name: "Panel Focus Cycle",
@@ -1960,8 +1912,7 @@ fn suite_diagonal_scatter() -> TestSuite {
             tw: "flex flex-col gap-2 w-[248px] h-[248px] p-2 bg-gray-950".into(),
             children: rows,
         }];
-        let full_json = scene[0].to_json();
-        SuiteFrame { label: format!("frame {i}: hot=cell-{hot}"), scene, full_json }
+        SuiteFrame { label: format!("frame {i}: hot=cell-{hot}"), scene }
     }).collect();
     TestSuite {
         name: "Diagonal Scatter",
@@ -2015,8 +1966,7 @@ fn suite_notification_badge() -> TestSuite {
                 },
             ],
         }];
-        let full_json = scene[0].to_json();
-        SuiteFrame { label: format!("frame {i}: {count} unread"), scene, full_json }
+        SuiteFrame { label: format!("frame {i}: {count} unread"), scene }
     }).collect();
     TestSuite {
         name: "Notification Badge",
@@ -2061,8 +2011,7 @@ fn suite_progress_fill() -> TestSuite {
                 },
             ],
         }];
-        let full_json = scene[0].to_json();
-        SuiteFrame { label: format!("frame {i}: {pct}%"), scene, full_json }
+        SuiteFrame { label: format!("frame {i}: {pct}%"), scene }
     }).collect();
     TestSuite {
         name: "Progress Fill",
@@ -2180,10 +2129,9 @@ fn suite_keyframe_animation() -> TestSuite {
                 },
             ],
         }];
-        let full_json = scene[0].to_json();
         SuiteFrame {
             label: format!("frame {i:02}: bounce={bounce_y} slide={slide_x} pulse={pulse_sz} phase={phase}"),
-            scene, full_json,
+            scene,
         }
     }).collect();
     TestSuite {
@@ -2320,10 +2268,9 @@ fn suite_notification_panel() -> TestSuite {
             ],
         }];
 
-        let full_json = scene[0].to_json();
         SuiteFrame {
             label: format!("frame {i:02}: spin={spin} notif={active} count={count} slide={slide_x}"),
-            scene, full_json,
+            scene,
         }
     }).collect();
 
@@ -2419,8 +2366,7 @@ fn suite_scroll_list() -> TestSuite {
             ],
         }];
 
-        let full_json = scene[0].to_json();
-        SuiteFrame { label: format!("frame {i:02}: scroll={scroll_y}px"), scene, full_json }
+        SuiteFrame { label: format!("frame {i:02}: scroll={scroll_y}px"), scene }
     }).collect();
 
     TestSuite {
@@ -2690,8 +2636,7 @@ mod visual_regression {
                 tw: "flex flex-row items-center w-[320px] h-[48px] bg-gray-900".into(),
                 children: children,
             }];
-            let full_json = scene[0].to_json();
-            SuiteFrame { label: label.into(), scene, full_json }
+            SuiteFrame { label: label.into(), scene }
         };
         let node_a = || FakeNode::Collection {
             id: "node-a".into(),
