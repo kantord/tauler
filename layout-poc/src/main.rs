@@ -639,7 +639,7 @@ fn diff_masked(a: &[u8], b: &[u8], mask: &[bool], _w: u32, _h: u32) -> DiffResul
 // Test suites (unchanged)
 // ---------------------------------------------------------------------------
 
-struct SuiteFrame { label: String, scene: Vec<FakeNode> }
+struct SuiteFrame { label: String, root: FakeNode }
 struct TestSuite  { name: &'static str, description: &'static str, frames: Vec<SuiteFrame> }
 
 fn suite_simple_bar() -> TestSuite {
@@ -647,7 +647,7 @@ fn suite_simple_bar() -> TestSuite {
         let clock = format!("{}:{:02}:{:02}", 12, i/60, i%60);
         let cpu   = format!("CPU {}%", if i%3==0{i*4}else{12});
         let label = if i==0{"cold".into()} else if i%3==0{format!("clock+cpu → {clock}")} else{format!("clock → {clock}")};
-        let scene = vec![FakeNode::Collection{id:"bar".into(),tw:"flex flex-row items-center justify-between w-[400px] h-[24px] bg-gray-900".into(),children:vec![
+        let root = FakeNode::Collection{id:"bar".into(),tw:"flex flex-row items-center justify-between w-[400px] h-[24px] bg-gray-900".into(),children:vec![
             FakeNode::Collection{id:"left".into(),tw:"flex flex-row items-center gap-1".into(),children:vec![
                 FakeNode::Image{id:"logo".into(),color:"blue-500".into(),width:16,height:16},
                 FakeNode::Text{id:"ws".into(),content:"1: term".into(),tw:"text-white text-xs whitespace-nowrap".into()},
@@ -661,8 +661,8 @@ fn suite_simple_bar() -> TestSuite {
                 FakeNode::Text{id:"mem".into(),content:"MEM 4G".into(),tw:"text-white text-xs whitespace-nowrap".into()},
                 FakeNode::Text{id:"bat".into(),content:"87%".into(),tw:"text-white text-xs whitespace-nowrap".into()},
             ]},
-        ]}];
-        SuiteFrame{label,scene}
+        ]};
+        SuiteFrame{label,root}
     }).collect();
     TestSuite{name:"Simple Status Bar",description:"Baseline — no effects. Clock ticks each frame, CPU every 3rd.",frames}
 }
@@ -673,7 +673,7 @@ fn suite_shadow_cards() -> TestSuite {
         let msgs = ["Build complete","Tests passed","Deploy done","Lint clean","Type check ok"];
         let msg   = msgs[i % msgs.len()];
         let label = if i==0{"cold".into()}else{format!("notification #{count}")};
-        let scene = vec![FakeNode::Collection{id:"cards".into(),
+        let root = FakeNode::Collection{id:"cards".into(),
             tw:"flex flex-row gap-4 p-4 bg-gray-100 w-[440px] h-[90px]".into(),children:vec![
             FakeNode::Collection{id:"notif".into(),
                 tw:"flex flex-col justify-between p-3 bg-white rounded-xl shadow-2xl w-[190px]".into(),children:vec![
@@ -685,8 +685,8 @@ fn suite_shadow_cards() -> TestSuite {
                 FakeNode::Text{id:"static-label".into(),content:"System OK".into(),tw:"text-green-600 text-sm font-bold whitespace-nowrap".into()},
                 FakeNode::Text{id:"static-sub".into(),content:"All services running".into(),tw:"text-gray-500 text-xs whitespace-nowrap".into()},
             ]},
-        ]}];
-        SuiteFrame{label,scene}
+        ]};
+        SuiteFrame{label,root}
     }).collect();
     TestSuite{name:"Shadow Cards",description:"Two rounded+shadow cards. Left changes each frame, right is fully static.",frames}
 }
@@ -696,7 +696,7 @@ fn suite_blurred_overlay() -> TestSuite {
         let value = format!("{}°C", 42 + i);
         let alert = if i % 4 == 0 { format!("⚠ spike at {}s", i * 10) } else { "nominal".into() };
         let label = if i==0{"cold".into()} else if i%4==0{format!("value+alert → {value}")} else{format!("value → {value}")};
-        let scene = vec![FakeNode::Collection{id:"overlay".into(),
+        let root = FakeNode::Collection{id:"overlay".into(),
             tw:"flex flex-row items-center gap-4 px-4 w-[440px] h-[40px] bg-slate-900/80 rounded-2xl shadow-inner".into(),children:vec![
             FakeNode::Collection{id:"badge".into(),
                 tw:"flex items-center justify-center w-[32px] h-[32px] bg-blue-600 rounded-lg shadow-md".into(),children:vec![
@@ -708,8 +708,8 @@ fn suite_blurred_overlay() -> TestSuite {
                 tw:"flex items-center ml-auto px-2 py-0.5 bg-slate-700 rounded-md".into(),children:vec![
                 FakeNode::Text{id:"alert".into(),content:alert.clone(),tw:"text-yellow-300 text-xs whitespace-nowrap".into()},
             ]},
-        ]}];
-        SuiteFrame{label,scene}
+        ]};
+        SuiteFrame{label,root}
     }).collect();
     TestSuite{name:"Blurred Overlay",description:"Rounded panel. Temperature changes every frame; alert fires every 4th.",frames}
 }
@@ -734,10 +734,10 @@ fn suite_dense_metrics() -> TestSuite {
             ]}
         ).collect();
 
-        let scene = vec![FakeNode::Collection{id:"grid".into(),
-            tw:"flex flex-row gap-1 p-1 bg-gray-900 w-[360px] h-[36px]".into(),children:cols}];
+        let root = FakeNode::Collection{id:"grid".into(),
+            tw:"flex flex-row gap-1 p-1 bg-gray-900 w-[360px] h-[36px]".into(),children:cols};
 
-        SuiteFrame{label,scene}
+        SuiteFrame{label,root}
     }).collect();
     TestSuite{name:"Dense Metrics Grid",description:"6 shadow+rounded columns. CPU and GPU change each frame; the other 4 stay static.",frames}
 }
@@ -747,7 +747,7 @@ fn suite_dense_metrics() -> TestSuite {
 // ---------------------------------------------------------------------------
 
 struct FrameResult { label: String, full_time: Duration, incr_time: Duration, full_px: Vec<u8>, prev_full_px: Vec<u8>, incr_px: Vec<u8>, w: u32, h: u32, render_calls: u32, skipped: u32, cache_hits: u32, dirty_tiles: HashSet<(u32,u32)> }
-struct SuiteResult { name: &'static str, description: &'static str, frames: Vec<FrameResult> }
+struct SuiteResult { frames: Vec<FrameResult> }
 
 const TILE_SIZE: u32 = 32;
 const SHADOW_BUF: u32 = 32; // extra border around each tile to capture shadow bleed
@@ -1042,7 +1042,7 @@ fn run_suite(suite: &TestSuite, cm: &CostModel, cal_samples: &mut Vec<(f64, f64,
         let full_ctx = Ctx::fresh();
         let t = Instant::now();
         let (full_px, w, h) = {
-            let node = parse_layout(&f.scene[0].to_json()).unwrap_or_else(|_| Node::container(vec![]));
+            let node = parse_layout(&f.root.to_json()).unwrap_or_else(|_| Node::container(vec![]));
             let img = takumi_render(
                 RenderOptions::builder().global(&full_ctx.global)
                     .viewport(Viewport::new((None,None))).node(node).build()
@@ -1057,7 +1057,7 @@ fn run_suite(suite: &TestSuite, cm: &CostModel, cal_samples: &mut Vec<(f64, f64,
         let t = Instant::now();
 
         // 1. Reconcile — populates changed_ids
-        incr_set.reconcile(f.scene.clone(), &mut incr_ctx, &mut ());
+        incr_set.reconcile(vec![f.root.clone()], &mut incr_ctx, &mut ());
 
         let cols = (w + TILE_SIZE - 1) / TILE_SIZE;
         let rows = (h + TILE_SIZE - 1) / TILE_SIZE;
@@ -1088,7 +1088,7 @@ fn run_suite(suite: &TestSuite, cm: &CostModel, cal_samples: &mut Vec<(f64, f64,
         //
         //    node_map is built once and shared by both the measure step (O(1)
         //    lookup vs the old O(N) find_node) and later fingerprinting.
-        let node_map = build_node_map(&f.scene[0]);
+        let node_map = build_node_map(&f.root);
 
         // Step (a): update node_dims for changed leaves; track whether anything
         // that affects flex geometry actually changed.
@@ -1121,14 +1121,14 @@ fn run_suite(suite: &TestSuite, cm: &CostModel, cal_samples: &mut Vec<(f64, f64,
         }
         // Step (b): stub layout — skipped when positions are provably unchanged.
         let bboxes: HashMap<String, Rect> = if dims_changed || collection_changed {
-            let stub_json = stub_scene_json(&f.scene[0], &incr_ctx.node_dims);
+            let stub_json = stub_scene_json(&f.root, &incr_ctx.node_dims);
             let node = parse_layout(&stub_json).unwrap_or_else(|_| Node::container(vec![]));
             let measured = takumi_measure_layout(
                 RenderOptions::builder().global(&incr_ctx.global)
                     .viewport(Viewport::new((None, None))).node(node).build()
             ).expect("stub layout");
             let mut sb = HashMap::new();
-            collect_bboxes(&measured, &f.scene[0], &mut sb);
+            collect_bboxes(&measured, &f.root, &mut sb);
             sb
         } else {
             prev_stub_bboxes.clone()
@@ -1228,7 +1228,7 @@ fn run_suite(suite: &TestSuite, cm: &CostModel, cal_samples: &mut Vec<(f64, f64,
             let canvas_h = batch_h + 2 * SHADOW_BUF;
 
             let mut nodes: Vec<serde_json::Value> = Vec::new();
-            collect_flat_whitelist(&f.scene[0], &bboxes, &cand.node_set,
+            collect_flat_whitelist(&f.root, &bboxes, &cand.node_set,
                                    qx, qy, qw, qh, &mut nodes);
 
             let scene = serde_json::json!({
@@ -1270,7 +1270,7 @@ fn run_suite(suite: &TestSuite, cm: &CostModel, cal_samples: &mut Vec<(f64, f64,
         FrameResult { label: f.label.clone(), full_time, incr_time, full_px, prev_full_px: my_prev_full, incr_px, w, h, render_calls, skipped, cache_hits, dirty_tiles: saved_dirty }
     }).collect();
 
-    SuiteResult { name: suite.name, description: suite.description, frames }
+    SuiteResult { frames }
 }
 
 // ---------------------------------------------------------------------------
@@ -1284,11 +1284,11 @@ fn run_suite(suite: &TestSuite, cm: &CostModel, cal_samples: &mut Vec<(f64, f64,
 /// catching any clearly-wrong pixel (diff > 50) involving more than ~30 pixels.
 const PERFECT_THRESHOLD: f64 = 0.05;
 
-fn html_report(suites: &[SuiteResult], cal_note: &str) -> String {
+fn html_report(suites: &[TestSuite], results: &[SuiteResult], cal_note: &str) -> String {
     // ── Timing totals ────────────────────────────────────────────────────────
     let mut all_full = Duration::ZERO;
     let mut all_incr = Duration::ZERO;
-    for s in suites {
+    for s in results {
         for (i, f) in s.frames.iter().enumerate() {
             if i > 0 { all_full += f.full_time; all_incr += f.incr_time; }
         }
@@ -1306,7 +1306,7 @@ fn html_report(suites: &[SuiteResult], cal_note: &str) -> String {
     let mut suite_tabs = String::new();
     let mut table_rows = String::new();
 
-    for (si, suite) in suites.iter().enumerate() {
+    for (si, (suite, result)) in suites.iter().zip(results.iter()).enumerate() {
         let tab_id = format!("tab-suite-{si}");
         tab_btns.push_str(&format!(
             r#"<button class="tab-btn" onclick="showTab('{tab_id}',this)">{}</button>"#,
@@ -1319,7 +1319,7 @@ fn html_report(suites: &[SuiteResult], cal_note: &str) -> String {
         let mut n_perfect = 0u32;
         let mut n_total  = 0u32;
 
-        for (fi, f) in suite.frames.iter().enumerate() {
+        for (fi, f) in result.frames.iter().enumerate() {
             if fi > 0 { s_full += f.full_time; s_incr += f.incr_time; }
             n_total += 1;
 
@@ -1603,7 +1603,7 @@ fn suite_realistic_sidebar() -> TestSuite {
             }
         }).collect();
 
-        let scene = vec![FakeNode::Collection {
+        let root = FakeNode::Collection {
             id: "sidebar".into(),
             tw: "flex flex-col w-[300px] h-[2500px] px-4 py-4 bg-gray-900".into(),
             children: vec![
@@ -1723,9 +1723,9 @@ fn suite_realistic_sidebar() -> TestSuite {
                     ],
                 },
             ],
-        }];
+        };
 
-        SuiteFrame { label, scene }
+        SuiteFrame { label, root }
     }).collect();
 
     TestSuite {
@@ -1745,7 +1745,7 @@ fn suite_shrink_bug() -> TestSuite {
     // right-side pixels of the wide text to persist after it shrinks.
     let frames = ["WWWWWWWWWWWWWWWWWWWWWWWWW", "W", "WWWWWWWWWWWWWWWWWWWWWWWWW", "W"]
         .iter().enumerate().map(|(i, &text)| {
-        let scene = vec![FakeNode::Collection {
+        let root = FakeNode::Collection {
             id: "bar".into(),
             tw: "w-[400px] h-[24px] bg-blue-900 flex items-center".into(),
             children: vec![FakeNode::Text {
@@ -1753,8 +1753,8 @@ fn suite_shrink_bug() -> TestSuite {
                 content: text.into(),
                 tw: "text-white text-xs font-mono whitespace-nowrap".into(),
             }],
-        }];
-        SuiteFrame { label: format!("frame {i}: «{text}»"), scene }
+        };
+        SuiteFrame { label: format!("frame {i}: «{text}»"), root }
     }).collect();
     TestSuite {
         name: "Shrink Bug",
@@ -1772,7 +1772,7 @@ fn suite_moving_ball() -> TestSuite {
         let t = i as f64 / 11.0;
         let bx = (8 + (t * 352.0) as u32).min(368);
         let sz = 16u32 + (8.0 * (t * std::f64::consts::TAU).sin().abs()) as u32;
-        let scene = vec![FakeNode::Collection {
+        let root = FakeNode::Collection {
             id: "canvas".into(),
             tw: "flex flex-col w-[400px] h-[80px] bg-gray-900".into(),
             children: vec![
@@ -1803,8 +1803,8 @@ fn suite_moving_ball() -> TestSuite {
                     ],
                 },
             ],
-        }];
-        SuiteFrame { label: format!("frame {i}: x={bx} sz={sz}"), scene }
+        };
+        SuiteFrame { label: format!("frame {i}: x={bx} sz={sz}"), root }
     }).collect();
     TestSuite {
         name: "Moving Ball",
@@ -1816,7 +1816,7 @@ fn suite_moving_ball() -> TestSuite {
 fn suite_tile_crossing() -> TestSuite {
     let frames = (0..10).map(|i| {
         let bx = i as u32 * TILE_SIZE;
-        let scene = vec![FakeNode::Collection {
+        let root = FakeNode::Collection {
             id: "canvas".into(),
             tw: "flex flex-row items-center w-[320px] h-[64px] bg-gray-900".into(),
             children: vec![
@@ -1835,8 +1835,8 @@ fn suite_tile_crossing() -> TestSuite {
                     }],
                 },
             ],
-        }];
-        SuiteFrame { label: format!("frame {i}: tile-x={}", bx / TILE_SIZE), scene }
+        };
+        SuiteFrame { label: format!("frame {i}: tile-x={}", bx / TILE_SIZE), root }
     }).collect();
     TestSuite {
         name: "Tile Crossing",
@@ -1849,7 +1849,7 @@ fn suite_panel_focus() -> TestSuite {
     let frames = (0..10).map(|i| {
         let active = i % 3;
         let count = i + 1;
-        let scene = vec![FakeNode::Collection {
+        let root = FakeNode::Collection {
             id: "canvas".into(),
             tw: "flex flex-row gap-3 p-4 w-[460px] h-[120px] bg-gray-950".into(),
             children: (0usize..3).map(|idx| {
@@ -1872,8 +1872,8 @@ fn suite_panel_focus() -> TestSuite {
                     ],
                 }
             }).collect(),
-        }];
-        SuiteFrame { label: format!("frame {i}: active={active} count={count}"), scene }
+        };
+        SuiteFrame { label: format!("frame {i}: active={active} count={count}"), root }
     }).collect();
     TestSuite {
         name: "Panel Focus Cycle",
@@ -1907,12 +1907,12 @@ fn suite_diagonal_scatter() -> TestSuite {
                 }
             }).collect(),
         }).collect();
-        let scene = vec![FakeNode::Collection {
+        let root = FakeNode::Collection {
             id: "canvas".into(),
             tw: "flex flex-col gap-2 w-[248px] h-[248px] p-2 bg-gray-950".into(),
             children: rows,
-        }];
-        SuiteFrame { label: format!("frame {i}: hot=cell-{hot}"), scene }
+        };
+        SuiteFrame { label: format!("frame {i}: hot=cell-{hot}"), root }
     }).collect();
     TestSuite {
         name: "Diagonal Scatter",
@@ -1925,7 +1925,7 @@ fn suite_notification_badge() -> TestSuite {
     let frames = (0..12).map(|i| {
         let count = i + 1;
         let two_digit = count >= 10;
-        let scene = vec![FakeNode::Collection {
+        let root = FakeNode::Collection {
             id: "widget".into(),
             tw: "flex flex-row items-center gap-3 w-[240px] h-[72px] px-4 py-3 bg-gray-900 rounded-xl".into(),
             children: vec![
@@ -1965,8 +1965,8 @@ fn suite_notification_badge() -> TestSuite {
                     ],
                 },
             ],
-        }];
-        SuiteFrame { label: format!("frame {i}: {count} unread"), scene }
+        };
+        SuiteFrame { label: format!("frame {i}: {count} unread"), root }
     }).collect();
     TestSuite {
         name: "Notification Badge",
@@ -1984,7 +1984,7 @@ fn suite_progress_fill() -> TestSuite {
         };
         let fill_w = (pct * 320 / 100).min(320);
         let complete = pct >= 100;
-        let scene = vec![FakeNode::Collection {
+        let root = FakeNode::Collection {
             id: "card".into(),
             tw: "flex flex-col gap-2 w-[360px] h-[60px] px-3 py-2 bg-gray-800 rounded-xl".into(),
             children: vec![
@@ -2010,8 +2010,8 @@ fn suite_progress_fill() -> TestSuite {
                     }],
                 },
             ],
-        }];
-        SuiteFrame { label: format!("frame {i}: {pct}%"), scene }
+        };
+        SuiteFrame { label: format!("frame {i}: {pct}%"), root }
     }).collect();
     TestSuite {
         name: "Progress Fill",
@@ -2040,7 +2040,7 @@ fn suite_keyframe_animation() -> TestSuite {
         // Phase label: 4 keyframe segments
         let phase = if t < 0.25 { "IDLE" } else if t < 0.5 { "RISING" } else if t < 0.75 { "PEAK" } else { "FALLING" };
 
-        let scene = vec![FakeNode::Collection {
+        let root = FakeNode::Collection {
             id: "canvas".into(),
             tw: "flex flex-col w-[500px] h-[260px] p-4 bg-gray-950 gap-3".into(),
             children: vec![
@@ -2128,10 +2128,10 @@ fn suite_keyframe_animation() -> TestSuite {
                     ],
                 },
             ],
-        }];
+        };
         SuiteFrame {
             label: format!("frame {i:02}: bounce={bounce_y} slide={slide_x} pulse={pulse_sz} phase={phase}"),
-            scene,
+            root,
         }
     }).collect();
     TestSuite {
@@ -2208,7 +2208,7 @@ fn suite_notification_panel() -> TestSuite {
             }
         }).collect();
 
-        let scene = vec![FakeNode::Collection {
+        let root = FakeNode::Collection {
             id: "panel".into(),
             tw: "flex flex-col w-[400px] h-[200px] bg-gray-900 rounded-xl p-3 gap-2".into(),
             children: vec![
@@ -2266,11 +2266,11 @@ fn suite_notification_panel() -> TestSuite {
                     ],
                 },
             ],
-        }];
+        };
 
         SuiteFrame {
             label: format!("frame {i:02}: spin={spin} notif={active} count={count} slide={slide_x}"),
-            scene,
+            root,
         }
     }).collect();
 
@@ -2338,7 +2338,7 @@ fn suite_scroll_list() -> TestSuite {
             format!("flex flex-col gap-1 mt-[-{scroll_y}px]")
         };
 
-        let scene = vec![FakeNode::Collection {
+        let root = FakeNode::Collection {
             id: "panel".into(),
             tw: "flex flex-col w-[400px] h-[200px] bg-gray-900 rounded-xl p-3 gap-2".into(),
             children: vec![
@@ -2364,9 +2364,9 @@ fn suite_scroll_list() -> TestSuite {
                     }],
                 },
             ],
-        }];
+        };
 
-        SuiteFrame { label: format!("frame {i:02}: scroll={scroll_y}px"), scene }
+        SuiteFrame { label: format!("frame {i:02}: scroll={scroll_y}px"), root }
     }).collect();
 
     TestSuite {
@@ -2470,13 +2470,13 @@ fn main() {
     }
 
     let path = "/tmp/poc_report.html";
-    std::fs::write(path, html_report(&results, &cal_note)).expect("write report");
+    std::fs::write(path, html_report(&suites_defs, &results, &cal_note)).expect("write report");
     eprintln!("Report: file://{path}");
 
     // Dump PNG frames for visual inspection
     std::fs::create_dir_all("/tmp/poc_frames").unwrap();
-    for sr in &results {
-        let sname = sr.name.replace(' ', "_").to_lowercase();
+    for (suite, sr) in suites_defs.iter().zip(results.iter()) {
+        let sname = suite.name.replace(' ', "_").to_lowercase();
         for (fi, f) in sr.frames.iter().enumerate() {
             if f.full_px.is_empty() { continue; }
             let base = format!("/tmp/poc_frames/{sname}_f{fi:02}");
@@ -2631,12 +2631,12 @@ mod visual_regression {
     #[test]
     fn reg_structure_change_no_ghost() {
         let mk_frame = |label: &str, children: Vec<FakeNode>| -> SuiteFrame {
-            let scene = vec![FakeNode::Collection {
+            let root = FakeNode::Collection {
                 id: "canvas".into(),
                 tw: "flex flex-row items-center w-[320px] h-[48px] bg-gray-900".into(),
                 children: children,
-            }];
-            SuiteFrame { label: label.into(), scene }
+            };
+            SuiteFrame { label: label.into(), root }
         };
         let node_a = || FakeNode::Collection {
             id: "node-a".into(),
