@@ -1,4 +1,5 @@
 use crate::ui::components::{
+    badge::__UI_ENTRY_BADGE,
     card::__UI_ENTRY_CARD,
     table::datatable::__UI_ENTRY_DATA_TABLE,
     progress::__UI_ENTRY_PROGRESS,
@@ -21,6 +22,7 @@ pub struct UiEntry {
 }
 
 pub const UI_COMPONENTS: &[UiEntry] = &[
+    __UI_ENTRY_BADGE,
     __UI_ENTRY_CARD,
     __UI_ENTRY_DATA_TABLE,
     __UI_ENTRY_PROGRESS,
