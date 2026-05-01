@@ -75,9 +75,10 @@ pub fn render_frame_rgba(content: &serde_json::Value, width: u32, height: u32, d
         load_fonts_impl(&mut ctx);
         Mutex::new(ctx)
     });
-    let layout = parse_layout(content)
-        .map_err(|e| tracing::error!(error = %e, "layout parse error"))
-        .ok();
+    let canonical = json_canon::to_string(content).unwrap_or_default();
+    let layout = serde_json::from_str::<serde_json::Value>(&canonical)
+        .ok()
+        .and_then(|v| parse_layout(&v).map_err(|e| tracing::error!(error = %e, "layout parse error")).ok());
     with_global_ctx(|global| {
         let node = layout.unwrap_or_else(|| takumi::layout::node::Node::container(vec![]));
         let options = RenderOptions::builder()

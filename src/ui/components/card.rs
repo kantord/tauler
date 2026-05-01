@@ -7,7 +7,7 @@ const BASE_TW: &str = "rounded-lg border border-border bg-card text-card-foregro
 ///
 /// # JSX
 /// ```jsx
-/// <Card>
+/// <Card tw="flex flex-col">
 ///   <text tw="text-foreground text-[14px] font-bold">System Status</text>
 ///   <text tw="text-muted-foreground text-[12px]">All services operational</text>
 /// </Card>

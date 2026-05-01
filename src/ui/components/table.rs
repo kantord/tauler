@@ -3,7 +3,7 @@ use crate::ui::{Node, component, rsx, tw_merge};
 const BASE_TW: &str = "flex flex-col w-full";
 const HEADER_BASE_TW: &str = "flex flex-col w-full border-border";
 const BODY_BASE_TW: &str = "flex flex-col w-full";
-const ROW_BASE_TW: &str = "flex flex-row w-full border-b border-border";
+const ROW_BASE_TW: &str = "flex flex-row w-full border-b border-solid border-border";
 const HEAD_BASE_TW: &str = "flex-1 px-[4px] py-[4px] font-medium text-muted-foreground";
 const CELL_BASE_TW: &str = "flex-1 px-[4px] py-[4px] text-foreground";
 

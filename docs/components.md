@@ -16,7 +16,7 @@ Wraps arbitrary child nodes and accepts an optional `tw` prop for Tailwind overr
 ### Usage
 
 ```jsx
-<Card>
+<Card tw="flex flex-col">
   <text tw="text-foreground text-[14px] font-bold">System Status</text>
   <text tw="text-muted-foreground text-[12px]">All services operational</text>
 </Card>

@@ -92,22 +92,35 @@ fn main() {
     let mut layout = eval_output.layout;
     resolve_tw_in_json(&mut layout, &theme, theme_mode);
 
+    // Wrap in a background container so screenshots render on a solid background
+    // rather than transparent, making borders and subtle colors visible.
+    let mut canvas = serde_json::json!({
+        "type": "container",
+        "tw": "bg-background w-full flex flex-col",
+        "children": [layout]
+    });
+    resolve_tw_in_json(&mut canvas, &theme, theme_mode);
+
     // Render at fixed width, tall canvas — then crop to content height.
     const PAD: u32 = 8;
     const CANVAS_H: u32 = 2000;
     let render_w = width + PAD * 2;
 
-    let rgba = costae::render_frame_rgba(&layout, render_w, CANVAS_H, 1.0);
+    // Use the same render_frame path as the bar (BGRX output).
+    let bgrx = costae::render_frame(&canvas, render_w, CANVAS_H, 1.0);
 
-    // Measure content height at the same dimensions (cache-warm after render).
-    let measured = costae::measure_layout_frame(&layout, render_w, CANVAS_H, 1.0);
+    // Measure content height (cache-warm after render).
+    let measured = costae::measure_layout_frame(&canvas, render_w, CANVAS_H, 1.0);
     let content_h = (measured.height.ceil() as u32).max(1);
     let final_h = (content_h + PAD * 2).min(CANVAS_H);
 
-    // Crop by slicing the RGBA byte array to the first `final_h` rows.
+    // Crop to final_h rows and convert BGRX → RGBA for PNG.
     let row_bytes = (render_w * 4) as usize;
-    let cropped_bytes = rgba[..row_bytes * final_h as usize].to_vec();
-    let img = RgbaImage::from_raw(render_w, final_h, cropped_bytes)
+    let rgba: Vec<u8> = bgrx[..row_bytes * final_h as usize]
+        .chunks_exact(4)
+        .flat_map(|px| [px[2], px[1], px[0], 255u8])
+        .collect();
+    let img = RgbaImage::from_raw(render_w, final_h, rgba)
         .expect("RgbaImage::from_raw failed");
     img.save(&output_path).expect("save PNG failed");
     eprintln!("wrote {} ({}x{})", output_path, render_w, final_h);
