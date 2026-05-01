@@ -2174,6 +2174,243 @@ fn suite_keyframe_animation() -> TestSuite {
 }
 
 // ---------------------------------------------------------------------------
+// Notification panel — realistic timed-update suite
+// ---------------------------------------------------------------------------
+
+fn suite_notification_panel() -> TestSuite {
+    let spinner = ["|", "/", "—", "\\"];
+    let notifs = [
+        ("System",   "Software update available"),
+        ("Messages", "3 unread from Alice"),
+        ("Build",    "costae release passed"),
+    ];
+
+    let frames = (0..20).map(|i| {
+        // Every frame: spinner advances, slide thumb moves
+        let spin      = spinner[i % 4];
+        // Every 2 frames: highlighted notification rotates
+        let active    = (i / 2) % 3;
+        // Every 4 frames: badge count increments
+        let count     = 5usize + i / 4;
+        // Slide: 0→360 over frames 0–9, then 360→0 over frames 10–19
+        let slide_x: u32 = if i < 10 {
+            (i as f64 / 9.0 * 360.0) as u32
+        } else {
+            ((19 - i) as f64 / 9.0 * 360.0) as u32
+        };
+
+        let notif_items: Vec<FakeNode> = notifs.iter().enumerate().map(|(idx, (app, msg))| {
+            let hot = idx == active;
+            FakeNode::Collection {
+                id: format!("notif-{idx}"),
+                tw: if hot {
+                    "flex flex-row items-center gap-2 px-3 py-2 bg-blue-950 rounded-lg".into()
+                } else {
+                    "flex flex-row items-center gap-2 px-3 py-2".into()
+                },
+                children: vec![
+                    FakeNode::Collection {
+                        id: format!("notif-{idx}-dot"),
+                        tw: if hot {
+                            "flex-shrink-0 w-[8px] h-[8px] rounded-full bg-blue-400".into()
+                        } else {
+                            "flex-shrink-0 w-[8px] h-[8px] rounded-full bg-gray-700".into()
+                        },
+                        children: vec![],
+                    },
+                    FakeNode::Collection {
+                        id: format!("notif-{idx}-body"),
+                        tw: "flex flex-col".into(),
+                        children: vec![
+                            FakeNode::Text {
+                                id: format!("notif-{idx}-app"),
+                                content: app.to_string(),
+                                tw: format!("text-[11px] font-bold whitespace-nowrap {}",
+                                    if hot { "text-blue-300" } else { "text-gray-500" }),
+                            },
+                            FakeNode::Text {
+                                id: format!("notif-{idx}-msg"),
+                                content: msg.to_string(),
+                                tw: format!("text-[10px] whitespace-nowrap {}",
+                                    if hot { "text-gray-200" } else { "text-gray-600" }),
+                            },
+                        ],
+                    },
+                ],
+            }
+        }).collect();
+
+        let scene = vec![FakeNode::Collection {
+            id: "panel".into(),
+            tw: "flex flex-col w-[400px] h-[200px] bg-gray-900 rounded-xl p-3 gap-2".into(),
+            children: vec![
+                // Header: static title + badge (every 4th) + spinner (every frame)
+                FakeNode::Collection {
+                    id: "hdr".into(),
+                    tw: "flex flex-row items-center gap-2 h-[24px]".into(),
+                    children: vec![
+                        FakeNode::Text { id: "title".into(), content: "NOTIFICATIONS".into(),
+                            tw: "text-[10px] text-gray-400 font-bold whitespace-nowrap".into() },
+                        FakeNode::Collection { id: "hdr-gap".into(), tw: "flex-1".into(), children: vec![] },
+                        FakeNode::Collection {
+                            id: "badge".into(),
+                            tw: "flex-shrink-0 flex items-center justify-center w-[18px] h-[18px] bg-red-500 rounded-full".into(),
+                            children: vec![FakeNode::Text {
+                                id: "badge-n".into(), content: format!("{count}"),
+                                tw: "text-white text-[10px] font-bold".into(),
+                            }],
+                        },
+                        FakeNode::Text {
+                            id: "spin".into(), content: spin.into(),
+                            tw: "ml-auto text-blue-400 text-[14px] font-mono whitespace-nowrap".into(),
+                        },
+                    ],
+                },
+                // Notification list — one item highlights on a 2-frame cycle
+                FakeNode::Collection {
+                    id: "notif-list".into(),
+                    tw: "flex flex-col gap-1".into(),
+                    children: notif_items,
+                },
+                // Slide track — thumb bounces L↔R every frame
+                FakeNode::Collection {
+                    id: "slide-row".into(),
+                    tw: "flex flex-row items-center gap-2 h-[20px]".into(),
+                    children: vec![
+                        FakeNode::Text { id: "slide-lbl".into(), content: "activity".into(),
+                            tw: "w-[46px] text-[10px] text-gray-600 whitespace-nowrap flex-shrink-0".into() },
+                        FakeNode::Collection {
+                            id: "slide-track".into(),
+                            tw: "flex-1 h-[4px] bg-gray-800 rounded-full flex flex-row items-center overflow-hidden".into(),
+                            children: vec![
+                                FakeNode::Collection {
+                                    id: "slide-spacer".into(),
+                                    tw: format!("flex-shrink-0 w-[{slide_x}px] h-[4px]"),
+                                    children: vec![],
+                                },
+                                FakeNode::Collection {
+                                    id: "slide-thumb".into(),
+                                    tw: "flex-shrink-0 w-[8px] h-[8px] rounded-full bg-blue-400".into(),
+                                    children: vec![],
+                                },
+                            ],
+                        },
+                    ],
+                },
+            ],
+        }];
+
+        let full_json = scene[0].to_json();
+        SuiteFrame {
+            label: format!("frame {i:02}: spin={spin} notif={active} count={count} slide={slide_x}"),
+            scene, full_json,
+        }
+    }).collect();
+
+    TestSuite {
+        name: "Notification Panel",
+        description: "400×200 px. Spinner every frame; active notification rotates every 2; badge count every 4; slide thumb bounces L↔R. Most content static.",
+        frames,
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Scroll list — pixel-by-pixel scroll stress test
+// ---------------------------------------------------------------------------
+
+/// Six notifications inside an overflow-hidden window that scrolls 2 px/frame.
+/// Every scroll step moves every item → every tile in the viewport is dirty →
+/// the incremental renderer has nothing to skip. Expected speedup ≈ 1.0×.
+/// This deliberately exposes the architectural limit of tile-based rendering
+/// for continuous-motion content.
+fn suite_scroll_list() -> TestSuite {
+    let notif_data: &[(&str, &str, &str)] = &[
+        ("System",   "Software update available", "blue"),
+        ("Messages", "3 unread from Alice",       "purple"),
+        ("Build",    "costae release passed",     "green"),
+        ("Monitor",  "CPU spike: 94% for 30s",    "red"),
+        ("Sync",     "14 files synced",           "teal"),
+        ("Calendar", "Meeting in 15 min",         "orange"),
+    ];
+
+    let frames = (0..20).map(|i| {
+        let scroll_y = i as u32 * 2; // 0, 2, 4 … 38 px total
+
+        let items: Vec<FakeNode> = notif_data.iter().enumerate().map(|(idx, (app, msg, color))| {
+            FakeNode::Collection {
+                id: format!("item-{idx}"),
+                tw: format!("flex flex-row items-center gap-2 px-3 py-2 bg-{color}-950 rounded-lg"),
+                children: vec![
+                    FakeNode::Collection {
+                        id: format!("item-{idx}-dot"),
+                        tw: format!("flex-shrink-0 w-[6px] h-[6px] rounded-full bg-{color}-400"),
+                        children: vec![],
+                    },
+                    FakeNode::Collection {
+                        id: format!("item-{idx}-body"),
+                        tw: "flex flex-col".into(),
+                        children: vec![
+                            FakeNode::Text {
+                                id: format!("item-{idx}-app"), content: app.to_string(),
+                                tw: format!("text-[11px] font-bold text-{color}-300 whitespace-nowrap"),
+                            },
+                            FakeNode::Text {
+                                id: format!("item-{idx}-msg"), content: msg.to_string(),
+                                tw: "text-[10px] text-gray-400 whitespace-nowrap".into(),
+                            },
+                        ],
+                    },
+                ],
+            }
+        }).collect();
+
+        // scroll-content shifts up via negative margin-top; overflow-hidden clips the top.
+        let content_tw = if scroll_y == 0 {
+            "flex flex-col gap-1".into()
+        } else {
+            format!("flex flex-col gap-1 mt-[-{scroll_y}px]")
+        };
+
+        let scene = vec![FakeNode::Collection {
+            id: "panel".into(),
+            tw: "flex flex-col w-[400px] h-[200px] bg-gray-900 rounded-xl p-3 gap-2".into(),
+            children: vec![
+                // Header — static except for scroll position readout
+                FakeNode::Collection {
+                    id: "hdr".into(),
+                    tw: "flex flex-row items-center h-[24px]".into(),
+                    children: vec![
+                        FakeNode::Text { id: "hdr-title".into(), content: "NOTIFICATIONS".into(),
+                            tw: "text-[10px] text-gray-400 font-bold whitespace-nowrap".into() },
+                        FakeNode::Text { id: "hdr-pos".into(), content: format!("↕ {scroll_y}px"),
+                            tw: "ml-auto text-[10px] text-gray-600 font-mono whitespace-nowrap".into() },
+                    ],
+                },
+                // Clipped scroll viewport — overflow-hidden clips scrolled-past content
+                FakeNode::Collection {
+                    id: "scroll-win".into(),
+                    tw: "flex-1 overflow-hidden".into(),
+                    children: vec![FakeNode::Collection {
+                        id: "scroll-content".into(),
+                        tw: content_tw,
+                        children: items,
+                    }],
+                },
+            ],
+        }];
+
+        let full_json = scene[0].to_json();
+        SuiteFrame { label: format!("frame {i:02}: scroll={scroll_y}px"), scene, full_json }
+    }).collect();
+
+    TestSuite {
+        name: "Scroll List",
+        description: "400×200 px. 6 items scroll 2px/frame via negative margin-top inside overflow-hidden. Every item moves every frame → all viewport tiles dirty → no incremental savings expected.",
+        frames,
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Main
 // ---------------------------------------------------------------------------
 
@@ -2221,6 +2458,8 @@ fn main() {
         suite_notification_badge(),
         suite_progress_fill(),
         suite_keyframe_animation(),
+        suite_notification_panel(),
+        suite_scroll_list(),
     ];
 
     // ── Pass 1: calibration run ───────────────────────────────────────────────
