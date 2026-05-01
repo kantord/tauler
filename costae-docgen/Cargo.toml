@@ -1,0 +1,12 @@
+[package]
+name = "costae-docgen"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "costae-docgen"
+path = "src/main.rs"
+
+[dev-dependencies]
+tempfile = "3"
+image = "0.25"

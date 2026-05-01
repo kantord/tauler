@@ -3,6 +3,23 @@ use crate::ui::{component, tw_merge, rsx};
 
 const TRACK_TW: &str = "flex flex-row w-full h-[4px] rounded-full bg-muted";
 
+/// A horizontal progress bar. Renders a muted track with a filled segment
+/// proportional to `value` (0–100). An optional `color` prop overrides the
+/// fill colour; `tw` applies extra Tailwind classes to the track.
+///
+/// # JSX
+/// ```jsx
+/// <container tw="flex flex-col gap-[6px] w-[200px]">
+///   <container tw="flex flex-row justify-between">
+///     <text tw="text-muted-foreground text-[11px]">Memory</text>
+///     <text tw="text-foreground text-[11px]">72%</text>
+///   </container>
+///   <Progress value={72} />
+/// </container>
+/// ```
+///
+/// # Shadcn
+/// https://ui.shadcn.com/docs/components/progress
 #[component("@ui/progress")]
 pub fn progress(value: f32, color: Option<String>, tw: Option<String>) -> Node {
     let value = value.clamp(0.0, 100.0);

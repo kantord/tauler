@@ -18,12 +18,17 @@ pub fn component(attr: TokenStream, item: TokenStream) -> TokenStream {
     gen_component(path, func).into()
 }
 
-fn capitalize(s: &str) -> String {
-    let mut c = s.chars();
-    match c.next() {
-        None => String::new(),
-        Some(f) => f.to_uppercase().to_string() + c.as_str(),
-    }
+fn to_pascal_case(s: &str) -> String {
+    s.split('_')
+        .filter(|seg| !seg.is_empty())
+        .map(|seg| {
+            let mut c = seg.chars();
+            match c.next() {
+                None => String::new(),
+                Some(f) => f.to_uppercase().to_string() + c.as_str(),
+            }
+        })
+        .collect()
 }
 
 fn needs_serde_default(ty: &Type) -> bool {
@@ -41,7 +46,7 @@ fn gen_component(path: Option<LitStr>, func: ItemFn) -> TokenStream2 {
     let fn_str = fn_name.to_string();
     let stmts = &func.block.stmts;
 
-    let component_name = format_ident!("{}", capitalize(&fn_str));
+    let component_name = format_ident!("{}", to_pascal_case(&fn_str));
     let props_name = format_ident!("{}Props", component_name);
 
     let params: Vec<(syn::Ident, Type)> = func.sig.inputs.iter().filter_map(|arg| {

@@ -65,6 +65,32 @@ fn render_frame_cached(canonical: String, width: u32, height: u32, dpr_bits: u32
     })
 }
 
+/// Render `content` into a raw RGBA framebuffer (no channel swap, alpha preserved).
+///
+/// `width` and `height` are **physical** pixels. `dpr` scales CSS `px` units.
+/// The returned buffer is always `width × height × 4` bytes (RGBA).
+pub fn render_frame_rgba(content: &serde_json::Value, width: u32, height: u32, dpr: f32) -> Arc<Vec<u8>> {
+    GLOBAL_CTX.get_or_init(|| {
+        let mut ctx = GlobalContext::default();
+        load_fonts_impl(&mut ctx);
+        Mutex::new(ctx)
+    });
+    let canonical = json_canon::to_string(content).unwrap_or_default();
+    let layout = serde_json::from_str::<serde_json::Value>(&canonical)
+        .ok()
+        .and_then(|v| parse_layout(&v).map_err(|e| tracing::error!(error = %e, "layout parse error")).ok());
+    with_global_ctx(|global| {
+        let node = layout.unwrap_or_else(|| takumi::layout::node::Node::container(vec![]));
+        let options = RenderOptions::builder()
+            .global(global)
+            .viewport(takumi::layout::Viewport::new((Some(width), Some(height))).with_device_pixel_ratio(dpr))
+            .node(node)
+            .build();
+        let rgba = render(options).expect("render").into_raw();
+        Arc::new(rgba)
+    })
+}
+
 fn load_fonts_impl(global: &mut GlobalContext) {
     let home = std::env::var("HOME").unwrap_or_default();
     let local_fonts = format!("{home}/.local/share/fonts");
