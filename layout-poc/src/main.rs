@@ -2581,6 +2581,20 @@ mod visual_regression {
         });
     }
 
+    /// Run `suite` once, snapshot full and incr pixels for multiple frame indices.
+    fn run_and_snapshot(suite: &TestSuite, frame_indices: &[usize], name: &str) {
+        let cm = CostModel::default();
+        let mut discard = Vec::new();
+        let result = run_suite(suite, &cm, &mut discard);
+        insta::with_settings!({ snapshot_path => snapshot_dir(), prepend_module_to_snapshot => false }, {
+            for &fi in frame_indices {
+                let f = &result.frames[fi];
+                assert_snapshot(&format!("{name}__full_f{fi}"), &f.full_px, f.w, f.h);
+                assert_snapshot(&format!("{name}__incr_f{fi}"), &f.incr_px, f.w, f.h);
+            }
+        });
+    }
+
     // ── Bug regression guards ────────────────────────────────────────────────
 
     /// Guards the overflow-hidden clip fix.
@@ -2595,5 +2609,171 @@ mod visual_regression {
     #[test]
     fn reg_overflow_clip_rounding() {
         assert_render_snapshots(&suite_progress_fill(), 1, "reg_overflow_clip_rounding");
+    }
+
+    /// Guards the ml-auto stub positioning fix.
+    ///
+    /// `hdr-phase` uses `ml-auto` to push itself to the right end of the header
+    /// row.  Before the fix the stub dropped ml-auto so the dirty-tile region
+    /// was computed at the wrong x position, leaving stale "IDLE" text at the
+    /// correct location in the incr render.
+    ///
+    /// Frame 5 is the first RISING frame — the phase label just changed from
+    /// "IDLE" so the position error is maximally visible.
+    #[test]
+    fn reg_ml_auto_positioning() {
+        assert_render_snapshots(&suite_keyframe_animation(), 5, "reg_ml_auto_positioning");
+    }
+
+    /// Guards that a wide-to-narrow text shrink erases the full old bbox.
+    ///
+    /// Frame 1 = "W" after the wide "WWWWWWWWWWWWWWWWWWWWWWWWW" — the
+    /// narrowest possible shrink, maximising the stale region if dirty tiles
+    /// only cover the new (narrow) bbox instead of the old (wide) one.
+    #[test]
+    fn reg_node_shrink_stale_pixels() {
+        assert_render_snapshots(&suite_shrink_bug(), 1, "reg_node_shrink_stale_pixels");
+    }
+
+    /// Guards correct dirty-region computation when an Image node resizes.
+    ///
+    /// Frame 3 is a mid-progress step; frame 8 tests the post-completion reset
+    /// (color flip from blue→green then partial erase).  Both should have
+    /// identical full and incr renders — stale pixels at the old right-side bbox
+    /// confirm the bug.
+    #[test]
+    fn reg_image_resize_dirty_region() {
+        run_and_snapshot(&suite_progress_fill(), &[3, 8], "reg_image_resize_dirty_region");
+    }
+
+    /// Guards that a moved node clears its old tile position.
+    ///
+    /// The cyan block advances exactly one tile (32 px) per frame.  Frame 1
+    /// moves it from tile-col 0 → 1; the left tile must be cleared and the
+    /// right tile filled — no ghost at the old position.
+    #[test]
+    fn reg_moved_node_clears_old_position() {
+        assert_render_snapshots(&suite_tile_crossing(), 1, "reg_moved_node_clears_old_position");
+    }
+
+    /// Guards that removed nodes leave no ghost pixels.
+    ///
+    /// Inline 3-frame mini-suite:
+    ///   Frame 0: node-a (left, blue) + node-b (right, orange) — cold frame
+    ///   Frame 1: only node-a — node-b removed; its old position must be cleared
+    ///   Frame 2: node-a + node-c (same slot, purple) — old node-b area fully replaced
+    #[test]
+    fn reg_structure_change_no_ghost() {
+        let mk_frame = |label: &str, children: Vec<FakeNode>| -> SuiteFrame {
+            let scene = vec![FakeNode::Collection {
+                id: "canvas".into(),
+                tw: "flex flex-row items-center w-[320px] h-[48px] bg-gray-900".into(),
+                children: children,
+            }];
+            let full_json = scene[0].to_json();
+            SuiteFrame { label: label.into(), scene, full_json }
+        };
+        let node_a = || FakeNode::Collection {
+            id: "node-a".into(),
+            tw: "w-[48px] h-[32px] bg-blue-500 rounded flex items-center justify-center".into(),
+            children: vec![],
+        };
+        let node_b = || FakeNode::Collection {
+            id: "node-b".into(),
+            tw: "ml-auto w-[48px] h-[32px] bg-orange-400 rounded flex items-center justify-center".into(),
+            children: vec![],
+        };
+        let node_c = || FakeNode::Collection {
+            id: "node-c".into(),
+            tw: "ml-auto w-[48px] h-[32px] bg-purple-400 rounded flex items-center justify-center".into(),
+            children: vec![],
+        };
+        let suite = TestSuite {
+            name: "Structure Change No Ghost",
+            description: "node-b removed in frame 1, node-c added in frame 2 — no ghost pixels",
+            frames: vec![
+                mk_frame("cold: a+b", vec![node_a(), node_b()]),
+                mk_frame("remove b",  vec![node_a()]),
+                mk_frame("add c",     vec![node_a(), node_c()]),
+            ],
+        };
+        run_and_snapshot(&suite, &[0, 1, 2], "reg_structure_change_no_ghost");
+    }
+
+    // ── Compositing ───────────────────────────────────────────────────────────
+
+    /// Confirms shadow renders correctly when cards straddle tile boundaries.
+    ///
+    /// Two shadow-2xl cards sit side by side with gap-4 padding.  Frame 1 is
+    /// the first update — shadow compositing must match between full and incr.
+    #[test]
+    fn test_shadow_tile_boundary() {
+        assert_render_snapshots(&suite_shadow_cards(), 1, "test_shadow_tile_boundary");
+    }
+
+    /// Confirms overflow-hidden clip is correct at multiple bar fill widths.
+    ///
+    /// Frames 1 (14%), 4 (57%), 7 (100%), 8 (color-flip reset), 9 (empty).
+    /// The rounded left corner of the fill must always be clipped inside
+    /// the rounded bar container — the old bug showed a square left edge.
+    #[test]
+    fn test_rounded_clip_all_widths() {
+        run_and_snapshot(&suite_progress_fill(), &[1, 4, 7, 8, 9], "test_rounded_clip_all_widths");
+    }
+
+    /// Confirms ml-auto positions hdr-phase correctly across all phase transitions.
+    ///
+    /// Frames 5 (IDLE→RISING), 10 (RISING→PEAK), 15 (PEAK→FALLING).
+    /// The phase label must always appear at the far-right edge of the header.
+    #[test]
+    fn test_ml_auto_all_phases() {
+        run_and_snapshot(&suite_keyframe_animation(), &[5, 10, 15], "test_ml_auto_all_phases");
+    }
+
+    // ── Golden representatives ────────────────────────────────────────────────
+
+    /// Cold frame must produce identical full and incr pixels.
+    ///
+    /// Frame 0 has no prior state — every tile falls through to a full render.
+    /// The two pixel buffers must match exactly (ratio = 0).
+    #[test]
+    fn golden_cold_frame_exact_match() {
+        assert_render_snapshots(&suite_simple_bar(), 0, "golden_cold_frame_exact_match");
+    }
+
+    /// Golden snapshot of clock-only updates in the simple status bar.
+    ///
+    /// Frames 1-3: only the clock text changes each frame; the logo, workspace
+    /// label, and system stats are all static.
+    #[test]
+    fn golden_clock_tick() {
+        run_and_snapshot(&suite_simple_bar(), &[1, 2, 3], "golden_clock_tick");
+    }
+
+    /// Golden snapshot of workspace-focus switching between three panels.
+    ///
+    /// Frame 4 (Alpha active) and frame 8 (Beta active) cover two distinct
+    /// focus states — bg colour and text styling change on every panel.
+    #[test]
+    fn golden_workspace_focus_change() {
+        run_and_snapshot(&suite_panel_focus(), &[4, 8], "golden_workspace_focus_change");
+    }
+
+    /// Golden snapshot of active notification rotating through the panel list.
+    ///
+    /// Frame 0 (cold, System highlighted), 2 (Messages), 4 (Build).
+    /// Spinner also advances each frame.
+    #[test]
+    fn golden_notification_rotation() {
+        run_and_snapshot(&suite_notification_panel(), &[0, 2, 4], "golden_notification_rotation");
+    }
+
+    /// Golden snapshot of scroll frames — every viewport tile dirty.
+    ///
+    /// Frames 1, 5, 10 are mid-scroll steps.  All tiles should be dirty so
+    /// full and incr renders must match pixel-perfectly.
+    #[test]
+    fn golden_scroll_frame() {
+        run_and_snapshot(&suite_scroll_list(), &[1, 5, 10], "golden_scroll_frame");
     }
 }
