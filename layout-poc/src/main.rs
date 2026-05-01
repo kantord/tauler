@@ -2063,4 +2063,21 @@ fn main() {
     let path = "/tmp/poc_report.html";
     std::fs::write(path, html_report(&results, &cal_note)).expect("write report");
     eprintln!("Report: file://{path}");
+
+    // Dump PNG frames for visual inspection
+    std::fs::create_dir_all("/tmp/poc_frames").unwrap();
+    for sr in &results {
+        let sname = sr.name.replace(' ', "_").to_lowercase();
+        for (fi, f) in sr.frames.iter().enumerate() {
+            if f.full_px.is_empty() { continue; }
+            let base = format!("/tmp/poc_frames/{sname}_f{fi:02}");
+            std::fs::write(format!("{base}_full.png"), encode_png(&f.full_px, f.w, f.h)).unwrap();
+            if !f.incr_px.is_empty() {
+                std::fs::write(format!("{base}_incr.png"), encode_png(&f.incr_px, f.w, f.h)).unwrap();
+                let d = diff(&f.full_px, &f.incr_px, f.w, f.h);
+                std::fs::write(format!("{base}_diff.png"), encode_png(&d.img, f.w, f.h)).unwrap();
+            }
+        }
+    }
+    eprintln!("Frames: /tmp/poc_frames/");
 }

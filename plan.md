@@ -258,3 +258,10 @@ and produces wrong output.
 Enable `enter/update/exit` side effects; remove hardcoded dirty rect. Run a
 panel where one value changes on a timer. Instrument to log how many bytes are
 uploaded per frame vs the full-frame baseline.
+
+
+
+### IDEA: post-contstruct tile cache
+
+
+when we do our first full render, we could actually post-hoc construct a reasonable render config for each tile slice and slice up the final render so that we get a pre-populated cache for each tile.
