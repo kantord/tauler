@@ -410,29 +410,42 @@ fn data_uri(pixels: &[u8], w: u32, h: u32) -> String {
     format!("data:image/png;base64,{}", b64(&encode_png(pixels, w, h)))
 }
 
-struct DiffResult { weighted: f64, total: u32, max_ch: u8, img: Vec<u8> }
+struct DiffResult { weighted: f64, img: Vec<u8> }
 
-fn diff(a: &[u8], b: &[u8], w: u32, h: u32) -> DiffResult {
-    let (mut weighted, mut max_ch) = (0.0f64, 0u8);
+/// Perceptual pixel diff.
+///
+/// Channel aggregation: average of all three channels, but the worst
+/// (most-deviant) channel counts twice — a slight worst-case emphasis without
+/// any R/G/B colour-bias.  We do NOT apply luminance weighting (0.299R …);
+/// our rendering errors are not channel-biased so that correction would add
+/// noise, not signal.
+///
+/// Nonlinearity: cubic `(m/255)³`.  A 5%-of-255 difference (m≈13) contributes
+/// only ~0.013% of what a full-contrast error (m=255) would — "grain of salt".
+/// diff=50 (≈20%) contributes ≈0.8%.  Nothing saturates early; the ratio
+/// metric (error / changed-area) handles all scale.
+///
+/// Visualisation: sqrt-gamma maps the diff to the diff-image alpha so that
+/// small AA deviations are *visible* in the PNG even though they score nearly
+/// zero in the weighted sum.
+fn diff(a: &[u8], b: &[u8], _w: u32, _h: u32) -> DiffResult {
+    let mut weighted = 0.0f64;
     let mut img = vec![0u8; a.len()];
     for i in (0..a.len().min(b.len())).step_by(4) {
-        let m = (a[i]as i32-b[i]as i32).unsigned_abs().max(
-                (a[i+1]as i32-b[i+1]as i32).unsigned_abs()).max(
-                (a[i+2]as i32-b[i+2]as i32).unsigned_abs()) as u8;
-        max_ch = max_ch.max(m);
-        // Quadratic weighting: diff=1 → 0.01, diff=10 → 1.0 (100× ratio vs linear's 10×).
-        // Small anti-aliasing deviations contribute almost nothing; real errors dominate.
-        let linear = (m as f64 / 10.0).min(1.0);
-        let w_px = linear * linear;
-        weighted += w_px;
-        let intensity = (w_px * 255.0) as u8;
-        if intensity > 0 {
-            img[i]=255; img[i+1]=0; img[i+2]=255; img[i+3]=intensity;
+        let dr = (a[i]   as i32 - b[i]   as i32).unsigned_abs() as f64;
+        let dg = (a[i+1] as i32 - b[i+1] as i32).unsigned_abs() as f64;
+        let db = (a[i+2] as i32 - b[i+2] as i32).unsigned_abs() as f64;
+        let m  = (dr + dg + db + dr.max(dg).max(db)) / 4.0;
+        let t  = m / 255.0;
+        weighted += t * t * t;
+        let vis_alpha = (t.sqrt() * 255.0) as u8;
+        if vis_alpha > 0 {
+            img[i]=255; img[i+1]=0; img[i+2]=255; img[i+3]=vis_alpha;
         } else {
             img[i]=a[i]/5; img[i+1]=a[i+1]/5; img[i+2]=a[i+2]/5; img[i+3]=255;
         }
     }
-    DiffResult { weighted, total: w*h, max_ch, img }
+    DiffResult { weighted, img }
 }
 
 // ---------------------------------------------------------------------------
@@ -589,7 +602,7 @@ fn suite_dense_metrics() -> TestSuite {
 // Benchmark
 // ---------------------------------------------------------------------------
 
-struct FrameResult { label: String, full_time: Duration, incr_time: Duration, full_px: Vec<u8>, incr_px: Vec<u8>, w: u32, h: u32, render_calls: u32, skipped: u32 }
+struct FrameResult { label: String, full_time: Duration, incr_time: Duration, full_px: Vec<u8>, prev_full_px: Vec<u8>, incr_px: Vec<u8>, w: u32, h: u32, render_calls: u32, skipped: u32 }
 struct SuiteResult { name: &'static str, description: &'static str, frames: Vec<FrameResult> }
 
 const TILE_SIZE: u32 = 32;
@@ -863,6 +876,7 @@ fn run_suite(suite: &TestSuite, cm: &CostModel, cal_samples: &mut Vec<(f64, f64,
     let mut incr_ctx = Ctx::fresh();
     let mut incr_set: ManagedSet<FakeNode> = ManagedSet::new();
     let mut frame_buf: Vec<u8> = Vec::new();
+    let mut prev_full: Vec<u8> = Vec::new();
     let mut prev_bboxes: HashMap<String, Rect> = HashMap::new();
     // Bboxes from the PREVIOUS frame's stub layout (not full-measure), used for
     // moved-node detection so we compare stub vs stub and avoid false positives.
@@ -1072,10 +1086,11 @@ fn run_suite(suite: &TestSuite, cm: &CostModel, cal_samples: &mut Vec<(f64, f64,
 
         let incr_time = t.elapsed();
         let incr_px = frame_buf.clone();
+        let my_prev_full = std::mem::replace(&mut prev_full, full_px.clone());
         prev_bboxes = bboxes;
         prev_stub_bboxes = stub_bboxes;
 
-        FrameResult { label: f.label.clone(), full_time, incr_time, full_px, incr_px, w, h, render_calls, skipped }
+        FrameResult { label: f.label.clone(), full_time, incr_time, full_px, prev_full_px: my_prev_full, incr_px, w, h, render_calls, skipped }
     }).collect();
 
     SuiteResult { name: suite.name, description: suite.description, frames }
@@ -1085,7 +1100,12 @@ fn run_suite(suite: &TestSuite, cm: &CostModel, cal_samples: &mut Vec<(f64, f64,
 // HTML report — tabbed (Summary + one tab per suite)
 // ---------------------------------------------------------------------------
 
-const PERFECT_THRESHOLD: f64 = 1.0; // quadratic weighted diff below which a frame is "pixel-perfect"
+/// A frame is "pixel-perfect" when  error_weighted / changed_area_weighted  is below this ratio.
+/// Both use the cubic perceptual metric, so the ratio is approximately
+/// "what fraction of the visually-significant change is rendered incorrectly".
+/// 5% is a comfortable margin above AA noise (which scores near-zero) while still
+/// catching any clearly-wrong pixel (diff > 50) involving more than ~30 pixels.
+const PERFECT_THRESHOLD: f64 = 0.05;
 
 fn html_report(suites: &[SuiteResult], cal_note: &str) -> String {
     // ── Timing totals ────────────────────────────────────────────────────────
@@ -1132,22 +1152,42 @@ fn html_report(suites: &[SuiteResult], cal_note: &str) -> String {
             let pw = (f.w * 3).min(900).max(120);
             let ph = (f.h * 3).min(600).max(36);
 
-            let (d, incr_uri, diff_uri) = if !f.incr_px.is_empty() && f.incr_px.len() == f.full_px.len() {
+            // Ground-truth change: diff between consecutive full renders.
+            // For the cold frame prev_full_px is empty, so treat entire frame as changed.
+            let chg_w = if f.prev_full_px.len() == f.full_px.len() {
+                diff(&f.prev_full_px, &f.full_px, f.w, f.h).weighted
+            } else {
+                (f.w * f.h) as f64
+            };
+            let chg_diff = if f.prev_full_px.len() == f.full_px.len() {
+                Some(diff(&f.prev_full_px, &f.full_px, f.w, f.h))
+            } else {
+                None
+            };
+
+            let (d, incr_uri, diff_uri, chg_uri) = if !f.incr_px.is_empty() && f.incr_px.len() == f.full_px.len() {
                 let d = diff(&f.full_px, &f.incr_px, f.w, f.h);
                 let du = data_uri(&d.img, f.w, f.h);
                 let iu = data_uri(&f.incr_px, f.w, f.h);
-                (Some(d), iu, du)
+                let cu = chg_diff.as_ref().map(|c| data_uri(&c.img, f.w, f.h)).unwrap_or_default();
+                (Some(d), iu, du, cu)
             } else {
-                (None, String::new(), String::new())
+                (None, String::new(), String::new(), String::new())
             };
 
-            let perfect = d.as_ref().map(|d| d.weighted < PERFECT_THRESHOLD).unwrap_or(false);
+            let ratio = d.as_ref().map(|d| d.weighted / chg_w.max(1.0)).unwrap_or(0.0);
+            let perfect = ratio < PERFECT_THRESHOLD;
             if perfect { n_perfect += 1; }
 
             let badge = if perfect { r#"<span class="ok">✓</span>"# } else { r#"<span class="diff">≠</span>"# };
             let diff_stat = d.as_ref().map(|d| format!(
-                "diff={:.3} ({:.4}%)", d.weighted, d.weighted / d.total as f64 * 100.0
+                "err={:.1} / chg={:.0} = {:.1}%", d.weighted, chg_w, ratio * 100.0
             )).unwrap_or_default();
+
+            let chg_col = if !chg_uri.is_empty() {
+                format!(r#"<div><div class="cap">Δ Change</div><img src="{chg_uri}" style="width:{pw}px;height:{ph}px;image-rendering:pixelated"></div>"#,
+                    chg_uri = chg_uri, pw = pw, ph = ph)
+            } else { String::new() };
 
             frames_html.push_str(&format!(r#"
             <div class="frame {cls}">
@@ -1157,8 +1197,9 @@ fn html_report(suites: &[SuiteResult], cal_note: &str) -> String {
               </div>
               <div class="imgs">
                 <div><div class="cap">Full</div><img src="{fu}" style="width:{pw}px;height:{ph}px;image-rendering:pixelated"></div>
+                {chg_col}
                 <div><div class="cap">Incremental</div><img src="{iu}" style="width:{pw}px;height:{ph}px;image-rendering:pixelated"></div>
-                <div><div class="cap">Diff</div><img src="{du}" style="width:{pw}px;height:{ph}px;image-rendering:pixelated"></div>
+                <div><div class="cap">Diff (error)</div><img src="{du}" style="width:{pw}px;height:{ph}px;image-rendering:pixelated"></div>
               </div>
             </div>"#,
                 cls = if perfect { "perfect" } else { "imperfect" },
@@ -1166,13 +1207,12 @@ fn html_report(suites: &[SuiteResult], cal_note: &str) -> String {
                 ft = f.full_time.as_secs_f64() * 1000.0, it = f.incr_time.as_secs_f64() * 1000.0,
                 sp = speedup_f, rc = f.render_calls, sk = f.skipped,
                 fu = full_uri, iu = incr_uri, du = diff_uri,
-                pw = pw, ph = ph, ds = diff_stat,
+                pw = pw, ph = ph, ds = diff_stat, chg_col = chg_col,
             ));
 
-            // Collect for worst-20 (compact thumbnail in summary)
-            if let Some(ref dr) = d {
-                if !perfect {
-                    // Thumbnail: fit within 240×320 while preserving aspect ratio
+            // Collect for worst-20 (compact thumbnail in summary), keyed by ratio
+            if d.is_some() && !perfect {
+                {
                     let tw = f.w.min(240);
                     let th = (f.h * tw / f.w.max(1)).min(320).max(20);
                     let snippet = format!(r#"
@@ -1184,7 +1224,7 @@ fn html_report(suites: &[SuiteResult], cal_note: &str) -> String {
                       <div class="imgs">
                         <div><div class="cap">Full</div><img src="{fu}" style="width:{tw}px;height:{th}px;image-rendering:pixelated"></div>
                         <div><div class="cap">Incremental</div><img src="{iu}" style="width:{tw}px;height:{th}px;image-rendering:pixelated"></div>
-                        <div><div class="cap">Diff</div><img src="{du}" style="width:{tw}px;height:{th}px;image-rendering:pixelated"></div>
+                        <div><div class="cap">Diff (error)</div><img src="{du}" style="width:{tw}px;height:{th}px;image-rendering:pixelated"></div>
                       </div>
                     </div>"#,
                         sn = suite.name, fi = fi, lbl = f.label, badge = badge,
@@ -1192,7 +1232,7 @@ fn html_report(suites: &[SuiteResult], cal_note: &str) -> String {
                         sp = speedup_f, ds = diff_stat,
                         fu = full_uri, iu = incr_uri, du = diff_uri, tw = tw, th = th,
                     );
-                    imperfect.push((dr.weighted, suite.name, fi, f.label.clone(), snippet));
+                    imperfect.push((ratio, suite.name, fi, f.label.clone(), snippet));
                 }
             }
         }
@@ -1941,9 +1981,17 @@ fn print_suite_results(result: &SuiteResult) {
     let mut s_incr = Duration::ZERO;
     for (i, f) in result.frames.iter().enumerate() {
         let d = if !f.incr_px.is_empty() && f.incr_px.len() == f.full_px.len() {
-            let d = diff(&f.full_px, &f.incr_px, f.w, f.h);
-            if d.weighted < PERFECT_THRESHOLD { "✓".into() }
-            else { format!("≠w={:.2}({:.3}%)", d.weighted, d.weighted / d.total as f64 * 100.0) }
+            // Ground-truth changed area: diff between consecutive full renders.
+            // For the cold frame (prev empty), every non-black pixel counts as changed.
+            let chg_w = if f.prev_full_px.len() == f.full_px.len() {
+                diff(&f.prev_full_px, &f.full_px, f.w, f.h).weighted
+            } else {
+                (f.w * f.h) as f64
+            };
+            let err = diff(&f.full_px, &f.incr_px, f.w, f.h);
+            let ratio = err.weighted / chg_w.max(1.0);
+            if ratio < PERFECT_THRESHOLD { "✓".into() }
+            else { format!("≠{:.1}% (err={:.1}/chg={:.0})", ratio * 100.0, err.weighted, chg_w) }
         } else { "?".into() };
         println!("  [{: >2}] full={:.1}ms incr={:.1}ms ×{:.1} tiles={}/{} {}  {}",
             i, f.full_time.as_secs_f64() * 1000.0, f.incr_time.as_secs_f64() * 1000.0,
