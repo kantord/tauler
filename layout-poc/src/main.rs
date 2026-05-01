@@ -1162,33 +1162,49 @@ fn run_suite(suite: &TestSuite, cm: &CostModel, cal_samples: &mut Vec<(f64, f64,
             sb
         };
 
-        // 3. Compute dirty tiles.
+        // 3. Compute dirty tiles and update tile→node map.
         let mut dirty: HashSet<(u32,u32)> = HashSet::new();
 
-        // Rebuild tile→node map from current bboxes (incremental update is a
-        // future optimisation; full rebuild is O(nodes × tiles_per_node) ≈ fast).
-        tile_node_map = build_tile_node_map(&bboxes, cols, rows);
-
         if frame_buf.len() != (w * h * 4) as usize {
-            // First frame: everything dirty.
+            // First frame: full build of tile_node_map + all tiles dirty.
             frame_buf = vec![0u8; (w * h * 4) as usize];
+            tile_node_map = build_tile_node_map(&bboxes, cols, rows);
             for ty in 0..rows { for tx in 0..cols { dirty.insert((tx, ty)); } }
         } else {
-            // Changed-content tiles: mark both the new bbox AND the old bbox.
-            // The old bbox is needed when a node shrank — the tiles at its former
-            // right/bottom edge still hold stale pixels and must be re-rendered.
+            // Incremental tile_node_map update — O(changed_nodes × tiles_per_node)
+            // instead of O(total_nodes × tiles_per_node) for a full rebuild.
+            //
+            // Step 1: update entries for nodes whose content changed.
             for id in &incr_ctx.changed_ids {
-                if let Some(r) = bboxes.get(id.as_str()) {
-                    mark_dirty(r, TILE_SIZE, w, h, &mut dirty);
+                if let Some(old_r) = prev_stub_bboxes.get(id.as_str()) {
+                    for (tx, ty) in tiles_for_bbox(old_r, cols, rows) {
+                        if let Some(s) = tile_node_map.get_mut(&(tx, ty)) { s.remove(id.as_str()); }
+                    }
+                    mark_dirty(old_r, TILE_SIZE, w, h, &mut dirty);
                 }
-                if let Some(r) = prev_stub_bboxes.get(id.as_str()) {
-                    mark_dirty(r, TILE_SIZE, w, h, &mut dirty);
+                if let Some(new_r) = bboxes.get(id.as_str()) {
+                    for (tx, ty) in tiles_for_bbox(new_r, cols, rows) {
+                        tile_node_map.entry((tx, ty)).or_default().insert(id.clone());
+                    }
+                    mark_dirty(new_r, TILE_SIZE, w, h, &mut dirty);
                 }
             }
-            // Nodes that moved due to layout reflow.
+            // Step 2: update entries for nodes that moved due to layout reflow
+            // (not in changed_ids but bbox shifted — e.g. justify-between reflow).
+            // This loop is O(total_nodes) but was already required for dirty marking;
+            // the tile_node_map update is folded in at no extra asymptotic cost.
+            let changed_set: HashSet<&str> =
+                incr_ctx.changed_ids.iter().map(String::as_str).collect();
             for (id, new_r) in &bboxes {
+                if changed_set.contains(id.as_str()) { continue; }
                 if let Some(old_r) = prev_stub_bboxes.get(id.as_str()) {
                     if (new_r.x - old_r.x).abs() > 0.5 || (new_r.y - old_r.y).abs() > 0.5 {
+                        for (tx, ty) in tiles_for_bbox(old_r, cols, rows) {
+                            if let Some(s) = tile_node_map.get_mut(&(tx, ty)) { s.remove(id.as_str()); }
+                        }
+                        for (tx, ty) in tiles_for_bbox(new_r, cols, rows) {
+                            tile_node_map.entry((tx, ty)).or_default().insert(id.clone());
+                        }
                         mark_dirty(new_r, TILE_SIZE, w, h, &mut dirty);
                         mark_dirty(old_r, TILE_SIZE, w, h, &mut dirty);
                     }
