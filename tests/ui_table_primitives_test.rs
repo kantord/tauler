@@ -82,7 +82,7 @@ fn table_body_renders_as_container() {
 
 // ─── TableRow ────────────────────────────────────────────────────────────────
 
-const ROW_BASE_TW: &str = "flex flex-row w-full border-b border-solid border-border";
+const ROW_BASE_TW: &str = "flex flex-row w-full border border-t-0 border-r-0 border-l-0 border-border";
 
 #[test]
 fn table_row_has_base_tw() {
