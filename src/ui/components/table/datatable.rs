@@ -10,28 +10,6 @@ pub struct ColumnDef {
     pub width: Option<u32>,
 }
 
-/// A data-driven table. Renders a header row followed by data rows with
-/// alternating `bg-card` / `bg-muted/30` backgrounds. Columns map a `key`
-/// (used to look up values in each row object) to a `label` (shown in the
-/// header). An optional `width` constrains the column.
-///
-/// For full compositional control, use the `Table`, `TableHeader`, `TableBody`,
-/// `TableRow`, `TableHead`, and `TableCell` primitives from `@ui/table` instead.
-///
-/// # JSX
-/// ```jsx
-/// <DataTable
-///   columns={[{key:"service", label:"SERVICE"}, {key:"status", label:"STATUS"}, {key:"uptime", label:"UPTIME"}]}
-///   rows={[
-///     {service:"nginx", status:"running", uptime:"14d"},
-///     {service:"postgres", status:"running", uptime:"7d"},
-///     {service:"redis", status:"stopped", uptime:"—"},
-///   ]}
-/// />
-/// ```
-///
-/// # Shadcn
-/// https://ui.shadcn.com/docs/components/table
 fn header_row(columns: &[ColumnDef]) -> Node {
     let cells: Vec<Node> = columns
         .iter()
@@ -62,6 +40,28 @@ fn data_row(columns: &[ColumnDef], row: &serde_json::Value, index: usize) -> Nod
     TableRow::render(TableRowProps { children: cells, tw: Some(bg.to_string()) })
 }
 
+/// A data-driven table. Renders a header row followed by data rows with
+/// alternating `bg-card` / `bg-muted/30` backgrounds. Columns map a `key`
+/// (used to look up values in each row object) to a `label` (shown in the
+/// header). An optional `width` constrains the column.
+///
+/// For full compositional control, use the `Table`, `TableHeader`, `TableBody`,
+/// `TableRow`, `TableHead`, and `TableCell` primitives from `@ui/table` instead.
+///
+/// # JSX
+/// ```jsx
+/// <DataTable
+///   columns={[{key:"service", label:"SERVICE"}, {key:"status", label:"STATUS"}, {key:"uptime", label:"UPTIME"}]}
+///   rows={[
+///     {service:"nginx", status:"running", uptime:"14d"},
+///     {service:"postgres", status:"running", uptime:"7d"},
+///     {service:"redis", status:"stopped", uptime:"—"},
+///   ]}
+/// />
+/// ```
+///
+/// # Shadcn
+/// https://ui.shadcn.com/docs/components/table
 #[component("@ui/datatable")]
 pub fn data_table(columns: Vec<ColumnDef>, rows: Option<serde_json::Value>) -> Node {
     let mut all_children = vec![header_row(&columns)];

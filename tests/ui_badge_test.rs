@@ -51,6 +51,11 @@ mod variant_classes {
     fn outline_variant_applies_correct_classes() {
         assert_variant("outline", OUTLINE_VARIANT_TW);
     }
+
+    #[test]
+    fn unknown_variant_value_produces_base_classes_only() {
+        assert_eq!(eval_badge(r#"<Badge variant="garbage" />"#)["tw"], BASE_TW);
+    }
 }
 
 mod tw_prop {
