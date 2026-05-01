@@ -1,5 +1,13 @@
 use crate::ui::components::{
-    card::__UI_ENTRY_CARD,
+    badge::__UI_ENTRY_BADGE,
+    card::{
+        __UI_ENTRY_CARD,
+        __UI_ENTRY_CARD_HEADER,
+        __UI_ENTRY_CARD_TITLE,
+        __UI_ENTRY_CARD_DESCRIPTION,
+        __UI_ENTRY_CARD_CONTENT,
+        __UI_ENTRY_CARD_FOOTER,
+    },
     table::datatable::__UI_ENTRY_DATA_TABLE,
     progress::__UI_ENTRY_PROGRESS,
     table::{
@@ -21,7 +29,13 @@ pub struct UiEntry {
 }
 
 pub const UI_COMPONENTS: &[UiEntry] = &[
+    __UI_ENTRY_BADGE,
     __UI_ENTRY_CARD,
+    __UI_ENTRY_CARD_HEADER,
+    __UI_ENTRY_CARD_TITLE,
+    __UI_ENTRY_CARD_DESCRIPTION,
+    __UI_ENTRY_CARD_CONTENT,
+    __UI_ENTRY_CARD_FOOTER,
     __UI_ENTRY_DATA_TABLE,
     __UI_ENTRY_PROGRESS,
     __UI_ENTRY_TABLE,
