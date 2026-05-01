@@ -1,5 +1,8 @@
 use std::collections::{BTreeSet, HashMap, HashSet};
+use std::num::NonZeroUsize;
 use std::time::{Duration, Instant};
+
+use lru::LruCache;
 
 use anyhow::Result;
 use image::{ImageBuffer, Rgba};
@@ -566,6 +569,70 @@ fn data_uri(pixels: &[u8], w: u32, h: u32) -> String {
     format!("data:image/png;base64,{}", b64(&encode_png(pixels, w, h)))
 }
 
+// ---------------------------------------------------------------------------
+// Tile content fingerprinting — used by the LRU render cache
+// ---------------------------------------------------------------------------
+
+fn fnv_mix(mut h: u64, bytes: &[u8]) -> u64 {
+    for &b in bytes { h ^= b as u64; h = h.wrapping_mul(1099511628211); }
+    h
+}
+
+/// FNV-1a hash of the visible content of tile (tx, ty).
+///
+/// Covers every node in `tile_node_map[(tx,ty)]`: its id, bbox (f32 bits),
+/// and all content fields that affect pixel output (text string + tw, image
+/// color + dims, collection tw).  BTreeSet iteration order is deterministic,
+/// so equal visual states always produce equal fingerprints.
+///
+/// Collision risk: FNV-64 has a ~10⁻¹⁸ false-hit probability per tile per
+/// frame — negligible for a UI renderer.
+fn tile_fingerprint(
+    tx: u32, ty: u32,
+    tile_node_map: &HashMap<(u32, u32), BTreeSet<String>>,
+    bboxes: &HashMap<String, Rect>,
+    root: &FakeNode,
+) -> u64 {
+    let empty = BTreeSet::new();
+    let node_set = tile_node_map.get(&(tx, ty)).unwrap_or(&empty);
+    let mut h: u64 = 14695981039346656037; // FNV-1a offset basis
+    // Include tile coordinates so tiles at different positions can never collide
+    // even if they happen to contain the same node set at the same absolute bboxes.
+    h = fnv_mix(h, &tx.to_le_bytes());
+    h = fnv_mix(h, &ty.to_le_bytes());
+    for id in node_set {
+        h = fnv_mix(h, id.as_bytes());
+        if let Some(r) = bboxes.get(id.as_str()) {
+            h = fnv_mix(h, &r.x.to_bits().to_le_bytes());
+            h = fnv_mix(h, &r.y.to_bits().to_le_bytes());
+            h = fnv_mix(h, &r.w.to_bits().to_le_bytes());
+            h = fnv_mix(h, &r.h.to_bits().to_le_bytes());
+        }
+        if let Some(node) = find_node(root, id) {
+            match node {
+                FakeNode::Text { content, tw, .. } => {
+                    h = fnv_mix(h, b"T");
+                    h = fnv_mix(h, content.as_bytes());
+                    h = fnv_mix(h, b"|");
+                    h = fnv_mix(h, tw.as_bytes());
+                }
+                FakeNode::Image { color, width, height, .. } => {
+                    h = fnv_mix(h, b"I");
+                    h = fnv_mix(h, color.as_bytes());
+                    h = fnv_mix(h, &width.to_le_bytes());
+                    h = fnv_mix(h, &height.to_le_bytes());
+                }
+                FakeNode::Collection { tw, .. } => {
+                    h = fnv_mix(h, b"C");
+                    h = fnv_mix(h, tw.as_bytes());
+                }
+            }
+        }
+        h = fnv_mix(h, b"\0"); // node separator
+    }
+    h
+}
+
 struct DiffResult { weighted: f64, img: Vec<u8> }
 
 /// Perceptual pixel diff.
@@ -801,11 +868,12 @@ fn suite_dense_metrics() -> TestSuite {
 // Benchmark
 // ---------------------------------------------------------------------------
 
-struct FrameResult { label: String, full_time: Duration, incr_time: Duration, full_px: Vec<u8>, prev_full_px: Vec<u8>, incr_px: Vec<u8>, w: u32, h: u32, render_calls: u32, skipped: u32, dirty_tiles: HashSet<(u32,u32)> }
+struct FrameResult { label: String, full_time: Duration, incr_time: Duration, full_px: Vec<u8>, prev_full_px: Vec<u8>, incr_px: Vec<u8>, w: u32, h: u32, render_calls: u32, skipped: u32, cache_hits: u32, dirty_tiles: HashSet<(u32,u32)> }
 struct SuiteResult { name: &'static str, description: &'static str, frames: Vec<FrameResult> }
 
 const TILE_SIZE: u32 = 32;
 const SHADOW_BUF: u32 = 32; // extra border around each tile to capture shadow bleed
+const TILE_CACHE_MB: usize = 10; // LRU tile cache budget; entry count derived from TILE_SIZE
 
 // Two tiles whose shadow-expanded intervals overlap are merged into one band.
 // Overlap condition: distance < 1 + 2*SHADOW_BUF/TILE_SIZE  →  distance ≤ MERGE_THRESHOLD.
@@ -1076,10 +1144,16 @@ fn run_suite(suite: &TestSuite, cm: &CostModel, cal_samples: &mut Vec<(f64, f64,
     let mut incr_set: ManagedSet<FakeNode> = ManagedSet::new();
     let mut frame_buf: Vec<u8> = Vec::new();
     let mut prev_full: Vec<u8> = Vec::new();
-    let mut prev_bboxes: HashMap<String, Rect> = HashMap::new();
-    // Bboxes from the PREVIOUS frame's stub layout (not full-measure), used for
-    // moved-node detection so we compare stub vs stub and avoid false positives.
+    // Bboxes from the PREVIOUS frame's stub layout, used for moved-node detection
+    // so we always compare stub vs stub and avoid false positives.
     let mut prev_stub_bboxes: HashMap<String, Rect> = HashMap::new();
+    // LRU tile render cache: fingerprint → TILE_SIZE×TILE_SIZE×4 bytes.
+    // Capacity is derived from TILE_CACHE_MB so it auto-adjusts when TILE_SIZE changes.
+    let tile_bytes = (TILE_SIZE * TILE_SIZE * 4) as usize;
+    let cache_cap = NonZeroUsize::new(
+        (TILE_CACHE_MB * 1024 * 1024 + tile_bytes - 1) / tile_bytes
+    ).unwrap();
+    let mut tile_cache: LruCache<u64, Vec<u8>> = LruCache::new(cache_cap);
     // Persistent tile→node map: for each tile the set of nodes whose shadow-
     // expanded bbox overlaps it.  Rebuilt each frame from current bboxes.
     // (Incremental update is a future optimisation — rebuild is fast enough.)
@@ -1108,56 +1182,39 @@ fn run_suite(suite: &TestSuite, cm: &CostModel, cal_samples: &mut Vec<(f64, f64,
         // 1. Reconcile — populates changed_ids and structure_changed
         incr_set.reconcile(f.scene.clone(), &mut incr_ctx, &mut ());
 
-        // 2. Measure layout — two strategies depending on whether the structure changed.
+        // 2. Measure layout — always via the stub-layout path.
         //
-        //    Structure change  →  full measure_layout on the actual scene (shapes all text).
-        //    Content-only      →  (a) measure each changed text node in isolation to get its
-        //                             new (W, H), then (b) run a cheap stub-layout pass that
-        //                             replaces every node with a fixed-size container so taffy
-        //                             re-computes positions with zero additional text shaping.
-        let mut bboxes: HashMap<String, Rect> = HashMap::new();
-
+        //    (a) Measure each changed leaf in isolation to update node_dims.
+        //        On the first frame every node enters → changed_ids contains all
+        //        nodes → node_dims is fully bootstrapped here, no separate
+        //        full-measure pass needed.
+        //    (b) Stub layout: replace every leaf with a fixed-size container so
+        //        taffy re-computes positions with zero text shaping.
+        //
+        //    Using the same path for cold and warm frames means frame 0 tiles and
+        //    all subsequent tiles share the same stub-layout coordinate system,
+        //    eliminating the subpixel seam the old full-measure cold-frame path
+        //    caused at dirty/clean tile boundaries.
+        let bboxes: HashMap<String, Rect>;
         let stub_bboxes: HashMap<String, Rect>;
 
-        if incr_ctx.structure_changed || frame_buf.is_empty() {
-            // Full measure; seed the dims cache so subsequent frames can stub.
-            let scene_json = f.scene[0].to_json();
-            let node = parse_layout(&scene_json).unwrap_or_else(|_| Node::container(vec![]));
-            let measured = takumi_measure_layout(
-                RenderOptions::builder().global(&incr_ctx.global)
-                    .viewport(Viewport::new((None, None))).node(node).build()
-            ).expect("measure layout");
-            collect_bboxes(&measured, &f.scene[0], &mut bboxes);
-            for (id, r) in &bboxes { incr_ctx.node_dims.insert(id.clone(), (r.w, r.h)); }
-            // Also run the stub pass so prev_stub_bboxes is in the same coordinate
-            // system as future stub runs (avoids false-positive moved-node detection).
-            let stub_json = stub_scene_json(&f.scene[0], &incr_ctx.node_dims);
-            let snode = parse_layout(&stub_json).unwrap_or_else(|_| Node::container(vec![]));
-            let smeasured = takumi_measure_layout(
-                RenderOptions::builder().global(&incr_ctx.global)
-                    .viewport(Viewport::new((None, None))).node(snode).build()
-            ).expect("seed stub layout");
-            let mut sb = HashMap::new();
-            collect_bboxes(&smeasured, &f.scene[0], &mut sb);
-            stub_bboxes = sb;
-        } else {
-            // Step (a): update node_dims for any leaf whose dimensions may have changed.
-            for id in &incr_ctx.changed_ids {
-                if let Some(node) = find_node(&f.scene[0], id) {
-                    match node {
-                        FakeNode::Text { .. } => {
-                            let dims = measure_natural(node, &incr_ctx.global);
-                            incr_ctx.node_dims.insert(id.clone(), dims);
-                        }
-                        FakeNode::Image { width, height, .. } => {
-                            // Dimensions are declared on the node; no shaping needed.
-                            incr_ctx.node_dims.insert(id.clone(), (*width as f32, *height as f32));
-                        }
-                        _ => {}
+        // Step (a): update node_dims for any leaf whose dimensions may have changed.
+        for id in &incr_ctx.changed_ids {
+            if let Some(node) = find_node(&f.scene[0], id) {
+                match node {
+                    FakeNode::Text { .. } => {
+                        let dims = measure_natural(node, &incr_ctx.global);
+                        incr_ctx.node_dims.insert(id.clone(), dims);
                     }
+                    FakeNode::Image { width, height, .. } => {
+                        incr_ctx.node_dims.insert(id.clone(), (*width as f32, *height as f32));
+                    }
+                    _ => {}
                 }
             }
-            // Step (b): stub layout — replace all leaves with fixed-size containers.
+        }
+        // Step (b): stub layout — replace all leaves with fixed-size containers.
+        {
             let stub_json = stub_scene_json(&f.scene[0], &incr_ctx.node_dims);
             let node = parse_layout(&stub_json).unwrap_or_else(|_| Node::container(vec![]));
             let measured = takumi_measure_layout(
@@ -1206,7 +1263,23 @@ fn run_suite(suite: &TestSuite, cm: &CostModel, cal_samples: &mut Vec<(f64, f64,
             }
         }
 
-        // 4. Categorical + spatial grouping with cost-model greedy merge.
+        // 4. Cache lookup — fingerprint each dirty tile, stitch hits immediately,
+        //    remove them from dirty so they don't inflate candidate band areas.
+        let skipped = cols * rows - dirty.len() as u32; // tiles that were never dirty
+        let mut cache_hits = 0u32;
+        dirty.retain(|&(tx, ty)| {
+            let fp = tile_fingerprint(tx, ty, &tile_node_map, &bboxes, &f.scene[0]);
+            match tile_cache.get(&fp).cloned() {
+                Some(px) => {
+                    stitch(&mut frame_buf, w, h, &px, TILE_SIZE, tx * TILE_SIZE, ty * TILE_SIZE);
+                    cache_hits += 1;
+                    false
+                }
+                None => true,
+            }
+        });
+
+        // 5. Categorical + spatial grouping with cost-model greedy merge.
         //
         //    Cold frame (all tiles dirty): fall back to a single collect_flat call
         //    with the bbox-query path — tile_node_map is freshly built but the
@@ -1229,7 +1302,6 @@ fn run_suite(suite: &TestSuite, cm: &CostModel, cal_samples: &mut Vec<(f64, f64,
             greedy_merge_candidates(raw, cm)
         };
         let render_calls = candidates.len() as u32;
-        let skipped = cols * rows - dirty.len() as u32;
 
         for cand in &candidates {
             let batch_px_x = cand.min_tx * TILE_SIZE;
@@ -1280,6 +1352,8 @@ fn run_suite(suite: &TestSuite, cm: &CostModel, cal_samples: &mut Vec<(f64, f64,
                 let off_y = SHADOW_BUF + (ty - cand.min_ty) * TILE_SIZE;
                 let tile_px = crop_pixels(&cand_px, canvas_w, off_x, off_y, TILE_SIZE, TILE_SIZE);
                 stitch(&mut frame_buf, w, h, &tile_px, TILE_SIZE, px_x, px_y);
+                let fp = tile_fingerprint(tx, ty, &tile_node_map, &bboxes, &f.scene[0]);
+                tile_cache.put(fp, tile_px);
             }
         }
 
@@ -1287,10 +1361,9 @@ fn run_suite(suite: &TestSuite, cm: &CostModel, cal_samples: &mut Vec<(f64, f64,
         let incr_px = frame_buf.clone();
         let my_prev_full = std::mem::replace(&mut prev_full, full_px.clone());
         let saved_dirty = dirty.clone();
-        prev_bboxes = bboxes;
         prev_stub_bboxes = stub_bboxes;
 
-        FrameResult { label: f.label.clone(), full_time, incr_time, full_px, prev_full_px: my_prev_full, incr_px, w, h, render_calls, skipped, dirty_tiles: saved_dirty }
+        FrameResult { label: f.label.clone(), full_time, incr_time, full_px, prev_full_px: my_prev_full, incr_px, w, h, render_calls, skipped, cache_hits, dirty_tiles: saved_dirty }
     }).collect();
 
     SuiteResult { name: suite.name, description: suite.description, frames }
@@ -2434,10 +2507,10 @@ fn print_suite_results(result: &SuiteResult) {
             if ratio < PERFECT_THRESHOLD { "✓".into() }
             else { format!("≠{:.1}% (err={:.1}/chg={:.0})", ratio * 100.0, err.weighted, chg_w) }
         } else { "?".into() };
-        println!("  [{: >2}] full={:.1}ms incr={:.1}ms ×{:.1} tiles={}/{} {}  {}",
+        println!("  [{: >2}] full={:.1}ms incr={:.1}ms ×{:.1} rendered={} hits={} skip={} {}  {}",
             i, f.full_time.as_secs_f64() * 1000.0, f.incr_time.as_secs_f64() * 1000.0,
             f.full_time.as_secs_f64() / f.incr_time.as_secs_f64().max(1e-9),
-            f.render_calls, f.render_calls + f.skipped, d, f.label);
+            f.render_calls, f.cache_hits, f.skipped, d, f.label);
         if i > 0 { s_full += f.full_time; s_incr += f.incr_time; }
     }
     println!("  → suite speedup: {:.1}×\n", s_full.as_secs_f64() / s_incr.as_secs_f64().max(1e-9));
