@@ -1133,24 +1133,37 @@ fn run_suite(suite: &TestSuite, cm: &CostModel, cal_samples: &mut Vec<(f64, f64,
         //    lookup vs the old O(N) find_node) and later fingerprinting.
         let node_map = build_node_map(&f.scene[0]);
 
-        // Step (a): update node_dims for any leaf whose dimensions may have changed.
+        // Step (a): update node_dims for changed leaves; track whether anything
+        // that affects flex geometry actually changed.
+        //   dims_changed        — a Text/Image node rendered to a different size
+        //   collection_changed  — a Collection tw changed (affects flex positions)
+        // If neither is true the stub layout would produce identical positions to
+        // last frame, so step (b) can be skipped entirely.
+        let mut dims_changed = false;
+        let mut collection_changed = false;
         for id in &incr_ctx.changed_ids {
             if let Some(&node) = node_map.get(id.as_str()) {
                 match node {
                     FakeNode::Text { .. } => {
-                        let dims = measure_natural(node, &incr_ctx.global);
-                        incr_ctx.node_dims.insert(id.clone(), dims);
+                        let new_dims = measure_natural(node, &incr_ctx.global);
+                        if incr_ctx.node_dims.get(id.as_str()).copied() != Some(new_dims) {
+                            dims_changed = true;
+                        }
+                        incr_ctx.node_dims.insert(id.clone(), new_dims);
                     }
                     FakeNode::Image { width, height, .. } => {
-                        incr_ctx.node_dims.insert(id.clone(), (*width as f32, *height as f32));
+                        let new_dims = (*width as f32, *height as f32);
+                        if incr_ctx.node_dims.get(id.as_str()).copied() != Some(new_dims) {
+                            dims_changed = true;
+                        }
+                        incr_ctx.node_dims.insert(id.clone(), new_dims);
                     }
-                    _ => {}
+                    FakeNode::Collection { .. } => { collection_changed = true; }
                 }
             }
         }
-        // Step (b): stub layout — replace all leaves with fixed-size containers.
-        // bboxes and prev_stub_bboxes are always the same map; no clone needed.
-        let bboxes: HashMap<String, Rect> = {
+        // Step (b): stub layout — skipped when positions are provably unchanged.
+        let bboxes: HashMap<String, Rect> = if dims_changed || collection_changed {
             let stub_json = stub_scene_json(&f.scene[0], &incr_ctx.node_dims);
             let node = parse_layout(&stub_json).unwrap_or_else(|_| Node::container(vec![]));
             let measured = takumi_measure_layout(
@@ -1160,6 +1173,8 @@ fn run_suite(suite: &TestSuite, cm: &CostModel, cal_samples: &mut Vec<(f64, f64,
             let mut sb = HashMap::new();
             collect_bboxes(&measured, &f.scene[0], &mut sb);
             sb
+        } else {
+            prev_stub_bboxes.clone()
         };
 
         // 3. Compute dirty tiles and update tile→node map.
