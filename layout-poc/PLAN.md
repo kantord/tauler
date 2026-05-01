@@ -92,6 +92,13 @@ Each band's flat node list is wrapped in a `display:block position:relative` roo
 
 Dirty tiles are cropped from their band's pixel buffer (offset by SHADOW_BUF to skip the shadow-bleed border) and copied into `frame_buf` at their correct screen coordinates.
 
+## Key takumi internals
+
+- `render_node()` skips any node where `is_invisible()` is true — covering `opacity: 0`, `display: none`, `visibility: hidden`. `visibility: hidden` preserves layout but skips all rasterization (`draw_shell`, `draw_content`, `draw_inline`).
+- **`overflow: hidden` does NOT skip rasterization.** Takumi still runs font shaping and glyph rasterization for clipped nodes; it only skips the final pixel writes. `overflow: hidden` alone delivers no speedup for off-screen nodes.
+- CSS `transform: translateX/Y` is a render-time operation (applied via `Affine` accumulation in `render_node`, after layout). It does not affect taffy layout.
+- `render()` runs layout first (`tree.compute_layout`) then drawing (`render_node`). The two phases are sequential; layout always runs on the full node tree.
+
 ## Constants requiring tuning
 
 These are hardcoded values that affect correctness or performance. Each has a rationale for its current value and a note on how to tune it.
@@ -102,7 +109,7 @@ These are hardcoded values that affect correctness or performance. Each has a ra
 | `SHADOW_BUF` | 32 px | Extra border around each tile to capture shadow bleed into neighbouring tiles. Must be ≥ the maximum shadow spread used in any scene. | Set to `ceil(max_shadow_spread)`. `shadow-2xl` spreads ~20 px; current 32 px has headroom. Reducing saves render area. |
 | `MERGE_THRESHOLD` | `2 × SHADOW_BUF / TILE_SIZE` = 2 tiles | Maximum gap (in tile units) between two dirty tiles on the same axis before they are split into separate bands. Derived from when shadow-expanded intervals stop overlapping. | Recalculates automatically if TILE_SIZE or SHADOW_BUF change. No independent tuning needed unless the derivation changes. |
 | Move detection threshold | 0.5 px | A node is considered "moved" if its stub bbox x or y shifts by more than this between frames. Prevents false-positive dirty tiles from floating-point noise. | Lower → more aggressive dirty marking (safer). Higher → risk of missing subpixel reflows. 0.5 px is at the anti-aliasing boundary; unlikely to need changing. |
-| `PERFECT_THRESHOLD` | 1.0 (quadratic weighted diff) | Below this a frame is declared pixel-perfect in the report and console output. With quadratic weighting, 1.0 ≈ 100 pixels each differing by 1/255 on one channel — genuinely imperceptible. | Raise if anti-aliasing noise is generating too many false ≠ reports; lower if the standard is too lax. |
+| `PERFECT_THRESHOLD` | 0.05 (5% ratio) | A frame is pixel-perfect when `error_weighted / changed_area_weighted < 0.05`. Both use the cubic perceptual metric; the ratio approximates "what fraction of visually-significant changed pixels are rendered incorrectly". | Tighten toward 0.02 to catch subtler compositing errors; loosen toward 0.10 if AA noise at tile boundaries generates false flags. |
 | Per-render fixed overhead `O_fixed` | **0.050 ms** (calibrated) | Amortised setup cost of one `takumi_render` call regardless of canvas size. Much lower than the initial 1.0 ms guess — splitting is cheap. | Re-run self-calibration after any takumi upgrade; expect value to change. |
 | Area cost coefficient `k_area` | **2.97×10⁻⁵ ms/px** (calibrated) | Cost per pixel of canvas area in a `takumi_render` call, excluding per-node work. | Dominated by rasterisation throughput. Changes with resolution or GPU. |
 | Node cost coefficient `k_nodes` | **0.106 ms/node** (calibrated) | Cost per node in the flat scene (text shaping dominates; image/container nodes cheaper but treated uniformly here). | Could split into k_text / k_image / k_container for more precision. |
@@ -111,19 +118,9 @@ These are hardcoded values that affect correctness or performance. Each has a ra
 
 ---
 
-## Next architectural step — categorical + spatial band grouping with cost-model merging
+## Categorical + spatial band grouping with cost-model merging (implemented)
 
-### Motivation
-
-The current band grouping (stage 4) has two limitations:
-
-1. **Dimensional bias**: the algorithm picks a single axis (X or Y) globally and applies 1D interval merging along it. Tiles arranged diagonally, or layouts that mix tall and wide regions, are not handled optimally.
-
-2. **Node set over-inclusion**: `collect_flat` includes every node overlapping the band's query region, even nodes that only touch non-dirty tiles within the band. These nodes contribute pixels that are never stitched back — pure wasted render work.
-
-### Proposed algorithm
-
-#### Prerequisite: incremental tile→node map
+### tile→node map
 
 Maintain a persistent `tile_node_map: HashMap<(tx,ty), BTreeSet<NodeId>>` across frames.
 
@@ -265,103 +262,47 @@ In the focus-cycling case after warmup: the workspace tiles are resolved from ca
 
 ## Known issues / caveats
 
-### Stub position accuracy
+### Text stub loses layout-affecting `tw` classes
 
-Stub containers and actual text nodes behave slightly differently inside nested `flex-col` containers, causing the stub layout to assign fractional pixel positions that differ from a true full-layout result. This changes the subpixel offset of rendered text, affecting anti-aliasing edge pixels.
+Text nodes are stubbed as plain fixed-size containers — their `tw` is dropped entirely. This means layout-affecting classes on text nodes (`ml-auto`, `flex-1`, `w-[Npx]`, `whitespace-nowrap` affecting sizing) are lost in the stub layout. This causes two bugs:
 
-Measured impact (quadratic diff metric — diff=1 contributes 100× less than diff=10):
+1. **Wrong bbox**: nodes with `ml-auto` or similar get placed immediately after their sibling in the stub flex row instead of at their correct position. The dirty tiles computed from this wrong bbox cover the wrong area.
+2. **Stale pixels**: because the old-position dirty marking also uses the (wrong) stub bbox, the actual rendered pixels at the correct position are never cleared, leaving stale text visible (e.g. old phase label persisting after a phase transition in the keyframe animation suite).
 
-| Suite | Notes | Quadratic diff |
-|---|---|---|
-| Simple Status Bar | ✓ pixel-perfect | < 1 |
-| Shadow Cards | `flex-col justify-between`, nested | ~350–400 |
-| Blurred Overlay | ✓ pixel-perfect | < 1 |
-| Dense Metrics | `flex-col items-center`, nested | ~320–355 |
-| Realistic Sidebar | large canvas, mixed layout | ~19 (0.002%) |
+**Fix**: preserve layout-relevant Tailwind classes when generating text stubs. Specifically, the stub container should carry any `tw` class that affects flex sizing or positioning (`ml-auto`, `flex-1`, `flex-shrink-0`, `w-*`, `h-*`, `min-w-*`, `max-w-*`).
 
-The sidebar result is perceptually pixel-perfect. Shadow Cards and Dense Metrics have genuine stub-vs-full position gaps from the nested flex-col case.
+### Correctness metric: dirty-tile-only measurement (planned)
+
+The current metric compares the full incremental frame against the full fresh render. This unfairly penalises the renderer when:
+
+- A dirty tile's re-render uses flat absolute positioning (from stub bboxes) that differs sub-pixel from the full flex render — producing imperceptible but measurable differences on MEM/DISK columns in Dense Metrics, for example.
+- The full render shifts static text sub-pixel-wise due to layout reflow from changed siblings, while those tiles were not re-rendered in the incremental path.
+
+The correct measurement: compare only within dirty tiles. Skipped tiles are not the renderer's responsibility for this frame — they should be separately verified as unchanged.
+
+**Planned fix**: mask both `error_weighted` and `chg_w` to the dirty-tile pixel region only.
 
 ### CSS property inheritance (potential future issue)
 
-Isolated node measurement has no parent context. Takumi does not implement CSS inheritance (all properties are declared directly via Tailwind classes), so this is a non-issue today. If takumi ever gains inheritance, isolated measurement would need to include ancestor context.
+Isolated node measurement has no parent context. Takumi does not implement CSS inheritance (all properties are declared directly via Tailwind classes), so this is a non-issue today.
 
-## Test suite expansion (priority 1 for next session)
+## Test suites
 
-The existing suites (Simple Status Bar, Shadow Cards, Blurred Overlay, Dense Metrics, Realistic Sidebar, Shrink Bug) cover content changes and time ticks well but leave large blind spots. Before any further optimisation work, add suites that cover the scenarios below. Each suite should:
+13 suites currently implemented: Simple Status Bar, Shadow Cards, Blurred Overlay, Dense Metrics Grid, Realistic Sidebar, Shrink Bug, Moving Ball, Tile Crossing, Panel Focus Cycle, Diagonal Scatter, Notification Badge, Progress Fill, Keyframe Animation.
 
-1. Reveal whether the current algorithm handles the case correctly (diff = ✓ or meaningful ≠)
-2. Quantify performance so improvements and regressions are visible as code changes
-3. Not be limited to realistic status-bar use cases — widgets, dashboards, games, anything that stresses a different code path
-
----
-
-### Dirty-marking coverage gaps
-
-**Moving node** — a single node that changes absolute position each frame with no content change. Use a container with varying `ml-[Npx]` tw class. Tests moved-node detection (x/y shift > 0.5 px), old-position cleanup, and that no spurious tile re-renders occur for static siblings. Currently the moved-node path is exercised only incidentally via layout reflow.
-
-**Node crossing a tile boundary** — same as above but the node's path takes it from tile (2,0) into tile (3,0) mid-sequence. Tests that both the departure tile (stale pixels) and the arrival tile (new pixels) are correctly marked dirty on the crossing frame. A known easy failure mode: if only the new position is marked, the departure tile retains ghost pixels.
-
-**Node growing and shrinking** — extend the Shrink Bug regression into a full oscillating cycle (small→large→small→large) with varying sizes, verifying that the old-bbox marking fires symmetrically in both directions and that no frame accumulates stale pixels.
-
-**Structure change** — a node added mid-sequence, then removed, then re-added at a different position. Tests the `structure_changed` full-remeasure path and verifies that the tile pixel cache is correctly invalidated on removal (a removed node's cached tile must not be served when the node reappears at a different location).
-
----
-
-### Compositing and visual correctness
-
-**Shadow boundary stress** — a `shadow-2xl` element whose edge is positioned exactly at a tile boundary. Content inside changes each frame. The shadow bleed must appear correctly in the adjacent tile (which is dirtied only via SHADOW_BUF expansion, not the node's own bbox). Verifies that the current SHADOW_BUF=32px is sufficient for `shadow-2xl` (Tailwind blur-radius=50px — may require increasing). The diff image will clearly show clipped shadow edges if SHADOW_BUF is too small.
-
-**Transparent overlay over dynamic content** — a semi-transparent container (`bg-black/50` or similar) sitting on top of content that changes underneath it each frame. The overlay itself never enters `changed_ids`. Tests whether the incremental render correctly composites the static overlay over the freshly-rendered background tiles. A failure here would show the overlay disappearing or the background rendering through incorrectly.
-
-**Stacked transparency with shadows** — two overlapping containers each with opacity and shadow, both changing independently. The correct composited output requires both to be in the flat scene when either tile is dirty. Tests whether the node-set whitelisting logic correctly includes both nodes when only one changed.
-
-**Backdrop filter interaction** — a `backdrop-blur` panel sitting over content that changes behind it. Tests whether the dirty region expands to cover the blurred panel (since its visual output depends on the content beneath), or whether the blur re-composites correctly from cached tiles. This may reveal a fundamental correctness gap: backdrop filters create a non-local dependency that pure tile-based caching cannot handle without a "this tile depends on that region" tracking mechanism.
-
----
-
-### Layout and geometry stress
-
-**Dense diagonal scatter** — 9 nodes at positions (0,0), (1,1), (2,2), ... (8,8) in tile coordinates (one per tile, diagonal). All change simultaneously. Tests the banding algorithm's dimensional bias: neither a pure X-band nor a pure Y-band will produce a good grouping; the categorical+merge approach should split them into 9 individual renders if O_fixed is low enough to justify it.
-
-**Non-power-of-two canvas sizes** — a 347×91 px canvas (deliberately awkward). Tests edge tile handling (the rightmost and bottom tiles are narrower than TILE_SIZE) and verifies that crop/stitch arithmetic handles partial tiles correctly.
-
-**Deep flex nesting** — 6 levels of nested flex containers, each with padding and gap, with a leaf text node at the deepest level that changes. Tests whether the stub layout pass accumulates fractional position errors through deep nesting (a likely source of the flex-col position gap already observed in Shadow Cards and Dense Metrics).
-
-**Many simultaneous small changes** — 12 independent text nodes scattered across a 600×200 canvas, all changing every frame. Tests the categorical grouping (12 distinct node sets), the greedy merge (should consolidate nearby ones), and raw throughput under high dirty-tile count.
-
----
-
-### Widget scenarios (non-status-bar)
-
-**Notification badge counter** — a circular badge with a number (1, 2, … 99) that increments each frame, positioned over a static icon. The badge text changes width as it goes from 1-digit to 2-digit. Tests the shrink/grow path in a realistic rounded-container context with shadow.
-
-**Mini sparkline chart** — a row of 20 narrow bars (implemented as Image nodes with varying heights) where new values arrive from the right and old ones shift left. Each frame: one node removed (left edge), one added (right edge) — structure change every frame. Tests cold-path performance and whether structure changes are recoverable quickly.
-
-**Animated progress ring** — a progress bar that fills from 0% to 100% over 10 frames, then resets. The fill is a fixed-width container whose `w-[Npx]` tw class changes each frame (simulating a progress indicator). Tests the shrink-bug fix under monotonic growth, then a large backwards jump on reset.
-
-**Card flip / state toggle** — a widget that switches between two completely different visual states (e.g. "loading" vs "loaded" with different layout and content). Tests full-widget dirtying, cache hit on second toggle back, and whether the categorical grouping handles a near-total node-set change efficiently.
-
-**Layered translucent panels** — three overlapping rounded panels each with `bg-white/20 backdrop-blur-sm shadow-lg`, laid out at different z-depths. Individual panels change content independently. This is the hardest compositing case: each tile may include all three panels, and any one changing makes the tile dirty. Tests whether the node set correctly captures all visually-contributing layers.
-
----
-
-### What to look for
-
-Each new suite should be added to the HTML report. For each suite, check:
-
-- **Any unexpected ≠**: if a suite designed to be pixel-perfect shows a diff, it reveals a correctness bug
-- **Diff pattern in imperfect suites**: position-shift diffs (whole glyphs displaced) indicate bbox tracking bugs; edge diffs (single-pixel borders) indicate SHADOW_BUF insufficiency; compositing diffs (wrong alpha) indicate flat-render ordering bugs
-- **Performance per event type**: compare time per frame against suites with equivalent dirty-area size to isolate the cost of new code paths
-
----
+Diff pattern guide for new suites:
+- **Whole-glyph displacement** → bbox tracking bug (stub position wrong)
+- **Single-pixel border fringe** → SHADOW_BUF too small for the shadow in use
+- **Wrong alpha / compositing** → flat-render ordering or node-set inclusion bug
+- **Text at wrong position with stale old text visible** → text node `tw` lost in stub (ml-auto / flex-1 bug)
 
 ## Performance results (release build, realistic sidebar suite)
 
 | Event | Speedup | Notes |
 |---|---|---|
-| Time tick only | **11–12×** | 1 band, ~3 tiles dirty |
-| Claude usage update | **~8×** | 1 band, bottom cards |
-| Focus change + time tick | **5–6×** | 2 bands (workspace area + datetime) |
-| Overall suite | **8.7×** | 10 frames mixed events |
+| Time tick only | **10–12×** | 1 band, ~3 tiles dirty |
+| Claude usage update | **~7–8×** | 1 band, bottom cards |
+| Focus change + time tick | **4–5×** | 2 bands (workspace area + datetime) |
+| Overall suite (10 frames) | **7.4×** | mixed events |
 
-Smaller suites: 2–3× speedup (scenes are small, cold-frame overhead is proportionally larger).
+Smaller suites: 1–2× (scenes are small; cold-frame overhead proportionally larger, incremental savings smaller).
