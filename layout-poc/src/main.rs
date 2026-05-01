@@ -1547,6 +1547,391 @@ fn suite_shrink_bug() -> TestSuite {
 }
 
 // ---------------------------------------------------------------------------
+// Extended test suites — movement, animation, edge cases
+// ---------------------------------------------------------------------------
+
+fn suite_moving_ball() -> TestSuite {
+    let frames = (0..12).map(|i| {
+        let t = i as f64 / 11.0;
+        let bx = (8 + (t * 352.0) as u32).min(368);
+        let sz = 16u32 + (8.0 * (t * std::f64::consts::TAU).sin().abs()) as u32;
+        let scene = vec![FakeNode::Collection {
+            id: "canvas".into(),
+            tw: "flex flex-col w-[400px] h-[80px] bg-gray-900".into(),
+            children: vec![
+                FakeNode::Collection {
+                    id: "header".into(),
+                    tw: "flex flex-row items-center h-[20px] px-2".into(),
+                    children: vec![
+                        FakeNode::Text { id: "title".into(), content: "Ball Track".into(),
+                            tw: "text-gray-500 text-[10px] whitespace-nowrap".into() },
+                        FakeNode::Text { id: "pos-lbl".into(), content: format!("x={bx} sz={sz}"),
+                            tw: "ml-2 text-gray-400 text-[10px] font-mono whitespace-nowrap".into() },
+                    ],
+                },
+                FakeNode::Collection {
+                    id: "track".into(),
+                    tw: "flex flex-row items-center flex-1 px-2".into(),
+                    children: vec![
+                        FakeNode::Collection {
+                            id: "spacer".into(),
+                            tw: format!("flex-shrink-0 w-[{bx}px] h-[2px] bg-gray-700"),
+                            children: vec![],
+                        },
+                        FakeNode::Collection {
+                            id: "ball".into(),
+                            tw: format!("flex-shrink-0 w-[{sz}px] h-[{sz}px] rounded-full bg-orange-500 shadow-lg"),
+                            children: vec![],
+                        },
+                    ],
+                },
+            ],
+        }];
+        let full_json = scene[0].to_json();
+        SuiteFrame { label: format!("frame {i}: x={bx} sz={sz}"), scene, full_json }
+    }).collect();
+    TestSuite {
+        name: "Moving Ball",
+        description: "400×80 px. Ball slides L→R; size pulses simultaneously. Tests relocating + resizing node in the same frame.",
+        frames,
+    }
+}
+
+fn suite_tile_crossing() -> TestSuite {
+    let frames = (0..10).map(|i| {
+        let bx = i as u32 * TILE_SIZE;
+        let scene = vec![FakeNode::Collection {
+            id: "canvas".into(),
+            tw: "flex flex-row items-center w-[320px] h-[64px] bg-gray-900".into(),
+            children: vec![
+                FakeNode::Collection {
+                    id: "spacer".into(),
+                    tw: format!("flex-shrink-0 w-[{bx}px] h-[2px] bg-gray-700"),
+                    children: vec![],
+                },
+                FakeNode::Collection {
+                    id: "block".into(),
+                    tw: "flex-shrink-0 w-[32px] h-[32px] bg-cyan-400 rounded shadow-sm flex items-center justify-center".into(),
+                    children: vec![FakeNode::Text {
+                        id: "n".into(),
+                        content: format!("{i}"),
+                        tw: "text-gray-900 text-xs font-bold".into(),
+                    }],
+                },
+            ],
+        }];
+        let full_json = scene[0].to_json();
+        SuiteFrame { label: format!("frame {i}: tile-x={}", bx / TILE_SIZE), scene, full_json }
+    }).collect();
+    TestSuite {
+        name: "Tile Crossing",
+        description: "320×64 px. Block advances exactly one tile (32px) per frame. Stresses dirty-tile marking at exact tile boundaries.",
+        frames,
+    }
+}
+
+fn suite_panel_focus() -> TestSuite {
+    let frames = (0..10).map(|i| {
+        let active = i % 3;
+        let count = i + 1;
+        let scene = vec![FakeNode::Collection {
+            id: "canvas".into(),
+            tw: "flex flex-row gap-3 p-4 w-[460px] h-[120px] bg-gray-950".into(),
+            children: (0usize..3).map(|idx| {
+                let is_active = idx == active;
+                FakeNode::Collection {
+                    id: format!("panel-{idx}"),
+                    tw: if is_active {
+                        "flex flex-col p-3 bg-blue-800 rounded-xl shadow-xl w-[130px] border-2 border-blue-400".into()
+                    } else {
+                        "flex flex-col p-3 bg-gray-800 rounded-xl shadow-md w-[130px] border border-gray-600".into()
+                    },
+                    children: vec![
+                        FakeNode::Text { id: format!("p{idx}-title"),
+                            content: ["Alpha", "Beta", "Gamma"][idx].into(),
+                            tw: format!("text-[11px] font-bold {} whitespace-nowrap",
+                                if is_active { "text-blue-100" } else { "text-gray-300" }) },
+                        FakeNode::Text { id: format!("p{idx}-val"),
+                            content: if idx == 0 { format!("{count}") } else { "—".into() },
+                            tw: "text-[22px] font-bold text-white".into() },
+                    ],
+                }
+            }).collect(),
+        }];
+        let full_json = scene[0].to_json();
+        SuiteFrame { label: format!("frame {i}: active={active} count={count}"), scene, full_json }
+    }).collect();
+    TestSuite {
+        name: "Panel Focus Cycle",
+        description: "460×120 px. Active panel highlight cycles L→M→R. Counter increments each frame. Tests simultaneous bg-color + content changes.",
+        frames,
+    }
+}
+
+fn suite_diagonal_scatter() -> TestSuite {
+    let colors = ["red","orange","yellow","green","cyan","blue","indigo","purple","pink"];
+    let frames = (0..10).map(|i| {
+        let hot = i % 9;
+        let rows: Vec<FakeNode> = (0usize..3).map(|r| FakeNode::Collection {
+            id: format!("row-{r}"),
+            tw: "flex flex-row gap-2".into(),
+            children: (0usize..3).map(|c| {
+                let idx = r * 3 + c;
+                let is_hot = idx == hot;
+                FakeNode::Collection {
+                    id: format!("cell-{idx}"),
+                    tw: if is_hot {
+                        format!("w-[72px] h-[72px] bg-{}-400 rounded-lg shadow-lg flex items-center justify-center", colors[idx])
+                    } else {
+                        format!("w-[72px] h-[72px] bg-{}-900 rounded flex items-center justify-center", colors[idx])
+                    },
+                    children: vec![FakeNode::Text {
+                        id: format!("cell-{idx}-lbl"),
+                        content: if is_hot { "●".into() } else { "○".into() },
+                        tw: format!("text-{}-{} text-sm font-bold", colors[idx], if is_hot { "100" } else { "600" }),
+                    }],
+                }
+            }).collect(),
+        }).collect();
+        let scene = vec![FakeNode::Collection {
+            id: "canvas".into(),
+            tw: "flex flex-col gap-2 w-[248px] h-[248px] p-2 bg-gray-950".into(),
+            children: rows,
+        }];
+        let full_json = scene[0].to_json();
+        SuiteFrame { label: format!("frame {i}: hot=cell-{hot}"), scene, full_json }
+    }).collect();
+    TestSuite {
+        name: "Diagonal Scatter",
+        description: "248×248 px. 3×3 grid; one 'hot' cell cycles through all 9 positions per frame. Tests spatially scattered single-cell updates.",
+        frames,
+    }
+}
+
+fn suite_notification_badge() -> TestSuite {
+    let frames = (0..12).map(|i| {
+        let count = i + 1;
+        let two_digit = count >= 10;
+        let scene = vec![FakeNode::Collection {
+            id: "widget".into(),
+            tw: "flex flex-row items-center gap-3 w-[240px] h-[72px] px-4 py-3 bg-gray-900 rounded-xl".into(),
+            children: vec![
+                FakeNode::Collection {
+                    id: "icon".into(),
+                    tw: "flex-shrink-0 w-[48px] h-[48px] bg-blue-600 rounded-xl shadow-md flex items-center justify-center".into(),
+                    children: vec![FakeNode::Text {
+                        id: "icon-lbl".into(),
+                        content: "✉".into(),
+                        tw: "text-white text-[20px]".into(),
+                    }],
+                },
+                FakeNode::Collection {
+                    id: "content".into(),
+                    tw: "flex flex-col gap-1".into(),
+                    children: vec![
+                        FakeNode::Text { id: "app-name".into(), content: "Messages".into(),
+                            tw: "text-[12px] text-white font-semibold whitespace-nowrap".into() },
+                        FakeNode::Collection {
+                            id: "badge-row".into(),
+                            tw: "flex flex-row items-center gap-2".into(),
+                            children: vec![
+                                FakeNode::Collection {
+                                    id: "badge".into(),
+                                    tw: format!("flex items-center justify-center {} h-[18px] bg-red-500 rounded-full",
+                                        if two_digit { "min-w-[28px]" } else { "min-w-[18px]" }),
+                                    children: vec![FakeNode::Text {
+                                        id: "badge-n".into(),
+                                        content: format!("{count}"),
+                                        tw: "text-white text-[10px] font-bold px-1 whitespace-nowrap".into(),
+                                    }],
+                                },
+                                FakeNode::Text { id: "badge-lbl".into(), content: "unread".into(),
+                                    tw: "text-[10px] text-gray-400 whitespace-nowrap".into() },
+                            ],
+                        },
+                    ],
+                },
+            ],
+        }];
+        let full_json = scene[0].to_json();
+        SuiteFrame { label: format!("frame {i}: {count} unread"), scene, full_json }
+    }).collect();
+    TestSuite {
+        name: "Notification Badge",
+        description: "240×72 px. Badge counter 1→12; container widens at 2 digits. App icon is fully static.",
+        frames,
+    }
+}
+
+fn suite_progress_fill() -> TestSuite {
+    let frames = (0..10).map(|i| {
+        let pct: u32 = match i {
+            0..=7 => (i as f64 / 7.0 * 100.0) as u32,
+            8 => 30,
+            _ => 0,
+        };
+        let fill_w = (pct * 320 / 100).min(320);
+        let complete = pct >= 100;
+        let scene = vec![FakeNode::Collection {
+            id: "card".into(),
+            tw: "flex flex-col gap-2 w-[360px] h-[60px] px-3 py-2 bg-gray-800 rounded-xl".into(),
+            children: vec![
+                FakeNode::Collection {
+                    id: "header".into(),
+                    tw: "flex flex-row items-baseline justify-between".into(),
+                    children: vec![
+                        FakeNode::Text { id: "label".into(),
+                            content: if complete { "Complete!" } else { "Downloading…" }.into(),
+                            tw: "text-[11px] text-gray-400 whitespace-nowrap".into() },
+                        FakeNode::Text { id: "pct".into(), content: format!("{pct}%"),
+                            tw: "text-[11px] text-white font-mono whitespace-nowrap".into() },
+                    ],
+                },
+                FakeNode::Collection {
+                    id: "bar-bg".into(),
+                    tw: "w-full h-[8px] bg-gray-700 rounded-full overflow-hidden".into(),
+                    children: vec![FakeNode::Image {
+                        id: "bar-fill".into(),
+                        color: if complete { "green-400".into() } else { "blue-500".into() },
+                        width: fill_w,
+                        height: 8,
+                    }],
+                },
+            ],
+        }];
+        let full_json = scene[0].to_json();
+        SuiteFrame { label: format!("frame {i}: {pct}%"), scene, full_json }
+    }).collect();
+    TestSuite {
+        name: "Progress Fill",
+        description: "360×60 px. Image bar grows 0→100%; color flips to green at completion; frames 8-9 reset. Tests Image node resize + color change.",
+        frames,
+    }
+}
+
+fn suite_keyframe_animation() -> TestSuite {
+    let pi = std::f64::consts::PI;
+    let frames = (0..20).map(|i| {
+        let t = i as f64 / 19.0;
+
+        // Bounce: ball y oscillates 0..38 px inside 60 px track (20 px ball fits at bottom)
+        let bounce_y = (38.0 * (t * pi * 2.0).sin().abs()) as u32;
+
+        // Slide: thumb travels 0..360 px
+        let slide_x = ((t * 360.0) as u32).min(360);
+
+        // Pulse: size 20..36 px, 8-color palette cycle
+        let pulse_sz = 20u32 + (14.0 * (t * pi * 4.0).sin().abs()) as u32;
+        let pulse_colors = ["red-400","orange-400","yellow-300","green-400",
+                            "teal-400","blue-400","indigo-400","purple-400"];
+        let pulse_color = pulse_colors[(i * pulse_colors.len() / 20) % pulse_colors.len()];
+
+        // Phase label: 4 keyframe segments
+        let phase = if t < 0.25 { "IDLE" } else if t < 0.5 { "RISING" } else if t < 0.75 { "PEAK" } else { "FALLING" };
+
+        let scene = vec![FakeNode::Collection {
+            id: "canvas".into(),
+            tw: "flex flex-col w-[500px] h-[260px] p-4 bg-gray-950 gap-3".into(),
+            children: vec![
+                // Header: title + frame counter + current phase
+                FakeNode::Collection { id: "hdr".into(), tw: "flex flex-row items-baseline gap-2".into(),
+                    children: vec![
+                        FakeNode::Text { id: "hdr-title".into(), content: "Keyframe Animation".into(),
+                            tw: "text-[12px] text-gray-300 font-bold whitespace-nowrap".into() },
+                        FakeNode::Text { id: "hdr-frame".into(), content: format!("{i:02}/20"),
+                            tw: "text-[10px] text-gray-500 font-mono whitespace-nowrap".into() },
+                        FakeNode::Text { id: "hdr-phase".into(), content: phase.into(),
+                            tw: "ml-auto text-[11px] text-yellow-300 font-bold whitespace-nowrap".into() },
+                    ],
+                },
+                // Bounce row
+                FakeNode::Collection { id: "bounce-row".into(),
+                    tw: "flex flex-row items-start gap-3 h-[60px]".into(),
+                    children: vec![
+                        FakeNode::Text { id: "bounce-lbl".into(), content: "Bounce".into(),
+                            tw: "w-[46px] text-[10px] text-gray-500 whitespace-nowrap pt-1 flex-shrink-0".into() },
+                        FakeNode::Collection { id: "bounce-track".into(),
+                            tw: "flex-1 h-[60px] bg-gray-900 rounded overflow-hidden".into(),
+                            children: vec![FakeNode::Collection { id: "bounce-col".into(),
+                                tw: "flex flex-col pl-2".into(),
+                                children: vec![
+                                    FakeNode::Collection { id: "bounce-spacer".into(),
+                                        tw: format!("flex-shrink-0 w-[20px] h-[{bounce_y}px]"),
+                                        children: vec![] },
+                                    FakeNode::Collection { id: "bounce-ball".into(),
+                                        tw: "flex-shrink-0 w-[20px] h-[20px] rounded-full bg-blue-400 shadow-md".into(),
+                                        children: vec![] },
+                                ],
+                            }],
+                        },
+                    ],
+                },
+                // Slide row
+                FakeNode::Collection { id: "slide-row".into(),
+                    tw: "flex flex-row items-center gap-3 h-[32px]".into(),
+                    children: vec![
+                        FakeNode::Text { id: "slide-lbl".into(), content: "Slide".into(),
+                            tw: "w-[46px] text-[10px] text-gray-500 whitespace-nowrap flex-shrink-0".into() },
+                        FakeNode::Collection { id: "slide-track".into(),
+                            tw: "flex-1 h-[8px] bg-gray-800 rounded-full flex flex-row items-center".into(),
+                            children: vec![
+                                FakeNode::Collection { id: "slide-spacer".into(),
+                                    tw: format!("flex-shrink-0 w-[{slide_x}px] h-[8px]"),
+                                    children: vec![] },
+                                FakeNode::Collection { id: "slide-thumb".into(),
+                                    tw: "flex-shrink-0 w-[12px] h-[12px] rounded-full bg-white shadow-sm".into(),
+                                    children: vec![] },
+                            ],
+                        },
+                    ],
+                },
+                // Pulse row
+                FakeNode::Collection { id: "pulse-row".into(),
+                    tw: "flex flex-row items-center gap-3 h-[44px]".into(),
+                    children: vec![
+                        FakeNode::Text { id: "pulse-lbl".into(), content: "Pulse".into(),
+                            tw: "w-[46px] text-[10px] text-gray-500 whitespace-nowrap flex-shrink-0".into() },
+                        FakeNode::Collection { id: "pulse-box".into(),
+                            tw: format!("flex-shrink-0 w-[{pulse_sz}px] h-[{pulse_sz}px] bg-{pulse_color} rounded shadow-md"),
+                            children: vec![] },
+                    ],
+                },
+                // Phase indicator row: 4 segments, active one highlighted
+                FakeNode::Collection { id: "phase-row".into(),
+                    tw: "flex flex-row items-center gap-3 h-[24px]".into(),
+                    children: vec![
+                        FakeNode::Text { id: "phase-lbl".into(), content: "Phase".into(),
+                            tw: "w-[46px] text-[10px] text-gray-500 whitespace-nowrap flex-shrink-0".into() },
+                        FakeNode::Collection { id: "phase-bar".into(),
+                            tw: "flex-1 flex flex-row gap-1 h-[16px]".into(),
+                            children: ["IDLE","RISING","PEAK","FALLING"].iter().map(|&p| FakeNode::Collection {
+                                id: format!("phase-seg-{p}"),
+                                tw: if p == phase {
+                                    "flex-1 h-full bg-yellow-400 rounded-sm".into()
+                                } else {
+                                    "flex-1 h-full bg-gray-700 rounded-sm".into()
+                                },
+                                children: vec![],
+                            }).collect(),
+                        },
+                    ],
+                },
+            ],
+        }];
+        let full_json = scene[0].to_json();
+        SuiteFrame {
+            label: format!("frame {i:02}: bounce={bounce_y} slide={slide_x} pulse={pulse_sz} phase={phase}"),
+            scene, full_json,
+        }
+    }).collect();
+    TestSuite {
+        name: "Keyframe Animation",
+        description: "500×260 px. 20 frames: bouncing ball, sliding thumb, pulsing colored box, 4-phase indicator. Each element follows an independent curve.",
+        frames,
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Main
 // ---------------------------------------------------------------------------
 
@@ -1577,6 +1962,13 @@ fn main() {
         suite_dense_metrics(),
         suite_realistic_sidebar(),
         suite_shrink_bug(),
+        suite_moving_ball(),
+        suite_tile_crossing(),
+        suite_panel_focus(),
+        suite_diagonal_scatter(),
+        suite_notification_badge(),
+        suite_progress_fill(),
+        suite_keyframe_animation(),
     ];
 
     // ── Pass 1: calibration run ───────────────────────────────────────────────
