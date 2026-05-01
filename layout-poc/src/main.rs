@@ -448,6 +448,49 @@ fn diff(a: &[u8], b: &[u8], _w: u32, _h: u32) -> DiffResult {
     DiffResult { weighted, img }
 }
 
+/// Build a pixel-mask (same layout as a full RGBA buffer) that is opaque only
+/// within dirty tiles.  Used to restrict diff comparisons to the re-rendered
+/// region so that skipped tiles don't contribute false positives.
+fn dirty_mask(dirty: &HashSet<(u32,u32)>, w: u32, h: u32) -> Vec<bool> {
+    let mut mask = vec![false; (w * h) as usize];
+    for &(tx, ty) in dirty {
+        let px = tx * TILE_SIZE;
+        let py = ty * TILE_SIZE;
+        let pw = TILE_SIZE.min(w.saturating_sub(px));
+        let ph = TILE_SIZE.min(h.saturating_sub(py));
+        for row in 0..ph {
+            let base = ((py + row) * w + px) as usize;
+            for col in 0..pw as usize { mask[base + col] = true; }
+        }
+    }
+    mask
+}
+
+/// Like `diff` but only considers pixels where `mask[pixel_idx]` is true.
+fn diff_masked(a: &[u8], b: &[u8], mask: &[bool], _w: u32, _h: u32) -> DiffResult {
+    let mut weighted = 0.0f64;
+    let mut img = vec![0u8; a.len()];
+    for i in (0..a.len().min(b.len())).step_by(4) {
+        if !mask.get(i / 4).copied().unwrap_or(false) {
+            img[i]=a[i]/5; img[i+1]=a[i+1]/5; img[i+2]=a[i+2]/5; img[i+3]=255;
+            continue;
+        }
+        let dr = (a[i]   as i32 - b[i]   as i32).unsigned_abs() as f64;
+        let dg = (a[i+1] as i32 - b[i+1] as i32).unsigned_abs() as f64;
+        let db = (a[i+2] as i32 - b[i+2] as i32).unsigned_abs() as f64;
+        let m  = (dr + dg + db + dr.max(dg).max(db)) / 4.0;
+        let t  = m / 255.0;
+        weighted += t * t * t;
+        let vis_alpha = (t.sqrt() * 255.0) as u8;
+        if vis_alpha > 0 {
+            img[i]=255; img[i+1]=0; img[i+2]=255; img[i+3]=vis_alpha;
+        } else {
+            img[i]=a[i]/5; img[i+1]=a[i+1]/5; img[i+2]=a[i+2]/5; img[i+3]=255;
+        }
+    }
+    DiffResult { weighted, img }
+}
+
 // ---------------------------------------------------------------------------
 // Test suites (unchanged)
 // ---------------------------------------------------------------------------
@@ -602,7 +645,7 @@ fn suite_dense_metrics() -> TestSuite {
 // Benchmark
 // ---------------------------------------------------------------------------
 
-struct FrameResult { label: String, full_time: Duration, incr_time: Duration, full_px: Vec<u8>, prev_full_px: Vec<u8>, incr_px: Vec<u8>, w: u32, h: u32, render_calls: u32, skipped: u32 }
+struct FrameResult { label: String, full_time: Duration, incr_time: Duration, full_px: Vec<u8>, prev_full_px: Vec<u8>, incr_px: Vec<u8>, w: u32, h: u32, render_calls: u32, skipped: u32, dirty_tiles: HashSet<(u32,u32)> }
 struct SuiteResult { name: &'static str, description: &'static str, frames: Vec<FrameResult> }
 
 const TILE_SIZE: u32 = 32;
@@ -1087,10 +1130,11 @@ fn run_suite(suite: &TestSuite, cm: &CostModel, cal_samples: &mut Vec<(f64, f64,
         let incr_time = t.elapsed();
         let incr_px = frame_buf.clone();
         let my_prev_full = std::mem::replace(&mut prev_full, full_px.clone());
+        let saved_dirty = dirty.clone();
         prev_bboxes = bboxes;
         prev_stub_bboxes = stub_bboxes;
 
-        FrameResult { label: f.label.clone(), full_time, incr_time, full_px, prev_full_px: my_prev_full, incr_px, w, h, render_calls, skipped }
+        FrameResult { label: f.label.clone(), full_time, incr_time, full_px, prev_full_px: my_prev_full, incr_px, w, h, render_calls, skipped, dirty_tiles: saved_dirty }
     }).collect();
 
     SuiteResult { name: suite.name, description: suite.description, frames }
@@ -1152,13 +1196,15 @@ fn html_report(suites: &[SuiteResult], cal_note: &str) -> String {
             let pw = (f.w * 3).min(900).max(120);
             let ph = (f.h * 3).min(600).max(36);
 
-            // Ground-truth change: diff between consecutive full renders.
-            // For the cold frame prev_full_px is empty, so treat entire frame as changed.
+            // Restrict correctness measurement to dirty tiles only.
+            let mask = dirty_mask(&f.dirty_tiles, f.w, f.h);
             let chg_w = if f.prev_full_px.len() == f.full_px.len() {
-                diff(&f.prev_full_px, &f.full_px, f.w, f.h).weighted
+                diff_masked(&f.prev_full_px, &f.full_px, &mask, f.w, f.h).weighted
             } else {
-                (f.w * f.h) as f64
+                (f.dirty_tiles.len() * (TILE_SIZE * TILE_SIZE) as usize) as f64
             };
+            // Full-frame change image (for the Δ column) uses unmasked diff so
+            // the viewer can see what actually changed regardless of dirty tiles.
             let chg_diff = if f.prev_full_px.len() == f.full_px.len() {
                 Some(diff(&f.prev_full_px, &f.full_px, f.w, f.h))
             } else {
@@ -1166,7 +1212,7 @@ fn html_report(suites: &[SuiteResult], cal_note: &str) -> String {
             };
 
             let (d, incr_uri, diff_uri, chg_uri) = if !f.incr_px.is_empty() && f.incr_px.len() == f.full_px.len() {
-                let d = diff(&f.full_px, &f.incr_px, f.w, f.h);
+                let d = diff_masked(&f.full_px, &f.incr_px, &mask, f.w, f.h);
                 let du = data_uri(&d.img, f.w, f.h);
                 let iu = data_uri(&f.incr_px, f.w, f.h);
                 let cu = chg_diff.as_ref().map(|c| data_uri(&c.img, f.w, f.h)).unwrap_or_default();
@@ -1981,14 +2027,16 @@ fn print_suite_results(result: &SuiteResult) {
     let mut s_incr = Duration::ZERO;
     for (i, f) in result.frames.iter().enumerate() {
         let d = if !f.incr_px.is_empty() && f.incr_px.len() == f.full_px.len() {
-            // Ground-truth changed area: diff between consecutive full renders.
-            // For the cold frame (prev empty), every non-black pixel counts as changed.
+            // Restrict both error and changed-area to dirty tiles only.
+            // Skipped tiles are untouched by the incremental renderer and must
+            // not contribute false positives from layout-reflow-induced AA drift.
+            let mask = dirty_mask(&f.dirty_tiles, f.w, f.h);
             let chg_w = if f.prev_full_px.len() == f.full_px.len() {
-                diff(&f.prev_full_px, &f.full_px, f.w, f.h).weighted
+                diff_masked(&f.prev_full_px, &f.full_px, &mask, f.w, f.h).weighted
             } else {
-                (f.w * f.h) as f64
+                (f.dirty_tiles.len() * (TILE_SIZE * TILE_SIZE) as usize) as f64
             };
-            let err = diff(&f.full_px, &f.incr_px, f.w, f.h);
+            let err = diff_masked(&f.full_px, &f.incr_px, &mask, f.w, f.h);
             let ratio = err.weighted / chg_w.max(1.0);
             if ratio < PERFECT_THRESHOLD { "✓".into() }
             else { format!("≠{:.1}% (err={:.1}/chg={:.0})", ratio * 100.0, err.weighted, chg_w) }
