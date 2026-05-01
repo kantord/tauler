@@ -1,3 +1,5 @@
+pub mod datatable;
+
 use crate::ui::{Node, component, rsx, tw_merge};
 
 const BASE_TW: &str = "flex flex-col w-full";

@@ -1,6 +1,6 @@
 use crate::ui::components::{
     card::__UI_ENTRY_CARD,
-    datatable::__UI_ENTRY_DATA_TABLE,
+    table::datatable::__UI_ENTRY_DATA_TABLE,
     progress::__UI_ENTRY_PROGRESS,
     table::{
         __UI_ENTRY_TABLE,

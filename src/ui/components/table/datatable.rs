@@ -1,6 +1,6 @@
 use serde::Deserialize;
 use crate::ui::{Node, UiComponent, component, rsx};
-use super::table::{Table, TableProps, TableRow, TableRowProps};
+use super::{Table, TableProps, TableRow, TableRowProps};
 
 /// A column definition for DataTable.
 #[derive(Deserialize)]
