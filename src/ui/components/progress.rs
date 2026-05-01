@@ -1,7 +1,11 @@
 use serde_json::{Map, Value};
-use crate::ui::{component, tw_merge, rsx};
+use crate::ui::{component, rsx, cva::Cva};
 
-const TRACK_TW: &str = "flex flex-row w-full h-[4px] rounded-full bg-muted";
+const PROGRESS_VARIANTS: Cva = Cva {
+    base: "flex flex-row w-full h-[4px] rounded-full bg-muted",
+    variants: &[],
+    defaults: &[],
+};
 
 /// A horizontal progress bar. Renders a muted track with a filled segment
 /// proportional to `value` (0–100). An optional `color` prop overrides the
@@ -23,7 +27,7 @@ const TRACK_TW: &str = "flex flex-row w-full h-[4px] rounded-full bg-muted";
 #[component("@ui/progress")]
 pub fn progress(value: f32, color: Option<String>, tw: Option<String>) -> Node {
     let value = value.clamp(0.0, 100.0);
-    let track_tw = tw_merge(TRACK_TW, tw.as_deref().unwrap_or(""));
+    let track_tw = PROGRESS_VARIANTS.resolve(&[], tw.as_deref().unwrap_or(""));
     rsx! {
         <container tw={track_tw}>
             <Fill value={value} color={color} />
