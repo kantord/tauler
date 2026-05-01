@@ -1,13 +1,13 @@
 pub mod datatable;
 
-use crate::ui::{Node, component, rsx, tw_merge};
+use crate::ui::{Node, component, rsx, cva::Cva};
 
-const BASE_TW: &str = "flex flex-col w-full";
-const HEADER_BASE_TW: &str = "flex flex-col w-full border-border";
-const BODY_BASE_TW: &str = "flex flex-col w-full";
-const ROW_BASE_TW: &str = "flex flex-row w-full border border-t-0 border-r-0 border-l-0 border-border";
-const HEAD_BASE_TW: &str = "flex-1 px-[4px] py-[4px] font-medium text-muted-foreground";
-const CELL_BASE_TW: &str = "flex-1 px-[4px] py-[4px] text-foreground";
+const TABLE_VARIANTS: Cva = Cva { base: "flex flex-col w-full", variants: &[], defaults: &[] };
+const TABLE_HEADER_VARIANTS: Cva = Cva { base: "flex flex-col w-full border-border", variants: &[], defaults: &[] };
+const TABLE_BODY_VARIANTS: Cva = Cva { base: "flex flex-col w-full", variants: &[], defaults: &[] };
+const TABLE_ROW_VARIANTS: Cva = Cva { base: "flex flex-row w-full border border-t-0 border-r-0 border-l-0 border-border", variants: &[], defaults: &[] };
+const TABLE_HEAD_VARIANTS: Cva = Cva { base: "flex-1 px-[4px] py-[4px] font-medium text-muted-foreground", variants: &[], defaults: &[] };
+const TABLE_CELL_VARIANTS: Cva = Cva { base: "flex-1 px-[4px] py-[4px] text-foreground", variants: &[], defaults: &[] };
 
 /// Composable table primitives. Use these to build fully custom table layouts.
 /// For a data-driven table, use `DataTable` from `@ui/datatable` instead.
@@ -36,58 +36,36 @@ const CELL_BASE_TW: &str = "flex-1 px-[4px] py-[4px] text-foreground";
 /// https://ui.shadcn.com/docs/components/table
 #[component("@ui/table")]
 pub fn table(children: Vec<Node>, tw: Option<String>) -> Node {
-    let tw = tw_merge(BASE_TW, tw.as_deref().unwrap_or(""));
-    rsx! {
-        <container tw={tw}>
-            {children}
-        </container>
-    }
+    let tw = TABLE_VARIANTS.resolve(&[], tw.as_deref().unwrap_or(""));
+    rsx! { <container tw={tw}>{children}</container> }
 }
 
 #[component("@ui/table")]
 pub fn table_header(children: Vec<Node>) -> Node {
-    rsx! {
-        <container tw={HEADER_BASE_TW}>
-            {children}
-        </container>
-    }
+    let tw = TABLE_HEADER_VARIANTS.resolve(&[], "");
+    rsx! { <container tw={tw}>{children}</container> }
 }
 
 #[component("@ui/table")]
 pub fn table_body(children: Vec<Node>) -> Node {
-    rsx! {
-        <container tw={BODY_BASE_TW}>
-            {children}
-        </container>
-    }
+    let tw = TABLE_BODY_VARIANTS.resolve(&[], "");
+    rsx! { <container tw={tw}>{children}</container> }
 }
 
 #[component("@ui/table")]
 pub fn table_row(children: Vec<Node>, tw: Option<String>) -> Node {
-    let tw = tw_merge(ROW_BASE_TW, tw.as_deref().unwrap_or(""));
-    rsx! {
-        <container tw={tw}>
-            {children}
-        </container>
-    }
+    let tw = TABLE_ROW_VARIANTS.resolve(&[], tw.as_deref().unwrap_or(""));
+    rsx! { <container tw={tw}>{children}</container> }
 }
 
 #[component("@ui/table")]
 pub fn table_head(children: Vec<Node>, tw: Option<String>) -> Node {
-    let tw = tw_merge(HEAD_BASE_TW, tw.as_deref().unwrap_or(""));
-    rsx! {
-        <container tw={tw}>
-            {children}
-        </container>
-    }
+    let tw = TABLE_HEAD_VARIANTS.resolve(&[], tw.as_deref().unwrap_or(""));
+    rsx! { <container tw={tw}>{children}</container> }
 }
 
 #[component("@ui/table")]
 pub fn table_cell(children: Vec<Node>, tw: Option<String>) -> Node {
-    let tw = tw_merge(CELL_BASE_TW, tw.as_deref().unwrap_or(""));
-    rsx! {
-        <container tw={tw}>
-            {children}
-        </container>
-    }
+    let tw = TABLE_CELL_VARIANTS.resolve(&[], tw.as_deref().unwrap_or(""));
+    rsx! { <container tw={tw}>{children}</container> }
 }
