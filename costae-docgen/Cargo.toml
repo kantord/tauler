@@ -8,6 +8,6 @@ name = "costae-docgen"
 path = "src/main.rs"
 
 [dev-dependencies]
-tempfile = "3"
+tempfile = "3.27.0"
 image = "0.25"
 insta = "1.47.2"
