@@ -105,6 +105,18 @@ pub fn render_frame_rgba(content: &serde_json::Value, width: u32, height: u32, d
 
 pub(crate) fn apply_font_config(ctx: &mut GlobalContext, config: &FontConfig) {
     ctx.font_context.collection.load_system_fonts();
+    let path_loaded_family: Option<String> = if let Some(path) = &config.primary_path {
+        let before: std::collections::HashSet<String> = ctx
+            .font_context.collection.family_names()
+            .map(|s| s.to_string())
+            .collect();
+        ctx.font_context.collection.load_fonts_from_paths(std::iter::once(path));
+        ctx.font_context.collection.family_names()
+            .find(|name| !before.contains(*name))
+            .map(|s| s.to_string())
+    } else {
+        None
+    };
 
     let emoji_name: Option<&str> = match &config.emoji {
         Some(name) => Some(name.as_str()),
@@ -126,7 +138,9 @@ pub(crate) fn apply_font_config(ctx: &mut GlobalContext, config: &FontConfig) {
         }
     }
 
-    if let Some(name) = &config.primary {
+    let primary_name = config.primary.as_deref()
+        .or(path_loaded_family.as_deref());
+    if let Some(name) = primary_name {
         if let Some(family_info) = ctx.font_context.collection.family_by_name(name) {
             ctx.font_context
                 .collection
@@ -234,7 +248,7 @@ mod tests {
         }
 
         let mut ctx = takumi::GlobalContext::default();
-        let config = FontConfig { emoji: Some("Noto Color Emoji".to_string()), primary: None };
+        let config = FontConfig { emoji: Some("Noto Color Emoji".to_string()), primary: None, primary_path: None };
 
         apply_font_config(&mut ctx, &config);
 
@@ -257,7 +271,7 @@ mod tests {
             eprintln!("SKIP: Adwaita Sans not found on this system");
             return;
         }
-        apply_font_config(&mut ctx, &FontConfig { primary: Some("Adwaita Sans".to_string()), emoji: None });
+        apply_font_config(&mut ctx, &FontConfig { primary: Some("Adwaita Sans".to_string()), emoji: None, primary_path: None });
         let families: Vec<_> = ctx
             .font_context
             .collection
@@ -270,14 +284,14 @@ mod tests {
     fn apply_font_config_updates_sans_serif_mapping_when_called_twice_with_different_primary_font() {
         let mut ctx = takumi::GlobalContext::default();
 
-        apply_font_config(&mut ctx, &FontConfig { primary: Some("Adwaita Sans".to_string()), emoji: None });
+        apply_font_config(&mut ctx, &FontConfig { primary: Some("Adwaita Sans".to_string()), emoji: None, primary_path: None });
         let first_id = ctx.font_context.collection.generic_families(parley::GenericFamily::SansSerif).next();
         if first_id.is_none() {
             eprintln!("SKIP: Adwaita Sans not found on this system");
             return;
         }
 
-        apply_font_config(&mut ctx, &FontConfig { primary: Some("Liberation Serif".to_string()), emoji: None });
+        apply_font_config(&mut ctx, &FontConfig { primary: Some("Liberation Serif".to_string()), emoji: None, primary_path: None });
         let second_id = ctx.font_context.collection.generic_families(parley::GenericFamily::SansSerif).next();
         if second_id.is_none() {
             eprintln!("SKIP: Liberation Serif not found on this system");
@@ -292,7 +306,7 @@ mod tests {
         // This test verifies that a public `reload_font_config` function exists and
         // updates the global context's SansSerif mapping. The function does not exist
         // yet — this test is expected to fail to compile until it is implemented.
-        init_global_ctx(FontConfig { primary: Some("Adwaita Sans".to_string()), emoji: None });
+        init_global_ctx(FontConfig { primary: Some("Adwaita Sans".to_string()), emoji: None, primary_path: None });
 
         let first_id = super::with_global_ctx_mut(|ctx| {
             ctx.font_context.collection.generic_families(parley::GenericFamily::SansSerif).next()
@@ -302,7 +316,7 @@ mod tests {
             return;
         }
 
-        super::reload_font_config(FontConfig { primary: Some("Liberation Serif".to_string()), emoji: None });
+        super::reload_font_config(FontConfig { primary: Some("Liberation Serif".to_string()), emoji: None, primary_path: None });
 
         let second_id = super::with_global_ctx_mut(|ctx| {
             ctx.font_context.collection.generic_families(parley::GenericFamily::SansSerif).next()
