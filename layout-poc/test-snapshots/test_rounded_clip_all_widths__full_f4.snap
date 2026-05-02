@@ -1,0 +1,5 @@
+---
+source: layout-poc/src/main.rs
+expression: pixel_hash(pixels)
+---
+0232e98f174d9de7  (21600 px)
