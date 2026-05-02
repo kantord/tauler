@@ -84,54 +84,22 @@ pub fn render_frame_rgba(content: &serde_json::Value, width: u32, height: u32, d
 }
 
 pub(crate) fn apply_font_config(ctx: &mut GlobalContext, config: &FontConfig) {
-    let home = std::env::var("HOME").unwrap_or_default();
+    ctx.font_context.collection.load_system_fonts();
 
-    let emoji_name: Option<String> = match &config.emoji {
-        Some(name) => {
-            // User specified an emoji font by name — do a broad scan so we can look it up.
-            let dirs: Vec<std::path::PathBuf> = vec![
-                std::path::PathBuf::from("/usr/share/fonts"),
-                std::path::PathBuf::from(format!("{home}/.local/share/fonts")),
-                std::path::PathBuf::from(format!("{home}/.fonts")),
-            ];
-            ctx.font_context.collection.load_fonts_from_paths(dirs);
-            Some(name.clone())
-        }
+    let emoji_name: Option<&str> = match &config.emoji {
+        Some(name) => Some(name.as_str()),
         None => {
-            const KNOWN_EMOJI_PATHS: &[&str] = &[
-                "/usr/share/fonts/noto/NotoColorEmoji.ttf",
-                "/usr/share/fonts/truetype/noto/NotoColorEmoji.ttf",
-                "/usr/share/fonts/google-noto-emoji/NotoColorEmoji.ttf",
-                // ~/.local/share/fonts/NotoColorEmoji.ttf — expanded below
-                "/usr/share/fonts/noto/NotoColorEmoji-Regular.ttf",
-                "/usr/share/fonts/twemoji/TwemojiMozilla.ttf",
-                "/usr/share/fonts/TTF/TwemojiMozilla.ttf",
-            ];
-            let home_noto = format!("{home}/.local/share/fonts/NotoColorEmoji.ttf");
-
-            let found_path = KNOWN_EMOJI_PATHS
+            const KNOWN_EMOJI_FAMILY_NAMES: &[&str] =
+                &["Noto Color Emoji", "Twemoji Mozilla", "Twitter Color Emoji"];
+            KNOWN_EMOJI_FAMILY_NAMES
                 .iter()
                 .copied()
-                .chain(std::iter::once(home_noto.as_str()))
-                .find(|&p| std::path::Path::new(p).exists());
-
-            if let Some(path) = found_path {
-                ctx.font_context.collection.load_fonts_from_paths(std::iter::once(path));
-
-                const KNOWN_EMOJI_FAMILY_NAMES: &[&str] =
-                    &["Noto Color Emoji", "Twemoji Mozilla", "Twitter Color Emoji"];
-                KNOWN_EMOJI_FAMILY_NAMES
-                    .iter()
-                    .find(|&&name| ctx.font_context.collection.family_by_name(name).is_some())
-                    .map(|&name| name.to_string())
-            } else {
-                None
-            }
+                .find(|&name| ctx.font_context.collection.family_by_name(name).is_some())
         }
     };
 
     if let Some(name) = emoji_name {
-        if let Some(family_info) = ctx.font_context.collection.family_by_name(&name) {
+        if let Some(family_info) = ctx.font_context.collection.family_by_name(name) {
             ctx.font_context
                 .collection
                 .append_generic_families(GenericFamily::Emoji, std::iter::once(family_info.id()));
