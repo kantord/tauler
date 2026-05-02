@@ -1,6 +1,7 @@
 use std::sync::{Arc, Mutex, OnceLock};
 
 use cached::proc_macro::cached;
+use cached::Cached;
 use parley::fontique::GenericFamily;
 use takumi::{
     GlobalContext,
@@ -28,6 +29,25 @@ where
 {
     let g = GLOBAL_CTX.get().expect("call init_global_ctx before rendering").lock().unwrap();
     f(&g)
+}
+
+pub fn with_global_ctx_mut<F, R>(f: F) -> R
+where
+    F: FnOnce(&mut GlobalContext) -> R,
+{
+    let mut g = GLOBAL_CTX.get().expect("call init_global_ctx before rendering").lock().unwrap();
+    f(&mut g)
+}
+
+/// Update the global rendering context's font configuration at runtime.
+/// Clears the render and layout caches so subsequent calls use the new fonts.
+pub fn reload_font_config(font_config: FontConfig) {
+    if let Some(mutex) = GLOBAL_CTX.get() {
+        let mut ctx = mutex.lock().unwrap();
+        apply_font_config(&mut ctx, &font_config);
+        RENDER_FRAME_CACHED.lock().cache_clear();
+        MEASURE_LAYOUT_CACHED.lock().cache_clear();
+    }
 }
 
 /// Render `content` into a BGRX framebuffer with an internal LRU cache (capacity 6).
@@ -249,6 +269,96 @@ mod tests {
         assert!(
             !families.is_empty(),
             "GenericFamily::SansSerif should be mapped to at least one family after apply_font_config with primary font"
+        );
+    }
+
+    #[test]
+    fn apply_font_config_updates_sans_serif_mapping_when_called_twice_with_different_primary_font() {
+        let mut ctx = takumi::GlobalContext::default();
+
+        // Ensure system fonts are loaded so family_by_name can resolve names.
+        ctx.font_context.collection.load_system_fonts();
+
+        // Skip gracefully if either font is absent on this system.
+        let font_a = "Adwaita Sans";
+        let font_b = "Liberation Serif";
+        if ctx.font_context.collection.family_by_name(font_a).is_none() {
+            eprintln!("SKIP: {} not found on this system", font_a);
+            return;
+        }
+        if ctx.font_context.collection.family_by_name(font_b).is_none() {
+            eprintln!("SKIP: {} not found on this system", font_b);
+            return;
+        }
+
+        // First call: map SansSerif to "Adwaita Sans".
+        let config_a = FontConfig { primary: Some(font_a.to_string()), emoji: None };
+        apply_font_config(&mut ctx, &config_a);
+        let families_a: Vec<_> = ctx
+            .font_context
+            .collection
+            .generic_families(parley::GenericFamily::SansSerif)
+            .collect();
+        assert!(!families_a.is_empty(), "SansSerif should be mapped after first apply_font_config");
+        let first_family_id = families_a[0];
+
+        // Second call on the SAME context: remap SansSerif to "Liberation Serif".
+        let config_b = FontConfig { primary: Some(font_b.to_string()), emoji: None };
+        apply_font_config(&mut ctx, &config_b);
+        let families_b: Vec<_> = ctx
+            .font_context
+            .collection
+            .generic_families(parley::GenericFamily::SansSerif)
+            .collect();
+        assert!(!families_b.is_empty(), "SansSerif should remain mapped after second apply_font_config");
+        let second_family_id = families_b[0];
+
+        assert_ne!(
+            first_family_id, second_family_id,
+            "SansSerif generic family mapping must change when apply_font_config is called with a different primary font"
+        );
+    }
+
+    #[test]
+    fn reload_font_config_updates_global_ctx_sans_serif_mapping() {
+        // This test verifies that a public `reload_font_config` function exists and
+        // updates the global context's SansSerif mapping. The function does not exist
+        // yet — this test is expected to fail to compile until it is implemented.
+        let font_a = "Adwaita Sans";
+        let font_b = "Liberation Serif";
+
+        // Prime the global ctx with font_a.
+        init_global_ctx(FontConfig { primary: Some(font_a.to_string()), emoji: None });
+
+        // Capture the SansSerif family id set by init.
+        let first_family_id = super::with_global_ctx_mut(|ctx| {
+            ctx.font_context
+                .collection
+                .generic_families(parley::GenericFamily::SansSerif)
+                .next()
+        });
+
+        // Skip if font_a was not resolved (system doesn't have it).
+        if first_family_id.is_none() {
+            eprintln!("SKIP: {} not found on this system", font_a);
+            return;
+        }
+
+        // Call the (not-yet-existing) reload_font_config with font_b.
+        // This function does not exist yet — compilation failure is the expected red state.
+        super::reload_font_config(FontConfig { primary: Some(font_b.to_string()), emoji: None });
+
+        let second_family_id = super::with_global_ctx_mut(|ctx| {
+            ctx.font_context
+                .collection
+                .generic_families(parley::GenericFamily::SansSerif)
+                .next()
+        });
+
+        assert!(second_family_id.is_some(), "SansSerif should be mapped after reload_font_config");
+        assert_ne!(
+            first_family_id, second_family_id,
+            "reload_font_config must update the global SansSerif mapping to the new font"
         );
     }
 }

@@ -252,6 +252,7 @@ fn load_theme_from_config(config_path: &std::path::Path) -> (Theme, ThemeMode, O
             }
         }
     };
+    costae::reload_font_config(config.fonts);
     (theme, config.theme.mode, theme_file_path)
 }
 
