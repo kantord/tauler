@@ -329,7 +329,7 @@ fn visual_tw(tw: &str) -> String {
         || c.starts_with("brightness") || c.starts_with("contrast")
         || c.starts_with("saturate") || c.starts_with("grayscale")
         || c.starts_with("invert") || c.starts_with("hue-rotate")
-        || c.starts_with("drop-shadow")
+        || c.starts_with("drop-shadow") || c.starts_with("mix-blend")
     }).collect::<Vec<_>>().join(" ")
 }
 
@@ -786,7 +786,7 @@ fn suite_blurred_overlay() -> TestSuite {
         ]};
         SuiteFrame{label,root}
     }).collect();
-    TestSuite{name:"Blurred Overlay",description:"Rounded panel. Temperature changes every frame; alert fires every 4th.",frames}
+    TestSuite{name:"GPU Temp Monitor",description:"Rounded status pill. Temperature changes every frame; alert fires every 4th.",frames}
 }
 
 fn suite_dense_metrics() -> TestSuite {
@@ -2434,7 +2434,8 @@ fn suite_compositing_overlay() -> TestSuite {
                 FakeNode::Collection {
                     id: "glass".into(),
                     tw: "absolute bottom-[8px] left-[220px] w-[212px] h-[144px] \
-                         opacity-70 bg-blue-700 rounded-xl border border-blue-400 shadow-xl \
+                         opacity-40 bg-blue-400 backdrop-blur-md mix-blend-screen \
+                         rounded-xl border border-blue-300 shadow-xl \
                          flex flex-col items-center justify-center gap-1".into(),
                     children: vec![
                         FakeNode::Text { id: "glass-lbl".into(),
