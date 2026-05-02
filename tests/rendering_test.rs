@@ -1,15 +1,16 @@
 use costae::{init_global_ctx, parse_layout, render_frame, render_frame_rgba};
+use costae::config::FontConfig;
 
 #[test]
 fn render_frame_respects_width_parameter() {
-    init_global_ctx();
+    init_global_ctx(FontConfig::default());
     let bgrx = render_frame(&serde_json::Value::Null, 100, 50, 1.0);
     assert_eq!(bgrx.len(), (100 * 50 * 4) as usize);
 }
 
 #[test]
 fn render_frame_respects_different_width() {
-    init_global_ctx();
+    init_global_ctx(FontConfig::default());
     let bgrx_200 = render_frame(&serde_json::Value::Null, 200, 50, 1.0);
     let bgrx_400 = render_frame(&serde_json::Value::Null, 400, 50, 1.0);
     assert_eq!(bgrx_200.len(), 200 * 50 * 4);
@@ -24,7 +25,7 @@ fn parse_layout_succeeds_for_valid_node_json() {
 
 #[test]
 fn render_frame_with_layout_returns_correct_size() {
-    init_global_ctx();
+    init_global_ctx(FontConfig::default());
     let content = serde_json::json!({
         "type": "container",
         "children": [{"type": "text", "text": "from layout"}]
@@ -35,7 +36,7 @@ fn render_frame_with_layout_returns_correct_size() {
 
 #[test]
 fn render_frame_rgba_transparent_pixels_have_alpha_zero() {
-    init_global_ctx();
+    init_global_ctx(FontConfig::default());
     let content = serde_json::json!({
         "type": "container",
         "tw": "w-full h-full",

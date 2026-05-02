@@ -7,6 +7,7 @@ use costae::data::data_loop::{DataLoop, StreamItem};
 use costae::windowing::wayland::WaylandDisplayServer;
 use costae::x11::panel::{i3_dpi, PanelContext};
 use costae::init_global_ctx;
+use costae::config::{CostaeConfig, FontConfig};
 use x11rb::{
     connection::Connection,
     protocol::{randr::ConnectionExt as RandrExt, xproto::*},
@@ -121,7 +122,7 @@ fn setup_file_watchers(
     watcher
 }
 
-fn init_x11() -> Result<X11Init, Box<dyn std::error::Error>> {
+fn init_x11(font_config: FontConfig) -> Result<X11Init, Box<dyn std::error::Error>> {
     let (conn, screen_num) = RustConnection::connect(None)?;
     let conn = Arc::new(conn);
     let screen = conn.setup().roots[screen_num].clone();
@@ -142,7 +143,7 @@ fn init_x11() -> Result<X11Init, Box<dyn std::error::Error>> {
         ))
         .unwrap_or((screen.width_in_pixels as u32, screen.height_in_pixels as u32));
 
-    init_global_ctx();
+    init_global_ctx(font_config);
 
     conn.change_window_attributes(
         screen.root,
@@ -197,6 +198,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let layout_jsx_path = std::path::PathBuf::from(&home).join(".config/costae/layout.jsx");
     let config_yaml_path = std::path::PathBuf::from(&home).join(".config/costae/config.yaml");
 
+    let font_config: FontConfig = std::fs::read_to_string(&config_yaml_path)
+        .ok()
+        .and_then(|yaml| CostaeConfig::from_yaml(&yaml).ok())
+        .map(|c| c.fonts)
+        .unwrap_or_default();
+
     let last_tick = Arc::new(std::sync::atomic::AtomicU64::new(0));
     spawn_freeze_watchdog(Arc::clone(&last_tick), log_path);
 
@@ -224,6 +231,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     if backend == "wayland" {
         tracing::info!("display backend: Wayland");
+        init_global_ctx(font_config);
         let server = WaylandDisplayServer::connect()?;
         let mut app = App::new_wayland(
             server, handle, rx, layout_jsx_path, config_yaml_path,
@@ -238,7 +246,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         );
     } else {
         tracing::info!("display backend: X11");
-        let x11 = init_x11()?;
+        let x11 = init_x11(font_config)?;
         let mut app = App::new_x11(
             x11, handle, rx, layout_jsx_path, config_yaml_path, module_event_txs,
             Arc::clone(&stop), Arc::clone(&last_tick),

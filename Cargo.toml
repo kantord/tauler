@@ -43,6 +43,7 @@ notify = "6"
 smithay-client-toolkit = "0.19"
 wayland-client = "0.31"
 cached = { version = "0.59.0", features = ["proc_macro"] }
+parley = "0.9"
 
 [dev-dependencies]
 image = "0.25"

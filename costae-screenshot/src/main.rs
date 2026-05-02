@@ -54,7 +54,7 @@ fn main() {
     let source = std::fs::read_to_string(&args.input)
         .unwrap_or_else(|e| panic!("failed to read {}: {}", args.input, e));
 
-    costae::init_global_ctx();
+    costae::init_global_ctx(costae::config::FontConfig::default());
     let theme = costae::theme::Theme::default_theme();
 
     let eval_output: EvalOutput = JsxEvaluator::new(&source, serde_json::Value::Null, None)

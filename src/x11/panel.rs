@@ -16,7 +16,6 @@ const XRESOURCES_PROP_MAX_LEN: u32 = 65536;
 const MM_PER_INCH: f32 = 25.4;
 const FALLBACK_DPI: f32 = 96.0;
 const PUT_IMAGE_HEADER_BYTES: usize = 28; // 24-byte standard header + 4-byte BigRequests field
-use crate::render::init_global_ctx;
 use crate::x11::strut_partial_values_for_anchor;
 
 /// Send a BGRX pixel buffer via one or more PutImage requests, each within
@@ -197,7 +196,6 @@ impl DisplayManager for X11PanelContext {
     type Panel = Panel;
 
     fn create_window(&mut self, spec: &PanelSpecData, frame: &PanelFrame) -> Result<Panel, anyhow::Error> {
-        init_global_ctx();
         let panel = create_panel(spec, frame, self)?;
         Ok(panel)
     }
@@ -514,7 +512,10 @@ mod tests {
     fn create_window_with_non_null_content_renders_spec_content_not_null() {
         use crate::display_manager::DisplayManager;
         use crate::presentation::PanelFrame;
-        use crate::render::render_frame;
+        use crate::render::{init_global_ctx, render_frame};
+        use crate::config::FontConfig;
+
+        init_global_ctx(FontConfig::default());
 
         let mut ctx = match make_panel_ctx() {
             Some(c) => c,

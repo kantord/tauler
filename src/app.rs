@@ -3,7 +3,6 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{mpsc, Arc};
 use std::thread;
 
-use costae::init_global_ctx;
 use costae::config::CostaeConfig;
 use costae::layout::OutputInfo;
 use costae::theme::{Theme, ThemeMode};
@@ -371,7 +370,6 @@ impl App {
             module_event_txs,
             presenter_thread: Some(presenter_thread),
         };
-        init_global_ctx();
         state.initial_load();
         state.reconcile_theme_file_watch(theme_file_path);
         state
