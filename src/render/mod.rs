@@ -31,14 +31,6 @@ where
     f(&g)
 }
 
-pub fn with_global_ctx_mut<F, R>(f: F) -> R
-where
-    F: FnOnce(&mut GlobalContext) -> R,
-{
-    let mut g = GLOBAL_CTX.get().expect("call init_global_ctx before rendering").lock().unwrap();
-    f(&mut g)
-}
-
 /// Update the global rendering context's font configuration at runtime.
 /// Clears the render and layout caches so subsequent calls use the new fonts.
 pub fn reload_font_config(font_config: FontConfig) {
@@ -217,9 +209,17 @@ pub fn measure_layout_frame(content: &serde_json::Value, width: u32, height: u32
 
 #[cfg(test)]
 mod tests {
-    use super::{apply_font_config, init_global_ctx, render_frame};
+    use super::{apply_font_config, init_global_ctx, render_frame, GLOBAL_CTX};
     use crate::config::FontConfig;
     use std::sync::Arc;
+
+    fn with_global_ctx_mut<F, R>(f: F) -> R
+    where
+        F: FnOnce(&mut takumi::GlobalContext) -> R,
+    {
+        let mut g = GLOBAL_CTX.get().expect("call init_global_ctx before rendering").lock().unwrap();
+        f(&mut g)
+    }
 
     #[test]
     fn render_frame_cache_hit_returns_same_arc() {
@@ -308,7 +308,7 @@ mod tests {
         // yet — this test is expected to fail to compile until it is implemented.
         init_global_ctx(FontConfig { primary: Some("Adwaita Sans".to_string()), emoji: None, primary_path: None });
 
-        let first_id = super::with_global_ctx_mut(|ctx| {
+        let first_id = with_global_ctx_mut(|ctx| {
             ctx.font_context.collection.generic_families(parley::GenericFamily::SansSerif).next()
         });
         if first_id.is_none() {
@@ -318,7 +318,7 @@ mod tests {
 
         super::reload_font_config(FontConfig { primary: Some("Liberation Serif".to_string()), emoji: None, primary_path: None });
 
-        let second_id = super::with_global_ctx_mut(|ctx| {
+        let second_id = with_global_ctx_mut(|ctx| {
             ctx.font_context.collection.generic_families(parley::GenericFamily::SansSerif).next()
         });
         assert!(second_id.is_some());
