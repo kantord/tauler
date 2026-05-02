@@ -194,9 +194,9 @@ const SCREENSHOT_BINARY_CANDIDATES: &[&str] = &[
 ];
 
 fn find_screenshot_binary() -> Option<PathBuf> {
-    let workspace_root = Path::new(env!("CARGO_MANIFEST_DIR")).parent()?;
+    let root = workspace_root();
     for candidate in SCREENSHOT_BINARY_CANDIDATES {
-        let p = workspace_root.join(candidate);
+        let p = root.join(candidate);
         if p.exists() {
             return Some(p);
         }
@@ -402,14 +402,24 @@ fn main() {
     );
 }
 
+fn workspace_root() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .expect("CARGO_MANIFEST_DIR has no parent")
+        .to_path_buf()
+}
+
 #[cfg(test)]
 mod visual_regression {
     use super::*;
 
+    // Same LCG multiplier used in layout-poc/src/main.rs — keep in sync if changed.
+    const LCG_MULTIPLIER: u64 = 6364136223846793005;
+
     fn pixel_hash(pixels: &[u8]) -> String {
-        let h = pixels
-            .iter()
-            .fold(0u64, |h, &b| h.wrapping_mul(6364136223846793005).wrapping_add(b as u64));
+        let h = pixels.iter().fold(0u64, |h, &b| {
+            h.wrapping_mul(LCG_MULTIPLIER).wrapping_add(b as u64)
+        });
         format!("{h:016x}  ({} px)", pixels.len() / 4)
     }
 
@@ -427,9 +437,9 @@ mod visual_regression {
             return;
         }
 
-        let workspace_root = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
-        let components_dir = workspace_root.join("src/ui/components");
-        let assets_dir = workspace_root.join("docs/assets");
+        let root = workspace_root();
+        let components_dir = root.join("src/ui/components");
+        let assets_dir = root.join("docs/assets");
         let snap_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("snapshots");
 
         let all_components = load_all_components(&components_dir);
@@ -442,12 +452,8 @@ mod visual_regression {
                 let img = image::open(&png_path)
                     .unwrap_or_else(|e| panic!("failed to open {}: {e}", png_path.display()))
                     .into_rgba8();
-                let (w, h) = img.dimensions();
                 let hash = pixel_hash(&img.into_raw());
-                insta::assert_snapshot!(
-                    format!("{}_{}x{}", comp.export_name.to_lowercase(), w, h),
-                    hash
-                );
+                insta::assert_snapshot!(comp.export_name.to_lowercase(), hash);
             }
         });
     }
