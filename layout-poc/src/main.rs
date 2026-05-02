@@ -19,20 +19,13 @@ use takumi::{
 use costae::layout::parse_layout;
 use costae::managed_set::reconcile::Reconcile;
 use costae::managed_set::{Lifecycle, ManagedSet};
-
 // ---------------------------------------------------------------------------
 // GlobalContext factory
 // ---------------------------------------------------------------------------
 
 fn new_ctx() -> GlobalContext {
     let mut ctx = GlobalContext::default();
-    let inter = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .unwrap()
-        .join("assets/fonts/inter/InterVariable.ttf");
-    ctx.font_context
-        .collection
-        .load_fonts_from_paths(std::iter::once(inter));
+    ctx.font_context.collection.load_system_fonts();
     let assets_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("test-assets");
     if let Ok(entries) = std::fs::read_dir(&assets_dir) {
         for entry in entries.flatten() {
@@ -593,7 +586,6 @@ fn collect_nested_whitelist(
 /// not in the set are still recursed (children may be in the set).
 /// Spatial cull still applied for early-exit on branches far from the region.
 /// Containers with overflow-hidden have their children nested to preserve clip.
-#[allow(clippy::too_many_arguments)]
 fn collect_flat_whitelist(
     node: &FakeNode,
     bboxes: &HashMap<String, Rect>,
@@ -677,18 +669,21 @@ fn collect_flat_whitelist(
     }
 }
 
+/// Render a tile at scene pixel (px_x, px_y) using pre-computed bboxes.
+
 // ---------------------------------------------------------------------------
 // Dirty tile marking
 // ---------------------------------------------------------------------------
 
 fn mark_dirty(r: &Rect, tile: u32, scene_w: u32, scene_h: u32, dirty: &mut HashSet<(u32, u32)>) {
     let t = tile as f32;
-    let col0 = (r.x / t).floor() as i32;
-    let row0 = (r.y / t).floor() as i32;
-    let col1 = ((r.x + r.w) / t).ceil() as i32;
-    let row1 = ((r.y + r.h) / t).ceil() as i32;
-    let max_col = scene_w.div_ceil(tile) as i32;
-    let max_row = scene_h.div_ceil(tile) as i32;
+    let buf = SHADOW_BUF as f32;
+    let col0 = ((r.x - buf) / t).floor() as i32;
+    let row0 = ((r.y - buf) / t).floor() as i32;
+    let col1 = ((r.x + r.w + buf) / t).ceil() as i32;
+    let row1 = ((r.y + r.h + buf) / t).ceil() as i32;
+    let max_col = ((scene_w + tile - 1) / tile) as i32;
+    let max_row = ((scene_h + tile - 1) / tile) as i32;
     for row in row0.max(0)..row1.min(max_row) {
         for col in col0.max(0)..col1.min(max_col) {
             dirty.insert((col as u32, row as u32));
@@ -701,7 +696,7 @@ fn mark_dirty(r: &Rect, tile: u32, scene_w: u32, scene_h: u32, dirty: &mut HashS
 // ---------------------------------------------------------------------------
 
 fn stitch(
-    frame: &mut [u8],
+    frame: &mut Vec<u8>,
     frame_w: u32,
     frame_h: u32,
     tile_px: &[u8],
@@ -742,7 +737,7 @@ fn encode_png(pixels: &[u8], w: u32, h: u32) -> Vec<u8> {
 
 fn b64(data: &[u8]) -> String {
     const C: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    let mut out = String::with_capacity(data.len().div_ceil(3) * 4);
+    let mut out = String::with_capacity((data.len() + 2) / 3 * 4);
     for chunk in data.chunks(3) {
         let (b0, b1, b2) = (
             chunk[0] as u32,
@@ -1500,7 +1495,6 @@ fn fit_cost_model(samples: &[(f64, f64, f64)]) -> Option<CalibrationResult> {
         }
         for row in (col + 1)..3 {
             let f = a[row][col] / p;
-            #[allow(clippy::needless_range_loop)]
             for k in col..3 {
                 a[row][k] -= f * a[col][k];
             }
@@ -1557,7 +1551,8 @@ fn run_suite(
     // LRU tile render cache: fingerprint → TILE_SIZE×TILE_SIZE×4 bytes.
     // Capacity is derived from TILE_CACHE_MB so it auto-adjusts when TILE_SIZE changes.
     let tile_bytes = (TILE_SIZE * TILE_SIZE * 4) as usize;
-    let cache_cap = NonZeroUsize::new((TILE_CACHE_MB * 1024 * 1024).div_ceil(tile_bytes)).unwrap();
+    let cache_cap =
+        NonZeroUsize::new((TILE_CACHE_MB * 1024 * 1024 + tile_bytes - 1) / tile_bytes).unwrap();
     let mut tile_cache: LruCache<u64, Vec<u8>> = LruCache::new(cache_cap);
     // Persistent tile→node map: for each tile the set of nodes whose shadow-
     // expanded bbox overlaps it.  Rebuilt each frame from current bboxes.
@@ -1594,8 +1589,8 @@ fn run_suite(
             // 1. Reconcile — populates changed_ids
             incr_set.reconcile(vec![f.root.clone()], &mut incr_ctx, &mut ());
 
-            let cols = w.div_ceil(TILE_SIZE);
-            let rows = h.div_ceil(TILE_SIZE);
+            let cols = (w + TILE_SIZE - 1) / TILE_SIZE;
+            let rows = (h + TILE_SIZE - 1) / TILE_SIZE;
 
             // No-op short-circuit: if nothing changed and frame_buf is already
             // populated, every tile is identical to last frame — skip all remaining
@@ -1672,7 +1667,13 @@ fn run_suite(
                 }
             }
             // Step (b): stub layout — skipped when positions are provably unchanged.
-            let bboxes: HashMap<String, Rect> = if dims_changed || collection_changed {
+            // new_bboxes is Some only when we actually recompute; bboxes borrows from
+            // it when Some, or from prev_stub_bboxes (old) when None.  This keeps
+            // prev_stub_bboxes as the *previous* frame's positions until end-of-frame,
+            // so the moved-node detection can diff new vs old correctly.
+            // No HashMap clone when stub is skipped — avoids O(N) allocation per frame.
+            let stub_recomputed = dims_changed || collection_changed;
+            let new_bboxes: Option<HashMap<String, Rect>> = if stub_recomputed {
                 let stub_json = stub_scene_json(&f.root, &incr_ctx.node_dims);
                 let node = parse_layout(&stub_json).unwrap_or_else(|_| Node::container(vec![]));
                 let measured = takumi_measure_layout(
@@ -1685,10 +1686,11 @@ fn run_suite(
                 .expect("stub layout");
                 let mut sb = HashMap::new();
                 collect_bboxes(&measured, &f.root, &mut sb);
-                sb
+                Some(sb)
             } else {
-                prev_stub_bboxes.clone()
+                None
             };
+            let bboxes: &HashMap<String, Rect> = new_bboxes.as_ref().unwrap_or(&prev_stub_bboxes);
 
             // 3. Compute dirty tiles and update tile→node map.
             let mut dirty: HashSet<(u32, u32)> = HashSet::new();
@@ -1696,7 +1698,7 @@ fn run_suite(
             if frame_buf.len() != (w * h * 4) as usize {
                 // First frame: full build of tile_node_map + all tiles dirty.
                 frame_buf = vec![0u8; (w * h * 4) as usize];
-                tile_node_map = build_tile_node_map(&bboxes, cols, rows);
+                tile_node_map = build_tile_node_map(bboxes, cols, rows);
                 for ty in 0..rows {
                     for tx in 0..cols {
                         dirty.insert((tx, ty));
@@ -1728,29 +1730,31 @@ fn run_suite(
                 }
                 // Step 2: update entries for nodes that moved due to layout reflow
                 // (not in changed_ids but bbox shifted — e.g. justify-between reflow).
-                // This loop is O(total_nodes) but was already required for dirty marking;
-                // the tile_node_map update is folded in at no extra asymptotic cost.
-                let changed_set: HashSet<&str> =
-                    incr_ctx.changed_ids.iter().map(String::as_str).collect();
-                for (id, new_r) in &bboxes {
-                    if changed_set.contains(id.as_str()) {
-                        continue;
-                    }
-                    if let Some(old_r) = prev_stub_bboxes.get(id.as_str()) {
-                        if (new_r.x - old_r.x).abs() > 0.5 || (new_r.y - old_r.y).abs() > 0.5 {
-                            for (tx, ty) in tiles_for_bbox(old_r, cols, rows) {
-                                if let Some(s) = tile_node_map.get_mut(&(tx, ty)) {
-                                    s.remove(id.as_str());
+                // Skipped entirely when stub layout was not recomputed: bboxes ==
+                // prev_stub_bboxes so every delta is zero — O(N) loop with no effect.
+                if stub_recomputed {
+                    let changed_set: HashSet<&str> =
+                        incr_ctx.changed_ids.iter().map(String::as_str).collect();
+                    for (id, new_r) in bboxes {
+                        if changed_set.contains(id.as_str()) {
+                            continue;
+                        }
+                        if let Some(old_r) = prev_stub_bboxes.get(id.as_str()) {
+                            if (new_r.x - old_r.x).abs() > 0.5 || (new_r.y - old_r.y).abs() > 0.5 {
+                                for (tx, ty) in tiles_for_bbox(old_r, cols, rows) {
+                                    if let Some(s) = tile_node_map.get_mut(&(tx, ty)) {
+                                        s.remove(id.as_str());
+                                    }
                                 }
+                                for (tx, ty) in tiles_for_bbox(new_r, cols, rows) {
+                                    tile_node_map
+                                        .entry((tx, ty))
+                                        .or_default()
+                                        .insert(id.clone());
+                                }
+                                mark_dirty(new_r, TILE_SIZE, w, h, &mut dirty);
+                                mark_dirty(old_r, TILE_SIZE, w, h, &mut dirty);
                             }
-                            for (tx, ty) in tiles_for_bbox(new_r, cols, rows) {
-                                tile_node_map
-                                    .entry((tx, ty))
-                                    .or_default()
-                                    .insert(id.clone());
-                            }
-                            mark_dirty(new_r, TILE_SIZE, w, h, &mut dirty);
-                            mark_dirty(old_r, TILE_SIZE, w, h, &mut dirty);
                         }
                     }
                 }
@@ -1863,7 +1867,9 @@ fn run_suite(
             let incr_px = frame_buf.clone();
             let my_prev_full = std::mem::replace(&mut prev_full, full_px.clone());
             let saved_dirty = dirty.clone();
-            prev_stub_bboxes = bboxes;
+            if let Some(nb) = new_bboxes {
+                prev_stub_bboxes = nb;
+            }
 
             FrameResult {
                 label: f.label.clone(),
@@ -1944,8 +1950,8 @@ fn html_report(suites: &[TestSuite], results: &[SuiteResult], cal_note: &str) ->
             let full_uri = data_uri(&f.full_px, f.w, f.h);
             let speedup_f = f.full_time.as_secs_f64() / f.incr_time.as_secs_f64().max(1e-9);
             // Display size: 3× pixel-art scaling, capped so huge canvases stay scrollable
-            let pw = (f.w * 3).clamp(120, 900);
-            let ph = (f.h * 3).clamp(36, 600);
+            let pw = (f.w * 3).min(900).max(120);
+            let ph = (f.h * 3).min(600).max(36);
 
             // Restrict correctness measurement to dirty tiles only.
             let mask = dirty_mask(&f.dirty_tiles, f.w, f.h);
@@ -2038,7 +2044,7 @@ fn html_report(suites: &[TestSuite], results: &[SuiteResult], cal_note: &str) ->
             if d.is_some() && !perfect {
                 {
                     let tw = f.w.min(240);
-                    let th = (f.h * tw / f.w.max(1)).clamp(20, 320);
+                    let th = (f.h * tw / f.w.max(1)).min(320).max(20);
                     let snippet = format!(
                         r#"
                     <div class="frame imperfect">
