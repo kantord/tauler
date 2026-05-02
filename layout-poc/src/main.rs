@@ -216,9 +216,35 @@ fn collect_bboxes(measured: &MeasuredNode, node: &FakeNode, bboxes: &mut HashMap
         h: measured.height,
     });
     if let FakeNode::Collection { children, .. } = node {
-        for (m, f) in measured.children.iter().zip(children.iter()) {
-            collect_bboxes(m, f, bboxes);
+        // Taffy groups absolutely-positioned children under a zero-height placeholder
+        // node positioned at the parent's bottom edge.  Detect it by:
+        //   h==0, has children, y >= parent_bottom − 0.5
+        // Only activate this unwrapping when the FakeNode tree actually has absolute
+        // children — avoids false positives from legitimate zero-height nodes.
+        let parent_bottom = measured.transform[5] + measured.height;
+        let has_abs_f = children.iter().any(|c|
+            matches!(c, FakeNode::Collection { tw, .. }
+                if tw.split_whitespace().any(|t| t == "absolute")));
+        let is_placeholder = |mc: &MeasuredNode| -> bool {
+            has_abs_f
+            && mc.height == 0.0
+            && !mc.children.is_empty()
+            && mc.transform[5] >= parent_bottom - 0.5
+        };
+        let mut in_flow_m: Vec<&MeasuredNode> = Vec::new();
+        let mut abs_m:     Vec<&MeasuredNode> = Vec::new();
+        for mc in &measured.children {
+            if is_placeholder(mc) { abs_m.extend(mc.children.iter()); }
+            else                  { in_flow_m.push(mc); }
         }
+        let in_flow_f: Vec<&FakeNode> = children.iter()
+            .filter(|c| !matches!(c, FakeNode::Collection { tw, .. } if tw.split_whitespace().any(|t| t == "absolute")))
+            .collect();
+        let abs_f: Vec<&FakeNode> = children.iter()
+            .filter(|c|  matches!(c, FakeNode::Collection { tw, .. } if tw.split_whitespace().any(|t| t == "absolute")))
+            .collect();
+        for (m, f) in in_flow_m.iter().zip(in_flow_f.iter()) { collect_bboxes(m, f, bboxes); }
+        for (m, f) in abs_m.iter().zip(abs_f.iter())         { collect_bboxes(m, f, bboxes); }
     }
 }
 
@@ -2338,6 +2364,121 @@ fn suite_notification_panel() -> TestSuite {
 }
 
 // ---------------------------------------------------------------------------
+// Compositing overlay — backdrop-blur, opacity, semi-transparent backgrounds
+// ---------------------------------------------------------------------------
+
+/// Compositing correctness test with genuine content behind the glass.
+///
+/// Layout: the canvas is `relative`.  Eight metric cards fill the full area in
+/// normal flow (left half + right half).  A frosted-glass panel (`absolute`,
+/// `backdrop-blur-md`, `bg-white/10`) is positioned over the RIGHT HALF only.
+///
+/// Left half:  cards visible directly — values change every frame (dirty tiles).
+/// Right half: same cards visible THROUGH the static glass panel — the blur
+///             must sample the freshly-rendered card pixels each frame.
+///
+/// If the glass-panel tiles are served from a stale cache entry, the blurred
+/// values on the right will lag one or more frames behind the crisp left half —
+/// immediately visible in the diff image.
+///
+/// An opacity-pulsing badge in the bottom-left also cycles each frame to exercise
+/// `opacity-*` dirty marking independently of the blur.
+fn suite_compositing_overlay() -> TestSuite {
+    let frames = (0..10).map(|i| {
+        // Metric values that change every frame — these are what the blur samples.
+        let metrics = [
+            ("CPU",  format!("{}%",    12 + i * 7)),
+            ("GPU",  format!("{}%",    60 + i * 3)),
+            ("MEM",  format!("{}.{}G", 3 + i / 3, i % 3)),
+            ("NET↑", format!("{}M",    i * 13)),
+            ("TEMP", format!("{}°C",   55 + i * 2)),
+            ("DISK", format!("{}%",    40 + i)),
+            ("FPS",  format!("{}",     60 - i * 2)),
+            ("BAT",  format!("{}%",    90 - i * 3)),
+        ];
+
+        let badge_opacity = if i % 2 == 0 { "opacity-100" } else { "opacity-20" };
+        let spinner = ["|", "/", "—", "\\"][i % 4];
+
+        // 8 metric cards in a 4×2 grid filling the canvas — all change every frame.
+        let cards: Vec<FakeNode> = metrics.iter().map(|(name, val)| {
+            FakeNode::Collection {
+                id: format!("card-{name}"),
+                tw: "flex flex-col items-center justify-center w-[96px] h-[64px] \
+                     bg-gray-800 rounded-lg shadow-lg".into(),
+                children: vec![
+                    FakeNode::Text { id: format!("card-{name}-lbl"),
+                        content: name.to_string(),
+                        tw: "text-gray-400 text-[10px] whitespace-nowrap".into() },
+                    FakeNode::Text { id: format!("card-{name}-val"),
+                        content: val.clone(),
+                        tw: "text-white text-sm font-mono font-bold whitespace-nowrap".into() },
+                ],
+            }
+        }).collect();
+
+        let root = FakeNode::Collection {
+            id: "canvas".into(),
+            // relative so the absolute glass panel is positioned within this container.
+            tw: "relative w-[440px] h-[160px] bg-gray-950".into(),
+            children: vec![
+                // All 8 metric cards in a 4×2 flex-wrap grid — fill the full canvas.
+                FakeNode::Collection {
+                    id: "grid".into(),
+                    tw: "flex flex-row flex-wrap gap-[8px] p-[8px] w-[440px] h-[160px]".into(),
+                    children: cards,
+                },
+                // Semi-transparent overlay — ABSOLUTE, covers right half only (x=220 to x=432).
+                // STATIC: tw never changes after frame 0.  The cards underneath change every
+                // frame; the overlay must composite correctly over freshly-rendered card tiles.
+                FakeNode::Collection {
+                    id: "glass".into(),
+                    tw: "absolute bottom-[8px] left-[220px] w-[212px] h-[144px] \
+                         opacity-70 bg-blue-700 rounded-xl border border-blue-400 shadow-xl \
+                         flex flex-col items-center justify-center gap-1".into(),
+                    children: vec![
+                        FakeNode::Text { id: "glass-lbl".into(),
+                            content: "Overlay (static)".into(),
+                            tw: "text-white text-xs font-bold whitespace-nowrap".into() },
+                        FakeNode::Text { id: "glass-hint".into(),
+                            content: "opacity-70".into(),
+                            tw: "text-white text-[10px] whitespace-nowrap".into() },
+                    ],
+                },
+                // Opacity-pulsing badge — bottom-left, changes every frame independently.
+                FakeNode::Collection {
+                    id: "badge".into(),
+                    tw: format!("absolute bottom-[8px] left-[8px] flex items-center \
+                                 justify-center gap-1 px-2 h-[18px] bg-yellow-400 \
+                                 rounded {badge_opacity}"),
+                    children: vec![
+                        FakeNode::Text { id: "spin".into(), content: spinner.into(),
+                            tw: "text-black text-[10px] font-mono".into() },
+                        FakeNode::Text { id: "badge-lbl".into(), content: "LIVE".into(),
+                            tw: "text-black text-[10px] font-bold".into() },
+                    ],
+                },
+            ],
+        };
+        SuiteFrame {
+            label: format!("frame {i}: cpu={} gpu={} badge={badge_opacity}",
+                metrics[0].1, metrics[1].1),
+            root,
+        }
+    }).collect();
+
+    TestSuite {
+        name: "Compositing Overlay",
+        description: "440×160 px. 8 metric cards fill the canvas (all change every frame). \
+                       Static semi-transparent overlay (absolute, bg-black/50) covers the right \
+                       half. Left half: cards visible directly. Right half: cards visible through \
+                       the dark overlay. Opacity badge pulses bottom-left. Tests that the static \
+                       overlay composites correctly over freshly re-rendered card tiles.",
+        frames,
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Scroll list — pixel-by-pixel scroll stress test
 // ---------------------------------------------------------------------------
 
@@ -2506,6 +2647,7 @@ fn main() {
         suite_keyframe_animation(),
         suite_notification_panel(),
         suite_scroll_list(),
+        suite_compositing_overlay(),
     ];
 
     // ── Pass 1: calibration run ───────────────────────────────────────────────
