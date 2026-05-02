@@ -10,4 +10,4 @@ path = "src/main.rs"
 [dev-dependencies]
 tempfile = "3"
 image = "0.25"
-insta = "1"
+insta = "1.47.2"
