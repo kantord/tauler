@@ -194,8 +194,9 @@ const SCREENSHOT_BINARY_CANDIDATES: &[&str] = &[
 ];
 
 fn find_screenshot_binary() -> Option<PathBuf> {
+    let workspace_root = Path::new(env!("CARGO_MANIFEST_DIR")).parent()?;
     for candidate in SCREENSHOT_BINARY_CANDIDATES {
-        let p = PathBuf::from(candidate);
+        let p = workspace_root.join(candidate);
         if p.exists() {
             return Some(p);
         }
@@ -399,6 +400,57 @@ fn main() {
         output_path.display(),
         all_components.len()
     );
+}
+
+#[cfg(test)]
+mod visual_regression {
+    use super::*;
+
+    fn pixel_hash(pixels: &[u8]) -> String {
+        let h = pixels
+            .iter()
+            .fold(0u64, |h, &b| h.wrapping_mul(6364136223846793005).wrapping_add(b as u64));
+        format!("{h:016x}  ({} px)", pixels.len() / 4)
+    }
+
+    /// Renders every component that has a JSX block to `docs/assets/` and asserts
+    /// the pixel hash via insta.  Skips silently if the screenshot binary is absent.
+    ///
+    /// Workflow:
+    ///   cargo build -p costae-screenshot          # build renderer once
+    ///   cargo test -p costae-docgen               # fails if any hash changed
+    ///   cargo insta review                        # inspect PNG + accept or reject
+    #[test]
+    fn component_screenshots_match_approved_hashes() {
+        if find_screenshot_binary().is_none() {
+            eprintln!("skipping: costae-screenshot binary not found (run `cargo build -p costae-screenshot` first)");
+            return;
+        }
+
+        let workspace_root = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
+        let components_dir = workspace_root.join("src/ui/components");
+        let assets_dir = workspace_root.join("docs/assets");
+        let snap_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("snapshots");
+
+        let all_components = load_all_components(&components_dir);
+
+        insta::with_settings!({ snapshot_path => &snap_dir, prepend_module_to_snapshot => false }, {
+            for comp in &all_components {
+                if comp.jsx_block.is_none() { continue; }
+                let png_path = render_screenshot(comp, &all_components, &assets_dir)
+                    .unwrap_or_else(|| panic!("render_screenshot failed for {}", comp.export_name));
+                let img = image::open(&png_path)
+                    .unwrap_or_else(|e| panic!("failed to open {}: {e}", png_path.display()))
+                    .into_rgba8();
+                let (w, h) = img.dimensions();
+                let hash = pixel_hash(&img.into_raw());
+                insta::assert_snapshot!(
+                    format!("{}_{}x{}", comp.export_name.to_lowercase(), w, h),
+                    hash
+                );
+            }
+        });
+    }
 }
 
 #[cfg(test)]
