@@ -102,7 +102,7 @@ pub(crate) fn apply_font_config(ctx: &mut GlobalContext, config: &FontConfig) {
         if let Some(family_info) = ctx.font_context.collection.family_by_name(name) {
             ctx.font_context
                 .collection
-                .append_generic_families(GenericFamily::Emoji, std::iter::once(family_info.id()));
+                .set_generic_families(GenericFamily::Emoji, std::iter::once(family_info.id()));
         }
     }
 
@@ -110,7 +110,7 @@ pub(crate) fn apply_font_config(ctx: &mut GlobalContext, config: &FontConfig) {
         if let Some(family_info) = ctx.font_context.collection.family_by_name(name) {
             ctx.font_context
                 .collection
-                .append_generic_families(GenericFamily::SansSerif, std::iter::once(family_info.id()));
+                .set_generic_families(GenericFamily::SansSerif, std::iter::once(family_info.id()));
         }
     }
 }
