@@ -2,4 +2,4 @@
 source: layout-poc/src/main.rs
 expression: pixel_hash(pixels)
 ---
-fb28825d73168ed9  (80000 px)
+723705cdbc881373  (80000 px)

@@ -26,7 +26,13 @@ use costae::managed_set::{Lifecycle, ManagedSet};
 
 fn new_ctx() -> GlobalContext {
     let mut ctx = GlobalContext::default();
-    ctx.font_context.collection.load_system_fonts();
+    let inter = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap()
+        .join("assets/fonts/inter/InterVariable.ttf");
+    ctx.font_context
+        .collection
+        .load_fonts_from_paths(std::iter::once(inter));
     let assets_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("test-assets");
     if let Ok(entries) = std::fs::read_dir(&assets_dir) {
         for entry in entries.flatten() {
