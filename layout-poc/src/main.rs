@@ -1195,7 +1195,7 @@ struct SuiteResult {
     frames: Vec<FrameResult>,
 }
 
-const TILE_SIZE: u32 = 32;
+const TILE_SIZE: u32 = 24;
 const SHADOW_BUF: u32 = 32; // extra border around each tile to capture shadow bleed
 const TILE_CACHE_MB: usize = 10; // LRU tile cache budget; entry count derived from TILE_SIZE
 

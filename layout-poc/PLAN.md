@@ -60,10 +60,10 @@ re-running the full layout + rasterisation pass on every frame.
 
 | Constant | Value | Role |
 |---|---|---|
-| `TILE_SIZE` | 32 px | Render granularity |
+| `TILE_SIZE` | 24 px | Render granularity (swept {8,16,24,32,48,64}; 24 gave best avg speedup 3.81× vs 3.67× at 32) |
 | `SHADOW_BUF` | 32 px | Shadow bleed capture border (≥ max shadow spread) |
 | `MERGE_THRESHOLD` | `2 × SHADOW_BUF / TILE_SIZE` = 2 tiles | Max gap before bands split; derived, not tuned independently |
-| `TILE_CACHE_MB` | 10 MB → 2 560 entries at TILE_SIZE=32 | LRU tile cache budget; entry count auto-derived |
+| `TILE_CACHE_MB` | 10 MB → ~4 550 entries at TILE_SIZE=24 | LRU tile cache budget; entry count auto-derived |
 | Move threshold | 0.5 px | Min bbox shift to declare a node moved |
 | `PERFECT_THRESHOLD` | 0.05 | Max error/changed-area ratio for ✓ |
 
