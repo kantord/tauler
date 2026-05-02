@@ -8,12 +8,15 @@ struct Component {
     prose: Vec<String>,
     jsx_block: Option<Vec<String>>,
     shadcn_url: Option<String>,
+    #[cfg_attr(not(test), allow(dead_code))]
+    skip_snapshot: bool,
 }
 
 struct DocComments {
     prose: Vec<String>,
     jsx_block: Option<Vec<String>>,
     shadcn_url: Option<String>,
+    skip_snapshot: bool,
 }
 
 fn to_pascal_case(s: &str) -> String {
@@ -66,6 +69,7 @@ fn parse_doc_comments(raw: &[String]) -> DocComments {
     let mut prose = Vec::new();
     let mut jsx_block = None;
     let mut shadcn_url = None;
+    let mut skip_snapshot = false;
     let mut i = 0;
     while i < raw.len() {
         if raw[i].trim() == "# JSX" {
@@ -77,6 +81,9 @@ fn parse_doc_comments(raw: &[String]) -> DocComments {
                 shadcn_url = Some(raw[i].trim().to_string());
                 i += 1;
             }
+        } else if raw[i].trim() == "# SkipSnapshot" {
+            skip_snapshot = true;
+            i += 1;
         } else {
             prose.push(raw[i].clone());
             i += 1;
@@ -86,6 +93,7 @@ fn parse_doc_comments(raw: &[String]) -> DocComments {
         prose,
         jsx_block,
         shadcn_url,
+        skip_snapshot,
     }
 }
 
@@ -137,6 +145,7 @@ fn extract_components(path: &Path) -> Result<Vec<Component>, std::io::Error> {
             prose: doc.prose,
             jsx_block: doc.jsx_block,
             shadcn_url: doc.shadcn_url,
+            skip_snapshot: doc.skip_snapshot,
         });
     }
     Ok(components)
@@ -447,6 +456,7 @@ mod visual_regression {
         insta::with_settings!({ snapshot_path => &snap_dir, prepend_module_to_snapshot => false }, {
             for comp in &all_components {
                 if comp.jsx_block.is_none() { continue; }
+                if comp.skip_snapshot { continue; }
                 let png_path = render_screenshot(comp, &all_components, &assets_dir)
                     .unwrap_or_else(|| panic!("render_screenshot failed for {}", comp.export_name));
                 let img = image::open(&png_path)
@@ -481,6 +491,7 @@ mod tests {
             prose: vec![],
             jsx_block: Some(vec!["<Card />".to_string()]),
             shadcn_url: None,
+            skip_snapshot: false,
         };
         let all_components = vec![Component {
             module_path: "@ui/card".to_string(),
@@ -488,6 +499,7 @@ mod tests {
             prose: vec![],
             jsx_block: None,
             shadcn_url: None,
+            skip_snapshot: false,
         }];
 
         let result = render_screenshot(&component, &all_components, assets_dir);
@@ -496,5 +508,19 @@ mod tests {
         let path = result.unwrap();
         assert!(path.exists(), "PNG file does not exist at {:?}", path);
         assert!(path.metadata().unwrap().len() > 0, "PNG file is empty");
+    }
+
+    #[test]
+    fn parse_doc_comments_sets_skip_snapshot_when_marker_present() {
+        let raw = vec!["# SkipSnapshot".to_string()];
+        let doc = parse_doc_comments(&raw);
+        assert!(doc.skip_snapshot);
+    }
+
+    #[test]
+    fn parse_doc_comments_skip_snapshot_defaults_to_false() {
+        let raw = vec!["Some prose.".to_string()];
+        let doc = parse_doc_comments(&raw);
+        assert!(!doc.skip_snapshot);
     }
 }
