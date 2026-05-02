@@ -1,4 +1,4 @@
-use crate::ui::{Node, component, rsx, cva::Cva};
+use crate::ui::{component, cva::Cva, rsx, Node};
 
 const CARD_VARIANTS: Cva = Cva {
     base: "rounded-lg border border-border bg-card text-card-foreground px-3 py-[10px]",

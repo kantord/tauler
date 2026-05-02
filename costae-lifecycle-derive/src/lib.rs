@@ -1,19 +1,25 @@
 use proc_macro::TokenStream;
 use quote::quote;
-use syn::{parse_macro_input, ImplItem, ItemImpl, DeriveInput, Data, Fields};
+use syn::{parse_macro_input, Data, DeriveInput, Fields, ImplItem, ItemImpl};
 
 #[proc_macro_attribute]
 pub fn lifecycle_trace(_attr: TokenStream, item: TokenStream) -> TokenStream {
     let mut input = parse_macro_input!(item as ItemImpl);
 
-    let is_lifecycle_impl = input.trait_.as_ref().and_then(|(_, path, _)| path.segments.last())
+    let is_lifecycle_impl = input
+        .trait_
+        .as_ref()
+        .and_then(|(_, path, _)| path.segments.last())
         .map(|seg| seg.ident == "Lifecycle")
         .unwrap_or(false);
 
     if !is_lifecycle_impl {
-        return syn::Error::new_spanned(&input, "#[lifecycle_trace] can only be applied to `impl Lifecycle for T` blocks")
-            .to_compile_error()
-            .into();
+        return syn::Error::new_spanned(
+            &input,
+            "#[lifecycle_trace] can only be applied to `impl Lifecycle for T` blocks",
+        )
+        .to_compile_error()
+        .into();
     }
 
     let entering: ImplItem = syn::parse_quote! {
@@ -81,7 +87,9 @@ pub fn derive_ephemeral(input: TokenStream) -> TokenStream {
     for field in fields {
         let field_name = field.ident.as_ref().unwrap();
         for attr in &field.attrs {
-            if !attr.path().is_ident("reconciler") { continue; }
+            if !attr.path().is_ident("reconciler") {
+                continue;
+            }
             let mut output_ident: Option<syn::Ident> = None;
             attr.parse_nested_meta(|meta| {
                 if meta.path.is_ident("output") {
@@ -90,7 +98,8 @@ pub fn derive_ephemeral(input: TokenStream) -> TokenStream {
                     }
                 }
                 Ok(())
-            }).unwrap();
+            })
+            .unwrap();
             let output = output_ident.expect("reconciler attribute requires output = <field_name>");
             calls.push(quote! {
                 { let mut __ctx = ::core::default::Default::default(); self.#field_name.reconcile(::std::vec::Vec::new(), &mut __ctx, &mut self.#output); }
@@ -102,5 +111,6 @@ pub fn derive_ephemeral(input: TokenStream) -> TokenStream {
         impl #impl_generics Drop for #name #ty_generics #where_clause {
             fn drop(&mut self) { #(#calls)* }
         }
-    }.into()
+    }
+    .into()
 }

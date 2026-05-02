@@ -24,63 +24,93 @@ mod card_header {
     use super::*;
 
     #[test]
-    fn renders_as_container() { assert_eq!(eval_card("<CardHeader />")["type"], "container"); }
+    fn renders_as_container() {
+        assert_eq!(eval_card("<CardHeader />")["type"], "container");
+    }
 
     #[test]
-    fn has_base_tw() { assert_eq!(eval_card("<CardHeader />")["tw"], HEADER_BASE_TW); }
+    fn has_base_tw() {
+        assert_eq!(eval_card("<CardHeader />")["tw"], HEADER_BASE_TW);
+    }
 
     #[test]
-    fn merges_tw_prop() { assert_tw_prop_appended("<CardHeader />", HEADER_BASE_TW); }
+    fn merges_tw_prop() {
+        assert_tw_prop_appended("<CardHeader />", HEADER_BASE_TW);
+    }
 }
 
 mod card_title {
     use super::*;
 
     #[test]
-    fn renders_as_container() { assert_eq!(eval_card("<CardTitle />")["type"], "container"); }
+    fn renders_as_container() {
+        assert_eq!(eval_card("<CardTitle />")["type"], "container");
+    }
 
     #[test]
-    fn has_base_tw() { assert_eq!(eval_card("<CardTitle />")["tw"], TITLE_BASE_TW); }
+    fn has_base_tw() {
+        assert_eq!(eval_card("<CardTitle />")["tw"], TITLE_BASE_TW);
+    }
 
     #[test]
-    fn merges_tw_prop() { assert_tw_prop_appended("<CardTitle />", TITLE_BASE_TW); }
+    fn merges_tw_prop() {
+        assert_tw_prop_appended("<CardTitle />", TITLE_BASE_TW);
+    }
 }
 
 mod card_description {
     use super::*;
 
     #[test]
-    fn renders_as_container() { assert_eq!(eval_card("<CardDescription />")["type"], "container"); }
+    fn renders_as_container() {
+        assert_eq!(eval_card("<CardDescription />")["type"], "container");
+    }
 
     #[test]
-    fn has_base_tw() { assert_eq!(eval_card("<CardDescription />")["tw"], DESCRIPTION_BASE_TW); }
+    fn has_base_tw() {
+        assert_eq!(eval_card("<CardDescription />")["tw"], DESCRIPTION_BASE_TW);
+    }
 
     #[test]
-    fn merges_tw_prop() { assert_tw_prop_appended("<CardDescription />", DESCRIPTION_BASE_TW); }
+    fn merges_tw_prop() {
+        assert_tw_prop_appended("<CardDescription />", DESCRIPTION_BASE_TW);
+    }
 }
 
 mod card_content {
     use super::*;
 
     #[test]
-    fn renders_as_container() { assert_eq!(eval_card("<CardContent />")["type"], "container"); }
+    fn renders_as_container() {
+        assert_eq!(eval_card("<CardContent />")["type"], "container");
+    }
 
     #[test]
-    fn has_base_tw() { assert_eq!(eval_card("<CardContent />")["tw"], CONTENT_BASE_TW); }
+    fn has_base_tw() {
+        assert_eq!(eval_card("<CardContent />")["tw"], CONTENT_BASE_TW);
+    }
 
     #[test]
-    fn merges_tw_prop() { assert_tw_prop_appended("<CardContent />", CONTENT_BASE_TW); }
+    fn merges_tw_prop() {
+        assert_tw_prop_appended("<CardContent />", CONTENT_BASE_TW);
+    }
 }
 
 mod card_footer {
     use super::*;
 
     #[test]
-    fn renders_as_container() { assert_eq!(eval_card("<CardFooter />")["type"], "container"); }
+    fn renders_as_container() {
+        assert_eq!(eval_card("<CardFooter />")["type"], "container");
+    }
 
     #[test]
-    fn has_base_tw() { assert_eq!(eval_card("<CardFooter />")["tw"], FOOTER_BASE_TW); }
+    fn has_base_tw() {
+        assert_eq!(eval_card("<CardFooter />")["tw"], FOOTER_BASE_TW);
+    }
 
     #[test]
-    fn merges_tw_prop() { assert_tw_prop_appended("<CardFooter />", FOOTER_BASE_TW); }
+    fn merges_tw_prop() {
+        assert_tw_prop_appended("<CardFooter />", FOOTER_BASE_TW);
+    }
 }

@@ -49,19 +49,27 @@ fn gen_component(path: Option<LitStr>, func: ItemFn) -> TokenStream2 {
     let component_name = format_ident!("{}", to_pascal_case(&fn_str));
     let props_name = format_ident!("{}Props", component_name);
 
-    let params: Vec<(syn::Ident, Type)> = func.sig.inputs.iter().filter_map(|arg| {
-        if let FnArg::Typed(pt) = arg {
-            if let Pat::Ident(pi) = &*pt.pat {
-                return Some((pi.ident.clone(), (*pt.ty).clone()));
+    let params: Vec<(syn::Ident, Type)> = func
+        .sig
+        .inputs
+        .iter()
+        .filter_map(|arg| {
+            if let FnArg::Typed(pt) = arg {
+                if let Pat::Ident(pi) = &*pt.pat {
+                    return Some((pi.ident.clone(), (*pt.ty).clone()));
+                }
             }
-        }
-        None
-    }).collect();
+            None
+        })
+        .collect();
 
-    let props_fields: Vec<TokenStream2> = params.iter().map(|(name, ty)| {
-        let default_attr = needs_serde_default(ty).then(|| quote! { #[serde(default)] });
-        quote! { #default_attr pub #name: #ty, }
-    }).collect();
+    let props_fields: Vec<TokenStream2> = params
+        .iter()
+        .map(|(name, ty)| {
+            let default_attr = needs_serde_default(ty).then(|| quote! { #[serde(default)] });
+            quote! { #default_attr pub #name: #ty, }
+        })
+        .collect();
 
     let param_names: Vec<&syn::Ident> = params.iter().map(|(n, _)| n).collect();
 
@@ -125,7 +133,10 @@ pub fn rsx(input: TokenStream) -> TokenStream {
     let result = rstml::Parser::new(rstml::ParserConfig::default()).parse_recoverable(input);
     let (nodes_opt, diagnostics) = result.split();
 
-    let error_tokens: TokenStream2 = diagnostics.into_iter().map(|d| d.emit_as_expr_tokens()).collect();
+    let error_tokens: TokenStream2 = diagnostics
+        .into_iter()
+        .map(|d| d.emit_as_expr_tokens())
+        .collect();
 
     let nodes = nodes_opt.unwrap_or_default();
     let node_tokens = match nodes.as_slice() {
@@ -157,7 +168,12 @@ fn gen_node(node: &ParsedNode) -> TokenStream2 {
 
 fn gen_element(el: &ParsedElement) -> TokenStream2 {
     let name = el.name().to_string();
-    if name.chars().next().map(|c| c.is_uppercase()).unwrap_or(false) {
+    if name
+        .chars()
+        .next()
+        .map(|c| c.is_uppercase())
+        .unwrap_or(false)
+    {
         return gen_component_call(el);
     }
     match name.as_str() {
@@ -165,7 +181,9 @@ fn gen_element(el: &ParsedElement) -> TokenStream2 {
         "text" => gen_text_el(el),
         "image" => gen_image_el(el),
         _ => {
-            let msg = format!("unknown ui element <{name}>; use container, text, image, or a PascalCase component");
+            let msg = format!(
+                "unknown ui element <{name}>; use container, text, image, or a PascalCase component"
+            );
             quote! { compile_error!(#msg) }
         }
     }
@@ -174,15 +192,19 @@ fn gen_element(el: &ParsedElement) -> TokenStream2 {
 fn gen_component_call(el: &ParsedElement) -> TokenStream2 {
     let name: proc_macro2::TokenStream = el.name().to_string().parse().unwrap();
     let children = gen_children(&el.children);
-    let attr_entries: Vec<TokenStream2> = el.attributes().iter().filter_map(|attr| {
-        if let NodeAttribute::Attribute(kv) = attr {
-            let key = kv.key.to_string();
-            if let Some(expr) = kv.value() {
-                return Some(quote! { #key: (#expr) });
+    let attr_entries: Vec<TokenStream2> = el
+        .attributes()
+        .iter()
+        .filter_map(|attr| {
+            if let NodeAttribute::Attribute(kv) = attr {
+                let key = kv.key.to_string();
+                if let Some(expr) = kv.value() {
+                    return Some(quote! { #key: (#expr) });
+                }
             }
-        }
-        None
-    }).collect();
+            None
+        })
+        .collect();
     quote! {
         {
             let __children = #children;

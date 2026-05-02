@@ -3,22 +3,22 @@ use std::sync::Arc;
 
 use smithay_client_toolkit::{
     compositor::{CompositorHandler, CompositorState},
-    delegate_compositor,
-    delegate_layer,
-    delegate_output,
-    delegate_pointer,
-    delegate_registry,
-    delegate_seat,
-    delegate_shm,
+    delegate_compositor, delegate_layer, delegate_output, delegate_pointer, delegate_registry,
+    delegate_seat, delegate_shm,
     output::{OutputHandler, OutputState},
     registry::{ProvidesRegistryState, RegistryState},
     registry_handlers,
-    seat::{Capability, SeatHandler, SeatState, pointer::{PointerEvent, PointerEventKind, PointerHandler}},
-    shell::{
-        WaylandSurface,
-        wlr_layer::{Anchor, Layer, LayerShell, LayerShellHandler, LayerSurface, LayerSurfaceConfigure},
+    seat::{
+        pointer::{PointerEvent, PointerEventKind, PointerHandler},
+        Capability, SeatHandler, SeatState,
     },
-    shm::{Shm, ShmHandler, slot::SlotPool},
+    shell::{
+        wlr_layer::{
+            Anchor, Layer, LayerShell, LayerShellHandler, LayerSurface, LayerSurfaceConfigure,
+        },
+        WaylandSurface,
+    },
+    shm::{slot::SlotPool, Shm, ShmHandler},
 };
 use wayland_client::{
     backend::ObjectId,
@@ -27,10 +27,10 @@ use wayland_client::{
     Connection, EventQueue, Proxy, QueueHandle,
 };
 
+use super::{DispatchError, DisplayServer, WindowEvent};
 use crate::display_manager::DisplayManager;
 use crate::layout::{PanelAnchor, PanelSpecData};
 use crate::presentation::PanelFrame;
-use super::{DispatchError, DisplayServer, WindowEvent};
 
 // ---------------------------------------------------------------------------
 // Public error type
@@ -67,7 +67,13 @@ impl WaylandPanel {
     /// Update the panel from a new spec. Resizes the layer surface if the fixed dimension changed,
     /// which will cause the compositor to send a new configure before the next render.
     pub fn update_spec(&mut self, data: &PanelSpecData) {
-        if fixed_axis_changed(self.anchor.as_ref(), self.width, self.height, data.width, data.height) {
+        if fixed_axis_changed(
+            self.anchor.as_ref(),
+            self.width,
+            self.height,
+            data.width,
+            data.height,
+        ) {
             self.width = data.width;
             self.height = data.height;
             let (set_w, set_h) = compute_set_size(self.anchor.as_ref(), data.width, data.height);
@@ -87,7 +93,9 @@ impl WaylandPanel {
         // configured a different height than what the app rendered (configure race),
         // and using self.height would produce a mismatched canvas size and panic.
         let actual_height = (bgrx.len() / 4).saturating_div(self.width as usize) as i32;
-        if actual_height == 0 { return; }
+        if actual_height == 0 {
+            return;
+        }
         let Ok((buffer, canvas)) = self.pool.create_buffer(
             self.width as i32,
             actual_height,
@@ -139,7 +147,8 @@ pub struct WaylandDisplayServer {
 
 impl std::fmt::Debug for WaylandDisplayServer {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("WaylandDisplayServer").finish_non_exhaustive()
+        f.debug_struct("WaylandDisplayServer")
+            .finish_non_exhaustive()
     }
 }
 
@@ -157,8 +166,8 @@ impl WaylandDisplayServer {
         let compositor_state = CompositorState::bind(&globals, &qh)
             .map_err(|e| WaylandConnectError::BindCompositor(e.to_string()))?;
         let output_state = OutputState::new(&globals, &qh);
-        let shm = Shm::bind(&globals, &qh)
-            .map_err(|e| WaylandConnectError::BindShm(e.to_string()))?;
+        let shm =
+            Shm::bind(&globals, &qh).map_err(|e| WaylandConnectError::BindShm(e.to_string()))?;
         let layer_shell = LayerShell::bind(&globals, &qh)
             .map_err(|e| WaylandConnectError::BindLayerShell(e.to_string()))?;
         let seat_state = SeatState::new(&globals, &qh);
@@ -175,10 +184,16 @@ impl WaylandDisplayServer {
             pending_configures: Vec::new(),
         };
 
-        let mut server = Self { conn, event_queue, state };
+        let mut server = Self {
+            conn,
+            event_queue,
+            state,
+        };
         // Roundtrip so output geometry events are processed before the caller
         // queries output dimensions.
-        server.event_queue.roundtrip(&mut server.state)
+        server
+            .event_queue
+            .roundtrip(&mut server.state)
             .map_err(|e| WaylandConnectError::Connect(e.to_string()))?;
         Ok(server)
     }
@@ -193,7 +208,8 @@ impl WaylandDisplayServer {
                 return Some((w as u32, h as u32));
             }
         }
-        info.modes.iter()
+        info.modes
+            .iter()
             .find(|m| m.current)
             .map(|m| (m.dimensions.0 as u32, m.dimensions.1 as u32))
     }
@@ -201,9 +217,18 @@ impl WaylandDisplayServer {
     /// Returns the device pixel ratio of the primary output.
     /// Uses physical/logical width ratio if logical size is available, otherwise falls back to scale_factor.
     pub fn primary_output_scale(&self) -> f32 {
-        let Some(output) = self.state.output_state.outputs().next() else { return 1.0; };
-        let Some(info) = self.state.output_state.info(&output) else { return 1.0; };
-        let physical_w = info.modes.iter().find(|m| m.current).map(|m| m.dimensions.0 as u32).unwrap_or(0);
+        let Some(output) = self.state.output_state.outputs().next() else {
+            return 1.0;
+        };
+        let Some(info) = self.state.output_state.info(&output) else {
+            return 1.0;
+        };
+        let physical_w = info
+            .modes
+            .iter()
+            .find(|m| m.current)
+            .map(|m| m.dimensions.0 as u32)
+            .unwrap_or(0);
         let logical_w = info.logical_size.map(|(w, _)| w as u32).unwrap_or(0);
         compute_output_scale(logical_w, physical_w, info.scale_factor)
     }
@@ -216,7 +241,11 @@ impl WaylandDisplayServer {
         let wl_surface = self.state.compositor_state.create_surface(&qh);
 
         let anchor = anchor_for_panel(data.anchor.as_ref());
-        let layer = if data.above { Layer::Top } else { Layer::Bottom };
+        let layer = if data.above {
+            Layer::Top
+        } else {
+            Layer::Bottom
+        };
 
         let layer_surface = self.state.layer_shell.create_layer_surface(
             &qh,
@@ -254,7 +283,9 @@ impl WaylandDisplayServer {
         let pool = SlotPool::new(pool_size.max(4096 * 3), &self.state.shm)
             .map_err(|e| anyhow::anyhow!("SlotPool::new: {e}"))?;
 
-        self.conn.flush().map_err(|e| anyhow::anyhow!("flush after create_panel: {e}"))?;
+        self.conn
+            .flush()
+            .map_err(|e| anyhow::anyhow!("flush after create_panel: {e}"))?;
 
         let dpr = self.primary_output_scale();
 
@@ -300,9 +331,9 @@ pub(crate) fn anchor_for_panel(anchor: Option<&PanelAnchor>) -> Anchor {
     // Use composite anchors so the compositor stretches the panel across the full perpendicular
     // axis (layer-shell spec: anchoring both opposite edges makes the surface span between them).
     match anchor {
-        Some(PanelAnchor::Left)   => Anchor::LEFT   | Anchor::TOP | Anchor::BOTTOM,
-        Some(PanelAnchor::Right)  => Anchor::RIGHT  | Anchor::TOP | Anchor::BOTTOM,
-        Some(PanelAnchor::Top)    => Anchor::TOP    | Anchor::LEFT | Anchor::RIGHT,
+        Some(PanelAnchor::Left) => Anchor::LEFT | Anchor::TOP | Anchor::BOTTOM,
+        Some(PanelAnchor::Right) => Anchor::RIGHT | Anchor::TOP | Anchor::BOTTOM,
+        Some(PanelAnchor::Top) => Anchor::TOP | Anchor::LEFT | Anchor::RIGHT,
         Some(PanelAnchor::Bottom) => Anchor::BOTTOM | Anchor::LEFT | Anchor::RIGHT,
         None => Anchor::empty(),
     }
@@ -327,7 +358,11 @@ impl DisplayServer for WaylandDisplayServer {
         }
         let dispatch_ok = self.event_queue.dispatch_pending(&mut self.state).is_ok();
         let flush_ok = self.event_queue.flush().is_ok();
-        build_dispatch_result(dispatch_ok, flush_ok, std::mem::take(&mut self.state.pending_events))
+        build_dispatch_result(
+            dispatch_ok,
+            flush_ok,
+            std::mem::take(&mut self.state.pending_events),
+        )
     }
 }
 
@@ -338,18 +373,30 @@ impl DisplayServer for WaylandDisplayServer {
 impl DisplayManager for WaylandDisplayServer {
     type Panel = WaylandPanel;
 
-    fn create_window(&mut self, spec: &PanelSpecData, frame: &PanelFrame) -> Result<WaylandPanel, anyhow::Error> {
+    fn create_window(
+        &mut self,
+        spec: &PanelSpecData,
+        frame: &PanelFrame,
+    ) -> Result<WaylandPanel, anyhow::Error> {
         let mut panel = self.create_panel(spec)?;
         self.update_image(&mut panel, &frame.pixels)?;
         Ok(panel)
     }
 
-    fn update_position(&mut self, _panel: &mut WaylandPanel, _spec: &PanelSpecData) -> Result<(), anyhow::Error> {
+    fn update_position(
+        &mut self,
+        _panel: &mut WaylandPanel,
+        _spec: &PanelSpecData,
+    ) -> Result<(), anyhow::Error> {
         // No-op: Wayland position is compositor-managed via anchor
         Ok(())
     }
 
-    fn update_dimensions(&mut self, panel: &mut WaylandPanel, spec: &PanelSpecData) -> Result<(), anyhow::Error> {
+    fn update_dimensions(
+        &mut self,
+        panel: &mut WaylandPanel,
+        spec: &PanelSpecData,
+    ) -> Result<(), anyhow::Error> {
         panel.update_spec(spec);
         Ok(())
     }
@@ -454,13 +501,7 @@ impl OutputHandler for WaylandState {
 }
 
 impl LayerShellHandler for WaylandState {
-    fn closed(
-        &mut self,
-        _conn: &Connection,
-        _qh: &QueueHandle<Self>,
-        _layer: &LayerSurface,
-    ) {
-    }
+    fn closed(&mut self, _conn: &Connection, _qh: &QueueHandle<Self>, _layer: &LayerSurface) {}
 
     fn configure(
         &mut self,
@@ -471,7 +512,8 @@ impl LayerShellHandler for WaylandState {
         _serial: u32,
     ) {
         // ack_configure is called automatically by delegate_layer!
-        self.pending_configures.push((layer.wl_surface().id(), configure.new_size));
+        self.pending_configures
+            .push((layer.wl_surface().id(), configure.new_size));
     }
 }
 
@@ -480,13 +522,7 @@ impl SeatHandler for WaylandState {
         &mut self.seat_state
     }
 
-    fn new_seat(
-        &mut self,
-        _conn: &Connection,
-        _qh: &QueueHandle<Self>,
-        _seat: wl_seat::WlSeat,
-    ) {
-    }
+    fn new_seat(&mut self, _conn: &Connection, _qh: &QueueHandle<Self>, _seat: wl_seat::WlSeat) {}
 
     fn new_capability(
         &mut self,
@@ -497,7 +533,9 @@ impl SeatHandler for WaylandState {
     ) {
         if capability == Capability::Pointer && self.pointer.is_none() {
             match self.seat_state.get_pointer(qh, &seat) {
-                Ok(ptr) => { self.pointer = Some(ptr); }
+                Ok(ptr) => {
+                    self.pointer = Some(ptr);
+                }
                 Err(e) => tracing::warn!(error = %e, "failed to bind pointer"),
             }
         }
@@ -517,12 +555,7 @@ impl SeatHandler for WaylandState {
         }
     }
 
-    fn remove_seat(
-        &mut self,
-        _conn: &Connection,
-        _qh: &QueueHandle<Self>,
-        _seat: wl_seat::WlSeat,
-    ) {
+    fn remove_seat(&mut self, _conn: &Connection, _qh: &QueueHandle<Self>, _seat: wl_seat::WlSeat) {
     }
 }
 
@@ -535,7 +568,9 @@ impl PointerHandler for WaylandState {
         events: &[PointerEvent],
     ) {
         for event in events {
-            let PointerEventKind::Press { button, .. } = event.kind else { continue; };
+            let PointerEventKind::Press { button, .. } = event.kind else {
+                continue;
+            };
             let mouse_button = match button {
                 0x110 => super::MouseButton::Left,
                 0x111 => super::MouseButton::Right,
@@ -581,7 +616,11 @@ delegate_registry!(WaylandState);
 /// Returns the `(width, height)` pair to pass to `set_size` for the compositor.
 /// For anchors where the compositor controls one axis (Left/Right → height;
 /// Top/Bottom → width), that axis must be 0 so the compositor can stretch it.
-pub(crate) fn compute_set_size(anchor: Option<&PanelAnchor>, width: u32, height: u32) -> (u32, u32) {
+pub(crate) fn compute_set_size(
+    anchor: Option<&PanelAnchor>,
+    width: u32,
+    height: u32,
+) -> (u32, u32) {
     match anchor {
         Some(PanelAnchor::Left) | Some(PanelAnchor::Right) => (width, 0),
         Some(PanelAnchor::Top) | Some(PanelAnchor::Bottom) => (0, height),
@@ -596,8 +635,10 @@ pub(crate) fn compute_set_size(anchor: Option<&PanelAnchor>, width: u32, height:
 /// - None: either axis
 pub(crate) fn fixed_axis_changed(
     anchor: Option<&PanelAnchor>,
-    old_w: u32, old_h: u32,
-    new_w: u32, new_h: u32,
+    old_w: u32,
+    old_h: u32,
+    new_w: u32,
+    new_h: u32,
 ) -> bool {
     match anchor {
         Some(PanelAnchor::Left) | Some(PanelAnchor::Right) => new_w != old_w,
@@ -622,7 +663,10 @@ pub(crate) fn compute_output_scale(logical_w: u32, physical_w: u32, scale_factor
 
 #[cfg(test)]
 mod tests {
-    use super::{anchor_for_panel, compute_output_scale, compute_set_size, fixed_axis_changed, WaylandDisplayServer};
+    use super::{
+        anchor_for_panel, compute_output_scale, compute_set_size, fixed_axis_changed,
+        WaylandDisplayServer,
+    };
     use crate::display_manager::DisplayManager;
     use crate::layout::{PanelAnchor, PanelSpecData};
     use smithay_client_toolkit::shell::wlr_layer::Anchor;
@@ -668,7 +712,8 @@ mod tests {
             }
         };
         let spec = minimal_spec();
-        let mut panel = DisplayManager::create_window(&mut server, &spec, &blank_frame(100, 30)).unwrap();
+        let mut panel =
+            DisplayManager::create_window(&mut server, &spec, &blank_frame(100, 30)).unwrap();
         let new_spec = PanelSpecData {
             x: 50,
             y: 50,
@@ -689,7 +734,8 @@ mod tests {
             }
         };
         let spec = minimal_spec();
-        let mut panel = DisplayManager::create_window(&mut server, &spec, &blank_frame(100, 30)).unwrap();
+        let mut panel =
+            DisplayManager::create_window(&mut server, &spec, &blank_frame(100, 30)).unwrap();
         let new_spec = PanelSpecData {
             width: 200,
             height: 60,
@@ -712,7 +758,8 @@ mod tests {
             }
         };
         let spec = minimal_spec();
-        let mut panel = DisplayManager::create_window(&mut server, &spec, &blank_frame(100, 30)).unwrap();
+        let mut panel =
+            DisplayManager::create_window(&mut server, &spec, &blank_frame(100, 30)).unwrap();
         // Provide a correctly-sized BGRX buffer (width * height * 4 bytes)
         let bgrx = vec![0u8; (spec.width * spec.height * 4) as usize];
         let result = DisplayManager::update_image(&mut server, &mut panel, &bgrx);
@@ -735,15 +782,22 @@ mod tests {
 
         // Old formula: canvas allocated with panel_height → would be too small
         let old_canvas_size = (panel_height * width * 4) as usize; // 12 000
-        assert!(old_canvas_size < bgrx.len(),
-            "old canvas ({old_canvas_size}B) < bgrx ({}B) → copy would panic", bgrx.len());
+        assert!(
+            old_canvas_size < bgrx.len(),
+            "old canvas ({old_canvas_size}B) < bgrx ({}B) → copy would panic",
+            bgrx.len()
+        );
 
         // New formula: derive height from bgrx
         let actual_height = (bgrx.len() / 4).saturating_div(width as usize);
         assert_eq!(actual_height, 50);
         let new_canvas_size = actual_height * width as usize * 4; // 20 000
-        assert_eq!(new_canvas_size, bgrx.len(),
-            "new canvas ({new_canvas_size}B) == bgrx ({}B) → copy is safe", bgrx.len());
+        assert_eq!(
+            new_canvas_size,
+            bgrx.len(),
+            "new canvas ({new_canvas_size}B) == bgrx ({}B) → copy is safe",
+            bgrx.len()
+        );
     }
 
     // Same invariant for a bgrx that is SHORTER than panel.height: actual_height
@@ -759,8 +813,12 @@ mod tests {
         let actual_height = (bgrx.len() / 4).saturating_div(width as usize);
         assert_eq!(actual_height, 20);
         let canvas_size = actual_height * width as usize * 4;
-        assert_eq!(canvas_size, bgrx.len(),
-            "canvas ({canvas_size}B) == bgrx ({}B) → copy is safe", bgrx.len());
+        assert_eq!(
+            canvas_size,
+            bgrx.len(),
+            "canvas ({canvas_size}B) == bgrx ({}B) → copy is safe",
+            bgrx.len()
+        );
     }
 
     // delete_window drops the panel without panicking
@@ -774,7 +832,8 @@ mod tests {
             }
         };
         let spec = minimal_spec();
-        let panel = DisplayManager::create_window(&mut server, &spec, &blank_frame(100, 30)).unwrap();
+        let panel =
+            DisplayManager::create_window(&mut server, &spec, &blank_frame(100, 30)).unwrap();
         let result = DisplayManager::delete_window(&mut server, panel);
         assert!(result.is_ok());
     }
@@ -803,10 +862,7 @@ mod tests {
     // Top/Bottom panels: height is fixed, width is compositor-controlled (must be 0)
     #[test]
     fn compute_set_size_top_passes_height_zeroes_width() {
-        assert_eq!(
-            compute_set_size(Some(&PanelAnchor::Top), 1920, 30),
-            (0, 30),
-        );
+        assert_eq!(compute_set_size(Some(&PanelAnchor::Top), 1920, 30), (0, 30),);
     }
 
     #[test]
@@ -820,10 +876,7 @@ mod tests {
     // None anchor: both axes are explicit
     #[test]
     fn compute_set_size_none_passes_both() {
-        assert_eq!(
-            compute_set_size(None, 800, 600),
-            (800, 600),
-        );
+        assert_eq!(compute_set_size(None, 800, 600), (800, 600),);
     }
 
     // ---------------------------------------------------------------------------
@@ -833,45 +886,93 @@ mod tests {
     // Left/Right: only width change triggers reconfigure
     #[test]
     fn fixed_axis_changed_left_width_change_triggers() {
-        assert!(fixed_axis_changed(Some(&PanelAnchor::Left), 40, 1080, 50, 1080));
+        assert!(fixed_axis_changed(
+            Some(&PanelAnchor::Left),
+            40,
+            1080,
+            50,
+            1080
+        ));
     }
 
     #[test]
     fn fixed_axis_changed_left_height_only_does_not_trigger() {
         // Height is compositor-controlled for Left panels; a height change alone must NOT
         // trigger reconfigure (the compositor manages it).
-        assert!(!fixed_axis_changed(Some(&PanelAnchor::Left), 40, 1080, 40, 900));
+        assert!(!fixed_axis_changed(
+            Some(&PanelAnchor::Left),
+            40,
+            1080,
+            40,
+            900
+        ));
     }
 
     #[test]
     fn fixed_axis_changed_right_width_change_triggers() {
-        assert!(fixed_axis_changed(Some(&PanelAnchor::Right), 40, 1080, 50, 1080));
+        assert!(fixed_axis_changed(
+            Some(&PanelAnchor::Right),
+            40,
+            1080,
+            50,
+            1080
+        ));
     }
 
     #[test]
     fn fixed_axis_changed_right_height_only_does_not_trigger() {
-        assert!(!fixed_axis_changed(Some(&PanelAnchor::Right), 40, 1080, 40, 900));
+        assert!(!fixed_axis_changed(
+            Some(&PanelAnchor::Right),
+            40,
+            1080,
+            40,
+            900
+        ));
     }
 
     // Top/Bottom: only height change triggers reconfigure
     #[test]
     fn fixed_axis_changed_top_height_change_triggers() {
-        assert!(fixed_axis_changed(Some(&PanelAnchor::Top), 1920, 30, 1920, 40));
+        assert!(fixed_axis_changed(
+            Some(&PanelAnchor::Top),
+            1920,
+            30,
+            1920,
+            40
+        ));
     }
 
     #[test]
     fn fixed_axis_changed_top_width_only_does_not_trigger() {
-        assert!(!fixed_axis_changed(Some(&PanelAnchor::Top), 1920, 30, 1600, 30));
+        assert!(!fixed_axis_changed(
+            Some(&PanelAnchor::Top),
+            1920,
+            30,
+            1600,
+            30
+        ));
     }
 
     #[test]
     fn fixed_axis_changed_bottom_height_change_triggers() {
-        assert!(fixed_axis_changed(Some(&PanelAnchor::Bottom), 1920, 30, 1920, 40));
+        assert!(fixed_axis_changed(
+            Some(&PanelAnchor::Bottom),
+            1920,
+            30,
+            1920,
+            40
+        ));
     }
 
     #[test]
     fn fixed_axis_changed_bottom_width_only_does_not_trigger() {
-        assert!(!fixed_axis_changed(Some(&PanelAnchor::Bottom), 1920, 30, 1600, 30));
+        assert!(!fixed_axis_changed(
+            Some(&PanelAnchor::Bottom),
+            1920,
+            30,
+            1600,
+            30
+        ));
     }
 
     // None: either change triggers reconfigure

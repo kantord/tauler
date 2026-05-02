@@ -16,7 +16,10 @@ fn spawned_module_drop_kills_child() {
 
     // Sanity: process must be alive before we drop.
     let alive_before = unsafe { libc::kill(pid, 0) } == 0;
-    assert!(alive_before, "child process should be alive right after spawn");
+    assert!(
+        alive_before,
+        "child process should be alive right after spawn"
+    );
 
     drop(spawned);
 

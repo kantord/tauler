@@ -14,8 +14,8 @@ use std::collections::HashMap;
 
 use clap::Parser;
 use costae::jsx::{EvalOutput, JsxEvaluator};
-use costae::theme::ThemeMode;
 use costae::theme::resolver::resolve_tw_in_json;
+use costae::theme::ThemeMode;
 use image::RgbaImage;
 
 fn parse_theme_mode(s: &str) -> Result<ThemeMode, String> {
@@ -99,7 +99,12 @@ fn main() {
         let (x, y) = translation_xy(&child.transform);
         (x, y, child.width.ceil() as u32, child.height.ceil() as u32)
     } else {
-        (PAD, PAD, render_w.saturating_sub(2 * PAD), measured.height.ceil() as u32)
+        (
+            PAD,
+            PAD,
+            render_w.saturating_sub(2 * PAD),
+            measured.height.ceil() as u32,
+        )
     };
 
     let x0 = obj_x.saturating_sub(PAD);

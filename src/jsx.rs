@@ -15,9 +15,9 @@ pub struct EvalOutput {
 }
 type EvalResult = rquickjs::Result<EvalOutput>;
 
-use rquickjs::{CatchResultExt, Persistent};
 use rquickjs::function::Function;
 use rquickjs::loader::{BuiltinLoader, BuiltinResolver, Loader, Resolver};
+use rquickjs::{CatchResultExt, Persistent};
 
 use std::path::PathBuf;
 
@@ -77,12 +77,21 @@ impl CostaeResolver {
             extensions: vec![".js".into(), ".jsx".into(), ".ts".into(), ".tsx".into()],
             ..oxc_resolver::ResolveOptions::default()
         });
-        Self { allowed_root: canonical_root.clone(), base_dir: canonical_root, resolver }
+        Self {
+            allowed_root: canonical_root.clone(),
+            base_dir: canonical_root,
+            resolver,
+        }
     }
 }
 
 impl Resolver for CostaeResolver {
-    fn resolve(&mut self, _ctx: &rquickjs::Ctx, base: &str, name: &str) -> rquickjs::Result<String> {
+    fn resolve(
+        &mut self,
+        _ctx: &rquickjs::Ctx,
+        base: &str,
+        name: &str,
+    ) -> rquickjs::Result<String> {
         if !name.starts_with("./") && !name.starts_with("../") {
             return Err(rquickjs::Error::new_resolving(base, name));
         }
@@ -96,14 +105,13 @@ impl Resolver for CostaeResolver {
             self.base_dir.clone()
         };
 
-        let resolution = self.resolver
+        let resolution = self
+            .resolver
             .resolve(&resolve_dir, name)
             .map_err(|_| rquickjs::Error::new_resolving(base, name))?;
 
         let resolved = resolution.full_path().to_path_buf();
-        let canonical = resolved
-            .canonicalize()
-            .unwrap_or_else(|_| resolved.clone());
+        let canonical = resolved.canonicalize().unwrap_or_else(|_| resolved.clone());
 
         if !canonical.starts_with(&self.allowed_root) {
             return Err(rquickjs::Error::new_resolving(base, name));
@@ -130,9 +138,13 @@ impl CostaeLoader {
 }
 
 impl Loader for CostaeLoader {
-    fn load<'js>(&mut self, ctx: &rquickjs::Ctx<'js>, name: &str) -> rquickjs::Result<rquickjs::Module<'js>> {
-        let source = std::fs::read_to_string(name)
-            .map_err(|_| rquickjs::Error::new_loading(name))?;
+    fn load<'js>(
+        &mut self,
+        ctx: &rquickjs::Ctx<'js>,
+        name: &str,
+    ) -> rquickjs::Result<rquickjs::Module<'js>> {
+        let source =
+            std::fs::read_to_string(name).map_err(|_| rquickjs::Error::new_loading(name))?;
         self.loaded_paths.lock().unwrap().push(PathBuf::from(name));
         let transformed = transform_jsx(&source);
         rquickjs::Module::declare(ctx.clone(), name, transformed)
@@ -166,31 +178,36 @@ impl Drop for JsxEvaluator {
 }
 
 impl JsxEvaluator {
-    pub fn new(source: &str, ctx: serde_json::Value, base_dir: Option<&Path>) -> rquickjs::Result<Self> {
+    pub fn new(
+        source: &str,
+        ctx: serde_json::Value,
+        base_dir: Option<&Path>,
+    ) -> rquickjs::Result<Self> {
         let runtime = rquickjs::Runtime::new()?;
         let loaded_paths: Arc<Mutex<Vec<PathBuf>>> = Arc::new(Mutex::new(Vec::new()));
 
         // Group UI components by module_path so shared paths emit a single
         // multi-export module (a second `.with_module` call would overwrite the first).
-        let mut module_groups: std::collections::HashMap<&'static str, Vec<&crate::ui::registry::UiEntry>> =
-            std::collections::HashMap::new();
+        let mut module_groups: std::collections::HashMap<
+            &'static str,
+            Vec<&crate::ui::registry::UiEntry>,
+        > = std::collections::HashMap::new();
         for e in crate::ui::registry::UI_COMPONENTS.iter() {
             module_groups.entry(e.module_path).or_default().push(e);
         }
 
-        let builtin_resolver = module_groups.keys().fold(
-            BuiltinResolver::default(),
-            |r, path| r.with_module(*path),
-        );
-        let builtin_loader = module_groups.iter().fold(
-            BuiltinLoader::default(),
-            |l, (path, entries)| {
-                l.with_module(
-                    *path,
-                    crate::ui::registry::synthetic_module_source_for_entries(entries),
-                )
-            },
-        );
+        let builtin_resolver = module_groups
+            .keys()
+            .fold(BuiltinResolver::default(), |r, path| r.with_module(*path));
+        let builtin_loader =
+            module_groups
+                .iter()
+                .fold(BuiltinLoader::default(), |l, (path, entries)| {
+                    l.with_module(
+                        *path,
+                        crate::ui::registry::synthetic_module_source_for_entries(entries),
+                    )
+                });
         if let Some(dir) = base_dir {
             runtime.set_loader(
                 (builtin_resolver, CostaeResolver::new(dir.to_path_buf())),
@@ -203,7 +220,8 @@ impl JsxEvaluator {
         let context = rquickjs::Context::full(&runtime)?;
         let stream_values: StreamValues = Arc::new(RwLock::new(HashMap::new()));
         let calls: StreamCalls = Arc::new(Mutex::new(Vec::new()));
-        let module_calls: Arc<Mutex<Vec<(String, serde_json::Value)>>> = Arc::new(Mutex::new(Vec::new()));
+        let module_calls: Arc<Mutex<Vec<(String, serde_json::Value)>>> =
+            Arc::new(Mutex::new(Vec::new()));
 
         let mut stored_render_fn: Option<Persistent<Function<'static>>> = None;
 
@@ -213,19 +231,32 @@ impl JsxEvaluator {
             let module_calls_inner = Arc::clone(&module_calls);
             context.with(|qjs_ctx| {
                 qjs_ctx.eval::<(), _>(JSX_GLOBALS_JS)?;
-                let func = rquickjs::Function::new(qjs_ctx.clone(), move |bin: String, script: Option<String>| {
-                    calls_inner.lock().unwrap().push((bin.clone(), script.clone()));
-                    sv.read().unwrap().get(&(bin, script)).cloned().unwrap_or_default()
-                })?;
+                let func = rquickjs::Function::new(
+                    qjs_ctx.clone(),
+                    move |bin: String, script: Option<String>| {
+                        calls_inner
+                            .lock()
+                            .unwrap()
+                            .push((bin.clone(), script.clone()));
+                        sv.read()
+                            .unwrap()
+                            .get(&(bin, script))
+                            .cloned()
+                            .unwrap_or_default()
+                    },
+                )?;
                 qjs_ctx.globals().set("useStringStream", func)?;
-                let func2 = rquickjs::Function::new(qjs_ctx.clone(), move |bin: String, props: rquickjs::Value| {
-                    let props: serde_json::Value = rquickjs_serde::from_value(props)
-                        .unwrap_or(serde_json::Value::Null);
-                    let mut mc = module_calls_inner.lock().unwrap();
-                    if !mc.iter().any(|(b, _)| b == &bin) {
-                        mc.push((bin, props));
-                    }
-                })?;
+                let func2 = rquickjs::Function::new(
+                    qjs_ctx.clone(),
+                    move |bin: String, props: rquickjs::Value| {
+                        let props: serde_json::Value =
+                            rquickjs_serde::from_value(props).unwrap_or(serde_json::Value::Null);
+                        let mut mc = module_calls_inner.lock().unwrap();
+                        if !mc.iter().any(|(b, _)| b == &bin) {
+                            mc.push((bin, props));
+                        }
+                    },
+                )?;
                 qjs_ctx.globals().set("registerModule", func2)?;
                 crate::ui::registry::register_ui_components(&qjs_ctx)?;
                 if !ctx.is_null() {
@@ -262,22 +293,33 @@ impl JsxEvaluator {
         &self,
         new_stream_values: &HashMap<(String, Option<String>), String>,
     ) -> EvalResult {
-        self.stream_values.write().unwrap().clone_from(new_stream_values);
+        self.stream_values
+            .write()
+            .unwrap()
+            .clone_from(new_stream_values);
         self.calls.lock().unwrap().clear();
         self.module_calls.lock().unwrap().clear();
 
         self.context.with(|qjs_ctx| {
-            let globals_val = rquickjs_serde::to_value(qjs_ctx.clone(), &*self.global_state.lock().unwrap())
-                .map_err(|_| rquickjs::Error::Unknown)?;
+            let globals_val =
+                rquickjs_serde::to_value(qjs_ctx.clone(), &*self.global_state.lock().unwrap())
+                    .map_err(|_| rquickjs::Error::Unknown)?;
             qjs_ctx.globals().set("globals", globals_val)?;
 
             let render_fn = self.render_fn.as_ref().unwrap().clone().restore(&qjs_ctx)?;
-            let value: rquickjs::Value = render_fn.call::<(), rquickjs::Value>(())
+            let value: rquickjs::Value = render_fn
+                .call::<(), rquickjs::Value>(())
                 .catch(&qjs_ctx)
-                .map_err(|e| { tracing::error!(exception = %e, "JS exception"); rquickjs::Error::Exception })?;
+                .map_err(|e| {
+                    tracing::error!(exception = %e, "JS exception");
+                    rquickjs::Error::Exception
+                })?;
 
             let updated_globals: rquickjs::Value = qjs_ctx.globals().get("globals")?;
-            if let Ok(new_state) = rquickjs_serde::from_value::<serde_json::Map<String, serde_json::Value>>(updated_globals) {
+            if let Ok(new_state) = rquickjs_serde::from_value::<
+                serde_json::Map<String, serde_json::Value>,
+            >(updated_globals)
+            {
                 *self.global_state.lock().unwrap() = new_state;
             }
 
@@ -343,7 +385,10 @@ mod tests {
 
     #[test]
     fn jsx_evaluator_returns_tag_props_and_children() {
-        let result = eval(r#"export default function render() { return <text tw="flex">{"hello"}</text>; }"#).layout;
+        let result = eval(
+            r#"export default function render() { return <text tw="flex">{"hello"}</text>; }"#,
+        )
+        .layout;
         assert_eq!(result["type"], "text");
         assert_eq!(result["tw"], "flex");
         assert_eq!(result["text"], "hello");
@@ -352,9 +397,18 @@ mod tests {
     #[test]
     fn transform_jsx_self_closing_element_with_tw_prop() {
         let result = transform_jsx(r#"<text tw="flex" />"#);
-        assert!(result.contains("_jsx"), "expected '_jsx' in output, got: {result}");
-        assert!(result.contains("\"text\""), "expected '\"text\"' in output, got: {result}");
-        assert!(result.contains("\"flex\""), "expected '\"flex\"' in output, got: {result}");
+        assert!(
+            result.contains("_jsx"),
+            "expected '_jsx' in output, got: {result}"
+        );
+        assert!(
+            result.contains("\"text\""),
+            "expected '\"text\"' in output, got: {result}"
+        );
+        assert!(
+            result.contains("\"flex\""),
+            "expected '\"flex\"' in output, got: {result}"
+        );
     }
 
     #[test]
@@ -367,7 +421,10 @@ mod tests {
     #[test]
     fn use_string_stream_returns_injected_value() {
         let mut streams = std::collections::HashMap::new();
-        streams.insert(("/usr/bin/bash".to_string(), Some("echo hi".to_string())), "hello".to_string());
+        streams.insert(
+            ("/usr/bin/bash".to_string(), Some("echo hi".to_string())),
+            "hello".to_string(),
+        );
         let result = JsxEvaluator::new(
             r#"export default function render() { return <text tw="text-white">{useStringStream("/usr/bin/bash", "echo hi")}</text>; }"#,
             serde_json::Value::Null,
@@ -378,7 +435,8 @@ mod tests {
 
     #[test]
     fn jsx_evaluator_injects_ctx_into_script() {
-        let ctx = serde_json::json!({ "output": "DP-4", "dpi": 96.0, "width": 250, "outer_gap": 8 });
+        let ctx =
+            serde_json::json!({ "output": "DP-4", "dpi": 96.0, "width": 250, "outer_gap": 8 });
         let value = JsxEvaluator::new(
             r#"export default function render() { return <text tw="text-white">{ctx.output}</text>; }"#,
             ctx,
@@ -408,7 +466,10 @@ mod tests {
     #[test]
     fn use_json_stream_parses_latest_json_output() {
         let mut streams = std::collections::HashMap::new();
-        streams.insert(("/usr/bin/test".to_string(), None), r#"{"name":"hello"}"#.to_string());
+        streams.insert(
+            ("/usr/bin/test".to_string(), None),
+            r#"{"name":"hello"}"#.to_string(),
+        );
         let result = JsxEvaluator::new(
             r#"export default function render() { return <text tw="text-white">{useJSONStream("/usr/bin/test").name}</text>; }"#,
             serde_json::Value::Null,
@@ -422,7 +483,9 @@ mod tests {
         let module_calls = eval(
             r#"export default function render() { return <Module bin="/usr/bin/test-module">{(data, events) => <text tw="text-white">hi</text>}</Module>; }"#,
         ).module_calls;
-        assert!(module_calls.iter().any(|(bin, _)| bin == "/usr/bin/test-module"));
+        assert!(module_calls
+            .iter()
+            .any(|(bin, _)| bin == "/usr/bin/test-module"));
     }
 
     #[test]
@@ -435,7 +498,8 @@ return <text tw="text-white">{String(globals.count)}</text>;
 }"#,
             serde_json::Value::Null,
             None,
-        ).unwrap();
+        )
+        .unwrap();
 
         let streams = std::collections::HashMap::new();
         let r1 = evaluator.eval(&streams).unwrap().layout;
@@ -457,12 +521,18 @@ return <text tw="text-white">{String(globals.count)}</text>;
         ).unwrap();
 
         let mut streams1 = std::collections::HashMap::new();
-        streams1.insert(("/bin/bash".to_string(), Some("echo hi".to_string())), "first".to_string());
+        streams1.insert(
+            ("/bin/bash".to_string(), Some("echo hi".to_string())),
+            "first".to_string(),
+        );
         let result1 = evaluator.eval(&streams1).unwrap().layout;
         assert_eq!(result1["text"], "first");
 
         let mut streams2 = std::collections::HashMap::new();
-        streams2.insert(("/bin/bash".to_string(), Some("echo hi".to_string())), "second".to_string());
+        streams2.insert(
+            ("/bin/bash".to_string(), Some("echo hi".to_string())),
+            "second".to_string(),
+        );
         let result2 = evaluator.eval(&streams2).unwrap().layout;
         assert_eq!(result2["text"], "second");
     }
@@ -471,11 +541,17 @@ return <text tw="text-white">{String(globals.count)}</text>;
     #[test]
     fn stream_key_none_and_some_empty_are_not_interchangeable() {
         let key_for_none: (String, Option<String>) = ("/usr/bin/foo".to_string(), None);
-        let key_for_empty: (String, Option<String>) = ("/usr/bin/foo".to_string(), Some("".to_string()));
-        let mut map: std::collections::HashMap<(String, Option<String>), &str> = std::collections::HashMap::new();
+        let key_for_empty: (String, Option<String>) =
+            ("/usr/bin/foo".to_string(), Some("".to_string()));
+        let mut map: std::collections::HashMap<(String, Option<String>), &str> =
+            std::collections::HashMap::new();
         map.insert(key_for_none, "value_for_none");
         map.insert(key_for_empty, "value_for_empty");
-        assert_eq!(map.len(), 2, "(bin, None) and (bin, Some(\"\")) must be distinct map keys");
+        assert_eq!(
+            map.len(),
+            2,
+            "(bin, None) and (bin, Some(\"\")) must be distinct map keys"
+        );
     }
 
     #[test]
@@ -485,38 +561,66 @@ return <text tw="text-white">{String(globals.count)}</text>;
             r#"export default function render() { return <text tw="text-white">hello</text>; }"#,
             serde_json::Value::Null,
             None,
-        ).unwrap().eval(&streams).unwrap().layout;
-        assert_eq!(result["type"], "text", "expected type=text, got: {:?}", result);
-        assert_eq!(result["text"], "hello", "expected text=hello, got: {:?}", result);
+        )
+        .unwrap()
+        .eval(&streams)
+        .unwrap()
+        .layout;
+        assert_eq!(
+            result["type"], "text",
+            "expected type=text, got: {:?}",
+            result
+        );
+        assert_eq!(
+            result["text"], "hello",
+            "expected text=hello, got: {:?}",
+            result
+        );
     }
 
     #[test]
     fn jsx_evaluator_resolves_sibling_import_from_disk() {
-        let tmp_dir = std::env::temp_dir().join(format!("costae_sibling_import_{}", std::process::id()));
+        let tmp_dir =
+            std::env::temp_dir().join(format!("costae_sibling_import_{}", std::process::id()));
         std::fs::create_dir_all(&tmp_dir).expect("failed to create temp dir");
-        std::fs::write(tmp_dir.join("Foo.jsx"), "export default function Foo() { return 42; }")
-            .expect("failed to write Foo.jsx");
+        std::fs::write(
+            tmp_dir.join("Foo.jsx"),
+            "export default function Foo() { return 42; }",
+        )
+        .expect("failed to write Foo.jsx");
 
         let layout_source = r#"import Foo from './Foo.jsx';
 export default function render() { return <text tw="text-white">{String(Foo())}</text>; }"#;
 
         let streams = std::collections::HashMap::new();
-        let result = JsxEvaluator::new(layout_source, serde_json::Value::Null, Some(tmp_dir.as_path()))
-            .unwrap()
-            .eval(&streams)
-            .unwrap().layout;
+        let result = JsxEvaluator::new(
+            layout_source,
+            serde_json::Value::Null,
+            Some(tmp_dir.as_path()),
+        )
+        .unwrap()
+        .eval(&streams)
+        .unwrap()
+        .layout;
 
-        assert_eq!(result["text"], "42", "expected text=42 from imported Foo, got: {:?}", result);
+        assert_eq!(
+            result["text"], "42",
+            "expected text=42 from imported Foo, got: {:?}",
+            result
+        );
         let _ = std::fs::remove_dir_all(&tmp_dir);
     }
 
     #[test]
     fn loaded_paths_includes_imported_sibling() {
-        let tmp_dir = std::env::temp_dir()
-            .join(format!("costae_loaded_paths_{}", std::process::id()));
+        let tmp_dir =
+            std::env::temp_dir().join(format!("costae_loaded_paths_{}", std::process::id()));
         std::fs::create_dir_all(&tmp_dir).expect("failed to create temp dir");
-        std::fs::write(tmp_dir.join("Comp.jsx"), "export default function Comp() { return 1; }")
-            .expect("failed to write Comp.jsx");
+        std::fs::write(
+            tmp_dir.join("Comp.jsx"),
+            "export default function Comp() { return 1; }",
+        )
+        .expect("failed to write Comp.jsx");
 
         let layout_source = r#"import Comp from './Comp.jsx';
 export default function render() { return <text tw="text-white">{String(Comp())}</text>; }"#;
@@ -528,7 +632,9 @@ export default function render() { return <text tw="text-white">{String(Comp())}
         )
         .expect("JsxEvaluator::new failed");
 
-        let canonical_comp = tmp_dir.join("Comp.jsx").canonicalize()
+        let canonical_comp = tmp_dir
+            .join("Comp.jsx")
+            .canonicalize()
             .expect("canonicalize failed");
 
         let paths = evaluator.loaded_paths();
@@ -560,14 +666,17 @@ export default function render() { return <text tw="text-white">{String(Comp())}
 
     #[test]
     fn jsx_null_and_false_children_are_filtered_from_container() {
-        let result = eval(r#"export default function render() {
+        let result = eval(
+            r#"export default function render() {
 const show = false;
 return <container tw="flex">
   <text tw="text-white">visible</text>
   {show && <text tw="text-white">hidden</text>}
   {null}
 </container>;
-}"#).layout;
+}"#,
+        )
+        .layout;
         let children = result["children"].as_array().unwrap();
         assert_eq!(children.len(), 1, "expected 1 child, got: {:?}", children);
         assert_eq!(children[0]["text"], "visible");

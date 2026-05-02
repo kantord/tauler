@@ -7,43 +7,35 @@ use lru::LruCache;
 use anyhow::Result;
 use image::{ImageBuffer, Rgba};
 use takumi::{
-    GlobalContext,
-    layout::{Viewport, node::Node},
-    rendering::{MeasuredNode, RenderOptions, measure_layout as takumi_measure_layout, render as takumi_render},
-    resources::font::FontResource,
+    layout::{node::Node, Viewport},
+    rendering::{
+        measure_layout as takumi_measure_layout, render as takumi_render, MeasuredNode,
+        RenderOptions,
+    },
     resources::image::ImageSource,
+    GlobalContext,
 };
 
-use costae::managed_set::{Lifecycle, ManagedSet};
-use costae::managed_set::reconcile::Reconcile;
 use costae::layout::parse_layout;
-use costae::render::find_font_files;
+use costae::managed_set::reconcile::Reconcile;
+use costae::managed_set::{Lifecycle, ManagedSet};
 
 // ---------------------------------------------------------------------------
 // GlobalContext factory
 // ---------------------------------------------------------------------------
 
 fn new_ctx() -> GlobalContext {
-    let home = std::env::var("HOME").unwrap_or_default();
-    let dirs: Vec<std::path::PathBuf> = vec![
-        "/usr/share/fonts/TTF".into(),
-        "/usr/share/fonts/truetype".into(),
-        "/usr/share/fonts/OTF".into(),
-        format!("{home}/.local/share/fonts").into(),
-        format!("{home}/.fonts").into(),
-    ];
     let mut ctx = GlobalContext::default();
-    for path in find_font_files(&dirs) {
-        if let Ok(bytes) = std::fs::read(&path) {
-            let _ = ctx.font_context.load_and_store(FontResource::new(bytes));
-        }
-    }
+    ctx.font_context.collection.load_system_fonts();
     let assets_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("test-assets");
     if let Ok(entries) = std::fs::read_dir(&assets_dir) {
         for entry in entries.flatten() {
             let path = entry.path();
             if path.extension().and_then(|e| e.to_str()) == Some("png") {
-                if let (Ok(bytes), Some(stem)) = (std::fs::read(&path), path.file_stem().and_then(|s| s.to_str())) {
+                if let (Ok(bytes), Some(stem)) = (
+                    std::fs::read(&path),
+                    path.file_stem().and_then(|s| s.to_str()),
+                ) {
                     if let Ok(src) = ImageSource::from_bytes(&bytes) {
                         ctx.persistent_image_store.insert(stem.to_string(), src);
                     }
@@ -60,27 +52,59 @@ fn new_ctx() -> GlobalContext {
 
 #[derive(Clone)]
 enum FakeNode {
-    Text       { id: String, content: String, tw: String },
-    Image      { id: String, color: String, width: u32, height: u32 },
-    Photo      { id: String, src: String, width: u32, height: u32 },
-    Collection { id: String, tw: String, children: Vec<FakeNode> },
+    Text {
+        id: String,
+        content: String,
+        tw: String,
+    },
+    Image {
+        id: String,
+        color: String,
+        width: u32,
+        height: u32,
+    },
+    Photo {
+        id: String,
+        src: String,
+        width: u32,
+        height: u32,
+    },
+    Collection {
+        id: String,
+        tw: String,
+        children: Vec<FakeNode>,
+    },
 }
 
 impl FakeNode {
     fn id(&self) -> &str {
-        match self { Self::Text{id,..}|Self::Image{id,..}|Self::Photo{id,..}|Self::Collection{id,..} => id }
+        match self {
+            Self::Text { id, .. }
+            | Self::Image { id, .. }
+            | Self::Photo { id, .. }
+            | Self::Collection { id, .. } => id,
+        }
     }
 
     /// Generate the takumi layout JSON for this node.
     fn to_json(&self) -> serde_json::Value {
         match self {
-            Self::Text { content, tw, .. } =>
-                serde_json::json!({"type":"text","text":content,"tw":tw}),
-            Self::Image { color, width, height, .. } =>
-                // inline-block so explicit w/h are respected in the block containing context
-                serde_json::json!({"type":"container","style":{"display":"inline-block"},"tw":format!("w-[{}px] h-[{}px] bg-{}",width,height,color)}),
-            Self::Photo { src, width, height, .. } =>
-                serde_json::json!({"type":"image","src":src,"width":width,"height":height}),
+            Self::Text { content, tw, .. } => {
+                serde_json::json!({"type":"text","text":content,"tw":tw})
+            }
+            Self::Image {
+                color,
+                width,
+                height,
+                ..
+            } =>
+            // inline-block so explicit w/h are respected in the block containing context
+            {
+                serde_json::json!({"type":"container","style":{"display":"inline-block"},"tw":format!("w-[{}px] h-[{}px] bg-{}",width,height,color)})
+            }
+            Self::Photo {
+                src, width, height, ..
+            } => serde_json::json!({"type":"image","src":src,"width":width,"height":height}),
             Self::Collection { tw, children, .. } => {
                 let ch: Vec<_> = children.iter().map(|c| c.to_json()).collect();
                 serde_json::json!({"type":"container","tw":tw,"children":ch})
@@ -90,7 +114,9 @@ impl FakeNode {
 }
 
 impl std::fmt::Display for FakeNode {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result { write!(f, "{}", self.id()) }
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.id())
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -98,15 +124,38 @@ impl std::fmt::Display for FakeNode {
 // ---------------------------------------------------------------------------
 
 enum FakeNodeState {
-    Text       { id: String, content: String, tw: String },
-    Image      { id: String, color: String, width: u32, height: u32 },
-    Photo      { id: String, src: String, width: u32, height: u32 },
-    Collection { id: String, tw: String, children: ManagedSet<FakeNode> },
+    Text {
+        id: String,
+        content: String,
+        tw: String,
+    },
+    Image {
+        id: String,
+        color: String,
+        width: u32,
+        height: u32,
+    },
+    Photo {
+        id: String,
+        src: String,
+        width: u32,
+        height: u32,
+    },
+    Collection {
+        id: String,
+        tw: String,
+        children: ManagedSet<FakeNode>,
+    },
 }
 
 impl FakeNodeState {
     fn id(&self) -> &str {
-        match self { Self::Text{id,..}|Self::Image{id,..}|Self::Photo{id,..}|Self::Collection{id,..} => id }
+        match self {
+            Self::Text { id, .. }
+            | Self::Image { id, .. }
+            | Self::Photo { id, .. }
+            | Self::Collection { id, .. } => id,
+        }
     }
 }
 
@@ -115,7 +164,7 @@ impl FakeNodeState {
 // ---------------------------------------------------------------------------
 
 struct Ctx {
-    global:      GlobalContext,
+    global: GlobalContext,
     changed_ids: Vec<String>,
     // Cached natural dimensions (W, H) for each node, used by the stub layout pass.
     node_dims: HashMap<String, (f32, f32)>,
@@ -136,62 +185,142 @@ impl Ctx {
 // ---------------------------------------------------------------------------
 
 #[derive(Clone)]
-struct Rect { x: f32, y: f32, w: f32, h: f32 }
+struct Rect {
+    x: f32,
+    y: f32,
+    w: f32,
+    h: f32,
+}
 
 // ---------------------------------------------------------------------------
 // Lifecycle — tracks which nodes changed, no rendering
 // ---------------------------------------------------------------------------
 
 impl Lifecycle for FakeNode {
-    type Key=String; type State=FakeNodeState; type Context=Ctx; type Output=(); type Error=anyhow::Error;
-    fn key(&self) -> String { self.id().to_string() }
+    type Key = String;
+    type State = FakeNodeState;
+    type Context = Ctx;
+    type Output = ();
+    type Error = anyhow::Error;
+    fn key(&self) -> String {
+        self.id().to_string()
+    }
 
     fn enter(self, ctx: &mut Ctx, _: &mut ()) -> Result<FakeNodeState> {
         ctx.changed_ids.push(self.id().to_string());
         match self {
-            FakeNode::Text { id, content, tw } =>
-                Ok(FakeNodeState::Text { id, content, tw }),
-            FakeNode::Image { id, color, width, height } =>
-                Ok(FakeNodeState::Image { id, color, width, height }),
-            FakeNode::Photo { id, src, width, height } =>
-                Ok(FakeNodeState::Photo { id, src, width, height }),
+            FakeNode::Text { id, content, tw } => Ok(FakeNodeState::Text { id, content, tw }),
+            FakeNode::Image {
+                id,
+                color,
+                width,
+                height,
+            } => Ok(FakeNodeState::Image {
+                id,
+                color,
+                width,
+                height,
+            }),
+            FakeNode::Photo {
+                id,
+                src,
+                width,
+                height,
+            } => Ok(FakeNodeState::Photo {
+                id,
+                src,
+                width,
+                height,
+            }),
             FakeNode::Collection { id, tw, children } => {
                 let mut cs: ManagedSet<FakeNode> = ManagedSet::new();
                 cs.reconcile(children, ctx, &mut ());
-                Ok(FakeNodeState::Collection { id, tw, children: cs })
+                Ok(FakeNodeState::Collection {
+                    id,
+                    tw,
+                    children: cs,
+                })
             }
         }
     }
 
     fn reconcile_self(self, state: &mut FakeNodeState, ctx: &mut Ctx, _: &mut ()) -> Result<()> {
         match (self, state) {
-            (FakeNode::Text{id,content,tw}, FakeNodeState::Text{content:oc,tw:otw,..}) => {
+            (
+                FakeNode::Text { id, content, tw },
+                FakeNodeState::Text {
+                    content: oc,
+                    tw: otw,
+                    ..
+                },
+            ) => {
                 if content != *oc || tw != *otw {
                     ctx.changed_ids.push(id);
-                    *oc = content; *otw = tw;
+                    *oc = content;
+                    *otw = tw;
                 }
                 Ok(())
             }
-            (FakeNode::Image{id,color,width,height}, FakeNodeState::Image{color:oc,width:ow,height:oh,..}) => {
+            (
+                FakeNode::Image {
+                    id,
+                    color,
+                    width,
+                    height,
+                },
+                FakeNodeState::Image {
+                    color: oc,
+                    width: ow,
+                    height: oh,
+                    ..
+                },
+            ) => {
                 if color != *oc || width != *ow || height != *oh {
                     ctx.changed_ids.push(id);
-                    *oc = color; *ow = width; *oh = height;
+                    *oc = color;
+                    *ow = width;
+                    *oh = height;
                 }
                 Ok(())
             }
-            (FakeNode::Photo{id,src,width,height}, FakeNodeState::Photo{src:os,width:ow,height:oh,..}) => {
+            (
+                FakeNode::Photo {
+                    id,
+                    src,
+                    width,
+                    height,
+                },
+                FakeNodeState::Photo {
+                    src: os,
+                    width: ow,
+                    height: oh,
+                    ..
+                },
+            ) => {
                 if src != *os || width != *ow || height != *oh {
                     ctx.changed_ids.push(id);
-                    *os = src; *ow = width; *oh = height;
+                    *os = src;
+                    *ow = width;
+                    *oh = height;
                 }
                 Ok(())
             }
-            (FakeNode::Collection{id,tw,children}, FakeNodeState::Collection{tw:otw,children:cs,..}) => {
-                if tw != *otw { ctx.changed_ids.push(id); *otw = tw; }
+            (
+                FakeNode::Collection { id, tw, children },
+                FakeNodeState::Collection {
+                    tw: otw,
+                    children: cs,
+                    ..
+                },
+            ) => {
+                if tw != *otw {
+                    ctx.changed_ids.push(id);
+                    *otw = tw;
+                }
                 cs.reconcile(children, ctx, &mut ());
                 Ok(())
             }
-            _ => Err(anyhow::anyhow!("type mismatch"))
+            _ => Err(anyhow::anyhow!("type mismatch")),
         }
     }
 
@@ -209,12 +338,15 @@ impl Lifecycle for FakeNode {
 // ---------------------------------------------------------------------------
 
 fn collect_bboxes(measured: &MeasuredNode, node: &FakeNode, bboxes: &mut HashMap<String, Rect>) {
-    bboxes.insert(node.id().to_string(), Rect {
-        x: measured.transform[4],
-        y: measured.transform[5],
-        w: measured.width,
-        h: measured.height,
-    });
+    bboxes.insert(
+        node.id().to_string(),
+        Rect {
+            x: measured.transform[4],
+            y: measured.transform[5],
+            w: measured.width,
+            h: measured.height,
+        },
+    );
     if let FakeNode::Collection { children, .. } = node {
         // Taffy groups absolutely-positioned children under a zero-height placeholder
         // node positioned at the parent's bottom edge.  Detect it by:
@@ -222,20 +354,24 @@ fn collect_bboxes(measured: &MeasuredNode, node: &FakeNode, bboxes: &mut HashMap
         // Only activate this unwrapping when the FakeNode tree actually has absolute
         // children — avoids false positives from legitimate zero-height nodes.
         let parent_bottom = measured.transform[5] + measured.height;
-        let has_abs_f = children.iter().any(|c|
+        let has_abs_f = children.iter().any(|c| {
             matches!(c, FakeNode::Collection { tw, .. }
-                if tw.split_whitespace().any(|t| t == "absolute")));
+                if tw.split_whitespace().any(|t| t == "absolute"))
+        });
         let is_placeholder = |mc: &MeasuredNode| -> bool {
             has_abs_f
-            && mc.height == 0.0
-            && !mc.children.is_empty()
-            && mc.transform[5] >= parent_bottom - 0.5
+                && mc.height == 0.0
+                && !mc.children.is_empty()
+                && mc.transform[5] >= parent_bottom - 0.5
         };
         let mut in_flow_m: Vec<&MeasuredNode> = Vec::new();
-        let mut abs_m:     Vec<&MeasuredNode> = Vec::new();
+        let mut abs_m: Vec<&MeasuredNode> = Vec::new();
         for mc in &measured.children {
-            if is_placeholder(mc) { abs_m.extend(mc.children.iter()); }
-            else                  { in_flow_m.push(mc); }
+            if is_placeholder(mc) {
+                abs_m.extend(mc.children.iter());
+            } else {
+                in_flow_m.push(mc);
+            }
         }
         let in_flow_f: Vec<&FakeNode> = children.iter()
             .filter(|c| !matches!(c, FakeNode::Collection { tw, .. } if tw.split_whitespace().any(|t| t == "absolute")))
@@ -243,8 +379,12 @@ fn collect_bboxes(measured: &MeasuredNode, node: &FakeNode, bboxes: &mut HashMap
         let abs_f: Vec<&FakeNode> = children.iter()
             .filter(|c|  matches!(c, FakeNode::Collection { tw, .. } if tw.split_whitespace().any(|t| t == "absolute")))
             .collect();
-        for (m, f) in in_flow_m.iter().zip(in_flow_f.iter()) { collect_bboxes(m, f, bboxes); }
-        for (m, f) in abs_m.iter().zip(abs_f.iter())         { collect_bboxes(m, f, bboxes); }
+        for (m, f) in in_flow_m.iter().zip(in_flow_f.iter()) {
+            collect_bboxes(m, f, bboxes);
+        }
+        for (m, f) in abs_m.iter().zip(abs_f.iter()) {
+            collect_bboxes(m, f, bboxes);
+        }
     }
 }
 
@@ -260,17 +400,26 @@ fn collect_bboxes(measured: &MeasuredNode, node: &FakeNode, bboxes: &mut HashMap
 /// Visual classes (font size, color, etc.) are dropped — they are irrelevant
 /// to flex geometry and would trigger unnecessary text shaping.
 fn layout_tw(tw: &str) -> String {
-    tw.split_whitespace().filter(|c| {
-        matches!(*c,
-            "ml-auto"|"mr-auto"|"mx-auto"|"mt-auto"|"mb-auto"|"my-auto")
-        || c.starts_with("flex-")
-        || c.starts_with("grow") || c.starts_with("shrink")
-        || c.starts_with("self-") || c.starts_with("justify-self-")
-        || c.starts_with("order-")
-        || c.starts_with("w-") || c.starts_with("h-")
-        || c.starts_with("min-w-") || c.starts_with("max-w-")
-        || c.starts_with("min-h-") || c.starts_with("max-h-")
-    }).collect::<Vec<_>>().join(" ")
+    tw.split_whitespace()
+        .filter(|c| {
+            matches!(
+                *c,
+                "ml-auto" | "mr-auto" | "mx-auto" | "mt-auto" | "mb-auto" | "my-auto"
+            ) || c.starts_with("flex-")
+                || c.starts_with("grow")
+                || c.starts_with("shrink")
+                || c.starts_with("self-")
+                || c.starts_with("justify-self-")
+                || c.starts_with("order-")
+                || c.starts_with("w-")
+                || c.starts_with("h-")
+                || c.starts_with("min-w-")
+                || c.starts_with("max-w-")
+                || c.starts_with("min-h-")
+                || c.starts_with("max-h-")
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 fn stub_scene_json(node: &FakeNode, dims: &HashMap<String, (f32, f32)>) -> serde_json::Value {
@@ -291,8 +440,9 @@ fn stub_scene_json(node: &FakeNode, dims: &HashMap<String, (f32, f32)>) -> serde
         // preserves display:inline-block and tw-based dimensions, ensuring the stub
         // layout places the image at the same position as the full layout would.
         FakeNode::Image { .. } => node.to_json(),
-        FakeNode::Photo { src, width, height, .. } =>
-            serde_json::json!({"type":"image","src":src,"width":width,"height":height}),
+        FakeNode::Photo {
+            src, width, height, ..
+        } => serde_json::json!({"type":"image","src":src,"width":width,"height":height}),
         FakeNode::Collection { tw, children, .. } => {
             let ch: Vec<_> = children.iter().map(|c| stub_scene_json(c, dims)).collect();
             serde_json::json!({"type":"container","tw":tw,"children":ch})
@@ -306,11 +456,15 @@ fn measure_natural(node: &FakeNode, global: &GlobalContext) -> (f32, f32) {
     let json = node.to_json();
     let n = parse_layout(&json).unwrap_or_else(|_| Node::container(vec![]));
     let m = takumi_measure_layout(
-        RenderOptions::builder().global(global).viewport(Viewport::new((None, None))).node(n).build()
-    ).expect("measure natural");
+        RenderOptions::builder()
+            .global(global)
+            .viewport(Viewport::new((None, None)))
+            .node(n)
+            .build(),
+    )
+    .expect("measure natural");
     (m.width, m.height)
 }
-
 
 // ---------------------------------------------------------------------------
 // Flat tile scene — only nodes touching (tx, ty, tile+2*buf) x (tile+2*buf),
@@ -322,15 +476,27 @@ fn measure_natural(node: &FakeNode, global: &GlobalContext) -> (f32, f32) {
 /// classes.  Layout classes have no effect on absolute-positioned childless
 /// containers and trigger a takumi rendering bug at certain canvas positions.
 fn visual_tw(tw: &str) -> String {
-    tw.split_whitespace().filter(|c| {
-        c.starts_with("bg-") || c.starts_with("shadow") || c.starts_with("rounded")
-        || c.starts_with("border") || c.starts_with("ring") || c.starts_with("opacity")
-        || c.starts_with("blur") || c.starts_with("backdrop")
-        || c.starts_with("brightness") || c.starts_with("contrast")
-        || c.starts_with("saturate") || c.starts_with("grayscale")
-        || c.starts_with("invert") || c.starts_with("hue-rotate")
-        || c.starts_with("drop-shadow") || c.starts_with("mix-blend")
-    }).collect::<Vec<_>>().join(" ")
+    tw.split_whitespace()
+        .filter(|c| {
+            c.starts_with("bg-")
+                || c.starts_with("shadow")
+                || c.starts_with("rounded")
+                || c.starts_with("border")
+                || c.starts_with("ring")
+                || c.starts_with("opacity")
+                || c.starts_with("blur")
+                || c.starts_with("backdrop")
+                || c.starts_with("brightness")
+                || c.starts_with("contrast")
+                || c.starts_with("saturate")
+                || c.starts_with("grayscale")
+                || c.starts_with("invert")
+                || c.starts_with("hue-rotate")
+                || c.starts_with("drop-shadow")
+                || c.starts_with("mix-blend")
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 /// True if `tw` contains an overflow clipping class.
@@ -347,10 +513,13 @@ fn collect_nested_whitelist(
     node: &FakeNode,
     bboxes: &HashMap<String, Rect>,
     node_set: &BTreeSet<String>,
-    parent_x: f32, parent_y: f32,
+    parent_x: f32,
+    parent_y: f32,
     out: &mut Vec<serde_json::Value>,
 ) {
-    let Some(r) = bboxes.get(node.id()) else { return };
+    let Some(r) = bboxes.get(node.id()) else {
+        return;
+    };
     let lx = r.x - parent_x;
     let ly = r.y - parent_y;
     let in_set = node_set.contains(node.id());
@@ -361,14 +530,23 @@ fn collect_nested_whitelist(
                     "style":{"position":"absolute","left":lx,"top":ly,"width":r.w}}));
             }
         }
-        FakeNode::Image { color, width, height, .. } => {
+        FakeNode::Image {
+            color,
+            width,
+            height,
+            ..
+        } => {
             if in_set {
-                out.push(serde_json::json!({"type":"container","tw":format!("bg-{}",color),
+                out.push(
+                    serde_json::json!({"type":"container","tw":format!("bg-{}",color),
                     "style":{"display":"block","position":"absolute","left":lx,"top":ly,
-                             "width":*width as f32,"height":*height as f32}}));
+                             "width":*width as f32,"height":*height as f32}}),
+                );
             }
         }
-        FakeNode::Photo { src, width, height, .. } => {
+        FakeNode::Photo {
+            src, width, height, ..
+        } => {
             if in_set {
                 out.push(serde_json::json!({"type":"image","src":src,
                     "style":{"display":"block","position":"absolute","left":lx,"top":ly,
@@ -409,17 +587,28 @@ fn collect_nested_whitelist(
 /// not in the set are still recursed (children may be in the set).
 /// Spatial cull still applied for early-exit on branches far from the region.
 /// Containers with overflow-hidden have their children nested to preserve clip.
+#[allow(clippy::too_many_arguments)]
 fn collect_flat_whitelist(
     node: &FakeNode,
     bboxes: &HashMap<String, Rect>,
     node_set: &BTreeSet<String>,
-    qx: f32, qy: f32, qw: f32, qh: f32,
+    qx: f32,
+    qy: f32,
+    qw: f32,
+    qh: f32,
     out: &mut Vec<serde_json::Value>,
 ) {
-    let Some(r) = bboxes.get(node.id()) else { return };
+    let Some(r) = bboxes.get(node.id()) else {
+        return;
+    };
     let buf = SHADOW_BUF as f32;
-    if r.x + r.w + buf <= qx || r.x - buf >= qx + qw
-    || r.y + r.h + buf <= qy || r.y - buf >= qy + qh { return; }
+    if r.x + r.w + buf <= qx
+        || r.x - buf >= qx + qw
+        || r.y + r.h + buf <= qy
+        || r.y - buf >= qy + qh
+    {
+        return;
+    }
 
     let in_set = node_set.contains(node.id());
     let lx = r.x - qx;
@@ -431,14 +620,23 @@ fn collect_flat_whitelist(
                     "style":{"position":"absolute","left":lx,"top":ly,"width":r.w}}));
             }
         }
-        FakeNode::Image { color, width, height, .. } => {
+        FakeNode::Image {
+            color,
+            width,
+            height,
+            ..
+        } => {
             if in_set {
-                out.push(serde_json::json!({"type":"container","tw":format!("bg-{}",color),
+                out.push(
+                    serde_json::json!({"type":"container","tw":format!("bg-{}",color),
                     "style":{"display":"block","position":"absolute","left":lx,"top":ly,
-                             "width":*width as f32,"height":*height as f32}}));
+                             "width":*width as f32,"height":*height as f32}}),
+                );
             }
         }
-        FakeNode::Photo { src, width, height, .. } => {
+        FakeNode::Photo {
+            src, width, height, ..
+        } => {
             if in_set {
                 out.push(serde_json::json!({"type":"image","src":src,
                     "style":{"display":"block","position":"absolute","left":lx,"top":ly,
@@ -473,20 +671,18 @@ fn collect_flat_whitelist(
     }
 }
 
-/// Render a tile at scene pixel (px_x, px_y) using pre-computed bboxes.
-
 // ---------------------------------------------------------------------------
 // Dirty tile marking
 // ---------------------------------------------------------------------------
 
-fn mark_dirty(r: &Rect, tile: u32, scene_w: u32, scene_h: u32, dirty: &mut HashSet<(u32,u32)>) {
+fn mark_dirty(r: &Rect, tile: u32, scene_w: u32, scene_h: u32, dirty: &mut HashSet<(u32, u32)>) {
     let t = tile as f32;
     let col0 = (r.x / t).floor() as i32;
     let row0 = (r.y / t).floor() as i32;
     let col1 = ((r.x + r.w) / t).ceil() as i32;
     let row1 = ((r.y + r.h) / t).ceil() as i32;
-    let max_col = ((scene_w + tile - 1) / tile) as i32;
-    let max_row = ((scene_h + tile - 1) / tile) as i32;
+    let max_col = scene_w.div_ceil(tile) as i32;
+    let max_row = scene_h.div_ceil(tile) as i32;
     for row in row0.max(0)..row1.min(max_row) {
         for col in col0.max(0)..col1.min(max_col) {
             dirty.insert((col as u32, row as u32));
@@ -498,7 +694,15 @@ fn mark_dirty(r: &Rect, tile: u32, scene_w: u32, scene_h: u32, dirty: &mut HashS
 // Stitching
 // ---------------------------------------------------------------------------
 
-fn stitch(frame: &mut Vec<u8>, frame_w: u32, frame_h: u32, tile_px: &[u8], tile: u32, px_x: u32, px_y: u32) {
+fn stitch(
+    frame: &mut [u8],
+    frame_w: u32,
+    frame_h: u32,
+    tile_px: &[u8],
+    tile: u32,
+    px_x: u32,
+    px_y: u32,
+) {
     let copy_w = tile.min(frame_w.saturating_sub(px_x));
     let copy_h = tile.min(frame_h.saturating_sub(px_y));
     for row in 0..copy_h {
@@ -515,7 +719,7 @@ fn stitch(frame: &mut Vec<u8>, frame_w: u32, frame_h: u32, tile_px: &[u8], tile:
 
 fn crop_pixels(pixels: &[u8], src_w: u32, x: u32, y: u32, w: u32, h: u32) -> Vec<u8> {
     let mut out = Vec::with_capacity((w * h * 4) as usize);
-    for row in y..y+h {
+    for row in y..y + h {
         let start = ((row * src_w + x) * 4) as usize;
         out.extend_from_slice(&pixels[start..start + (w * 4) as usize]);
     }
@@ -525,19 +729,33 @@ fn crop_pixels(pixels: &[u8], src_w: u32, x: u32, y: u32, w: u32, h: u32) -> Vec
 fn encode_png(pixels: &[u8], w: u32, h: u32) -> Vec<u8> {
     let img = ImageBuffer::<Rgba<u8>, Vec<u8>>::from_raw(w, h, pixels.to_vec()).expect("buf");
     let mut buf = std::io::Cursor::new(Vec::new());
-    img.write_to(&mut buf, image::ImageFormat::Png).expect("png");
+    img.write_to(&mut buf, image::ImageFormat::Png)
+        .expect("png");
     buf.into_inner()
 }
 
 fn b64(data: &[u8]) -> String {
     const C: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    let mut out = String::with_capacity((data.len()+2)/3*4);
+    let mut out = String::with_capacity(data.len().div_ceil(3) * 4);
     for chunk in data.chunks(3) {
-        let (b0,b1,b2) = (chunk[0] as u32, if chunk.len()>1{chunk[1] as u32}else{0}, if chunk.len()>2{chunk[2] as u32}else{0});
-        let n = (b0<<16)|(b1<<8)|b2;
-        out.push(C[((n>>18)&63)as usize]as char); out.push(C[((n>>12)&63)as usize]as char);
-        out.push(if chunk.len()>1{C[((n>>6)&63)as usize]as char}else{'='});
-        out.push(if chunk.len()>2{C[(n&63)as usize]as char}else{'='});
+        let (b0, b1, b2) = (
+            chunk[0] as u32,
+            if chunk.len() > 1 { chunk[1] as u32 } else { 0 },
+            if chunk.len() > 2 { chunk[2] as u32 } else { 0 },
+        );
+        let n = (b0 << 16) | (b1 << 8) | b2;
+        out.push(C[((n >> 18) & 63) as usize] as char);
+        out.push(C[((n >> 12) & 63) as usize] as char);
+        out.push(if chunk.len() > 1 {
+            C[((n >> 6) & 63) as usize] as char
+        } else {
+            '='
+        });
+        out.push(if chunk.len() > 2 {
+            C[(n & 63) as usize] as char
+        } else {
+            '='
+        });
     }
     out
 }
@@ -551,7 +769,10 @@ fn data_uri(pixels: &[u8], w: u32, h: u32) -> String {
 // ---------------------------------------------------------------------------
 
 fn fnv_mix(mut h: u64, bytes: &[u8]) -> u64 {
-    for &b in bytes { h ^= b as u64; h = h.wrapping_mul(1099511628211); }
+    for &b in bytes {
+        h ^= b as u64;
+        h = h.wrapping_mul(1099511628211);
+    }
     h
 }
 
@@ -578,7 +799,8 @@ fn build_node_map(root: &FakeNode) -> HashMap<&str, &FakeNode> {
 }
 
 fn tile_fingerprint(
-    tx: u32, ty: u32,
+    tx: u32,
+    ty: u32,
     tile_node_map: &HashMap<(u32, u32), BTreeSet<String>>,
     bboxes: &HashMap<String, Rect>,
     node_map: &HashMap<&str, &FakeNode>,
@@ -586,8 +808,8 @@ fn tile_fingerprint(
     let empty = BTreeSet::new();
     let node_set = tile_node_map.get(&(tx, ty)).unwrap_or(&empty);
     let mut h: u64 = 14695981039346656037; // FNV-1a offset basis
-    // Include tile coordinates so tiles at different positions can never collide
-    // even if they happen to contain the same node set at the same absolute bboxes.
+                                           // Include tile coordinates so tiles at different positions can never collide
+                                           // even if they happen to contain the same node set at the same absolute bboxes.
     h = fnv_mix(h, &tx.to_le_bytes());
     h = fnv_mix(h, &ty.to_le_bytes());
     for id in node_set {
@@ -606,13 +828,20 @@ fn tile_fingerprint(
                     h = fnv_mix(h, b"|");
                     h = fnv_mix(h, tw.as_bytes());
                 }
-                FakeNode::Image { color, width, height, .. } => {
+                FakeNode::Image {
+                    color,
+                    width,
+                    height,
+                    ..
+                } => {
                     h = fnv_mix(h, b"I");
                     h = fnv_mix(h, color.as_bytes());
                     h = fnv_mix(h, &width.to_le_bytes());
                     h = fnv_mix(h, &height.to_le_bytes());
                 }
-                FakeNode::Photo { src, width, height, .. } => {
+                FakeNode::Photo {
+                    src, width, height, ..
+                } => {
                     h = fnv_mix(h, b"P");
                     h = fnv_mix(h, src.as_bytes());
                     h = fnv_mix(h, &width.to_le_bytes());
@@ -629,7 +858,10 @@ fn tile_fingerprint(
     h
 }
 
-struct DiffResult { weighted: f64, img: Vec<u8> }
+struct DiffResult {
+    weighted: f64,
+    img: Vec<u8>,
+}
 
 /// Perceptual pixel diff.
 ///
@@ -651,17 +883,23 @@ fn diff(a: &[u8], b: &[u8], _w: u32, _h: u32) -> DiffResult {
     let mut weighted = 0.0f64;
     let mut img = vec![0u8; a.len()];
     for i in (0..a.len().min(b.len())).step_by(4) {
-        let dr = (a[i]   as i32 - b[i]   as i32).unsigned_abs() as f64;
-        let dg = (a[i+1] as i32 - b[i+1] as i32).unsigned_abs() as f64;
-        let db = (a[i+2] as i32 - b[i+2] as i32).unsigned_abs() as f64;
-        let m  = (dr + dg + db + dr.max(dg).max(db)) / 4.0;
-        let t  = m / 255.0;
+        let dr = (a[i] as i32 - b[i] as i32).unsigned_abs() as f64;
+        let dg = (a[i + 1] as i32 - b[i + 1] as i32).unsigned_abs() as f64;
+        let db = (a[i + 2] as i32 - b[i + 2] as i32).unsigned_abs() as f64;
+        let m = (dr + dg + db + dr.max(dg).max(db)) / 4.0;
+        let t = m / 255.0;
         weighted += t * t * t;
         let vis_alpha = (t.sqrt() * 255.0) as u8;
         if vis_alpha > 0 {
-            img[i]=255; img[i+1]=0; img[i+2]=255; img[i+3]=vis_alpha;
+            img[i] = 255;
+            img[i + 1] = 0;
+            img[i + 2] = 255;
+            img[i + 3] = vis_alpha;
         } else {
-            img[i]=a[i]/5; img[i+1]=a[i+1]/5; img[i+2]=a[i+2]/5; img[i+3]=255;
+            img[i] = a[i] / 5;
+            img[i + 1] = a[i + 1] / 5;
+            img[i + 2] = a[i + 2] / 5;
+            img[i + 3] = 255;
         }
     }
     DiffResult { weighted, img }
@@ -670,7 +908,7 @@ fn diff(a: &[u8], b: &[u8], _w: u32, _h: u32) -> DiffResult {
 /// Build a pixel-mask (same layout as a full RGBA buffer) that is opaque only
 /// within dirty tiles.  Used to restrict diff comparisons to the re-rendered
 /// region so that skipped tiles don't contribute false positives.
-fn dirty_mask(dirty: &HashSet<(u32,u32)>, w: u32, h: u32) -> Vec<bool> {
+fn dirty_mask(dirty: &HashSet<(u32, u32)>, w: u32, h: u32) -> Vec<bool> {
     let mut mask = vec![false; (w * h) as usize];
     for &(tx, ty) in dirty {
         let px = tx * TILE_SIZE;
@@ -679,7 +917,9 @@ fn dirty_mask(dirty: &HashSet<(u32,u32)>, w: u32, h: u32) -> Vec<bool> {
         let ph = TILE_SIZE.min(h.saturating_sub(py));
         for row in 0..ph {
             let base = ((py + row) * w + px) as usize;
-            for col in 0..pw as usize { mask[base + col] = true; }
+            for col in 0..pw as usize {
+                mask[base + col] = true;
+            }
         }
     }
     mask
@@ -691,20 +931,29 @@ fn diff_masked(a: &[u8], b: &[u8], mask: &[bool], _w: u32, _h: u32) -> DiffResul
     let mut img = vec![0u8; a.len()];
     for i in (0..a.len().min(b.len())).step_by(4) {
         if !mask.get(i / 4).copied().unwrap_or(false) {
-            img[i]=a[i]/5; img[i+1]=a[i+1]/5; img[i+2]=a[i+2]/5; img[i+3]=255;
+            img[i] = a[i] / 5;
+            img[i + 1] = a[i + 1] / 5;
+            img[i + 2] = a[i + 2] / 5;
+            img[i + 3] = 255;
             continue;
         }
-        let dr = (a[i]   as i32 - b[i]   as i32).unsigned_abs() as f64;
-        let dg = (a[i+1] as i32 - b[i+1] as i32).unsigned_abs() as f64;
-        let db = (a[i+2] as i32 - b[i+2] as i32).unsigned_abs() as f64;
-        let m  = (dr + dg + db + dr.max(dg).max(db)) / 4.0;
-        let t  = m / 255.0;
+        let dr = (a[i] as i32 - b[i] as i32).unsigned_abs() as f64;
+        let dg = (a[i + 1] as i32 - b[i + 1] as i32).unsigned_abs() as f64;
+        let db = (a[i + 2] as i32 - b[i + 2] as i32).unsigned_abs() as f64;
+        let m = (dr + dg + db + dr.max(dg).max(db)) / 4.0;
+        let t = m / 255.0;
         weighted += t * t * t;
         let vis_alpha = (t.sqrt() * 255.0) as u8;
         if vis_alpha > 0 {
-            img[i]=255; img[i+1]=0; img[i+2]=255; img[i+3]=vis_alpha;
+            img[i] = 255;
+            img[i + 1] = 0;
+            img[i + 2] = 255;
+            img[i + 3] = vis_alpha;
         } else {
-            img[i]=a[i]/5; img[i+1]=a[i+1]/5; img[i+2]=a[i+2]/5; img[i+3]=255;
+            img[i] = a[i] / 5;
+            img[i + 1] = a[i + 1] / 5;
+            img[i + 2] = a[i + 2] / 5;
+            img[i + 3] = 255;
         }
     }
     DiffResult { weighted, img }
@@ -714,32 +963,95 @@ fn diff_masked(a: &[u8], b: &[u8], mask: &[bool], _w: u32, _h: u32) -> DiffResul
 // Test suites (unchanged)
 // ---------------------------------------------------------------------------
 
-struct SuiteFrame { label: String, root: FakeNode }
-struct TestSuite  { name: &'static str, description: &'static str, frames: Vec<SuiteFrame> }
+struct SuiteFrame {
+    label: String,
+    root: FakeNode,
+}
+struct TestSuite {
+    name: &'static str,
+    description: &'static str,
+    frames: Vec<SuiteFrame>,
+}
 
 fn suite_simple_bar() -> TestSuite {
-    let frames = (0..10).map(|i| {
-        let clock = format!("{}:{:02}:{:02}", 12, i/60, i%60);
-        let cpu   = format!("CPU {}%", if i%3==0{i*4}else{12});
-        let label = if i==0{"cold".into()} else if i%3==0{format!("clock+cpu → {clock}")} else{format!("clock → {clock}")};
-        let root = FakeNode::Collection{id:"bar".into(),tw:"flex flex-row items-center justify-between w-[400px] h-[24px] bg-gray-900".into(),children:vec![
-            FakeNode::Collection{id:"left".into(),tw:"flex flex-row items-center gap-1".into(),children:vec![
-                FakeNode::Image{id:"logo".into(),color:"blue-500".into(),width:16,height:16},
-                FakeNode::Text{id:"ws".into(),content:"1: term".into(),tw:"text-white text-xs whitespace-nowrap".into()},
-                FakeNode::Text{id:"title".into(),content:"nvim main.rs".into(),tw:"text-gray-400 text-xs whitespace-nowrap".into()},
-            ]},
-            FakeNode::Collection{id:"center".into(),tw:"flex flex-row items-center".into(),children:vec![
-                FakeNode::Text{id:"clock".into(),content:clock.clone(),tw:"text-white text-xs font-mono whitespace-nowrap".into()},
-            ]},
-            FakeNode::Collection{id:"right".into(),tw:"flex flex-row items-center gap-1".into(),children:vec![
-                FakeNode::Text{id:"cpu".into(),content:cpu.clone(),tw:"text-white text-xs whitespace-nowrap".into()},
-                FakeNode::Text{id:"mem".into(),content:"MEM 4G".into(),tw:"text-white text-xs whitespace-nowrap".into()},
-                FakeNode::Text{id:"bat".into(),content:"87%".into(),tw:"text-white text-xs whitespace-nowrap".into()},
-            ]},
-        ]};
-        SuiteFrame{label,root}
-    }).collect();
-    TestSuite{name:"Simple Status Bar",description:"Baseline — no effects. Clock ticks each frame, CPU every 3rd.",frames}
+    let frames = (0..10)
+        .map(|i| {
+            let clock = format!("{}:{:02}:{:02}", 12, i / 60, i % 60);
+            let cpu = format!("CPU {}%", if i % 3 == 0 { i * 4 } else { 12 });
+            let label = if i == 0 {
+                "cold".into()
+            } else if i % 3 == 0 {
+                format!("clock+cpu → {clock}")
+            } else {
+                format!("clock → {clock}")
+            };
+            let root = FakeNode::Collection {
+                id: "bar".into(),
+                tw: "flex flex-row items-center justify-between w-[400px] h-[24px] bg-gray-900"
+                    .into(),
+                children: vec![
+                    FakeNode::Collection {
+                        id: "left".into(),
+                        tw: "flex flex-row items-center gap-1".into(),
+                        children: vec![
+                            FakeNode::Image {
+                                id: "logo".into(),
+                                color: "blue-500".into(),
+                                width: 16,
+                                height: 16,
+                            },
+                            FakeNode::Text {
+                                id: "ws".into(),
+                                content: "1: term".into(),
+                                tw: "text-white text-xs whitespace-nowrap".into(),
+                            },
+                            FakeNode::Text {
+                                id: "title".into(),
+                                content: "nvim main.rs".into(),
+                                tw: "text-gray-400 text-xs whitespace-nowrap".into(),
+                            },
+                        ],
+                    },
+                    FakeNode::Collection {
+                        id: "center".into(),
+                        tw: "flex flex-row items-center".into(),
+                        children: vec![FakeNode::Text {
+                            id: "clock".into(),
+                            content: clock.clone(),
+                            tw: "text-white text-xs font-mono whitespace-nowrap".into(),
+                        }],
+                    },
+                    FakeNode::Collection {
+                        id: "right".into(),
+                        tw: "flex flex-row items-center gap-1".into(),
+                        children: vec![
+                            FakeNode::Text {
+                                id: "cpu".into(),
+                                content: cpu.clone(),
+                                tw: "text-white text-xs whitespace-nowrap".into(),
+                            },
+                            FakeNode::Text {
+                                id: "mem".into(),
+                                content: "MEM 4G".into(),
+                                tw: "text-white text-xs whitespace-nowrap".into(),
+                            },
+                            FakeNode::Text {
+                                id: "bat".into(),
+                                content: "87%".into(),
+                                tw: "text-white text-xs whitespace-nowrap".into(),
+                            },
+                        ],
+                    },
+                ],
+            };
+            SuiteFrame { label, root }
+        })
+        .collect();
+    TestSuite {
+        name: "Simple Status Bar",
+        description: "Baseline — no effects. Clock ticks each frame, CPU every 3rd.",
+        frames,
+    }
 }
 
 fn suite_shadow_cards() -> TestSuite {
@@ -763,7 +1075,11 @@ fn suite_shadow_cards() -> TestSuite {
         ]};
         SuiteFrame{label,root}
     }).collect();
-    TestSuite{name:"Shadow Cards",description:"Two rounded+shadow cards. Left changes each frame, right is fully static.",frames}
+    TestSuite {
+        name: "Shadow Cards",
+        description: "Two rounded+shadow cards. Left changes each frame, right is fully static.",
+        frames,
+    }
 }
 
 fn suite_blurred_overlay() -> TestSuite {
@@ -786,43 +1102,91 @@ fn suite_blurred_overlay() -> TestSuite {
         ]};
         SuiteFrame{label,root}
     }).collect();
-    TestSuite{name:"GPU Temp Monitor",description:"Rounded status pill. Temperature changes every frame; alert fires every 4th.",frames}
+    TestSuite {
+        name: "GPU Temp Monitor",
+        description: "Rounded status pill. Temperature changes every frame; alert fires every 4th.",
+        frames,
+    }
 }
 
 fn suite_dense_metrics() -> TestSuite {
-    let frames = (0..10).map(|i| {
-        let metrics = [
-            ("CPU",  format!("{}%", if i%2==0{12+i*3}else{15})),
-            ("MEM",  "4.2G".into()),
-            ("GPU",  format!("{}%", 60+i*2)),
-            ("DISK", "42%".into()),
-            ("NET↑", "1.2M".into()),
-            ("TEMP", "62°C".into()),
-        ];
-        let label = if i==0{"cold".into()}else{format!("cpu={} gpu={}%",metrics[0].1,60+i*2)};
+    let frames = (0..10)
+        .map(|i| {
+            let metrics = [
+                (
+                    "CPU",
+                    format!("{}%", if i % 2 == 0 { 12 + i * 3 } else { 15 }),
+                ),
+                ("MEM", "4.2G".into()),
+                ("GPU", format!("{}%", 60 + i * 2)),
+                ("DISK", "42%".into()),
+                ("NET↑", "1.2M".into()),
+                ("TEMP", "62°C".into()),
+            ];
+            let label = if i == 0 {
+                "cold".into()
+            } else {
+                format!("cpu={} gpu={}%", metrics[0].1, 60 + i * 2)
+            };
 
-        let cols: Vec<FakeNode> = metrics.iter().map(|(name,val)|
-            FakeNode::Collection{id:format!("col-{name}"),
-                tw:"flex flex-col items-center px-2 bg-gray-800 rounded-lg shadow-md".into(),children:vec![
-                FakeNode::Text{id:format!("lbl-{name}"),content:name.to_string(),tw:"text-gray-400 text-[10px] whitespace-nowrap".into()},
-                FakeNode::Text{id:format!("val-{name}"),content:val.clone(),tw:"text-white text-xs font-mono font-bold whitespace-nowrap".into()},
-            ]}
-        ).collect();
+            let cols: Vec<FakeNode> = metrics
+                .iter()
+                .map(|(name, val)| FakeNode::Collection {
+                    id: format!("col-{name}"),
+                    tw: "flex flex-col items-center px-2 bg-gray-800 rounded-lg shadow-md".into(),
+                    children: vec![
+                        FakeNode::Text {
+                            id: format!("lbl-{name}"),
+                            content: name.to_string(),
+                            tw: "text-gray-400 text-[10px] whitespace-nowrap".into(),
+                        },
+                        FakeNode::Text {
+                            id: format!("val-{name}"),
+                            content: val.clone(),
+                            tw: "text-white text-xs font-mono font-bold whitespace-nowrap".into(),
+                        },
+                    ],
+                })
+                .collect();
 
-        let root = FakeNode::Collection{id:"grid".into(),
-            tw:"flex flex-row gap-1 p-1 bg-gray-900 w-[360px] h-[36px]".into(),children:cols};
+            let root = FakeNode::Collection {
+                id: "grid".into(),
+                tw: "flex flex-row gap-1 p-1 bg-gray-900 w-[360px] h-[36px]".into(),
+                children: cols,
+            };
 
-        SuiteFrame{label,root}
-    }).collect();
-    TestSuite{name:"Dense Metrics Grid",description:"6 shadow+rounded columns. CPU and GPU change each frame; the other 4 stay static.",frames}
+            SuiteFrame { label, root }
+        })
+        .collect();
+    TestSuite {
+        name: "Dense Metrics Grid",
+        description:
+            "6 shadow+rounded columns. CPU and GPU change each frame; the other 4 stay static.",
+        frames,
+    }
 }
 
 // ---------------------------------------------------------------------------
 // Benchmark
 // ---------------------------------------------------------------------------
 
-struct FrameResult { label: String, full_time: Duration, incr_time: Duration, full_px: Vec<u8>, prev_full_px: Vec<u8>, incr_px: Vec<u8>, w: u32, h: u32, render_calls: u32, skipped: u32, cache_hits: u32, dirty_tiles: HashSet<(u32,u32)> }
-struct SuiteResult { frames: Vec<FrameResult> }
+struct FrameResult {
+    label: String,
+    full_time: Duration,
+    incr_time: Duration,
+    full_px: Vec<u8>,
+    prev_full_px: Vec<u8>,
+    incr_px: Vec<u8>,
+    w: u32,
+    h: u32,
+    render_calls: u32,
+    skipped: u32,
+    cache_hits: u32,
+    dirty_tiles: HashSet<(u32, u32)>,
+}
+struct SuiteResult {
+    frames: Vec<FrameResult>,
+}
 
 const TILE_SIZE: u32 = 32;
 const SHADOW_BUF: u32 = 32; // extra border around each tile to capture shadow bleed
@@ -834,17 +1198,31 @@ const MERGE_THRESHOLD: u32 = 2 * SHADOW_BUF / TILE_SIZE;
 
 // Default cost-model coefficients (overridden at runtime by self-calibration).
 const O_FIXED_MS: f64 = 1.0;
-const K_AREA:     f64 = 4e-5;
-const K_NODES:    f64 = 0.3;
+const K_AREA: f64 = 4e-5;
+const K_NODES: f64 = 0.3;
 
 #[derive(Clone)]
-struct CostModel { o_fixed: f64, k_area: f64, k_nodes: f64 }
-
-impl Default for CostModel {
-    fn default() -> Self { Self { o_fixed: O_FIXED_MS, k_area: K_AREA, k_nodes: K_NODES } }
+struct CostModel {
+    o_fixed: f64,
+    k_area: f64,
+    k_nodes: f64,
 }
 
-struct CalibrationResult { model: CostModel, r_squared: f64, n_samples: usize }
+impl Default for CostModel {
+    fn default() -> Self {
+        Self {
+            o_fixed: O_FIXED_MS,
+            k_area: K_AREA,
+            k_nodes: K_NODES,
+        }
+    }
+}
+
+struct CalibrationResult {
+    model: CostModel,
+    r_squared: f64,
+    n_samples: usize,
+}
 
 // ---------------------------------------------------------------------------
 // Multi-band grouping — split dirty tiles into spatially contiguous clusters
@@ -852,8 +1230,10 @@ struct CalibrationResult { model: CostModel, r_squared: f64, n_samples: usize }
 // ---------------------------------------------------------------------------
 
 struct RenderBand {
-    min_tx: u32, max_tx: u32,
-    min_ty: u32, max_ty: u32,
+    min_tx: u32,
+    max_tx: u32,
+    min_ty: u32,
+    max_ty: u32,
     tiles: Vec<(u32, u32)>,
 }
 
@@ -872,7 +1252,13 @@ fn compute_bands_y(dirty: &HashSet<(u32, u32)>) -> Vec<RenderBand> {
                 continue;
             }
         }
-        bands.push(RenderBand { min_tx: tx, max_tx: tx, min_ty: ty, max_ty: ty, tiles: vec![(tx, ty)] });
+        bands.push(RenderBand {
+            min_tx: tx,
+            max_tx: tx,
+            min_ty: ty,
+            max_ty: ty,
+            tiles: vec![(tx, ty)],
+        });
     }
     bands
 }
@@ -892,18 +1278,27 @@ fn compute_bands_x(dirty: &HashSet<(u32, u32)>) -> Vec<RenderBand> {
                 continue;
             }
         }
-        bands.push(RenderBand { min_tx: tx, max_tx: tx, min_ty: ty, max_ty: ty, tiles: vec![(tx, ty)] });
+        bands.push(RenderBand {
+            min_tx: tx,
+            max_tx: tx,
+            min_ty: ty,
+            max_ty: ty,
+            tiles: vec![(tx, ty)],
+        });
     }
     bands
 }
 
 /// Estimated total render area across all bands (proxy for render cost).
 fn estimated_area(bands: &[RenderBand]) -> u64 {
-    bands.iter().map(|b| {
-        let w = ((b.max_tx - b.min_tx + 1) * TILE_SIZE + 2 * SHADOW_BUF) as u64;
-        let h = ((b.max_ty - b.min_ty + 1) * TILE_SIZE + 2 * SHADOW_BUF) as u64;
-        w * h
-    }).sum()
+    bands
+        .iter()
+        .map(|b| {
+            let w = ((b.max_tx - b.min_tx + 1) * TILE_SIZE + 2 * SHADOW_BUF) as u64;
+            let h = ((b.max_ty - b.min_ty + 1) * TILE_SIZE + 2 * SHADOW_BUF) as u64;
+            w * h
+        })
+        .sum()
 }
 
 // ---------------------------------------------------------------------------
@@ -915,10 +1310,18 @@ fn tiles_for_bbox(r: &Rect, cols: u32, rows: u32) -> Vec<(u32, u32)> {
     let buf = SHADOW_BUF as f32;
     let c0 = ((r.x - buf) / TILE_SIZE as f32).floor().max(0.0) as u32;
     let r0 = ((r.y - buf) / TILE_SIZE as f32).floor().max(0.0) as u32;
-    let c1 = ((r.x + r.w + buf) / TILE_SIZE as f32).ceil().min(cols as f32) as u32;
-    let r1 = ((r.y + r.h + buf) / TILE_SIZE as f32).ceil().min(rows as f32) as u32;
+    let c1 = ((r.x + r.w + buf) / TILE_SIZE as f32)
+        .ceil()
+        .min(cols as f32) as u32;
+    let r1 = ((r.y + r.h + buf) / TILE_SIZE as f32)
+        .ceil()
+        .min(rows as f32) as u32;
     let mut out = Vec::new();
-    for ty in r0..r1 { for tx in c0..c1 { out.push((tx, ty)); } }
+    for ty in r0..r1 {
+        for tx in c0..c1 {
+            out.push((tx, ty));
+        }
+    }
     out
 }
 
@@ -926,7 +1329,8 @@ fn tiles_for_bbox(r: &Rect, cols: u32, rows: u32) -> Vec<(u32, u32)> {
 /// every node whose shadow-expanded bbox overlaps that tile.
 fn build_tile_node_map(
     bboxes: &HashMap<String, Rect>,
-    cols: u32, rows: u32,
+    cols: u32,
+    rows: u32,
 ) -> HashMap<(u32, u32), BTreeSet<String>> {
     let mut map: HashMap<(u32, u32), BTreeSet<String>> = HashMap::new();
     for (id, r) in bboxes {
@@ -940,9 +1344,11 @@ fn build_tile_node_map(
 /// A render candidate: a spatial band paired with the exact set of nodes needed
 /// to render every dirty tile it covers (no more, no less).
 struct RenderCandidate {
-    min_tx: u32, max_tx: u32,
-    min_ty: u32, max_ty: u32,
-    tiles:    Vec<(u32, u32)>,
+    min_tx: u32,
+    max_tx: u32,
+    min_ty: u32,
+    max_ty: u32,
+    tiles: Vec<(u32, u32)>,
     node_set: BTreeSet<String>,
 }
 
@@ -956,11 +1362,16 @@ fn merge_candidates(a: &RenderCandidate, b: &RenderCandidate) -> RenderCandidate
     let mut tiles = a.tiles.clone();
     tiles.extend_from_slice(&b.tiles);
     let mut node_set = a.node_set.clone();
-    for id in &b.node_set { node_set.insert(id.clone()); }
+    for id in &b.node_set {
+        node_set.insert(id.clone());
+    }
     RenderCandidate {
-        min_tx: a.min_tx.min(b.min_tx), max_tx: a.max_tx.max(b.max_tx),
-        min_ty: a.min_ty.min(b.min_ty), max_ty: a.max_ty.max(b.max_ty),
-        tiles, node_set,
+        min_tx: a.min_tx.min(b.min_tx),
+        max_tx: a.max_tx.max(b.max_tx),
+        min_ty: a.min_ty.min(b.min_ty),
+        max_ty: a.max_ty.max(b.max_ty),
+        tiles,
+        node_set,
     }
 }
 
@@ -974,7 +1385,8 @@ fn compute_candidates(
     // Categorical grouping: key = sorted node-id vec (hashable proxy for BTreeSet).
     let mut groups: HashMap<Vec<String>, HashSet<(u32, u32)>> = HashMap::new();
     for &t in dirty {
-        let key: Vec<String> = tile_node_map.get(&t)
+        let key: Vec<String> = tile_node_map
+            .get(&t)
             .map(|s| s.iter().cloned().collect())
             .unwrap_or_default();
         groups.entry(key).or_default().insert(t);
@@ -985,11 +1397,17 @@ fn compute_candidates(
         let node_set: BTreeSet<String> = node_vec.into_iter().collect();
         let by = compute_bands_y(&tiles);
         let bx = compute_bands_x(&tiles);
-        let bands = if estimated_area(&by) <= estimated_area(&bx) { by } else { bx };
+        let bands = if estimated_area(&by) <= estimated_area(&bx) {
+            by
+        } else {
+            bx
+        };
         for band in bands {
             candidates.push(RenderCandidate {
-                min_tx: band.min_tx, max_tx: band.max_tx,
-                min_ty: band.min_ty, max_ty: band.max_ty,
+                min_tx: band.min_tx,
+                max_tx: band.max_tx,
+                min_ty: band.min_ty,
+                max_ty: band.max_ty,
                 tiles: band.tiles,
                 node_set: node_set.clone(),
             });
@@ -1002,21 +1420,29 @@ fn compute_candidates(
 /// Stops when no beneficial merge exists (O(n² × |node_set|) per pass; n is small).
 fn greedy_merge_candidates(mut cs: Vec<RenderCandidate>, cm: &CostModel) -> Vec<RenderCandidate> {
     loop {
-        if cs.len() < 2 { break; }
+        if cs.len() < 2 {
+            break;
+        }
         let mut best_gain = 0.0f64;
         let mut best = (0usize, 1usize);
         for i in 0..cs.len() {
             for j in i + 1..cs.len() {
                 let merged = merge_candidates(&cs[i], &cs[j]);
                 let gain = candidate_cost(&cs[i], cm) + candidate_cost(&cs[j], cm)
-                         - candidate_cost(&merged, cm);
-                if gain > best_gain { best_gain = gain; best = (i, j); }
+                    - candidate_cost(&merged, cm);
+                if gain > best_gain {
+                    best_gain = gain;
+                    best = (i, j);
+                }
             }
         }
-        if best_gain <= 0.0 { break; }
+        if best_gain <= 0.0 {
+            break;
+        }
         let (i, j) = best;
         let merged = merge_candidates(&cs[i], &cs[j]);
-        cs.remove(j); cs.remove(i);
+        cs.remove(j);
+        cs.remove(i);
         cs.push(merged);
     }
     cs
@@ -1033,7 +1459,9 @@ fn greedy_merge_candidates(mut cs: Vec<RenderCandidate>, cm: &CostModel) -> Vec<
 /// Returns None if fewer than 4 samples or the system is degenerate.
 fn fit_cost_model(samples: &[(f64, f64, f64)]) -> Option<CalibrationResult> {
     let n = samples.len();
-    if n < 4 { return None; }
+    if n < 4 {
+        return None;
+    }
 
     const SCALE: f64 = 1e4; // area normalisation: avoids large XtX diagonal entries
     let mut xtx = [[0.0f64; 3]; 3];
@@ -1042,7 +1470,9 @@ fn fit_cost_model(samples: &[(f64, f64, f64)]) -> Option<CalibrationResult> {
         let x = [1.0, area / SCALE, nodes];
         for i in 0..3 {
             xty[i] += x[i] * time;
-            for j in 0..3 { xtx[i][j] += x[i] * x[j]; }
+            for j in 0..3 {
+                xtx[i][j] += x[i] * x[j];
+            }
         }
     }
 
@@ -1052,22 +1482,31 @@ fn fit_cost_model(samples: &[(f64, f64, f64)]) -> Option<CalibrationResult> {
     for col in 0..3 {
         let mut pivot = col;
         for r in (col + 1)..3 {
-            if a[r][col].abs() > a[pivot][col].abs() { pivot = r; }
+            if a[r][col].abs() > a[pivot][col].abs() {
+                pivot = r;
+            }
         }
         a.swap(col, pivot);
         b.swap(col, pivot);
         let p = a[col][col];
-        if p.abs() < 1e-14 { return None; }
+        if p.abs() < 1e-14 {
+            return None;
+        }
         for row in (col + 1)..3 {
             let f = a[row][col] / p;
-            for k in col..3 { a[row][k] -= f * a[col][k]; }
+            #[allow(clippy::needless_range_loop)]
+            for k in col..3 {
+                a[row][k] -= f * a[col][k];
+            }
             b[row] -= f * b[col];
         }
     }
     let mut sol = [0.0f64; 3];
     for i in (0..3).rev() {
         sol[i] = b[i];
-        for j in (i + 1)..3 { sol[i] -= a[i][j] * sol[j]; }
+        for j in (i + 1)..3 {
+            sol[i] -= a[i][j] * sol[j];
+        }
         sol[i] /= a[i][i];
     }
     let (o_raw, k_area_raw, k_nodes_raw) = (sol[0], sol[1] / SCALE, sol[2]);
@@ -1075,16 +1514,21 @@ fn fit_cost_model(samples: &[(f64, f64, f64)]) -> Option<CalibrationResult> {
     // R² over the raw samples using the fitted (un-clamped) coefficients.
     let mean_t = samples.iter().map(|&(_, _, t)| t).sum::<f64>() / n as f64;
     let ss_tot: f64 = samples.iter().map(|&(_, _, t)| (t - mean_t).powi(2)).sum();
-    let ss_res: f64 = samples.iter().map(|&(area, nd, t)| {
-        (t - (o_raw + k_area_raw * area + k_nodes_raw * nd)).powi(2)
-    }).sum();
-    let r_squared = if ss_tot > 1e-15 { (1.0 - ss_res / ss_tot).max(0.0) } else { 0.0 };
+    let ss_res: f64 = samples
+        .iter()
+        .map(|&(area, nd, t)| (t - (o_raw + k_area_raw * area + k_nodes_raw * nd)).powi(2))
+        .sum();
+    let r_squared = if ss_tot > 1e-15 {
+        (1.0 - ss_res / ss_tot).max(0.0)
+    } else {
+        0.0
+    };
 
     // Clamp to physically meaningful positive values.
     Some(CalibrationResult {
         model: CostModel {
             o_fixed: o_raw.max(0.05),
-            k_area:  k_area_raw.max(1e-7),
+            k_area: k_area_raw.max(1e-7),
             k_nodes: k_nodes_raw.max(0.001),
         },
         r_squared,
@@ -1092,7 +1536,11 @@ fn fit_cost_model(samples: &[(f64, f64, f64)]) -> Option<CalibrationResult> {
     })
 }
 
-fn run_suite(suite: &TestSuite, cm: &CostModel, cal_samples: &mut Vec<(f64, f64, f64)>) -> SuiteResult {
+fn run_suite(
+    suite: &TestSuite,
+    cm: &CostModel,
+    cal_samples: &mut Vec<(f64, f64, f64)>,
+) -> SuiteResult {
     let mut incr_ctx = Ctx::fresh();
     let mut incr_set: ManagedSet<FakeNode> = ManagedSet::new();
     let mut frame_buf: Vec<u8> = Vec::new();
@@ -1103,254 +1551,330 @@ fn run_suite(suite: &TestSuite, cm: &CostModel, cal_samples: &mut Vec<(f64, f64,
     // LRU tile render cache: fingerprint → TILE_SIZE×TILE_SIZE×4 bytes.
     // Capacity is derived from TILE_CACHE_MB so it auto-adjusts when TILE_SIZE changes.
     let tile_bytes = (TILE_SIZE * TILE_SIZE * 4) as usize;
-    let cache_cap = NonZeroUsize::new(
-        (TILE_CACHE_MB * 1024 * 1024 + tile_bytes - 1) / tile_bytes
-    ).unwrap();
+    let cache_cap = NonZeroUsize::new((TILE_CACHE_MB * 1024 * 1024).div_ceil(tile_bytes)).unwrap();
     let mut tile_cache: LruCache<u64, Vec<u8>> = LruCache::new(cache_cap);
     // Persistent tile→node map: for each tile the set of nodes whose shadow-
     // expanded bbox overlaps it.  Rebuilt each frame from current bboxes.
     // (Incremental update is a future optimisation — rebuild is fast enough.)
-    let mut tile_node_map: HashMap<(u32,u32), BTreeSet<String>> = HashMap::new();
+    let mut tile_node_map: HashMap<(u32, u32), BTreeSet<String>> = HashMap::new();
 
-    let frames: Vec<FrameResult> = suite.frames.iter().map(|f| {
-        // ── Full render (fresh context, no caching) ──────────────────────────
-        let full_ctx = Ctx::fresh();
-        let t = Instant::now();
-        let (full_px, w, h) = {
-            let node = parse_layout(&f.root.to_json()).unwrap_or_else(|_| Node::container(vec![]));
-            let img = takumi_render(
-                RenderOptions::builder().global(&full_ctx.global)
-                    .viewport(Viewport::new((None,None))).node(node).build()
-            ).expect("full render");
-            let (w,h) = img.dimensions();
-            (img.into_raw(), w, h)
-        };
-        let full_time = t.elapsed();
-
-        // ── Tile-based incremental render ─────────────────────────────────────
-        incr_ctx.changed_ids.clear();
-        let t = Instant::now();
-
-        // 1. Reconcile — populates changed_ids
-        incr_set.reconcile(vec![f.root.clone()], &mut incr_ctx, &mut ());
-
-        let cols = (w + TILE_SIZE - 1) / TILE_SIZE;
-        let rows = (h + TILE_SIZE - 1) / TILE_SIZE;
-
-        // No-op short-circuit: if nothing changed and frame_buf is already
-        // populated, every tile is identical to last frame — skip all remaining
-        // work.  Static frames (no clock tick, no focus change, etc.) cost
-        // essentially nothing in the real pipeline.
-        if incr_ctx.changed_ids.is_empty() && !frame_buf.is_empty() {
-            let incr_time = t.elapsed();
-            let incr_px = frame_buf.clone();
-            let my_prev_full = std::mem::replace(&mut prev_full, full_px.clone());
-            return FrameResult {
-                label: f.label.clone(), full_time, incr_time, full_px,
-                prev_full_px: my_prev_full, incr_px, w, h,
-                render_calls: 0, skipped: cols * rows, cache_hits: 0,
-                dirty_tiles: HashSet::new(),
+    let frames: Vec<FrameResult> = suite
+        .frames
+        .iter()
+        .map(|f| {
+            // ── Full render (fresh context, no caching) ──────────────────────────
+            let full_ctx = Ctx::fresh();
+            let t = Instant::now();
+            let (full_px, w, h) = {
+                let node =
+                    parse_layout(&f.root.to_json()).unwrap_or_else(|_| Node::container(vec![]));
+                let img = takumi_render(
+                    RenderOptions::builder()
+                        .global(&full_ctx.global)
+                        .viewport(Viewport::new((None, None)))
+                        .node(node)
+                        .build(),
+                )
+                .expect("full render");
+                let (w, h) = img.dimensions();
+                (img.into_raw(), w, h)
             };
-        }
+            let full_time = t.elapsed();
 
-        // 2. Measure layout — always via the stub-layout path.
-        //
-        //    (a) Measure each changed leaf in isolation to update node_dims.
-        //        On the first frame every node enters → changed_ids contains all
-        //        nodes → node_dims is fully bootstrapped here.
-        //    (b) Stub layout: replace every leaf with a fixed-size container so
-        //        taffy re-computes positions with zero text shaping.
-        //
-        //    node_map is built once and shared by both the measure step (O(1)
-        //    lookup vs the old O(N) find_node) and later fingerprinting.
-        let node_map = build_node_map(&f.root);
+            // ── Tile-based incremental render ─────────────────────────────────────
+            incr_ctx.changed_ids.clear();
+            let t = Instant::now();
 
-        // Step (a): update node_dims for changed leaves; track whether anything
-        // that affects flex geometry actually changed.
-        //   dims_changed        — a Text/Image node rendered to a different size
-        //   collection_changed  — a Collection tw changed (affects flex positions)
-        // If neither is true the stub layout would produce identical positions to
-        // last frame, so step (b) can be skipped entirely.
-        let mut dims_changed = false;
-        let mut collection_changed = false;
-        for id in &incr_ctx.changed_ids {
-            if let Some(&node) = node_map.get(id.as_str()) {
-                match node {
-                    FakeNode::Text { .. } => {
-                        let new_dims = measure_natural(node, &incr_ctx.global);
-                        if incr_ctx.node_dims.get(id.as_str()).copied() != Some(new_dims) {
-                            dims_changed = true;
-                        }
-                        incr_ctx.node_dims.insert(id.clone(), new_dims);
-                    }
-                    FakeNode::Image { width, height, .. } => {
-                        let new_dims = (*width as f32, *height as f32);
-                        if incr_ctx.node_dims.get(id.as_str()).copied() != Some(new_dims) {
-                            dims_changed = true;
-                        }
-                        incr_ctx.node_dims.insert(id.clone(), new_dims);
-                    }
-                    FakeNode::Photo { width, height, .. } => {
-                        let new_dims = (*width as f32, *height as f32);
-                        if incr_ctx.node_dims.get(id.as_str()).copied() != Some(new_dims) {
-                            dims_changed = true;
-                        }
-                        incr_ctx.node_dims.insert(id.clone(), new_dims);
-                    }
-                    FakeNode::Collection { .. } => { collection_changed = true; }
-                }
+            // 1. Reconcile — populates changed_ids
+            incr_set.reconcile(vec![f.root.clone()], &mut incr_ctx, &mut ());
+
+            let cols = w.div_ceil(TILE_SIZE);
+            let rows = h.div_ceil(TILE_SIZE);
+
+            // No-op short-circuit: if nothing changed and frame_buf is already
+            // populated, every tile is identical to last frame — skip all remaining
+            // work.  Static frames (no clock tick, no focus change, etc.) cost
+            // essentially nothing in the real pipeline.
+            if incr_ctx.changed_ids.is_empty() && !frame_buf.is_empty() {
+                let incr_time = t.elapsed();
+                let incr_px = frame_buf.clone();
+                let my_prev_full = std::mem::replace(&mut prev_full, full_px.clone());
+                return FrameResult {
+                    label: f.label.clone(),
+                    full_time,
+                    incr_time,
+                    full_px,
+                    prev_full_px: my_prev_full,
+                    incr_px,
+                    w,
+                    h,
+                    render_calls: 0,
+                    skipped: cols * rows,
+                    cache_hits: 0,
+                    dirty_tiles: HashSet::new(),
+                };
             }
-        }
-        // Step (b): stub layout — skipped when positions are provably unchanged.
-        let bboxes: HashMap<String, Rect> = if dims_changed || collection_changed {
-            let stub_json = stub_scene_json(&f.root, &incr_ctx.node_dims);
-            let node = parse_layout(&stub_json).unwrap_or_else(|_| Node::container(vec![]));
-            let measured = takumi_measure_layout(
-                RenderOptions::builder().global(&incr_ctx.global)
-                    .viewport(Viewport::new((None, None))).node(node).build()
-            ).expect("stub layout");
-            let mut sb = HashMap::new();
-            collect_bboxes(&measured, &f.root, &mut sb);
-            sb
-        } else {
-            prev_stub_bboxes.clone()
-        };
 
-        // 3. Compute dirty tiles and update tile→node map.
-        let mut dirty: HashSet<(u32,u32)> = HashSet::new();
-
-        if frame_buf.len() != (w * h * 4) as usize {
-            // First frame: full build of tile_node_map + all tiles dirty.
-            frame_buf = vec![0u8; (w * h * 4) as usize];
-            tile_node_map = build_tile_node_map(&bboxes, cols, rows);
-            for ty in 0..rows { for tx in 0..cols { dirty.insert((tx, ty)); } }
-        } else {
-            // Incremental tile_node_map update — O(changed_nodes × tiles_per_node)
-            // instead of O(total_nodes × tiles_per_node) for a full rebuild.
+            // 2. Measure layout — always via the stub-layout path.
             //
-            // Step 1: update entries for nodes whose content changed.
+            //    (a) Measure each changed leaf in isolation to update node_dims.
+            //        On the first frame every node enters → changed_ids contains all
+            //        nodes → node_dims is fully bootstrapped here.
+            //    (b) Stub layout: replace every leaf with a fixed-size container so
+            //        taffy re-computes positions with zero text shaping.
+            //
+            //    node_map is built once and shared by both the measure step (O(1)
+            //    lookup vs the old O(N) find_node) and later fingerprinting.
+            let node_map = build_node_map(&f.root);
+
+            // Step (a): update node_dims for changed leaves; track whether anything
+            // that affects flex geometry actually changed.
+            //   dims_changed        — a Text/Image node rendered to a different size
+            //   collection_changed  — a Collection tw changed (affects flex positions)
+            // If neither is true the stub layout would produce identical positions to
+            // last frame, so step (b) can be skipped entirely.
+            let mut dims_changed = false;
+            let mut collection_changed = false;
             for id in &incr_ctx.changed_ids {
-                if let Some(old_r) = prev_stub_bboxes.get(id.as_str()) {
-                    for (tx, ty) in tiles_for_bbox(old_r, cols, rows) {
-                        if let Some(s) = tile_node_map.get_mut(&(tx, ty)) { s.remove(id.as_str()); }
+                if let Some(&node) = node_map.get(id.as_str()) {
+                    match node {
+                        FakeNode::Text { .. } => {
+                            let new_dims = measure_natural(node, &incr_ctx.global);
+                            if incr_ctx.node_dims.get(id.as_str()).copied() != Some(new_dims) {
+                                dims_changed = true;
+                            }
+                            incr_ctx.node_dims.insert(id.clone(), new_dims);
+                        }
+                        FakeNode::Image { width, height, .. } => {
+                            let new_dims = (*width as f32, *height as f32);
+                            if incr_ctx.node_dims.get(id.as_str()).copied() != Some(new_dims) {
+                                dims_changed = true;
+                            }
+                            incr_ctx.node_dims.insert(id.clone(), new_dims);
+                        }
+                        FakeNode::Photo { width, height, .. } => {
+                            let new_dims = (*width as f32, *height as f32);
+                            if incr_ctx.node_dims.get(id.as_str()).copied() != Some(new_dims) {
+                                dims_changed = true;
+                            }
+                            incr_ctx.node_dims.insert(id.clone(), new_dims);
+                        }
+                        FakeNode::Collection { .. } => {
+                            collection_changed = true;
+                        }
                     }
-                    mark_dirty(old_r, TILE_SIZE, w, h, &mut dirty);
-                }
-                if let Some(new_r) = bboxes.get(id.as_str()) {
-                    for (tx, ty) in tiles_for_bbox(new_r, cols, rows) {
-                        tile_node_map.entry((tx, ty)).or_default().insert(id.clone());
-                    }
-                    mark_dirty(new_r, TILE_SIZE, w, h, &mut dirty);
                 }
             }
-            // Step 2: update entries for nodes that moved due to layout reflow
-            // (not in changed_ids but bbox shifted — e.g. justify-between reflow).
-            // This loop is O(total_nodes) but was already required for dirty marking;
-            // the tile_node_map update is folded in at no extra asymptotic cost.
-            let changed_set: HashSet<&str> =
-                incr_ctx.changed_ids.iter().map(String::as_str).collect();
-            for (id, new_r) in &bboxes {
-                if changed_set.contains(id.as_str()) { continue; }
-                if let Some(old_r) = prev_stub_bboxes.get(id.as_str()) {
-                    if (new_r.x - old_r.x).abs() > 0.5 || (new_r.y - old_r.y).abs() > 0.5 {
+            // Step (b): stub layout — skipped when positions are provably unchanged.
+            let bboxes: HashMap<String, Rect> = if dims_changed || collection_changed {
+                let stub_json = stub_scene_json(&f.root, &incr_ctx.node_dims);
+                let node = parse_layout(&stub_json).unwrap_or_else(|_| Node::container(vec![]));
+                let measured = takumi_measure_layout(
+                    RenderOptions::builder()
+                        .global(&incr_ctx.global)
+                        .viewport(Viewport::new((None, None)))
+                        .node(node)
+                        .build(),
+                )
+                .expect("stub layout");
+                let mut sb = HashMap::new();
+                collect_bboxes(&measured, &f.root, &mut sb);
+                sb
+            } else {
+                prev_stub_bboxes.clone()
+            };
+
+            // 3. Compute dirty tiles and update tile→node map.
+            let mut dirty: HashSet<(u32, u32)> = HashSet::new();
+
+            if frame_buf.len() != (w * h * 4) as usize {
+                // First frame: full build of tile_node_map + all tiles dirty.
+                frame_buf = vec![0u8; (w * h * 4) as usize];
+                tile_node_map = build_tile_node_map(&bboxes, cols, rows);
+                for ty in 0..rows {
+                    for tx in 0..cols {
+                        dirty.insert((tx, ty));
+                    }
+                }
+            } else {
+                // Incremental tile_node_map update — O(changed_nodes × tiles_per_node)
+                // instead of O(total_nodes × tiles_per_node) for a full rebuild.
+                //
+                // Step 1: update entries for nodes whose content changed.
+                for id in &incr_ctx.changed_ids {
+                    if let Some(old_r) = prev_stub_bboxes.get(id.as_str()) {
                         for (tx, ty) in tiles_for_bbox(old_r, cols, rows) {
-                            if let Some(s) = tile_node_map.get_mut(&(tx, ty)) { s.remove(id.as_str()); }
+                            if let Some(s) = tile_node_map.get_mut(&(tx, ty)) {
+                                s.remove(id.as_str());
+                            }
                         }
-                        for (tx, ty) in tiles_for_bbox(new_r, cols, rows) {
-                            tile_node_map.entry((tx, ty)).or_default().insert(id.clone());
-                        }
-                        mark_dirty(new_r, TILE_SIZE, w, h, &mut dirty);
                         mark_dirty(old_r, TILE_SIZE, w, h, &mut dirty);
                     }
+                    if let Some(new_r) = bboxes.get(id.as_str()) {
+                        for (tx, ty) in tiles_for_bbox(new_r, cols, rows) {
+                            tile_node_map
+                                .entry((tx, ty))
+                                .or_default()
+                                .insert(id.clone());
+                        }
+                        mark_dirty(new_r, TILE_SIZE, w, h, &mut dirty);
+                    }
+                }
+                // Step 2: update entries for nodes that moved due to layout reflow
+                // (not in changed_ids but bbox shifted — e.g. justify-between reflow).
+                // This loop is O(total_nodes) but was already required for dirty marking;
+                // the tile_node_map update is folded in at no extra asymptotic cost.
+                let changed_set: HashSet<&str> =
+                    incr_ctx.changed_ids.iter().map(String::as_str).collect();
+                for (id, new_r) in &bboxes {
+                    if changed_set.contains(id.as_str()) {
+                        continue;
+                    }
+                    if let Some(old_r) = prev_stub_bboxes.get(id.as_str()) {
+                        if (new_r.x - old_r.x).abs() > 0.5 || (new_r.y - old_r.y).abs() > 0.5 {
+                            for (tx, ty) in tiles_for_bbox(old_r, cols, rows) {
+                                if let Some(s) = tile_node_map.get_mut(&(tx, ty)) {
+                                    s.remove(id.as_str());
+                                }
+                            }
+                            for (tx, ty) in tiles_for_bbox(new_r, cols, rows) {
+                                tile_node_map
+                                    .entry((tx, ty))
+                                    .or_default()
+                                    .insert(id.clone());
+                            }
+                            mark_dirty(new_r, TILE_SIZE, w, h, &mut dirty);
+                            mark_dirty(old_r, TILE_SIZE, w, h, &mut dirty);
+                        }
+                    }
                 }
             }
-        }
 
-        // 4. Cache lookup — fingerprint each dirty tile upfront, stitch hits
-        //    immediately and remove from dirty so they don't inflate band areas.
-        let skipped = cols * rows - dirty.len() as u32; // tiles that were never dirty
-        let fps: HashMap<(u32,u32), u64> = dirty.iter()
-            .map(|&(tx,ty)| ((tx,ty), tile_fingerprint(tx, ty, &tile_node_map, &bboxes, &node_map)))
-            .collect();
-        let mut cache_hits = 0u32;
-        dirty.retain(|&(tx, ty)| {
-            match tile_cache.get(&fps[&(tx,ty)]).cloned() {
+            // 4. Cache lookup — fingerprint each dirty tile upfront, stitch hits
+            //    immediately and remove from dirty so they don't inflate band areas.
+            let skipped = cols * rows - dirty.len() as u32; // tiles that were never dirty
+            let fps: HashMap<(u32, u32), u64> = dirty
+                .iter()
+                .map(|&(tx, ty)| {
+                    (
+                        (tx, ty),
+                        tile_fingerprint(tx, ty, &tile_node_map, &bboxes, &node_map),
+                    )
+                })
+                .collect();
+            let mut cache_hits = 0u32;
+            dirty.retain(|&(tx, ty)| match tile_cache.get(&fps[&(tx, ty)]).cloned() {
                 Some(px) => {
-                    stitch(&mut frame_buf, w, h, &px, TILE_SIZE, tx * TILE_SIZE, ty * TILE_SIZE);
+                    stitch(
+                        &mut frame_buf,
+                        w,
+                        h,
+                        &px,
+                        TILE_SIZE,
+                        tx * TILE_SIZE,
+                        ty * TILE_SIZE,
+                    );
                     cache_hits += 1;
                     false
                 }
                 None => true,
-            }
-        });
-
-        // 5. Categorical + spatial grouping with cost-model greedy merge.
-        //    compute_candidates handles all frames uniformly — cold frame (all
-        //    tiles dirty) and incremental alike.  No special-case sentinel needed.
-        let candidates: Vec<RenderCandidate> = if dirty.is_empty() {
-            vec![]
-        } else {
-            let raw = compute_candidates(&dirty, &tile_node_map);
-            greedy_merge_candidates(raw, cm)
-        };
-        let render_calls = candidates.len() as u32;
-
-        for cand in &candidates {
-            let batch_px_x = cand.min_tx * TILE_SIZE;
-            let batch_px_y = cand.min_ty * TILE_SIZE;
-            let batch_w = (cand.max_tx - cand.min_tx + 1) * TILE_SIZE;
-            let batch_h = (cand.max_ty - cand.min_ty + 1) * TILE_SIZE;
-
-            let buf = SHADOW_BUF as f32;
-            let qx = batch_px_x as f32 - buf;
-            let qy = batch_px_y as f32 - buf;
-            let qw = batch_w as f32 + 2.0 * buf;
-            let qh = batch_h as f32 + 2.0 * buf;
-            let canvas_w = batch_w + 2 * SHADOW_BUF;
-            let canvas_h = batch_h + 2 * SHADOW_BUF;
-
-            let mut nodes: Vec<serde_json::Value> = Vec::new();
-            collect_flat_whitelist(&f.root, &bboxes, &cand.node_set,
-                                   qx, qy, qw, qh, &mut nodes);
-
-            let scene = serde_json::json!({
-                "type": "container",
-                "style": { "display": "block", "position": "relative",
-                    "width": canvas_w as f32, "height": canvas_h as f32,
-                    "overflow": "hidden" },
-                "children": nodes
             });
-            let node = parse_layout(&scene).unwrap_or_else(|_| Node::container(vec![]));
-            let t_render = Instant::now();
-            let cand_px = takumi_render(
-                RenderOptions::builder().global(&incr_ctx.global)
-                    .viewport(Viewport::new((None,None))).node(node).build()
-            ).expect("candidate render").into_raw();
-            cal_samples.push((
-                canvas_w as f64 * canvas_h as f64,
-                nodes.len() as f64,
-                t_render.elapsed().as_secs_f64() * 1000.0,
-            ));
 
-            for &(tx, ty) in &cand.tiles {
-                let px_x = tx * TILE_SIZE;
-                let px_y = ty * TILE_SIZE;
-                let off_x = SHADOW_BUF + (tx - cand.min_tx) * TILE_SIZE;
-                let off_y = SHADOW_BUF + (ty - cand.min_ty) * TILE_SIZE;
-                let tile_px = crop_pixels(&cand_px, canvas_w, off_x, off_y, TILE_SIZE, TILE_SIZE);
-                stitch(&mut frame_buf, w, h, &tile_px, TILE_SIZE, px_x, px_y);
-                tile_cache.put(fps[&(tx,ty)], tile_px);
+            // 5. Categorical + spatial grouping with cost-model greedy merge.
+            //    compute_candidates handles all frames uniformly — cold frame (all
+            //    tiles dirty) and incremental alike.  No special-case sentinel needed.
+            let candidates: Vec<RenderCandidate> = if dirty.is_empty() {
+                vec![]
+            } else {
+                let raw = compute_candidates(&dirty, &tile_node_map);
+                greedy_merge_candidates(raw, cm)
+            };
+            let render_calls = candidates.len() as u32;
+
+            for cand in &candidates {
+                let batch_px_x = cand.min_tx * TILE_SIZE;
+                let batch_px_y = cand.min_ty * TILE_SIZE;
+                let batch_w = (cand.max_tx - cand.min_tx + 1) * TILE_SIZE;
+                let batch_h = (cand.max_ty - cand.min_ty + 1) * TILE_SIZE;
+
+                let buf = SHADOW_BUF as f32;
+                let qx = batch_px_x as f32 - buf;
+                let qy = batch_px_y as f32 - buf;
+                let qw = batch_w as f32 + 2.0 * buf;
+                let qh = batch_h as f32 + 2.0 * buf;
+                let canvas_w = batch_w + 2 * SHADOW_BUF;
+                let canvas_h = batch_h + 2 * SHADOW_BUF;
+
+                let mut nodes: Vec<serde_json::Value> = Vec::new();
+                collect_flat_whitelist(
+                    &f.root,
+                    &bboxes,
+                    &cand.node_set,
+                    qx,
+                    qy,
+                    qw,
+                    qh,
+                    &mut nodes,
+                );
+
+                let scene = serde_json::json!({
+                    "type": "container",
+                    "style": { "display": "block", "position": "relative",
+                        "width": canvas_w as f32, "height": canvas_h as f32,
+                        "overflow": "hidden" },
+                    "children": nodes
+                });
+                let node = parse_layout(&scene).unwrap_or_else(|_| Node::container(vec![]));
+                let t_render = Instant::now();
+                let cand_px = takumi_render(
+                    RenderOptions::builder()
+                        .global(&incr_ctx.global)
+                        .viewport(Viewport::new((None, None)))
+                        .node(node)
+                        .build(),
+                )
+                .expect("candidate render")
+                .into_raw();
+                cal_samples.push((
+                    canvas_w as f64 * canvas_h as f64,
+                    nodes.len() as f64,
+                    t_render.elapsed().as_secs_f64() * 1000.0,
+                ));
+
+                for &(tx, ty) in &cand.tiles {
+                    let px_x = tx * TILE_SIZE;
+                    let px_y = ty * TILE_SIZE;
+                    let off_x = SHADOW_BUF + (tx - cand.min_tx) * TILE_SIZE;
+                    let off_y = SHADOW_BUF + (ty - cand.min_ty) * TILE_SIZE;
+                    let tile_px =
+                        crop_pixels(&cand_px, canvas_w, off_x, off_y, TILE_SIZE, TILE_SIZE);
+                    stitch(&mut frame_buf, w, h, &tile_px, TILE_SIZE, px_x, px_y);
+                    tile_cache.put(fps[&(tx, ty)], tile_px);
+                }
             }
-        }
 
-        let incr_time = t.elapsed();
-        let incr_px = frame_buf.clone();
-        let my_prev_full = std::mem::replace(&mut prev_full, full_px.clone());
-        let saved_dirty = dirty.clone();
-        prev_stub_bboxes = bboxes;
+            let incr_time = t.elapsed();
+            let incr_px = frame_buf.clone();
+            let my_prev_full = std::mem::replace(&mut prev_full, full_px.clone());
+            let saved_dirty = dirty.clone();
+            prev_stub_bboxes = bboxes;
 
-        FrameResult { label: f.label.clone(), full_time, incr_time, full_px, prev_full_px: my_prev_full, incr_px, w, h, render_calls, skipped, cache_hits, dirty_tiles: saved_dirty }
-    }).collect();
+            FrameResult {
+                label: f.label.clone(),
+                full_time,
+                incr_time,
+                full_px,
+                prev_full_px: my_prev_full,
+                incr_px,
+                w,
+                h,
+                render_calls,
+                skipped,
+                cache_hits,
+                dirty_tiles: saved_dirty,
+            }
+        })
+        .collect();
 
     SuiteResult { frames }
 }
@@ -1372,7 +1896,10 @@ fn html_report(suites: &[TestSuite], results: &[SuiteResult], cal_note: &str) ->
     let mut all_incr = Duration::ZERO;
     for s in results {
         for (i, f) in s.frames.iter().enumerate() {
-            if i > 0 { all_full += f.full_time; all_incr += f.incr_time; }
+            if i > 0 {
+                all_full += f.full_time;
+                all_incr += f.incr_time;
+            }
         }
     }
     let overall_speedup = all_full.as_secs_f64() / all_incr.as_secs_f64().max(1e-9);
@@ -1399,17 +1926,20 @@ fn html_report(suites: &[TestSuite], results: &[SuiteResult], cal_note: &str) ->
         let mut s_full = Duration::ZERO;
         let mut s_incr = Duration::ZERO;
         let mut n_perfect = 0u32;
-        let mut n_total  = 0u32;
+        let mut n_total = 0u32;
 
         for (fi, f) in result.frames.iter().enumerate() {
-            if fi > 0 { s_full += f.full_time; s_incr += f.incr_time; }
+            if fi > 0 {
+                s_full += f.full_time;
+                s_incr += f.incr_time;
+            }
             n_total += 1;
 
             let full_uri = data_uri(&f.full_px, f.w, f.h);
             let speedup_f = f.full_time.as_secs_f64() / f.incr_time.as_secs_f64().max(1e-9);
             // Display size: 3× pixel-art scaling, capped so huge canvases stay scrollable
-            let pw = (f.w * 3).min(900).max(120);
-            let ph = (f.h * 3).min(600).max(36);
+            let pw = (f.w * 3).clamp(120, 900);
+            let ph = (f.h * 3).clamp(36, 600);
 
             // Restrict correctness measurement to dirty tiles only.
             let mask = dirty_mask(&f.dirty_tiles, f.w, f.h);
@@ -1426,29 +1956,56 @@ fn html_report(suites: &[TestSuite], results: &[SuiteResult], cal_note: &str) ->
                 None
             };
 
-            let (d, incr_uri, diff_uri, chg_uri) = if !f.incr_px.is_empty() && f.incr_px.len() == f.full_px.len() {
-                let d = diff_masked(&f.full_px, &f.incr_px, &mask, f.w, f.h);
-                let du = data_uri(&d.img, f.w, f.h);
-                let iu = data_uri(&f.incr_px, f.w, f.h);
-                let cu = chg_diff.as_ref().map(|c| data_uri(&c.img, f.w, f.h)).unwrap_or_default();
-                (Some(d), iu, du, cu)
-            } else {
-                (None, String::new(), String::new(), String::new())
-            };
+            let (d, incr_uri, diff_uri, chg_uri) =
+                if !f.incr_px.is_empty() && f.incr_px.len() == f.full_px.len() {
+                    let d = diff_masked(&f.full_px, &f.incr_px, &mask, f.w, f.h);
+                    let du = data_uri(&d.img, f.w, f.h);
+                    let iu = data_uri(&f.incr_px, f.w, f.h);
+                    let cu = chg_diff
+                        .as_ref()
+                        .map(|c| data_uri(&c.img, f.w, f.h))
+                        .unwrap_or_default();
+                    (Some(d), iu, du, cu)
+                } else {
+                    (None, String::new(), String::new(), String::new())
+                };
 
-            let ratio = d.as_ref().map(|d| d.weighted / chg_w.max(1.0)).unwrap_or(0.0);
+            let ratio = d
+                .as_ref()
+                .map(|d| d.weighted / chg_w.max(1.0))
+                .unwrap_or(0.0);
             let perfect = ratio < PERFECT_THRESHOLD;
-            if perfect { n_perfect += 1; }
+            if perfect {
+                n_perfect += 1;
+            }
 
-            let badge = if perfect { r#"<span class="ok">✓</span>"# } else { r#"<span class="diff">≠</span>"# };
-            let diff_stat = d.as_ref().map(|d| format!(
-                "err={:.1} / chg={:.0} = {:.1}%", d.weighted, chg_w, ratio * 100.0
-            )).unwrap_or_default();
+            let badge = if perfect {
+                r#"<span class="ok">✓</span>"#
+            } else {
+                r#"<span class="diff">≠</span>"#
+            };
+            let diff_stat = d
+                .as_ref()
+                .map(|d| {
+                    format!(
+                        "err={:.1} / chg={:.0} = {:.1}%",
+                        d.weighted,
+                        chg_w,
+                        ratio * 100.0
+                    )
+                })
+                .unwrap_or_default();
 
             let chg_col = if !chg_uri.is_empty() {
-                format!(r#"<div><div class="cap">Δ Change</div><img src="{chg_uri}" style="width:{pw}px;height:{ph}px;image-rendering:pixelated"></div>"#,
-                    chg_uri = chg_uri, pw = pw, ph = ph)
-            } else { String::new() };
+                format!(
+                    r#"<div><div class="cap">Δ Change</div><img src="{chg_uri}" style="width:{pw}px;height:{ph}px;image-rendering:pixelated"></div>"#,
+                    chg_uri = chg_uri,
+                    pw = pw,
+                    ph = ph
+                )
+            } else {
+                String::new()
+            };
 
             frames_html.push_str(&format!(r#"
             <div class="frame {cls}">
@@ -1475,8 +2032,9 @@ fn html_report(suites: &[TestSuite], results: &[SuiteResult], cal_note: &str) ->
             if d.is_some() && !perfect {
                 {
                     let tw = f.w.min(240);
-                    let th = (f.h * tw / f.w.max(1)).min(320).max(20);
-                    let snippet = format!(r#"
+                    let th = (f.h * tw / f.w.max(1)).clamp(20, 320);
+                    let snippet = format!(
+                        r#"
                     <div class="frame imperfect">
                       <div class="fhdr">{sn} · Frame {fi} — {lbl} {badge}
                         <span class="tm">full {ft:.1}ms · incr {it:.1}ms · {sp:.1}×</span>
@@ -1488,10 +2046,19 @@ fn html_report(suites: &[TestSuite], results: &[SuiteResult], cal_note: &str) ->
                         <div><div class="cap">Diff (error)</div><img src="{du}" style="width:{tw}px;height:{th}px;image-rendering:pixelated"></div>
                       </div>
                     </div>"#,
-                        sn = suite.name, fi = fi, lbl = f.label, badge = badge,
-                        ft = f.full_time.as_secs_f64() * 1000.0, it = f.incr_time.as_secs_f64() * 1000.0,
-                        sp = speedup_f, ds = diff_stat,
-                        fu = full_uri, iu = incr_uri, du = diff_uri, tw = tw, th = th,
+                        sn = suite.name,
+                        fi = fi,
+                        lbl = f.label,
+                        badge = badge,
+                        ft = f.full_time.as_secs_f64() * 1000.0,
+                        it = f.incr_time.as_secs_f64() * 1000.0,
+                        sp = speedup_f,
+                        ds = diff_stat,
+                        fu = full_uri,
+                        iu = incr_uri,
+                        du = diff_uri,
+                        tw = tw,
+                        th = th,
                     );
                     imperfect.push((ratio, suite.name, fi, f.label.clone(), snippet));
                 }
@@ -1503,14 +2070,18 @@ fn html_report(suites: &[TestSuite], results: &[SuiteResult], cal_note: &str) ->
             r#"<tr><td>{name}</td><td class="num">{ss:.1}×</td><td class="num">{np}/{nt}</td></tr>"#,
             name = suite.name, ss = ss, np = n_perfect, nt = n_total,
         ));
-        suite_tabs.push_str(&format!(r#"
+        suite_tabs.push_str(&format!(
+            r#"
         <div id="{tab_id}" class="tab-content" style="display:none">
           <h2>{name} <span class="speedup">{ss:.1}× speedup</span></h2>
           <p class="desc">{desc}</p>
           {frames}
         </div>"#,
-            tab_id = tab_id, name = suite.name, ss = ss,
-            desc = suite.description, frames = frames_html,
+            tab_id = tab_id,
+            name = suite.name,
+            ss = ss,
+            desc = suite.description,
+            frames = frames_html,
         ));
     }
 
@@ -1529,7 +2100,8 @@ fn html_report(suites: &[TestSuite], results: &[SuiteResult], cal_note: &str) ->
     };
 
     // ── Summary tab ──────────────────────────────────────────────────────────
-    let summary_tab = format!(r#"
+    let summary_tab = format!(
+        r#"
     <div id="tab-summary" class="tab-content">
       <div class="hero">
         <div><div class="l">Overall speedup (frames 1+)</div><div class="v">{sp:.1}×</div></div>
@@ -1547,11 +2119,13 @@ fn html_report(suites: &[TestSuite], results: &[SuiteResult], cal_note: &str) ->
         sp = overall_speedup,
         ft = all_full.as_secs_f64() * 1000.0,
         it = all_incr.as_secs_f64() * 1000.0,
-        rows = table_rows, worst = worst_html,
+        rows = table_rows,
+        worst = worst_html,
         cal = cal_note,
     );
 
-    format!(r#"<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
+    format!(
+        r#"<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
 <title>Partial Rendering PoC</title>
 <style>
 body{{font-family:system-ui,sans-serif;background:#0d0d0d;color:#ddd;padding:2rem;max-width:1400px;margin:0 auto}}
@@ -1594,7 +2168,9 @@ function showTab(id,btn){{
 }}
 </script>
 </body></html>"#,
-        tab_btns = tab_btns, summary = summary_tab, suite_tabs = suite_tabs,
+        tab_btns = tab_btns,
+        summary = summary_tab,
+        suite_tabs = suite_tabs,
     )
 }
 
@@ -1604,17 +2180,17 @@ function showTab(id,btn){{
 
 fn suite_realistic_sidebar() -> TestSuite {
     let ws_data: &[(&str, &str, Option<&str>)] = &[
-        ("1",  "term",    Some("main")),
-        ("2",  "browser", None),
-        ("3",  "costae",  Some("partial-rendering")),
-        ("4",  "slack",   None),
-        ("5",  "docs",    Some("arch-notes")),
-        ("6",  "api",     Some("v2-refactor")),
-        ("7",  "fe",      Some("dashboard")),
-        ("8",  "debug",   None),
-        ("9",  "infra",   Some("tf-migration")),
-        ("10", "mail",    None),
-        ("11", "music",   None),
+        ("1", "term", Some("main")),
+        ("2", "browser", None),
+        ("3", "costae", Some("partial-rendering")),
+        ("4", "slack", None),
+        ("5", "docs", Some("arch-notes")),
+        ("6", "api", Some("v2-refactor")),
+        ("7", "fe", Some("dashboard")),
+        ("8", "debug", None),
+        ("9", "infra", Some("tf-migration")),
+        ("10", "mail", None),
+        ("11", "music", None),
         ("12", "monitor", Some("grafana")),
     ];
 
@@ -1825,8 +2401,15 @@ fn suite_shrink_bug() -> TestSuite {
     // A single text node with no siblings cycles between wide and narrow values.
     // No reflow occurs (nothing moves), so the stale-old-bbox bug causes the
     // right-side pixels of the wide text to persist after it shrinks.
-    let frames = ["WWWWWWWWWWWWWWWWWWWWWWWWW", "W", "WWWWWWWWWWWWWWWWWWWWWWWWW", "W"]
-        .iter().enumerate().map(|(i, &text)| {
+    let frames = [
+        "WWWWWWWWWWWWWWWWWWWWWWWWW",
+        "W",
+        "WWWWWWWWWWWWWWWWWWWWWWWWW",
+        "W",
+    ]
+    .iter()
+    .enumerate()
+    .map(|(i, &text)| {
         let root = FakeNode::Collection {
             id: "bar".into(),
             tw: "w-[400px] h-[24px] bg-blue-900 flex items-center".into(),
@@ -1836,8 +2419,12 @@ fn suite_shrink_bug() -> TestSuite {
                 tw: "text-white text-xs font-mono whitespace-nowrap".into(),
             }],
         };
-        SuiteFrame { label: format!("frame {i}: «{text}»"), root }
-    }).collect();
+        SuiteFrame {
+            label: format!("frame {i}: «{text}»"),
+            root,
+        }
+    })
+    .collect();
     TestSuite {
         name: "Shrink Bug",
         description: "Single text node, no siblings. Wide→narrow transition should erase the right portion — stale pixels here prove the old-bbox bug.",
@@ -1965,7 +2552,9 @@ fn suite_panel_focus() -> TestSuite {
 }
 
 fn suite_diagonal_scatter() -> TestSuite {
-    let colors = ["red","orange","yellow","green","cyan","blue","indigo","purple","pink"];
+    let colors = [
+        "red", "orange", "yellow", "green", "cyan", "blue", "indigo", "purple", "pink",
+    ];
     let frames = (0..10).map(|i| {
         let hot = i % 9;
         let rows: Vec<FakeNode> = (0usize..3).map(|r| FakeNode::Collection {
@@ -2052,49 +2641,70 @@ fn suite_notification_badge() -> TestSuite {
     }).collect();
     TestSuite {
         name: "Notification Badge",
-        description: "240×72 px. Badge counter 1→12; container widens at 2 digits. App icon is fully static.",
+        description:
+            "240×72 px. Badge counter 1→12; container widens at 2 digits. App icon is fully static.",
         frames,
     }
 }
 
 fn suite_progress_fill() -> TestSuite {
-    let frames = (0..10).map(|i| {
-        let pct: u32 = match i {
-            0..=7 => (i as f64 / 7.0 * 100.0) as u32,
-            8 => 30,
-            _ => 0,
-        };
-        let fill_w = (pct * 320 / 100).min(320);
-        let complete = pct >= 100;
-        let root = FakeNode::Collection {
-            id: "card".into(),
-            tw: "flex flex-col gap-2 w-[360px] h-[60px] px-3 py-2 bg-gray-800 rounded-xl".into(),
-            children: vec![
-                FakeNode::Collection {
-                    id: "header".into(),
-                    tw: "flex flex-row items-baseline justify-between".into(),
-                    children: vec![
-                        FakeNode::Text { id: "label".into(),
-                            content: if complete { "Complete!" } else { "Downloading…" }.into(),
-                            tw: "text-[11px] text-gray-400 whitespace-nowrap".into() },
-                        FakeNode::Text { id: "pct".into(), content: format!("{pct}%"),
-                            tw: "text-[11px] text-white font-mono whitespace-nowrap".into() },
-                    ],
-                },
-                FakeNode::Collection {
-                    id: "bar-bg".into(),
-                    tw: "w-full h-[8px] bg-gray-700 rounded-full overflow-hidden".into(),
-                    children: vec![FakeNode::Image {
-                        id: "bar-fill".into(),
-                        color: if complete { "green-400".into() } else { "blue-500".into() },
-                        width: fill_w,
-                        height: 8,
-                    }],
-                },
-            ],
-        };
-        SuiteFrame { label: format!("frame {i}: {pct}%"), root }
-    }).collect();
+    let frames = (0..10)
+        .map(|i| {
+            let pct: u32 = match i {
+                0..=7 => (i as f64 / 7.0 * 100.0) as u32,
+                8 => 30,
+                _ => 0,
+            };
+            let fill_w = (pct * 320 / 100).min(320);
+            let complete = pct >= 100;
+            let root = FakeNode::Collection {
+                id: "card".into(),
+                tw: "flex flex-col gap-2 w-[360px] h-[60px] px-3 py-2 bg-gray-800 rounded-xl"
+                    .into(),
+                children: vec![
+                    FakeNode::Collection {
+                        id: "header".into(),
+                        tw: "flex flex-row items-baseline justify-between".into(),
+                        children: vec![
+                            FakeNode::Text {
+                                id: "label".into(),
+                                content: if complete {
+                                    "Complete!"
+                                } else {
+                                    "Downloading…"
+                                }
+                                .into(),
+                                tw: "text-[11px] text-gray-400 whitespace-nowrap".into(),
+                            },
+                            FakeNode::Text {
+                                id: "pct".into(),
+                                content: format!("{pct}%"),
+                                tw: "text-[11px] text-white font-mono whitespace-nowrap".into(),
+                            },
+                        ],
+                    },
+                    FakeNode::Collection {
+                        id: "bar-bg".into(),
+                        tw: "w-full h-[8px] bg-gray-700 rounded-full overflow-hidden".into(),
+                        children: vec![FakeNode::Image {
+                            id: "bar-fill".into(),
+                            color: if complete {
+                                "green-400".into()
+                            } else {
+                                "blue-500".into()
+                            },
+                            width: fill_w,
+                            height: 8,
+                        }],
+                    },
+                ],
+            };
+            SuiteFrame {
+                label: format!("frame {i}: {pct}%"),
+                root,
+            }
+        })
+        .collect();
     TestSuite {
         name: "Progress Fill",
         description: "360×60 px. Image bar grows 0→100%; color flips to green at completion; frames 8-9 reset. Tests Image node resize + color change.",
@@ -2230,9 +2840,9 @@ fn suite_keyframe_animation() -> TestSuite {
 fn suite_notification_panel() -> TestSuite {
     let spinner = ["|", "/", "—", "\\"];
     let notifs = [
-        ("System",   "Software update available"),
+        ("System", "Software update available"),
         ("Messages", "3 unread from Alice"),
-        ("Build",    "costae release passed"),
+        ("Build", "costae release passed"),
     ];
 
     let frames = (0..20).map(|i| {
@@ -2384,89 +2994,116 @@ fn suite_notification_panel() -> TestSuite {
 /// An opacity-pulsing badge in the bottom-left also cycles each frame to exercise
 /// `opacity-*` dirty marking independently of the blur.
 fn suite_compositing_overlay() -> TestSuite {
-    let frames = (0..10).map(|i| {
-        // Metric values that change every frame — these are what the blur samples.
-        let metrics = [
-            ("CPU",  format!("{}%",    12 + i * 7)),
-            ("GPU",  format!("{}%",    60 + i * 3)),
-            ("MEM",  format!("{}.{}G", 3 + i / 3, i % 3)),
-            ("NET↑", format!("{}M",    i * 13)),
-            ("TEMP", format!("{}°C",   55 + i * 2)),
-            ("DISK", format!("{}%",    40 + i)),
-            ("FPS",  format!("{}",     60 - i * 2)),
-            ("BAT",  format!("{}%",    90 - i * 3)),
-        ];
+    let frames = (0..10)
+        .map(|i| {
+            // Metric values that change every frame — these are what the blur samples.
+            let metrics = [
+                ("CPU", format!("{}%", 12 + i * 7)),
+                ("GPU", format!("{}%", 60 + i * 3)),
+                ("MEM", format!("{}.{}G", 3 + i / 3, i % 3)),
+                ("NET↑", format!("{}M", i * 13)),
+                ("TEMP", format!("{}°C", 55 + i * 2)),
+                ("DISK", format!("{}%", 40 + i)),
+                ("FPS", format!("{}", 60 - i * 2)),
+                ("BAT", format!("{}%", 90 - i * 3)),
+            ];
 
-        let badge_opacity = if i % 2 == 0 { "opacity-100" } else { "opacity-20" };
-        let spinner = ["|", "/", "—", "\\"][i % 4];
+            let badge_opacity = if i % 2 == 0 {
+                "opacity-100"
+            } else {
+                "opacity-20"
+            };
+            let spinner = ["|", "/", "—", "\\"][i % 4];
 
-        // 8 metric cards in a 4×2 grid filling the canvas — all change every frame.
-        let cards: Vec<FakeNode> = metrics.iter().map(|(name, val)| {
-            FakeNode::Collection {
-                id: format!("card-{name}"),
-                tw: "flex flex-col items-center justify-center w-[96px] h-[64px] \
-                     bg-gray-800 rounded-lg shadow-lg".into(),
+            // 8 metric cards in a 4×2 grid filling the canvas — all change every frame.
+            let cards: Vec<FakeNode> = metrics
+                .iter()
+                .map(|(name, val)| FakeNode::Collection {
+                    id: format!("card-{name}"),
+                    tw: "flex flex-col items-center justify-center w-[96px] h-[64px] \
+                     bg-gray-800 rounded-lg shadow-lg"
+                        .into(),
+                    children: vec![
+                        FakeNode::Text {
+                            id: format!("card-{name}-lbl"),
+                            content: name.to_string(),
+                            tw: "text-gray-400 text-[10px] whitespace-nowrap".into(),
+                        },
+                        FakeNode::Text {
+                            id: format!("card-{name}-val"),
+                            content: val.clone(),
+                            tw: "text-white text-sm font-mono font-bold whitespace-nowrap".into(),
+                        },
+                    ],
+                })
+                .collect();
+
+            let root = FakeNode::Collection {
+                id: "canvas".into(),
+                // relative so the absolute glass panel is positioned within this container.
+                tw: "relative w-[440px] h-[160px] bg-gray-950".into(),
                 children: vec![
-                    FakeNode::Text { id: format!("card-{name}-lbl"),
-                        content: name.to_string(),
-                        tw: "text-gray-400 text-[10px] whitespace-nowrap".into() },
-                    FakeNode::Text { id: format!("card-{name}-val"),
-                        content: val.clone(),
-                        tw: "text-white text-sm font-mono font-bold whitespace-nowrap".into() },
-                ],
-            }
-        }).collect();
-
-        let root = FakeNode::Collection {
-            id: "canvas".into(),
-            // relative so the absolute glass panel is positioned within this container.
-            tw: "relative w-[440px] h-[160px] bg-gray-950".into(),
-            children: vec![
-                // All 8 metric cards in a 4×2 flex-wrap grid — fill the full canvas.
-                FakeNode::Collection {
-                    id: "grid".into(),
-                    tw: "flex flex-row flex-wrap gap-[8px] p-[8px] w-[440px] h-[160px]".into(),
-                    children: cards,
-                },
-                // Semi-transparent overlay — ABSOLUTE, covers right half only (x=220 to x=432).
-                // STATIC: tw never changes after frame 0.  The cards underneath change every
-                // frame; the overlay must composite correctly over freshly-rendered card tiles.
-                FakeNode::Collection {
-                    id: "glass".into(),
-                    tw: "absolute bottom-[8px] left-[220px] w-[212px] h-[144px] \
+                    // All 8 metric cards in a 4×2 flex-wrap grid — fill the full canvas.
+                    FakeNode::Collection {
+                        id: "grid".into(),
+                        tw: "flex flex-row flex-wrap gap-[8px] p-[8px] w-[440px] h-[160px]".into(),
+                        children: cards,
+                    },
+                    // Semi-transparent overlay — ABSOLUTE, covers right half only (x=220 to x=432).
+                    // STATIC: tw never changes after frame 0.  The cards underneath change every
+                    // frame; the overlay must composite correctly over freshly-rendered card tiles.
+                    FakeNode::Collection {
+                        id: "glass".into(),
+                        tw: "absolute bottom-[8px] left-[220px] w-[212px] h-[144px] \
                          opacity-40 bg-blue-400 backdrop-blur-md mix-blend-screen \
                          rounded-xl border border-blue-300 shadow-xl \
-                         flex flex-col items-center justify-center gap-1".into(),
-                    children: vec![
-                        FakeNode::Text { id: "glass-lbl".into(),
-                            content: "Overlay (static)".into(),
-                            tw: "text-white text-xs font-bold whitespace-nowrap".into() },
-                        FakeNode::Text { id: "glass-hint".into(),
-                            content: "opacity-70".into(),
-                            tw: "text-white text-[10px] whitespace-nowrap".into() },
-                    ],
-                },
-                // Opacity-pulsing badge — bottom-left, changes every frame independently.
-                FakeNode::Collection {
-                    id: "badge".into(),
-                    tw: format!("absolute bottom-[8px] left-[8px] flex items-center \
+                         flex flex-col items-center justify-center gap-1"
+                            .into(),
+                        children: vec![
+                            FakeNode::Text {
+                                id: "glass-lbl".into(),
+                                content: "Overlay (static)".into(),
+                                tw: "text-white text-xs font-bold whitespace-nowrap".into(),
+                            },
+                            FakeNode::Text {
+                                id: "glass-hint".into(),
+                                content: "opacity-70".into(),
+                                tw: "text-white text-[10px] whitespace-nowrap".into(),
+                            },
+                        ],
+                    },
+                    // Opacity-pulsing badge — bottom-left, changes every frame independently.
+                    FakeNode::Collection {
+                        id: "badge".into(),
+                        tw: format!(
+                            "absolute bottom-[8px] left-[8px] flex items-center \
                                  justify-center gap-1 px-2 h-[18px] bg-yellow-400 \
-                                 rounded {badge_opacity}"),
-                    children: vec![
-                        FakeNode::Text { id: "spin".into(), content: spinner.into(),
-                            tw: "text-black text-[10px] font-mono".into() },
-                        FakeNode::Text { id: "badge-lbl".into(), content: "LIVE".into(),
-                            tw: "text-black text-[10px] font-bold".into() },
-                    ],
-                },
-            ],
-        };
-        SuiteFrame {
-            label: format!("frame {i}: cpu={} gpu={} badge={badge_opacity}",
-                metrics[0].1, metrics[1].1),
-            root,
-        }
-    }).collect();
+                                 rounded {badge_opacity}"
+                        ),
+                        children: vec![
+                            FakeNode::Text {
+                                id: "spin".into(),
+                                content: spinner.into(),
+                                tw: "text-black text-[10px] font-mono".into(),
+                            },
+                            FakeNode::Text {
+                                id: "badge-lbl".into(),
+                                content: "LIVE".into(),
+                                tw: "text-black text-[10px] font-bold".into(),
+                            },
+                        ],
+                    },
+                ],
+            };
+            SuiteFrame {
+                label: format!(
+                    "frame {i}: cpu={} gpu={} badge={badge_opacity}",
+                    metrics[0].1, metrics[1].1
+                ),
+                root,
+            }
+        })
+        .collect();
 
     TestSuite {
         name: "Compositing Overlay",
@@ -2490,106 +3127,132 @@ fn suite_compositing_overlay() -> TestSuite {
 /// for continuous-motion content.
 fn suite_scroll_list() -> TestSuite {
     let notif_data: &[(&str, &str, &str)] = &[
-        ("System",   "Software update available", "blue"),
-        ("Messages", "3 unread from Alice",       "purple"),
-        ("Build",    "costae release passed",     "green"),
-        ("Monitor",  "CPU spike: 94% for 30s",    "red"),
-        ("Sync",     "14 files synced",           "teal"),
-        ("Calendar", "Meeting in 15 min",         "orange"),
+        ("System", "Software update available", "blue"),
+        ("Messages", "3 unread from Alice", "purple"),
+        ("Build", "costae release passed", "green"),
+        ("Monitor", "CPU spike: 94% for 30s", "red"),
+        ("Sync", "14 files synced", "teal"),
+        ("Calendar", "Meeting in 15 min", "orange"),
     ];
 
-    let frames = (0..20).map(|i| {
-        let scroll_y = i as u32 * 2; // 0, 2, 4 … 38 px total
+    let frames = (0..20)
+        .map(|i| {
+            let scroll_y = i as u32 * 2; // 0, 2, 4 … 38 px total
 
-        // Monitor thumbnail cycles between two images every 5 frames.
-        let monitor_src = if (i / 5) % 2 == 0 { "great-wave" } else { "water-lilies" };
-
-        let items: Vec<FakeNode> = notif_data.iter().enumerate().map(|(idx, (app, msg, color))| {
-            // Items 1 (Messages), 3 (Monitor), 5 (Calendar) get a 48×48 Photo thumbnail.
-            let photo_src: Option<&str> = match idx {
-                1 => Some("pearl-earring"),
-                3 => Some(monitor_src),
-                5 => Some("starry-night"),
-                _ => None,
+            // Monitor thumbnail cycles between two images every 5 frames.
+            let monitor_src = if (i / 5) % 2 == 0 {
+                "great-wave"
+            } else {
+                "water-lilies"
             };
 
-            let mut children: Vec<FakeNode> = Vec::new();
+            let items: Vec<FakeNode> = notif_data
+                .iter()
+                .enumerate()
+                .map(|(idx, (app, msg, color))| {
+                    // Items 1 (Messages), 3 (Monitor), 5 (Calendar) get a 48×48 Photo thumbnail.
+                    let photo_src: Option<&str> = match idx {
+                        1 => Some("pearl-earring"),
+                        3 => Some(monitor_src),
+                        5 => Some("starry-night"),
+                        _ => None,
+                    };
 
-            if let Some(src) = photo_src {
-                children.push(FakeNode::Photo {
-                    id: format!("item-{idx}-thumb"),
-                    src: src.to_string(),
-                    width: 48,
-                    height: 48,
-                });
-            }
+                    let mut children: Vec<FakeNode> = Vec::new();
 
-            // Dot is smaller (6×6) for photo items, same for plain items.
-            children.push(FakeNode::Collection {
-                id: format!("item-{idx}-dot"),
-                tw: format!("flex-shrink-0 w-[6px] h-[6px] rounded-full bg-{color}-400"),
-                children: vec![],
-            });
+                    if let Some(src) = photo_src {
+                        children.push(FakeNode::Photo {
+                            id: format!("item-{idx}-thumb"),
+                            src: src.to_string(),
+                            width: 48,
+                            height: 48,
+                        });
+                    }
 
-            children.push(FakeNode::Collection {
-                id: format!("item-{idx}-body"),
-                tw: "flex flex-col".into(),
+                    // Dot is smaller (6×6) for photo items, same for plain items.
+                    children.push(FakeNode::Collection {
+                        id: format!("item-{idx}-dot"),
+                        tw: format!("flex-shrink-0 w-[6px] h-[6px] rounded-full bg-{color}-400"),
+                        children: vec![],
+                    });
+
+                    children.push(FakeNode::Collection {
+                        id: format!("item-{idx}-body"),
+                        tw: "flex flex-col".into(),
+                        children: vec![
+                            FakeNode::Text {
+                                id: format!("item-{idx}-app"),
+                                content: app.to_string(),
+                                tw: format!(
+                                    "text-[11px] font-bold text-{color}-300 whitespace-nowrap"
+                                ),
+                            },
+                            FakeNode::Text {
+                                id: format!("item-{idx}-msg"),
+                                content: msg.to_string(),
+                                tw: "text-[10px] text-gray-400 whitespace-nowrap".into(),
+                            },
+                        ],
+                    });
+
+                    FakeNode::Collection {
+                        id: format!("item-{idx}"),
+                        tw: format!(
+                            "flex flex-row items-center gap-2 px-3 py-2 bg-{color}-950 rounded-lg"
+                        ),
+                        children,
+                    }
+                })
+                .collect();
+
+            // scroll-content shifts up via negative margin-top; overflow-hidden clips the top.
+            let content_tw = if scroll_y == 0 {
+                "flex flex-col gap-1".into()
+            } else {
+                format!("flex flex-col gap-1 mt-[-{scroll_y}px]")
+            };
+
+            let root = FakeNode::Collection {
+                id: "panel".into(),
+                tw: "flex flex-col w-[400px] h-[200px] bg-gray-900 rounded-xl p-3 gap-2".into(),
                 children: vec![
-                    FakeNode::Text {
-                        id: format!("item-{idx}-app"), content: app.to_string(),
-                        tw: format!("text-[11px] font-bold text-{color}-300 whitespace-nowrap"),
+                    // Header — static except for scroll position readout
+                    FakeNode::Collection {
+                        id: "hdr".into(),
+                        tw: "flex flex-row items-center h-[24px]".into(),
+                        children: vec![
+                            FakeNode::Text {
+                                id: "hdr-title".into(),
+                                content: "NOTIFICATIONS".into(),
+                                tw: "text-[10px] text-gray-400 font-bold whitespace-nowrap".into(),
+                            },
+                            FakeNode::Text {
+                                id: "hdr-pos".into(),
+                                content: format!("↕ {scroll_y}px"),
+                                tw: "ml-auto text-[10px] text-gray-600 font-mono whitespace-nowrap"
+                                    .into(),
+                            },
+                        ],
                     },
-                    FakeNode::Text {
-                        id: format!("item-{idx}-msg"), content: msg.to_string(),
-                        tw: "text-[10px] text-gray-400 whitespace-nowrap".into(),
+                    // Clipped scroll viewport — overflow-hidden clips scrolled-past content
+                    FakeNode::Collection {
+                        id: "scroll-win".into(),
+                        tw: "flex-1 overflow-hidden".into(),
+                        children: vec![FakeNode::Collection {
+                            id: "scroll-content".into(),
+                            tw: content_tw,
+                            children: items,
+                        }],
                     },
                 ],
-            });
+            };
 
-            FakeNode::Collection {
-                id: format!("item-{idx}"),
-                tw: format!("flex flex-row items-center gap-2 px-3 py-2 bg-{color}-950 rounded-lg"),
-                children,
+            SuiteFrame {
+                label: format!("frame {i:02}: scroll={scroll_y}px"),
+                root,
             }
-        }).collect();
-
-        // scroll-content shifts up via negative margin-top; overflow-hidden clips the top.
-        let content_tw = if scroll_y == 0 {
-            "flex flex-col gap-1".into()
-        } else {
-            format!("flex flex-col gap-1 mt-[-{scroll_y}px]")
-        };
-
-        let root = FakeNode::Collection {
-            id: "panel".into(),
-            tw: "flex flex-col w-[400px] h-[200px] bg-gray-900 rounded-xl p-3 gap-2".into(),
-            children: vec![
-                // Header — static except for scroll position readout
-                FakeNode::Collection {
-                    id: "hdr".into(),
-                    tw: "flex flex-row items-center h-[24px]".into(),
-                    children: vec![
-                        FakeNode::Text { id: "hdr-title".into(), content: "NOTIFICATIONS".into(),
-                            tw: "text-[10px] text-gray-400 font-bold whitespace-nowrap".into() },
-                        FakeNode::Text { id: "hdr-pos".into(), content: format!("↕ {scroll_y}px"),
-                            tw: "ml-auto text-[10px] text-gray-600 font-mono whitespace-nowrap".into() },
-                    ],
-                },
-                // Clipped scroll viewport — overflow-hidden clips scrolled-past content
-                FakeNode::Collection {
-                    id: "scroll-win".into(),
-                    tw: "flex-1 overflow-hidden".into(),
-                    children: vec![FakeNode::Collection {
-                        id: "scroll-content".into(),
-                        tw: content_tw,
-                        children: items,
-                    }],
-                },
-            ],
-        };
-
-        SuiteFrame { label: format!("frame {i:02}: scroll={scroll_y}px"), root }
-    }).collect();
+        })
+        .collect();
 
     TestSuite {
         name: "Scroll List",
@@ -2601,7 +3264,6 @@ fn suite_scroll_list() -> TestSuite {
 // ---------------------------------------------------------------------------
 // Main
 // ---------------------------------------------------------------------------
-
 
 fn print_suite_results(result: &SuiteResult) {
     let mut s_full = Duration::ZERO;
@@ -2619,16 +3281,40 @@ fn print_suite_results(result: &SuiteResult) {
             };
             let err = diff_masked(&f.full_px, &f.incr_px, &mask, f.w, f.h);
             let ratio = err.weighted / chg_w.max(1.0);
-            if ratio < PERFECT_THRESHOLD { "✓".into() }
-            else { format!("≠{:.1}% (err={:.1}/chg={:.0})", ratio * 100.0, err.weighted, chg_w) }
-        } else { "?".into() };
-        println!("  [{: >2}] full={:.1}ms incr={:.1}ms ×{:.1} rendered={} hits={} skip={} {}  {}",
-            i, f.full_time.as_secs_f64() * 1000.0, f.incr_time.as_secs_f64() * 1000.0,
+            if ratio < PERFECT_THRESHOLD {
+                "✓".into()
+            } else {
+                format!(
+                    "≠{:.1}% (err={:.1}/chg={:.0})",
+                    ratio * 100.0,
+                    err.weighted,
+                    chg_w
+                )
+            }
+        } else {
+            "?".into()
+        };
+        println!(
+            "  [{: >2}] full={:.1}ms incr={:.1}ms ×{:.1} rendered={} hits={} skip={} {}  {}",
+            i,
+            f.full_time.as_secs_f64() * 1000.0,
+            f.incr_time.as_secs_f64() * 1000.0,
             f.full_time.as_secs_f64() / f.incr_time.as_secs_f64().max(1e-9),
-            f.render_calls, f.cache_hits, f.skipped, d, f.label);
-        if i > 0 { s_full += f.full_time; s_incr += f.incr_time; }
+            f.render_calls,
+            f.cache_hits,
+            f.skipped,
+            d,
+            f.label
+        );
+        if i > 0 {
+            s_full += f.full_time;
+            s_incr += f.incr_time;
+        }
     }
-    println!("  → suite speedup: {:.1}×\n", s_full.as_secs_f64() / s_incr.as_secs_f64().max(1e-9));
+    println!(
+        "  → suite speedup: {:.1}×\n",
+        s_full.as_secs_f64() / s_incr.as_secs_f64().max(1e-9)
+    );
 }
 
 fn main() {
@@ -2675,7 +3361,8 @@ fn main() {
             msg
         }
         None => {
-            let msg = "Calibration skipped (insufficient samples) — using default constants.".into();
+            let msg =
+                "Calibration skipped (insufficient samples) — using default constants.".into();
             eprintln!("{}", msg);
             msg
         }
@@ -2686,7 +3373,12 @@ fn main() {
     let mut results = Vec::new();
     let mut _discard: Vec<(f64, f64, f64)> = Vec::new();
     for suite in &suites_defs {
-        eprintln!("Running suite: {} ({} frames, tile={}px)...", suite.name, suite.frames.len(), TILE_SIZE);
+        eprintln!(
+            "Running suite: {} ({} frames, tile={}px)...",
+            suite.name,
+            suite.frames.len(),
+            TILE_SIZE
+        );
         let result = run_suite(suite, &cm, &mut _discard);
         print_suite_results(&result);
         results.push(result);
@@ -2701,11 +3393,14 @@ fn main() {
     for (suite, sr) in suites_defs.iter().zip(results.iter()) {
         let sname = suite.name.replace(' ', "_").to_lowercase();
         for (fi, f) in sr.frames.iter().enumerate() {
-            if f.full_px.is_empty() { continue; }
+            if f.full_px.is_empty() {
+                continue;
+            }
             let base = format!("/tmp/poc_frames/{sname}_f{fi:02}");
             std::fs::write(format!("{base}_full.png"), encode_png(&f.full_px, f.w, f.h)).unwrap();
             if !f.incr_px.is_empty() {
-                std::fs::write(format!("{base}_incr.png"), encode_png(&f.incr_px, f.w, f.h)).unwrap();
+                std::fs::write(format!("{base}_incr.png"), encode_png(&f.incr_px, f.w, f.h))
+                    .unwrap();
                 let d = diff(&f.full_px, &f.incr_px, f.w, f.h);
                 std::fs::write(format!("{base}_diff.png"), encode_png(&d.img, f.w, f.h)).unwrap();
             }
@@ -2832,7 +3527,11 @@ mod visual_regression {
     /// confirm the bug.
     #[test]
     fn reg_image_resize_dirty_region() {
-        run_and_snapshot(&suite_progress_fill(), &[3, 8], "reg_image_resize_dirty_region");
+        run_and_snapshot(
+            &suite_progress_fill(),
+            &[3, 8],
+            "reg_image_resize_dirty_region",
+        );
     }
 
     /// Guards that a moved node clears its old tile position.
@@ -2842,7 +3541,11 @@ mod visual_regression {
     /// right tile filled — no ghost at the old position.
     #[test]
     fn reg_moved_node_clears_old_position() {
-        assert_render_snapshots(&suite_tile_crossing(), 1, "reg_moved_node_clears_old_position");
+        assert_render_snapshots(
+            &suite_tile_crossing(),
+            1,
+            "reg_moved_node_clears_old_position",
+        );
     }
 
     /// Guards that removed nodes leave no ghost pixels.
@@ -2859,7 +3562,10 @@ mod visual_regression {
                 tw: "flex flex-row items-center w-[320px] h-[48px] bg-gray-900".into(),
                 children: children,
             };
-            SuiteFrame { label: label.into(), root }
+            SuiteFrame {
+                label: label.into(),
+                root,
+            }
         };
         let node_a = || FakeNode::Collection {
             id: "node-a".into(),
@@ -2868,12 +3574,14 @@ mod visual_regression {
         };
         let node_b = || FakeNode::Collection {
             id: "node-b".into(),
-            tw: "ml-auto w-[48px] h-[32px] bg-orange-400 rounded flex items-center justify-center".into(),
+            tw: "ml-auto w-[48px] h-[32px] bg-orange-400 rounded flex items-center justify-center"
+                .into(),
             children: vec![],
         };
         let node_c = || FakeNode::Collection {
             id: "node-c".into(),
-            tw: "ml-auto w-[48px] h-[32px] bg-purple-400 rounded flex items-center justify-center".into(),
+            tw: "ml-auto w-[48px] h-[32px] bg-purple-400 rounded flex items-center justify-center"
+                .into(),
             children: vec![],
         };
         let suite = TestSuite {
@@ -2881,8 +3589,8 @@ mod visual_regression {
             description: "node-b removed in frame 1, node-c added in frame 2 — no ghost pixels",
             frames: vec![
                 mk_frame("cold: a+b", vec![node_a(), node_b()]),
-                mk_frame("remove b",  vec![node_a()]),
-                mk_frame("add c",     vec![node_a(), node_c()]),
+                mk_frame("remove b", vec![node_a()]),
+                mk_frame("add c", vec![node_a(), node_c()]),
             ],
         };
         run_and_snapshot(&suite, &[0, 1, 2], "reg_structure_change_no_ghost");
@@ -2906,7 +3614,11 @@ mod visual_regression {
     /// the rounded bar container — the old bug showed a square left edge.
     #[test]
     fn test_rounded_clip_all_widths() {
-        run_and_snapshot(&suite_progress_fill(), &[1, 4, 7, 8, 9], "test_rounded_clip_all_widths");
+        run_and_snapshot(
+            &suite_progress_fill(),
+            &[1, 4, 7, 8, 9],
+            "test_rounded_clip_all_widths",
+        );
     }
 
     /// Confirms ml-auto positions hdr-phase correctly across all phase transitions.
@@ -2915,7 +3627,11 @@ mod visual_regression {
     /// The phase label must always appear at the far-right edge of the header.
     #[test]
     fn test_ml_auto_all_phases() {
-        run_and_snapshot(&suite_keyframe_animation(), &[5, 10, 15], "test_ml_auto_all_phases");
+        run_and_snapshot(
+            &suite_keyframe_animation(),
+            &[5, 10, 15],
+            "test_ml_auto_all_phases",
+        );
     }
 
     // ── Golden representatives ────────────────────────────────────────────────
@@ -2944,7 +3660,11 @@ mod visual_regression {
     /// focus states — bg colour and text styling change on every panel.
     #[test]
     fn golden_workspace_focus_change() {
-        run_and_snapshot(&suite_panel_focus(), &[4, 8], "golden_workspace_focus_change");
+        run_and_snapshot(
+            &suite_panel_focus(),
+            &[4, 8],
+            "golden_workspace_focus_change",
+        );
     }
 
     /// Golden snapshot of active notification rotating through the panel list.
@@ -2953,7 +3673,11 @@ mod visual_regression {
     /// Spinner also advances each frame.
     #[test]
     fn golden_notification_rotation() {
-        run_and_snapshot(&suite_notification_panel(), &[0, 2, 4], "golden_notification_rotation");
+        run_and_snapshot(
+            &suite_notification_panel(),
+            &[0, 2, 4],
+            "golden_notification_rotation",
+        );
     }
 
     /// Golden snapshot of scroll frames — every viewport tile dirty.

@@ -1,5 +1,5 @@
-use serde::Deserialize;
 use crate::theme::ThemeMode;
+use serde::Deserialize;
 
 fn default_theme_mode() -> ThemeMode {
     ThemeMode::Dark
@@ -65,6 +65,9 @@ mod tests {
     fn config_from_yaml_parses_optional_theme_file() {
         let yaml = "theme:\n  mode: dark\n  file: ~/.config/costae/my-theme.yaml";
         let config = CostaeConfig::from_yaml(yaml).expect("valid yaml should parse");
-        assert_eq!(config.theme.file.as_deref(), Some("~/.config/costae/my-theme.yaml"));
+        assert_eq!(
+            config.theme.file.as_deref(),
+            Some("~/.config/costae/my-theme.yaml")
+        );
     }
 }

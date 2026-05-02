@@ -1,8 +1,8 @@
-use costae::{init_global_ctx, parse_layout, render_frame, with_global_ctx};
 use costae::config::FontConfig;
+use costae::{init_global_ctx, parse_layout, render_frame, with_global_ctx};
 use takumi::{
     layout::Viewport,
-    rendering::{RenderOptions, measure_layout},
+    rendering::{measure_layout, RenderOptions},
 };
 
 fn measure_node(node: &serde_json::Value, width: u32, dpr: f32) -> takumi::rendering::MeasuredNode {

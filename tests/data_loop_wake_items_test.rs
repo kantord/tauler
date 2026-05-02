@@ -10,7 +10,10 @@ use std::time::Duration;
 
 fn echo_spec(msg: &str) -> ProcessSource {
     ProcessSource {
-        identity: ProcessIdentity { bin: "/bin/sh".to_string(), key: "/bin/sh".to_string() },
+        identity: ProcessIdentity {
+            bin: "/bin/sh".to_string(),
+            key: "/bin/sh".to_string(),
+        },
         args: vec!["-c".to_string(), format!("echo {msg}")],
         env: BTreeMap::new(),
         current_dir: None,

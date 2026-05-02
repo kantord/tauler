@@ -51,7 +51,9 @@ pub fn bar_gap_command(dpi: f32, bar_width: u32, outer_gap: u32) -> String {
     if og == 0 {
         format!("gaps left current set {left}")
     } else {
-        format!("gaps left current set {left}; gaps top current set {og}; gaps right current set {og}; gaps bottom current set {og}")
+        format!(
+            "gaps left current set {left}; gaps top current set {og}; gaps right current set {og}; gaps bottom current set {og}"
+        )
     }
 }
 
@@ -112,13 +114,19 @@ mod tests {
     #[test]
     fn bar_gap_command_sets_all_four_gaps_when_outer_gap_nonzero() {
         let cmd = bar_gap_command(96.0, 200, 8);
-        assert_eq!(cmd, "gaps left current set 200; gaps top current set 8; gaps right current set 8; gaps bottom current set 8");
+        assert_eq!(
+            cmd,
+            "gaps left current set 200; gaps top current set 8; gaps right current set 8; gaps bottom current set 8"
+        );
     }
 
     #[test]
     fn bar_gap_command_scales_gaps_for_high_dpi() {
         // At DPI 192 (dpr=2.0), i3 scales gaps itself, so we divide back by dpr
         let cmd = bar_gap_command(192.0, 400, 16);
-        assert_eq!(cmd, "gaps left current set 200; gaps top current set 8; gaps right current set 8; gaps bottom current set 8");
+        assert_eq!(
+            cmd,
+            "gaps left current set 200; gaps top current set 8; gaps right current set 8; gaps bottom current set 8"
+        );
     }
 }

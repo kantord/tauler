@@ -1,15 +1,26 @@
-use crate::ui::{Node, component, rsx, cva::Cva};
+use crate::ui::{component, cva::Cva, rsx, Node};
 
 const BADGE_VARIANTS: Cva = Cva {
-    base: "inline-flex items-center rounded-full border px-[10px] py-[2px] text-[12px] font-semibold",
-    variants: &[
-        ("variant", &[
-            ("default", "border-transparent bg-primary text-primary-foreground"),
-            ("secondary", "border-transparent bg-secondary text-secondary-foreground"),
-            ("destructive", "border-transparent bg-destructive text-destructive-foreground"),
+    base:
+        "inline-flex items-center rounded-full border px-[10px] py-[2px] text-[12px] font-semibold",
+    variants: &[(
+        "variant",
+        &[
+            (
+                "default",
+                "border-transparent bg-primary text-primary-foreground",
+            ),
+            (
+                "secondary",
+                "border-transparent bg-secondary text-secondary-foreground",
+            ),
+            (
+                "destructive",
+                "border-transparent bg-destructive text-destructive-foreground",
+            ),
             ("outline", "text-foreground"),
-        ]),
-    ],
+        ],
+    )],
     defaults: &[("variant", "default")],
 };
 
@@ -29,7 +40,10 @@ const BADGE_VARIANTS: Cva = Cva {
 /// https://ui.shadcn.com/docs/components/badge
 #[component("@ui/badge")]
 pub fn badge(children: Vec<Node>, variant: Option<String>, tw: Option<String>) -> Node {
-    let tw = BADGE_VARIANTS.resolve(&[("variant", variant.as_deref())], tw.as_deref().unwrap_or(""));
+    let tw = BADGE_VARIANTS.resolve(
+        &[("variant", variant.as_deref())],
+        tw.as_deref().unwrap_or(""),
+    );
     rsx! {
         <container tw={tw}>
             {children}

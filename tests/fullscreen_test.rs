@@ -18,7 +18,11 @@ fn make_workspace(id: u64, windows: Vec<serde_json::Value>) -> serde_json::Value
     })
 }
 
-fn make_tree(output_name: &str, focused_ws_id: u64, workspaces: Vec<serde_json::Value>) -> serde_json::Value {
+fn make_tree(
+    output_name: &str,
+    focused_ws_id: u64,
+    workspaces: Vec<serde_json::Value>,
+) -> serde_json::Value {
     serde_json::json!({
         "nodes": [{
             "name": output_name,
@@ -30,26 +34,34 @@ fn make_tree(output_name: &str, focused_ws_id: u64, workspaces: Vec<serde_json::
 
 #[test]
 fn no_fullscreen_returns_false() {
-    let tree = make_tree("DP-1", 10, vec![
-        make_workspace(10, vec![make_window(20, 0)]),
-    ]);
+    let tree = make_tree(
+        "DP-1",
+        10,
+        vec![make_workspace(10, vec![make_window(20, 0)])],
+    );
     assert!(!has_fullscreen_on_output(&tree, "DP-1"));
 }
 
 #[test]
 fn fullscreen_on_focused_workspace_returns_true() {
-    let tree = make_tree("DP-1", 10, vec![
-        make_workspace(10, vec![make_window(20, 1)]),
-    ]);
+    let tree = make_tree(
+        "DP-1",
+        10,
+        vec![make_workspace(10, vec![make_window(20, 1)])],
+    );
     assert!(has_fullscreen_on_output(&tree, "DP-1"));
 }
 
 #[test]
 fn fullscreen_on_unfocused_workspace_returns_false() {
-    let tree = make_tree("DP-1", 10, vec![
-        make_workspace(10, vec![make_window(20, 0)]),
-        make_workspace(11, vec![make_window(21, 1)]),
-    ]);
+    let tree = make_tree(
+        "DP-1",
+        10,
+        vec![
+            make_workspace(10, vec![make_window(20, 0)]),
+            make_workspace(11, vec![make_window(21, 1)]),
+        ],
+    );
     assert!(!has_fullscreen_on_output(&tree, "DP-1"));
 }
 
@@ -93,7 +105,10 @@ fn nested_fullscreen_window_is_detected() {
 
 #[test]
 fn empty_tree_returns_false() {
-    assert!(!has_fullscreen_on_output(&serde_json::json!({"nodes": []}), "DP-1"));
+    assert!(!has_fullscreen_on_output(
+        &serde_json::json!({"nodes": []}),
+        "DP-1"
+    ));
 }
 
 #[test]

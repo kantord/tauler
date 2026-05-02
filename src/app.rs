@@ -4,22 +4,25 @@ use std::sync::{mpsc, Arc};
 use std::thread;
 
 use costae::config::CostaeConfig;
+use costae::data::data_loop::{
+    BuiltInSource, DataLoopHandle, ProcessIdentity, ProcessSource, StreamSource,
+};
 use costae::layout::OutputInfo;
-use costae::theme::{Theme, ThemeMode};
-use costae::theme::resolver::resolve_tw_in_json;
-use costae::data::data_loop::{DataLoopHandle, BuiltInSource, ProcessIdentity, ProcessSource, StreamSource};
-use costae::x11::click::do_hit_test;
-use costae::x11::panel::PanelContext;
 use costae::managed_set::{Lifecycle, ManagedSet, Reconcile};
-use notify::Watcher;
-use costae::windowing::wayland::WaylandDisplayServer;
 use costae::panel::PanelSpec;
 use costae::presentation::{PanelCommand, PresentationThread, PresenterEvent};
+use costae::theme::resolver::resolve_tw_in_json;
+use costae::theme::{Theme, ThemeMode};
+use costae::windowing::wayland::WaylandDisplayServer;
+use costae::x11::click::do_hit_test;
+use costae::x11::panel::PanelContext;
+use notify::Watcher;
 
-use crate::presenter::x11::run_x11_presenter_thread;
 use crate::presenter::wayland::run_wayland_presenter_thread;
+use crate::presenter::x11::run_x11_presenter_thread;
 
-pub(crate) type ModuleEventTxs = Arc<std::sync::Mutex<HashMap<String, mpsc::Sender<serde_json::Value>>>>;
+pub(crate) type ModuleEventTxs =
+    Arc<std::sync::Mutex<HashMap<String, mpsc::Sender<serde_json::Value>>>>;
 pub(crate) type SharedWatcher = Arc<std::sync::Mutex<notify::RecommendedWatcher>>;
 
 struct WatchedPath(std::path::PathBuf);
@@ -37,23 +40,42 @@ impl Lifecycle for WatchedPath {
     type Output = ();
     type Error = notify::Error;
 
-    fn key(&self) -> std::path::PathBuf { self.0.clone() }
+    fn key(&self) -> std::path::PathBuf {
+        self.0.clone()
+    }
 
-    fn enter(self, ctx: &mut SharedWatcher, _: &mut ()) -> Result<std::path::PathBuf, notify::Error> {
-        ctx.lock().unwrap().watch(&self.0, notify::RecursiveMode::NonRecursive)?;
+    fn enter(
+        self,
+        ctx: &mut SharedWatcher,
+        _: &mut (),
+    ) -> Result<std::path::PathBuf, notify::Error> {
+        ctx.lock()
+            .unwrap()
+            .watch(&self.0, notify::RecursiveMode::NonRecursive)?;
         Ok(self.0)
     }
 
-    fn reconcile_self(self, _: &mut std::path::PathBuf, _: &mut SharedWatcher, _: &mut ()) -> Result<(), notify::Error> {
+    fn reconcile_self(
+        self,
+        _: &mut std::path::PathBuf,
+        _: &mut SharedWatcher,
+        _: &mut (),
+    ) -> Result<(), notify::Error> {
         Ok(())
     }
 
-    fn exit(state: std::path::PathBuf, ctx: &mut SharedWatcher, _: &mut ()) -> Result<(), notify::Error> {
+    fn exit(
+        state: std::path::PathBuf,
+        ctx: &mut SharedWatcher,
+        _: &mut (),
+    ) -> Result<(), notify::Error> {
         ctx.lock().unwrap().unwatch(&state)
     }
 }
 
-fn log_lifecycle_errors<K: std::fmt::Debug, E: std::fmt::Debug>(errors: costae::managed_set::ReconcileErrors<K, E>) {
+fn log_lifecycle_errors<K: std::fmt::Debug, E: std::fmt::Debug>(
+    errors: costae::managed_set::ReconcileErrors<K, E>,
+) {
     for (key, err) in errors {
         tracing::error!(key = ?key, error = ?err, "lifecycle error");
     }
@@ -69,30 +91,37 @@ fn theme_file_watch_desired(path: Option<std::path::PathBuf>) -> Vec<WatchedPath
 fn make_builtin(key: &str) -> Option<BuiltInSource> {
     use costae::x11::outputs::outputs_thread;
     match key {
-        "costae:outputs" => Some(BuiltInSource { key: key.to_string(), func: outputs_thread }),
+        "costae:outputs" => Some(BuiltInSource {
+            key: key.to_string(),
+            func: outputs_thread,
+        }),
         _ => None,
     }
 }
 
 pub(crate) fn stream_calls_to_specs(calls: &[(String, Option<String>)]) -> Vec<StreamSource> {
-    calls.iter().map(|(bin, script)| {
-        if let Some(builtin) = make_builtin(bin) {
-            return StreamSource::BuiltIn(builtin);
-        }
-        StreamSource::Process(ProcessSource {
-            identity: ProcessIdentity {
-                bin: bin.clone(),
-                key: format!("{}:{}", bin, script.as_deref().unwrap_or("")),
-            },
-            script: script.clone(),
-            args: vec![],
-            env: std::collections::BTreeMap::new(),
-            current_dir: None,
-            props: None,
+    calls
+        .iter()
+        .map(|(bin, script)| {
+            if let Some(builtin) = make_builtin(bin) {
+                return StreamSource::BuiltIn(builtin);
+            }
+            StreamSource::Process(ProcessSource {
+                identity: ProcessIdentity {
+                    bin: bin.clone(),
+                    key: format!("{}:{}", bin, script.as_deref().unwrap_or("")),
+                },
+                script: script.clone(),
+                args: vec![],
+                env: std::collections::BTreeMap::new(),
+                current_dir: None,
+                props: None,
+            })
         })
-    }).collect()
+        .collect()
 }
 
+#[allow(clippy::too_many_arguments)]
 fn apply_eval_result(
     out: &costae::jsx::EvalOutput,
     dpr: f32,
@@ -131,23 +160,27 @@ fn apply_eval_result(
             StreamSource::BuiltIn(_) => true,
         })
         .collect::<Vec<_>>();
-    let module_specs: Vec<StreamSource> = out.module_calls.iter().map(|(bin, _)| {
-        StreamSource::Process(ProcessSource {
-            identity: ProcessIdentity { bin: bin.clone(), key: bin.clone() },
-            script: None,
-            args: vec![],
-            env: std::collections::BTreeMap::new(),
-            current_dir: None,
-            props: Some(mod_init.clone()),
+    let module_specs: Vec<StreamSource> = out
+        .module_calls
+        .iter()
+        .map(|(bin, _)| {
+            StreamSource::Process(ProcessSource {
+                identity: ProcessIdentity {
+                    bin: bin.clone(),
+                    key: bin.clone(),
+                },
+                script: None,
+                args: vec![],
+                env: std::collections::BTreeMap::new(),
+                current_dir: None,
+                props: Some(mod_init.clone()),
+            })
         })
-    }).collect();
+        .collect();
     let combined: Vec<StreamSource> = stream_specs.into_iter().chain(module_specs).collect();
     handle.set_desired(combined);
 
-    let panel_errors = panel_set.reconcile(
-        specs.into_iter().map(PanelSpec),
-        &mut (), command_tx,
-    );
+    let panel_errors = panel_set.reconcile(specs.into_iter().map(PanelSpec), &mut (), command_tx);
     log_lifecycle_errors(panel_errors);
     true
 }
@@ -160,11 +193,17 @@ fn make_mod_init_value(
     screen_width_logical: u32,
     screen_height_logical: u32,
 ) -> serde_json::Value {
-    let spec = specs.iter()
+    let spec = specs
+        .iter()
         .find(|p| p.anchor == Some(costae::PanelAnchor::Left))
         .or_else(|| specs.first());
     let (bar_w, og) = spec
-        .map(|p| ((p.width as f32 * dpr).round() as u32, (p.outer_gap as f32 * dpr).round() as u32))
+        .map(|p| {
+            (
+                (p.width as f32 * dpr).round() as u32,
+                (p.outer_gap as f32 * dpr).round() as u32,
+            )
+        })
         .unwrap_or((250, 0));
     serde_json::json!({
         "type": "init",
@@ -237,7 +276,9 @@ fn parse_config(config_path: &std::path::Path) -> CostaeConfig {
         .unwrap_or_default()
 }
 
-fn load_theme_from_config(config_path: &std::path::Path) -> (Theme, ThemeMode, Option<std::path::PathBuf>) {
+fn load_theme_from_config(
+    config_path: &std::path::Path,
+) -> (Theme, ThemeMode, Option<std::path::PathBuf>) {
     let config = parse_config(config_path);
     let theme_file_path = config.theme.file.as_deref().map(expand_tilde);
     let theme = match theme_file_path.as_ref() {
@@ -253,13 +294,14 @@ fn load_theme_from_config(config_path: &std::path::Path) -> (Theme, ThemeMode, O
                     Theme::default_theme()
                 }
                 Ok(t) => t,
-            }
-        }
+            },
+        },
     };
     (theme, config.theme.mode, theme_file_path)
 }
 
 impl App {
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn new_x11(
         x11: X11Init,
         handle: DataLoopHandle,
@@ -319,6 +361,7 @@ impl App {
         state
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn new_wayland(
         server: WaylandDisplayServer,
         handle: DataLoopHandle,
@@ -387,10 +430,23 @@ impl App {
             stream_calls: out.stream_calls.clone(),
             module_calls: out.module_calls.clone(),
         };
-        let (dpr, dpi, sw, sh) = (self.dpr, self.dpi, self.screen_width_logical, self.screen_height_logical);
+        let (dpr, dpi, sw, sh) = (
+            self.dpr,
+            self.dpi,
+            self.screen_width_logical,
+            self.screen_height_logical,
+        );
         let output_name = self.output_name.clone();
-        apply_eval_result(&resolved_out, dpr, &self.output_name, &self.output_map, &self.handle, &mut self.panels, &mut self.command_tx,
-            &move |specs| make_mod_init_value(specs, dpr, &output_name, dpi, sw, sh))
+        apply_eval_result(
+            &resolved_out,
+            dpr,
+            &self.output_name,
+            &self.output_map,
+            &self.handle,
+            &mut self.panels,
+            &mut self.command_tx,
+            &move |specs| make_mod_init_value(specs, dpr, &output_name, dpi, sw, sh),
+        )
     }
 
     fn reconcile_watch_set(
@@ -418,17 +474,29 @@ impl App {
     }
 
     fn initial_load(&mut self) {
-        if !self.layout_jsx_path.exists() { return; }
+        if !self.layout_jsx_path.exists() {
+            return;
+        }
         let source = match std::fs::read_to_string(&self.layout_jsx_path) {
             Ok(s) => s,
-            Err(e) => { tracing::error!(error = %e, "JSX file error"); return; }
+            Err(e) => {
+                tracing::error!(error = %e, "JSX file error");
+                return;
+            }
         };
         let t = std::time::Instant::now();
-        let base_dir = self.layout_jsx_path.parent().unwrap_or(&self.layout_jsx_path);
-        let evaluator = match costae::jsx::JsxEvaluator::new(&source, self.jsx_ctx.clone(), Some(base_dir)) {
-            Ok(e) => e,
-            Err(e) => { tracing::error!(error = %e, "JSX compile error"); return; }
-        };
+        let base_dir = self
+            .layout_jsx_path
+            .parent()
+            .unwrap_or(&self.layout_jsx_path);
+        let evaluator =
+            match costae::jsx::JsxEvaluator::new(&source, self.jsx_ctx.clone(), Some(base_dir)) {
+                Ok(e) => e,
+                Err(e) => {
+                    tracing::error!(error = %e, "JSX compile error");
+                    return;
+                }
+            };
         let loaded = evaluator.loaded_paths();
         let eval_out = evaluator.eval(&self.stream_values);
         match eval_out {
@@ -443,7 +511,9 @@ impl App {
     }
 
     fn handle_layout_reload(&mut self) -> bool {
-        if self.reload_rx.try_recv().is_err() { return false; }
+        if self.reload_rx.try_recv().is_err() {
+            return false;
+        }
         let config = parse_config(&self.config_path);
         costae::reload_font_config(config.fonts);
         let (theme, mode, theme_file_path) = load_theme_from_config(&self.config_path);
@@ -457,8 +527,15 @@ impl App {
         if self.layout_jsx_path.exists() {
             match std::fs::read_to_string(&self.layout_jsx_path) {
                 Ok(source) => {
-                    let base_dir = self.layout_jsx_path.parent().unwrap_or(&self.layout_jsx_path);
-                    match costae::jsx::JsxEvaluator::new(&source, self.jsx_ctx.clone(), Some(base_dir)) {
+                    let base_dir = self
+                        .layout_jsx_path
+                        .parent()
+                        .unwrap_or(&self.layout_jsx_path);
+                    match costae::jsx::JsxEvaluator::new(
+                        &source,
+                        self.jsx_ctx.clone(),
+                        Some(base_dir),
+                    ) {
                         Ok(evaluator) => {
                             let loaded = evaluator.loaded_paths();
                             match evaluator.eval(&self.stream_values) {
@@ -483,7 +560,10 @@ impl App {
 
     pub(crate) fn tick(&mut self) {
         self.last_tick.store(
-            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs(),
             Ordering::Relaxed,
         );
 
@@ -505,7 +585,9 @@ impl App {
             });
             if let Some(eval_result) = eval_out {
                 match eval_result {
-                    Ok(out) => { self.apply_eval_result_dispatch(&out); }
+                    Ok(out) => {
+                        self.apply_eval_result_dispatch(&out);
+                    }
                     Err(e) => tracing::error!(error = %e, "JSX re-eval error"),
                 }
             }
@@ -523,7 +605,10 @@ impl App {
             match event {
                 PresenterEvent::NeedsRender => {} // no-op: reconciler handles rendering
                 PresenterEvent::OutputsChanged { outputs } => {
-                    self.output_map = outputs.iter().map(|o| (o.name.clone(), o.clone())).collect();
+                    self.output_map = outputs
+                        .iter()
+                        .map(|o| (o.name.clone(), o.clone()))
+                        .collect();
                     if let Some(primary) = outputs.first() {
                         let screen_width = (primary.width as f32 / primary.dpr).round() as u32;
                         let screen_height = (primary.height as f32 / primary.dpr).round() as u32;
@@ -532,19 +617,42 @@ impl App {
                         self.dpr = primary.dpr;
                         self.screen_width_logical = screen_width;
                         self.screen_height_logical = screen_height;
-                        tracing::info!(screen_width, screen_height, dpr = primary.dpr, "outputs changed");
+                        tracing::info!(
+                            screen_width,
+                            screen_height,
+                            dpr = primary.dpr,
+                            "outputs changed"
+                        );
                     }
-                    let eval_out = self.jsx_evaluator.as_ref().map(|e| e.eval(&self.stream_values));
+                    let eval_out = self
+                        .jsx_evaluator
+                        .as_ref()
+                        .map(|e| e.eval(&self.stream_values));
                     if let Some(eval_result) = eval_out {
                         match eval_result {
-                            Ok(out) => { self.apply_eval_result_dispatch(&out); }
-                            Err(e) => tracing::error!(error = %e, "JSX re-eval error on output change"),
+                            Ok(out) => {
+                                self.apply_eval_result_dispatch(&out);
+                            }
+                            Err(e) => {
+                                tracing::error!(error = %e, "JSX re-eval error on output change")
+                            }
                         }
                     }
                 }
-                PresenterEvent::Click { panel_id, x, y, phys_width, phys_height, dpr } => {
+                PresenterEvent::Click {
+                    panel_id,
+                    x,
+                    y,
+                    phys_width,
+                    phys_height,
+                    dpr,
+                } => {
                     if let Some(spec) = self.panels.get(&panel_id) {
-                        let raw_layout = if spec.content.is_null() { None } else { Some(spec.content.clone()) };
+                        let raw_layout = if spec.content.is_null() {
+                            None
+                        } else {
+                            Some(spec.content.clone())
+                        };
                         let txs = self.module_event_txs.lock().unwrap();
                         do_hit_test(&raw_layout, &txs, phys_width, phys_height, dpr, x, y);
                     }
@@ -552,7 +660,6 @@ impl App {
             }
         }
     }
-
 }
 
 impl Drop for App {
@@ -567,12 +674,15 @@ impl Drop for App {
 
 #[cfg(test)]
 mod tests {
-    use super::{apply_eval_result, load_theme_from_config, make_mod_init_value, stream_calls_to_specs, theme_file_watch_desired};
+    use super::{
+        apply_eval_result, load_theme_from_config, make_mod_init_value, stream_calls_to_specs,
+        theme_file_watch_desired,
+    };
     use costae::data::data_loop::{DataLoop, StreamSource};
+    use costae::layout::OutputInfo;
     use costae::managed_set::ManagedSet;
     use costae::panel::PanelSpec;
     use costae::presentation::PanelCommand;
-    use costae::layout::OutputInfo;
     use std::collections::HashMap;
     use std::path::PathBuf;
     use std::sync::mpsc;
@@ -613,10 +723,22 @@ mod tests {
         let mut panel_set: ManagedSet<PanelSpec> = ManagedSet::new();
         let (mut command_tx, command_rx) = mpsc::channel::<PanelCommand>();
 
-        apply_eval_result(&out, 1.0, "DP-4", &output_map, &handle, &mut panel_set, &mut command_tx, &noop_mod_init);
+        apply_eval_result(
+            &out,
+            1.0,
+            "DP-4",
+            &output_map,
+            &handle,
+            &mut panel_set,
+            &mut command_tx,
+            &noop_mod_init,
+        );
 
         let cmds: Vec<PanelCommand> = command_rx.try_iter().collect();
-        let create_count = cmds.iter().filter(|cmd| matches!(cmd, PanelCommand::Create { .. })).count();
+        let create_count = cmds
+            .iter()
+            .filter(|cmd| matches!(cmd, PanelCommand::Create { .. }))
+            .count();
         assert_eq!(
             create_count, 0,
             "expected no PanelCommand::Create for a panel whose output \"HDMI-1\" is absent from output_map, but got {} Create commands",
@@ -650,10 +772,22 @@ mod tests {
         let (mut command_tx, command_rx) = mpsc::channel::<PanelCommand>();
 
         // primary output "DP-1" is not in output_map, so the null-output spec must be excluded
-        apply_eval_result(&out, 1.0, "DP-1", &output_map, &handle, &mut panel_set, &mut command_tx, &noop_mod_init);
+        apply_eval_result(
+            &out,
+            1.0,
+            "DP-1",
+            &output_map,
+            &handle,
+            &mut panel_set,
+            &mut command_tx,
+            &noop_mod_init,
+        );
 
         let cmds: Vec<PanelCommand> = command_rx.try_iter().collect();
-        let create_count = cmds.iter().filter(|cmd| matches!(cmd, PanelCommand::Create { .. })).count();
+        let create_count = cmds
+            .iter()
+            .filter(|cmd| matches!(cmd, PanelCommand::Create { .. }))
+            .count();
         assert_eq!(
             create_count, 0,
             "expected no PanelCommand::Create when panel output is None and primary output is absent from output_map, but got {} Create commands",
@@ -686,8 +820,11 @@ mod tests {
     #[test]
     fn mod_init_wayland_output_is_empty_string() {
         let result = wayland_mod_init(&[left_spec(250)]);
-        assert_eq!(result["output"].as_str(), Some(""),
-            "output must be empty string — if it is \"wayland\", fetch_workspaces filters all workspaces");
+        assert_eq!(
+            result["output"].as_str(),
+            Some(""),
+            "output must be empty string — if it is \"wayland\", fetch_workspaces filters all workspaces"
+        );
     }
 
     #[test]
@@ -700,8 +837,11 @@ mod tests {
     #[test]
     fn mod_init_config_width_matches_left_anchor_spec() {
         let result = wayland_mod_init(&[left_spec(320)]);
-        assert_eq!(result["config"]["width"].as_u64(), Some(320),
-            "config.width must match the left-anchored spec width");
+        assert_eq!(
+            result["config"]["width"].as_u64(),
+            Some(320),
+            "config.width must match the left-anchored spec width"
+        );
     }
 
     #[test]
@@ -712,10 +852,14 @@ mod tests {
         ];
         let specs = stream_calls_to_specs(&calls);
         assert_eq!(specs.len(), 2);
-        let StreamSource::Process(ref s0) = specs[0] else { panic!("expected Process") };
+        let StreamSource::Process(ref s0) = specs[0] else {
+            panic!("expected Process")
+        };
         assert_eq!(s0.identity.bin, "bash");
         assert_eq!(s0.script, None);
-        let StreamSource::Process(ref s1) = specs[1] else { panic!("expected Process") };
+        let StreamSource::Process(ref s1) = specs[1] else {
+            panic!("expected Process")
+        };
         assert_eq!(s1.identity.bin, "python");
         assert_eq!(s1.script, Some("print('hi')".to_string()));
     }
@@ -725,7 +869,10 @@ mod tests {
         let calls = vec![("costae:outputs".to_string(), None)];
         let specs = stream_calls_to_specs(&calls);
         assert_eq!(specs.len(), 1);
-        assert!(matches!(specs[0], StreamSource::BuiltIn(_)), "costae: prefix must map to BuiltIn");
+        assert!(
+            matches!(specs[0], StreamSource::BuiltIn(_)),
+            "costae: prefix must map to BuiltIn"
+        );
     }
 
     /// Claim: when theme.file is set to a tilde path in config, load_theme_from_config returns the
@@ -734,15 +881,17 @@ mod tests {
     fn load_theme_from_config_returns_expanded_path_when_file_is_configured() {
         let dir = tempfile::tempdir().expect("tempdir");
         let config_path = dir.path().join("config.yaml");
-        std::fs::write(&config_path, "theme:\n  file: ~/some/theme.yaml\n")
-            .expect("write config");
+        std::fs::write(&config_path, "theme:\n  file: ~/some/theme.yaml\n").expect("write config");
 
         let (_theme, _mode, path) = load_theme_from_config(&config_path);
 
         let home = std::env::var("HOME").expect("HOME must be set");
         let expected = PathBuf::from(&home).join("some/theme.yaml");
-        assert_eq!(path, Some(expected),
-            "tilde in theme.file must be expanded to the real HOME directory");
+        assert_eq!(
+            path,
+            Some(expected),
+            "tilde in theme.file must be expanded to the real HOME directory"
+        );
     }
 
     /// Claim: when no theme.file is configured, load_theme_from_config returns None as the third
@@ -751,13 +900,14 @@ mod tests {
     fn load_theme_from_config_returns_none_when_no_file_configured() {
         let dir = tempfile::tempdir().expect("tempdir");
         let config_path = dir.path().join("config.yaml");
-        std::fs::write(&config_path, "theme:\n  mode: dark\n")
-            .expect("write config");
+        std::fs::write(&config_path, "theme:\n  mode: dark\n").expect("write config");
 
         let (_theme, _mode, path) = load_theme_from_config(&config_path);
 
-        assert_eq!(path, None,
-            "when no theme.file is set, the returned path must be None");
+        assert_eq!(
+            path, None,
+            "when no theme.file is set, the returned path must be None"
+        );
     }
 
     /// Claim: when a theme file path is provided, `theme_file_watch_desired` returns a
@@ -767,11 +917,17 @@ mod tests {
     fn theme_file_watch_desired_with_some_path_returns_single_entry_with_that_path() {
         let path = PathBuf::from("/tmp/my-theme.yaml");
         let desired = theme_file_watch_desired(Some(path.clone()));
-        assert_eq!(desired.len(), 1,
-            "Some(path) must produce exactly one desired watch entry");
+        assert_eq!(
+            desired.len(),
+            1,
+            "Some(path) must produce exactly one desired watch entry"
+        );
         use costae::managed_set::Lifecycle;
-        assert_eq!(desired[0].key(), path,
-            "the entry's key must be the supplied path");
+        assert_eq!(
+            desired[0].key(),
+            path,
+            "the entry's key must be the supplied path"
+        );
     }
 
     /// Claim: when no theme file path is present, `theme_file_watch_desired` returns an
@@ -780,7 +936,9 @@ mod tests {
     #[test]
     fn theme_file_watch_desired_with_none_returns_empty_vec() {
         let desired = theme_file_watch_desired(None);
-        assert!(desired.is_empty(),
-            "None must produce an empty desired set so the old watch is removed");
+        assert!(
+            desired.is_empty(),
+            "None must produce an empty desired set so the old watch is removed"
+        );
     }
 }

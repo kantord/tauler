@@ -8,8 +8,8 @@ use x11rb::{
     wrapper::ConnectionExt as _,
 };
 
-use crate::layout::{PanelSpecData, PanelAnchor, OutputInfo};
 use crate::display_manager::DisplayManager;
+use crate::layout::{OutputInfo, PanelAnchor, PanelSpecData};
 use crate::presentation::PanelFrame;
 
 const XRESOURCES_PROP_MAX_LEN: u32 = 65536;
@@ -33,16 +33,25 @@ pub fn put_image_chunked(
     if stride == 0 || bgrx.is_empty() {
         return Ok(());
     }
-    let available = conn.maximum_request_bytes().saturating_sub(PUT_IMAGE_HEADER_BYTES);
+    let available = conn
+        .maximum_request_bytes()
+        .saturating_sub(PUT_IMAGE_HEADER_BYTES);
     let rows_per_chunk = (available / stride).max(1);
     for (i, chunk) in bgrx.chunks(rows_per_chunk * stride).enumerate() {
         let chunk_rows = (chunk.len() / stride) as u16;
         conn.put_image(
-            ImageFormat::Z_PIXMAP, drawable, gc,
-            width as u16, chunk_rows,
-            0, (i * rows_per_chunk) as i16,
-            0, depth, chunk,
-        ).map_err(|e| anyhow::anyhow!(e))?;
+            ImageFormat::Z_PIXMAP,
+            drawable,
+            gc,
+            width as u16,
+            chunk_rows,
+            0,
+            (i * rows_per_chunk) as i16,
+            0,
+            depth,
+            chunk,
+        )
+        .map_err(|e| anyhow::anyhow!(e))?;
     }
     Ok(())
 }
@@ -60,8 +69,11 @@ pub struct Panel {
     pub bgrx: Arc<Vec<u8>>,
 }
 
-
-pub fn resolve_panel_dpr(output: Option<&str>, output_map: &HashMap<String, OutputInfo>, fallback: f32) -> f32 {
+pub fn resolve_panel_dpr(
+    output: Option<&str>,
+    output_map: &HashMap<String, OutputInfo>,
+    fallback: f32,
+) -> f32 {
     output
         .and_then(|name| output_map.get(name))
         .map(|info| info.dpr)
@@ -70,7 +82,12 @@ pub fn resolve_panel_dpr(output: Option<&str>, output_map: &HashMap<String, Outp
 
 pub fn i3_dpi(conn: &RustConnection, root: Window, screen: &Screen) -> f32 {
     let from_xresources = (|| -> Option<f32> {
-        let atom = conn.intern_atom(false, b"RESOURCE_MANAGER").ok()?.reply().ok()?.atom;
+        let atom = conn
+            .intern_atom(false, b"RESOURCE_MANAGER")
+            .ok()?
+            .reply()
+            .ok()?
+            .atom;
         let prop = conn
             .get_property(false, root, atom, AtomEnum::ANY, 0, XRESOURCES_PROP_MAX_LEN)
             .ok()?
@@ -89,7 +106,8 @@ pub fn i3_dpi(conn: &RustConnection, root: Window, screen: &Screen) -> f32 {
         return dpi;
     }
     if screen.height_in_millimeters > 0 {
-        let dpi = screen.height_in_pixels as f32 * MM_PER_INCH / screen.height_in_millimeters as f32;
+        let dpi =
+            screen.height_in_pixels as f32 * MM_PER_INCH / screen.height_in_millimeters as f32;
         tracing::info!(dpi, "DPI detected (from screen physical dimensions)");
         return dpi;
     }
@@ -106,7 +124,9 @@ fn create_panel(
     let phys_height = (spec.height as f32 * spec.dpr).round() as u32;
 
     let output_name = spec.output.as_deref().unwrap_or(&ctx.output_name);
-    let output = ctx.output_map.get(output_name)
+    let output = ctx
+        .output_map
+        .get(output_name)
         .ok_or_else(|| anyhow::anyhow!("output '{}' not in map", output_name))?;
     let (mon_x, mon_y, mon_width, mon_height) = (output.x, output.y, output.width, output.height);
 
@@ -138,15 +158,38 @@ fn create_panel(
             .event_mask(EventMask::EXPOSURE | EventMask::BUTTON_PRESS),
     )?;
 
-    let stack_mode = if spec.above { StackMode::ABOVE } else { StackMode::BELOW };
-    ctx.conn.configure_window(win_id, &ConfigureWindowAux::new().stack_mode(stack_mode))?;
+    let stack_mode = if spec.above {
+        StackMode::ABOVE
+    } else {
+        StackMode::BELOW
+    };
+    ctx.conn
+        .configure_window(win_id, &ConfigureWindowAux::new().stack_mode(stack_mode))?;
 
     if let Some(anchor) = spec.anchor.clone() {
         let strut_vals = strut_partial_values_for_anchor(
-            anchor, mon_x, mon_y, mon_width, mon_height, phys_width, phys_height,
+            anchor,
+            mon_x,
+            mon_y,
+            mon_width,
+            mon_height,
+            phys_width,
+            phys_height,
         );
-        ctx.conn.change_property32(PropMode::REPLACE, win_id, ctx.strut_atom, AtomEnum::CARDINAL, &strut_vals)?;
-        ctx.conn.change_property32(PropMode::REPLACE, win_id, ctx.strut_legacy_atom, AtomEnum::CARDINAL, &strut_vals[..4])?;
+        ctx.conn.change_property32(
+            PropMode::REPLACE,
+            win_id,
+            ctx.strut_atom,
+            AtomEnum::CARDINAL,
+            &strut_vals,
+        )?;
+        ctx.conn.change_property32(
+            PropMode::REPLACE,
+            win_id,
+            ctx.strut_legacy_atom,
+            AtomEnum::CARDINAL,
+            &strut_vals[..4],
+        )?;
     }
 
     let gc = ctx.conn.generate_id()?;
@@ -195,7 +238,11 @@ pub type PanelContext = X11PanelContext;
 impl DisplayManager for X11PanelContext {
     type Panel = Panel;
 
-    fn create_window(&mut self, spec: &PanelSpecData, frame: &PanelFrame) -> Result<Panel, anyhow::Error> {
+    fn create_window(
+        &mut self,
+        spec: &PanelSpecData,
+        frame: &PanelFrame,
+    ) -> Result<Panel, anyhow::Error> {
         let panel = create_panel(spec, frame, self)?;
         Ok(panel)
     }
@@ -208,21 +255,37 @@ impl DisplayManager for X11PanelContext {
 
     fn update_image(&mut self, panel: &mut Panel, bgrx: &[u8]) -> Result<(), anyhow::Error> {
         panel.bgrx = Arc::new(bgrx.to_vec());
-        put_image_chunked(&self.conn, panel.win_id, panel.gc, panel.phys_width, self.depth, bgrx)?;
+        put_image_chunked(
+            &self.conn,
+            panel.win_id,
+            panel.gc,
+            panel.phys_width,
+            self.depth,
+            bgrx,
+        )?;
         self.conn.flush().map_err(|e| anyhow::anyhow!(e))?;
         Ok(())
     }
 
-    fn update_position(&mut self, panel: &mut Panel, spec: &PanelSpecData) -> Result<(), anyhow::Error> {
+    fn update_position(
+        &mut self,
+        panel: &mut Panel,
+        spec: &PanelSpecData,
+    ) -> Result<(), anyhow::Error> {
         let output_name = spec.output.as_deref().unwrap_or(&self.output_name);
-        let output = self.output_map.get(output_name)
+        let output = self
+            .output_map
+            .get(output_name)
             .ok_or_else(|| anyhow::anyhow!("output '{}' not in map", output_name))?;
-        let (mon_x, mon_y, mon_width, mon_height) = (output.x, output.y, output.width, output.height);
+        let (mon_x, mon_y, mon_width, mon_height) =
+            (output.x, output.y, output.width, output.height);
 
         let (win_x, win_y) = match &spec.anchor {
             Some(PanelAnchor::Left) | Some(PanelAnchor::Top) => (mon_x, mon_y),
             Some(PanelAnchor::Right) => (mon_x + mon_width as i16 - panel.phys_width as i16, mon_y),
-            Some(PanelAnchor::Bottom) => (mon_x, mon_y + mon_height as i16 - panel.phys_height as i16),
+            Some(PanelAnchor::Bottom) => {
+                (mon_x, mon_y + mon_height as i16 - panel.phys_height as i16)
+            }
             None => (
                 mon_x + (spec.x as f32 * spec.dpr).round() as i16,
                 mon_y + (spec.y as f32 * spec.dpr).round() as i16,
@@ -230,10 +293,12 @@ impl DisplayManager for X11PanelContext {
         };
 
         if win_x != panel.win_x || win_y != panel.win_y {
-            self.conn.configure_window(
-                panel.win_id,
-                &ConfigureWindowAux::new().x(win_x as i32).y(win_y as i32),
-            ).map_err(|e| anyhow::anyhow!(e))?;
+            self.conn
+                .configure_window(
+                    panel.win_id,
+                    &ConfigureWindowAux::new().x(win_x as i32).y(win_y as i32),
+                )
+                .map_err(|e| anyhow::anyhow!(e))?;
             panel.win_x = win_x;
             panel.win_y = win_y;
         }
@@ -241,31 +306,59 @@ impl DisplayManager for X11PanelContext {
         Ok(())
     }
 
-    fn update_dimensions(&mut self, panel: &mut Panel, spec: &PanelSpecData) -> Result<(), anyhow::Error> {
+    fn update_dimensions(
+        &mut self,
+        panel: &mut Panel,
+        spec: &PanelSpecData,
+    ) -> Result<(), anyhow::Error> {
         let new_phys_width = (spec.width as f32 * spec.dpr).round() as u32;
         let new_phys_height = (spec.height as f32 * spec.dpr).round() as u32;
 
         if new_phys_width != panel.phys_width || new_phys_height != panel.phys_height {
-            self.conn.configure_window(
-                panel.win_id,
-                &ConfigureWindowAux::new()
-                    .width(new_phys_width)
-                    .height(new_phys_height),
-            ).map_err(|e| anyhow::anyhow!(e))?;
+            self.conn
+                .configure_window(
+                    panel.win_id,
+                    &ConfigureWindowAux::new()
+                        .width(new_phys_width)
+                        .height(new_phys_height),
+                )
+                .map_err(|e| anyhow::anyhow!(e))?;
             panel.phys_width = new_phys_width;
             panel.phys_height = new_phys_height;
 
             if let Some(anchor) = spec.anchor.clone() {
                 let output_name = spec.output.as_deref().unwrap_or(&self.output_name);
-                let Some(out) = self.output_map.get(output_name) else { return Ok(()); };
+                let Some(out) = self.output_map.get(output_name) else {
+                    return Ok(());
+                };
                 let (mon_x, mon_y, mon_width, mon_height) = (out.x, out.y, out.width, out.height);
 
                 let strut_vals = strut_partial_values_for_anchor(
-                    anchor, mon_x, mon_y, mon_width, mon_height, new_phys_width, new_phys_height,
+                    anchor,
+                    mon_x,
+                    mon_y,
+                    mon_width,
+                    mon_height,
+                    new_phys_width,
+                    new_phys_height,
                 );
-                self.conn.change_property32(PropMode::REPLACE, panel.win_id, self.strut_atom, AtomEnum::CARDINAL, &strut_vals)
+                self.conn
+                    .change_property32(
+                        PropMode::REPLACE,
+                        panel.win_id,
+                        self.strut_atom,
+                        AtomEnum::CARDINAL,
+                        &strut_vals,
+                    )
                     .map_err(|e| anyhow::anyhow!(e))?;
-                self.conn.change_property32(PropMode::REPLACE, panel.win_id, self.strut_legacy_atom, AtomEnum::CARDINAL, &strut_vals[..4])
+                self.conn
+                    .change_property32(
+                        PropMode::REPLACE,
+                        panel.win_id,
+                        self.strut_legacy_atom,
+                        AtomEnum::CARDINAL,
+                        &strut_vals[..4],
+                    )
                     .map_err(|e| anyhow::anyhow!(e))?;
             }
 
@@ -286,9 +379,9 @@ mod tests {
     use std::sync::Arc;
 
     fn make_panel_ctx() -> Option<super::PanelContext> {
-        use x11rb::rust_connection::RustConnection;
         use x11rb::connection::Connection as _;
         use x11rb::protocol::xproto::ConnectionExt as XprotoConnExt;
+        use x11rb::rust_connection::RustConnection;
 
         let (conn, screen_num) = RustConnection::connect(None).ok()?;
         let screen = conn.setup().roots[screen_num].clone();
@@ -298,11 +391,22 @@ mod tests {
         let root = screen.root;
 
         let strut_atom = XprotoConnExt::intern_atom(&conn, false, b"_NET_WM_STRUT_PARTIAL")
-            .ok()?.reply().ok()?.atom;
+            .ok()?
+            .reply()
+            .ok()?
+            .atom;
         let strut_legacy_atom = XprotoConnExt::intern_atom(&conn, false, b"_NET_WM_STRUT")
-            .ok()?.reply().ok()?.atom;
-        let xrootpmap_atom = XprotoConnExt::intern_atom(&conn, false, b"_XROOTPMAP_ID").ok()
-            .and_then(|c: x11rb::cookie::Cookie<'_, _, x11rb::protocol::xproto::InternAtomReply>| c.reply().ok())
+            .ok()?
+            .reply()
+            .ok()?
+            .atom;
+        let xrootpmap_atom = XprotoConnExt::intern_atom(&conn, false, b"_XROOTPMAP_ID")
+            .ok()
+            .and_then(
+                |c: x11rb::cookie::Cookie<'_, _, x11rb::protocol::xproto::InternAtomReply>| {
+                    c.reply().ok()
+                },
+            )
             .map(|r| r.atom);
 
         // Use screen pixel dimensions as monitor size.
@@ -321,12 +425,17 @@ mod tests {
             strut_legacy_atom,
             output_map: Arc::new({
                 let mut m = HashMap::new();
-                m.insert("test-output".to_string(), crate::layout::OutputInfo {
-                    name: "test-output".to_string(),
-                    x: 0, y: 0,
-                    width: mon_width, height: mon_height,
-                    dpr: 1.0,
-                });
+                m.insert(
+                    "test-output".to_string(),
+                    crate::layout::OutputInfo {
+                        name: "test-output".to_string(),
+                        x: 0,
+                        y: 0,
+                        width: mon_width,
+                        height: mon_height,
+                        dpr: 1.0,
+                    },
+                );
                 m
             }),
             dpi: 96.0,
@@ -379,8 +488,12 @@ mod tests {
         };
 
         let spec = make_spec("dm-create", 200, 30);
-        let panel = <super::X11PanelContext as DisplayManager>::create_window(&mut ctx, &spec, &blank_frame(200, 30))
-            .expect("create_window should succeed when X11 is available");
+        let panel = <super::X11PanelContext as DisplayManager>::create_window(
+            &mut ctx,
+            &spec,
+            &blank_frame(200, 30),
+        )
+        .expect("create_window should succeed when X11 is available");
 
         assert!(panel.phys_width > 0, "phys_width must be > 0");
         assert!(panel.phys_height > 0, "phys_height must be > 0");
@@ -408,8 +521,12 @@ mod tests {
         };
 
         let spec = make_spec("dm-delete", 200, 30);
-        let panel = <super::X11PanelContext as DisplayManager>::create_window(&mut ctx, &spec, &blank_frame(200, 30))
-            .expect("create_window must succeed for delete_window test");
+        let panel = <super::X11PanelContext as DisplayManager>::create_window(
+            &mut ctx,
+            &spec,
+            &blank_frame(200, 30),
+        )
+        .expect("create_window must succeed for delete_window test");
 
         let win_id = panel.win_id;
 
@@ -428,7 +545,10 @@ mod tests {
         let after = XprotoExt::get_geometry(&*ctx.conn, win_id)
             .ok()
             .and_then(|c| c.reply().ok());
-        assert!(after.is_none(), "get_geometry should fail after delete_window (window destroyed)");
+        assert!(
+            after.is_none(),
+            "get_geometry should fail after delete_window (window destroyed)"
+        );
     }
 
     // ---------------------------------------------------------------------------
@@ -448,8 +568,12 @@ mod tests {
         };
 
         let spec = make_spec("dm-update-image", 10, 10);
-        let mut panel = <super::X11PanelContext as DisplayManager>::create_window(&mut ctx, &spec, &blank_frame(10, 10))
-            .expect("create_window must succeed for update_image test");
+        let mut panel = <super::X11PanelContext as DisplayManager>::create_window(
+            &mut ctx,
+            &spec,
+            &blank_frame(10, 10),
+        )
+        .expect("create_window must succeed for update_image test");
 
         // Build a minimal BGRX buffer: 10 * 10 * 4 bytes, all zeros.
         let bgrx = vec![0u8; 10 * 10 * 4];
@@ -491,14 +615,20 @@ mod tests {
         )
         .expect("update_dimensions should succeed");
 
-        assert_eq!(panel.phys_width, 300, "phys_width in state should be updated to 300");
+        assert_eq!(
+            panel.phys_width, 300,
+            "phys_width in state should be updated to 300"
+        );
 
         ctx.conn.flush().ok();
         let geom = XprotoExt::get_geometry(&*ctx.conn, panel.win_id)
             .ok()
             .and_then(|c| c.reply().ok())
             .expect("get_geometry should succeed after update_dimensions");
-        assert_eq!(geom.width, 300u16, "X11 window width should be 300 after update_dimensions");
+        assert_eq!(
+            geom.width, 300u16,
+            "X11 window width should be 300 after update_dimensions"
+        );
 
         // Cleanup
         let _ = <super::X11PanelContext as DisplayManager>::delete_window(&mut ctx, panel);
@@ -510,10 +640,10 @@ mod tests {
     // ---------------------------------------------------------------------------
     #[test]
     fn create_window_with_non_null_content_renders_spec_content_not_null() {
+        use crate::config::FontConfig;
         use crate::display_manager::DisplayManager;
         use crate::presentation::PanelFrame;
         use crate::render::{init_global_ctx, render_frame};
-        use crate::config::FontConfig;
 
         init_global_ctx(FontConfig::default());
 
@@ -551,10 +681,15 @@ mod tests {
         let phys_height = (spec.height as f32 * spec.dpr).round() as u32;
         let pixels = render_frame(&content, phys_width, phys_height, spec.dpr);
         let expected = pixels.clone();
-        let frame = PanelFrame { pixels: pixels.clone(), width: phys_width, height: phys_height };
+        let frame = PanelFrame {
+            pixels: pixels.clone(),
+            width: phys_width,
+            height: phys_height,
+        };
 
-        let panel = <super::X11PanelContext as DisplayManager>::create_window(&mut ctx, &spec, &frame)
-            .expect("create_window should succeed when X11 is available");
+        let panel =
+            <super::X11PanelContext as DisplayManager>::create_window(&mut ctx, &spec, &frame)
+                .expect("create_window should succeed when X11 is available");
 
         assert_eq!(
             panel.bgrx, expected,
@@ -573,12 +708,22 @@ mod tests {
     fn resolve_panel_dpr_known_output_returns_output_dpr() {
         use crate::layout::OutputInfo;
         let mut map = HashMap::new();
-        map.insert("DP-1".to_string(), OutputInfo {
-            name: "DP-1".to_string(),
-            x: 0, y: 0, width: 2560, height: 1440, dpr: 2.0,
-        });
+        map.insert(
+            "DP-1".to_string(),
+            OutputInfo {
+                name: "DP-1".to_string(),
+                x: 0,
+                y: 0,
+                width: 2560,
+                height: 1440,
+                dpr: 2.0,
+            },
+        );
         let result = super::resolve_panel_dpr(Some("DP-1"), &map, 1.0);
-        assert_eq!(result, 2.0, "resolve_panel_dpr must return the output's dpr when the output is found in the map");
+        assert_eq!(
+            result, 2.0,
+            "resolve_panel_dpr must return the output's dpr when the output is found in the map"
+        );
     }
 
     // ---------------------------------------------------------------------------
@@ -589,12 +734,22 @@ mod tests {
     fn resolve_panel_dpr_unknown_output_returns_fallback() {
         use crate::layout::OutputInfo;
         let mut map = HashMap::new();
-        map.insert("DP-1".to_string(), OutputInfo {
-            name: "DP-1".to_string(),
-            x: 0, y: 0, width: 2560, height: 1440, dpr: 2.0,
-        });
+        map.insert(
+            "DP-1".to_string(),
+            OutputInfo {
+                name: "DP-1".to_string(),
+                x: 0,
+                y: 0,
+                width: 2560,
+                height: 1440,
+                dpr: 2.0,
+            },
+        );
         let result = super::resolve_panel_dpr(Some("HDMI-1"), &map, 1.5);
-        assert_eq!(result, 1.5, "resolve_panel_dpr must return fallback when output name is not in the map");
+        assert_eq!(
+            result, 1.5,
+            "resolve_panel_dpr must return fallback when output name is not in the map"
+        );
     }
 
     // ---------------------------------------------------------------------------
@@ -605,7 +760,10 @@ mod tests {
         use crate::layout::OutputInfo;
         let map: HashMap<String, OutputInfo> = HashMap::new();
         let result = super::resolve_panel_dpr(None, &map, 1.25);
-        assert_eq!(result, 1.25, "resolve_panel_dpr must return fallback when output is None");
+        assert_eq!(
+            result, 1.25,
+            "resolve_panel_dpr must return fallback when output is None"
+        );
     }
 
     // ---------------------------------------------------------------------------
@@ -644,15 +802,22 @@ mod tests {
             dpr: 1.0,
         };
 
-        <super::X11PanelContext as DisplayManager>::update_position(&mut ctx, &mut panel, &new_spec)
-            .expect("update_position should succeed");
+        <super::X11PanelContext as DisplayManager>::update_position(
+            &mut ctx, &mut panel, &new_spec,
+        )
+        .expect("update_position should succeed");
 
         // With dpr=1.0, mon_x=0, mon_y=0: win_x = 0 + (50 * 1.0) = 50, win_y = 0 + (20 * 1.0) = 20
-        assert_eq!(panel.win_x, 50, "win_x should be updated to 50 after update_position");
-        assert_eq!(panel.win_y, 20, "win_y should be updated to 20 after update_position");
+        assert_eq!(
+            panel.win_x, 50,
+            "win_x should be updated to 50 after update_position"
+        );
+        assert_eq!(
+            panel.win_y, 20,
+            "win_y should be updated to 20 after update_position"
+        );
 
         // Cleanup
         let _ = <super::X11PanelContext as DisplayManager>::delete_window(&mut ctx, panel);
     }
-
 }

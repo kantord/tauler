@@ -13,7 +13,8 @@ fn node(x: f32, y: f32, w: f32, h: f32, children: Vec<MeasuredNode>) -> Measured
 #[test]
 fn hit_within_root_with_on_click_returns_some() {
     let measured = node(0.0, 0.0, 100.0, 100.0, vec![]);
-    let json = serde_json::json!({"type": "container", "on_click": {"action": "test"}, "children": []});
+    let json =
+        serde_json::json!({"type": "container", "on_click": {"action": "test"}, "children": []});
     let result = hit_test(&measured, &json, 50.0, 50.0);
     assert!(result.is_some());
     let (_, on_click) = result.unwrap();

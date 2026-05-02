@@ -1,6 +1,6 @@
-use serde::Deserialize;
-use crate::ui::{Node, UiComponent, component, rsx};
 use super::{Table, TableProps, TableRow, TableRowProps};
+use crate::ui::{component, rsx, Node, UiComponent};
+use serde::Deserialize;
 
 /// A column definition for DataTable.
 #[derive(Deserialize)]
@@ -36,8 +36,15 @@ fn data_row(columns: &[ColumnDef], row: &serde_json::Value, index: usize) -> Nod
         .iter()
         .map(|col| rsx! { <text tw="flex-1">{cell_value(row, &col.key)}</text> })
         .collect();
-    let bg = if index % 2 == 0 { "bg-card text-foreground" } else { "bg-muted/30 text-foreground" };
-    TableRow::render(TableRowProps { children: cells, tw: Some(bg.to_string()) })
+    let bg = if index.is_multiple_of(2) {
+        "bg-card text-foreground"
+    } else {
+        "bg-muted/30 text-foreground"
+    };
+    TableRow::render(TableRowProps {
+        children: cells,
+        tw: Some(bg.to_string()),
+    })
 }
 
 /// A data-driven table. Renders a header row followed by data rows with
@@ -70,5 +77,8 @@ pub fn data_table(columns: Vec<ColumnDef>, rows: Option<serde_json::Value>) -> N
             all_children.push(data_row(&columns, &row, index));
         }
     }
-    Table::render(TableProps { children: all_children, tw: None })
+    Table::render(TableProps {
+        children: all_children,
+        tw: None,
+    })
 }

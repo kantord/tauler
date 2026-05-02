@@ -45,7 +45,12 @@ impl Lifecycle for BuiltInSource {
         Ok(BuiltInState { handle, stop })
     }
 
-    fn reconcile_self(self, state: &mut Self::State, _ctx: &mut (), output: &mut Self::Output) -> Result<(), Self::Error> {
+    fn reconcile_self(
+        self,
+        state: &mut Self::State,
+        _ctx: &mut (),
+        output: &mut Self::Output,
+    ) -> Result<(), Self::Error> {
         if state.handle.is_finished() {
             let stop = Arc::new(AtomicBool::new(false));
             let stop_clone = Arc::clone(&stop);
@@ -58,7 +63,11 @@ impl Lifecycle for BuiltInSource {
         Ok(())
     }
 
-    fn exit(state: Self::State, _ctx: &mut (), _output: &mut Self::Output) -> Result<(), Self::Error> {
+    fn exit(
+        state: Self::State,
+        _ctx: &mut (),
+        _output: &mut Self::Output,
+    ) -> Result<(), Self::Error> {
         state.stop.store(true, Ordering::Relaxed);
         Ok(())
     }
@@ -91,9 +100,12 @@ mod tests {
             func: send_one_item,
         };
 
-        let _state = source.enter(&mut (), &mut tx).expect("enter must return Ok(state)");
+        let _state = source
+            .enter(&mut (), &mut tx)
+            .expect("enter must return Ok(state)");
 
-        let item = rx.recv_timeout(Duration::from_millis(500))
+        let item = rx
+            .recv_timeout(Duration::from_millis(500))
             .expect("enter must spawn a thread that delivers a StreamItem");
         assert_eq!(
             item.key.0, "test-source",
@@ -116,19 +128,26 @@ mod tests {
         };
 
         // enter: thread runs, sends item, then finishes
-        let mut state = source.clone().enter(&mut (), &mut tx).expect("enter must succeed");
+        let mut state = source
+            .clone()
+            .enter(&mut (), &mut tx)
+            .expect("enter must succeed");
 
         // drain the first item
-        let _ = rx.recv_timeout(Duration::from_millis(500))
+        let _ = rx
+            .recv_timeout(Duration::from_millis(500))
             .expect("first item must arrive after enter");
 
         // wait for the thread to finish naturally
         std::thread::sleep(Duration::from_millis(100));
 
         // update: should detect finished thread and restart it
-        source.reconcile_self(&mut state, &mut (), &mut tx).expect("reconcile_self must return Ok");
+        source
+            .reconcile_self(&mut state, &mut (), &mut tx)
+            .expect("reconcile_self must return Ok");
 
-        let item = rx.recv_timeout(Duration::from_millis(500))
+        let item = rx
+            .recv_timeout(Duration::from_millis(500))
             .expect("update must restart the thread and deliver a new StreamItem");
         assert_eq!(
             item.key.0, "restart-source",

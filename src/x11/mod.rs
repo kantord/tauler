@@ -1,6 +1,6 @@
-use tiny_skia::{IntSize, Pixmap};
-use takumi::resources::image::ImageSource;
 use crate::render::with_global_ctx;
+use takumi::resources::image::ImageSource;
+use tiny_skia::{IntSize, Pixmap};
 
 pub use crate::layout::PanelAnchor;
 
@@ -14,7 +14,7 @@ pub fn x11_bgrx_to_rgba(bgrx: &[u8]) -> Vec<u8> {
         rgba.push(px[2]); // R
         rgba.push(px[1]); // G
         rgba.push(px[0]); // B
-        rgba.push(0xFF);  // A
+        rgba.push(0xFF); // A
     }
     rgba
 }
@@ -28,7 +28,9 @@ pub fn inject_root_bg(rgba: Vec<u8>, width: u32, height: u32) {
     if let Some(size) = IntSize::from_wh(width, height) {
         if let Some(pixmap) = Pixmap::from_vec(rgba, size) {
             with_global_ctx(|global| {
-                global.persistent_image_store.insert("root-bg".to_string(), ImageSource::from(pixmap.clone()));
+                global
+                    .persistent_image_store
+                    .insert("root-bg".to_string(), ImageSource::from(pixmap.clone()));
             });
         }
     }

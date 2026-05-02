@@ -1,6 +1,6 @@
 pub mod data_loop;
 
-use crate::data::data_loop::{ProcessSource, ProcessIdentity, StreamItem, StreamKind};
+use crate::data::data_loop::{ProcessIdentity, ProcessSource, StreamItem, StreamKind};
 use std::io::{Seek, SeekFrom, Write as IoWrite};
 use std::os::unix::io::FromRawFd;
 use std::sync::mpsc;
@@ -47,9 +47,7 @@ pub fn spawn_module(bin: &str, script: Option<&str>) -> SpawnedModule {
     // If a script is provided, write it to a memfd and pass the path as argument
     #[allow(clippy::option_if_let_else)]
     let _memfd_file = if let Some(content) = script {
-        let fd = unsafe {
-            libc::memfd_create(c"costae-script".as_ptr(), 0)
-        };
+        let fd = unsafe { libc::memfd_create(c"costae-script".as_ptr(), 0) };
         let mut file = unsafe { std::fs::File::from_raw_fd(fd) };
         let _ = file.write_all(content.as_bytes());
         let _ = file.seek(SeekFrom::Start(0));
@@ -92,7 +90,11 @@ pub fn spawn_module(bin: &str, script: Option<&str>) -> SpawnedModule {
         }
     });
 
-    SpawnedModule { rx, child, event_tx }
+    SpawnedModule {
+        rx,
+        child,
+        event_tx,
+    }
 }
 
 pub struct SpawnedBiStream {
@@ -134,7 +136,10 @@ pub fn spawn_bi_stream(
     spawned.send_event(init_event);
     let (rx, child, event_tx) = spawned.into_parts();
     let spec = ProcessSource {
-        identity: ProcessIdentity { bin: bin.to_string(), key: bin.to_string() },
+        identity: ProcessIdentity {
+            bin: bin.to_string(),
+            key: bin.to_string(),
+        },
         script: None,
         args: vec![],
         env: std::collections::BTreeMap::new(),
@@ -157,7 +162,10 @@ pub fn spawn_string_stream(
 ) -> std::process::Child {
     let spawned = spawn_module(bin, script);
     let spec = ProcessSource {
-        identity: ProcessIdentity { bin: bin.to_string(), key: bin.to_string() },
+        identity: ProcessIdentity {
+            bin: bin.to_string(),
+            key: bin.to_string(),
+        },
         script: script.map(str::to_string),
         args: vec![],
         env: std::collections::BTreeMap::new(),

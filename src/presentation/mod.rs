@@ -26,11 +26,22 @@ pub struct PanelFrame {
 /// before reaching `Presenter::apply` — it is never passed to `apply`.
 #[derive(Debug)]
 pub enum PanelCommand {
-    Create { spec: PanelSpecData, frame: PanelFrame },
+    Create {
+        spec: PanelSpecData,
+        frame: PanelFrame,
+    },
     Move(PanelSpecData),
-    Resize { spec: PanelSpecData, frame: PanelFrame },
-    Delete { id: String },
-    UpdatePicture { id: String, frame: PanelFrame },
+    Resize {
+        spec: PanelSpecData,
+        frame: PanelFrame,
+    },
+    Delete {
+        id: String,
+    },
+    UpdatePicture {
+        id: String,
+        frame: PanelFrame,
+    },
     Shutdown,
 }
 
@@ -41,7 +52,14 @@ pub enum PresenterEvent {
     /// The set of connected outputs (and their DPRs) has changed.
     OutputsChanged { outputs: Vec<OutputInfo> },
     /// A click event, routed back for hit-testing in the pipeline.
-    Click { panel_id: String, x: f32, y: f32, phys_width: u32, phys_height: u32, dpr: f32 },
+    Click {
+        panel_id: String,
+        x: f32,
+        y: f32,
+        phys_width: u32,
+        phys_height: u32,
+        dpr: f32,
+    },
 }
 
 /// Owns the window state (one `DM::Panel` per live panel id). Does NOT own
@@ -60,18 +78,25 @@ pub struct PresentationThread<DM: DisplayManager> {
 
 impl<DM: DisplayManager> PresentationThread<DM> {
     pub fn new(dm: DM) -> Self {
-        Self { dm, presenter: Presenter::new() }
+        Self {
+            dm,
+            presenter: Presenter::new(),
+        }
     }
 }
 
 impl<DM: DisplayManager> Default for Presenter<DM> {
     fn default() -> Self {
-        Self { panels: HashMap::new() }
+        Self {
+            panels: HashMap::new(),
+        }
     }
 }
 
 impl<DM: DisplayManager> Presenter<DM> {
-    pub fn new() -> Self { Self::default() }
+    pub fn new() -> Self {
+        Self::default()
+    }
 
     pub fn apply(&mut self, cmd: PanelCommand, dm: &mut DM) -> anyhow::Result<()> {
         match cmd {
@@ -105,7 +130,9 @@ impl<DM: DisplayManager> Presenter<DM> {
                     }
                 }
             }
-            PanelCommand::Shutdown => unreachable!("Shutdown is intercepted by drain_commands before apply is called"),
+            PanelCommand::Shutdown => {
+                unreachable!("Shutdown is intercepted by drain_commands before apply is called")
+            }
         }
         Ok(())
     }
@@ -121,27 +148,45 @@ mod tests {
     }
 
     impl MockDM {
-        fn new() -> Self { MockDM { calls: Vec::new(), next_id: 0 } }
+        fn new() -> Self {
+            MockDM {
+                calls: Vec::new(),
+                next_id: 0,
+            }
+        }
     }
 
     impl DisplayManager for MockDM {
         type Panel = u32;
-        fn create_window(&mut self, spec: &PanelSpecData, _frame: &PanelFrame) -> anyhow::Result<u32> {
+        fn create_window(
+            &mut self,
+            spec: &PanelSpecData,
+            _frame: &PanelFrame,
+        ) -> anyhow::Result<u32> {
             self.next_id += 1;
-            self.calls.push(format!("create:{}:{}", spec.id, self.next_id));
+            self.calls
+                .push(format!("create:{}:{}", spec.id, self.next_id));
             Ok(self.next_id)
         }
         fn update_position(&mut self, panel: &mut u32, spec: &PanelSpecData) -> anyhow::Result<()> {
-            self.calls.push(format!("move:{}:{}", spec.id, panel)); Ok(())
+            self.calls.push(format!("move:{}:{}", spec.id, panel));
+            Ok(())
         }
-        fn update_dimensions(&mut self, panel: &mut u32, spec: &PanelSpecData) -> anyhow::Result<()> {
-            self.calls.push(format!("resize:{}:{}", spec.id, panel)); Ok(())
+        fn update_dimensions(
+            &mut self,
+            panel: &mut u32,
+            spec: &PanelSpecData,
+        ) -> anyhow::Result<()> {
+            self.calls.push(format!("resize:{}:{}", spec.id, panel));
+            Ok(())
         }
         fn update_image(&mut self, panel: &mut u32, _bgrx: &[u8]) -> anyhow::Result<()> {
-            self.calls.push(format!("image:{}", panel)); Ok(())
+            self.calls.push(format!("image:{}", panel));
+            Ok(())
         }
         fn delete_window(&mut self, panel: u32) -> anyhow::Result<()> {
-            self.calls.push(format!("delete:{}", panel)); Ok(())
+            self.calls.push(format!("delete:{}", panel));
+            Ok(())
         }
     }
 
@@ -149,8 +194,10 @@ mod tests {
         PanelSpecData {
             id: id.to_string(),
             anchor: None,
-            width: 100, height: 30,
-            x: 0, y: 0,
+            width: 100,
+            height: 30,
+            x: 0,
+            y: 0,
             outer_gap: 0,
             output: None,
             above: false,
@@ -160,57 +207,150 @@ mod tests {
     }
 
     fn blank_frame() -> PanelFrame {
-        PanelFrame { pixels: Arc::new(vec![0u8; 4]), width: 1, height: 1 }
+        PanelFrame {
+            pixels: Arc::new(vec![0u8; 4]),
+            width: 1,
+            height: 1,
+        }
     }
 
     #[test]
     fn presenter_create_calls_dm_create_window_and_tracks_panel() {
         let mut p: Presenter<MockDM> = Presenter::new();
         let mut dm = MockDM::new();
-        p.apply(PanelCommand::Create { spec: spec("p1"), frame: blank_frame() }, &mut dm).unwrap();
-        assert!(p.panels.contains_key("p1"), "panel id must be tracked after Create");
-        assert!(dm.calls.iter().any(|c| c.starts_with("create:p1")), "dm.calls: {:?}", dm.calls);
+        p.apply(
+            PanelCommand::Create {
+                spec: spec("p1"),
+                frame: blank_frame(),
+            },
+            &mut dm,
+        )
+        .unwrap();
+        assert!(
+            p.panels.contains_key("p1"),
+            "panel id must be tracked after Create"
+        );
+        assert!(
+            dm.calls.iter().any(|c| c.starts_with("create:p1")),
+            "dm.calls: {:?}",
+            dm.calls
+        );
     }
 
     #[test]
     fn presenter_delete_removes_panel_and_calls_dm_delete_window() {
         let mut p: Presenter<MockDM> = Presenter::new();
         let mut dm = MockDM::new();
-        p.apply(PanelCommand::Create { spec: spec("p1"), frame: blank_frame() }, &mut dm).unwrap();
-        p.apply(PanelCommand::Delete { id: "p1".to_string() }, &mut dm).unwrap();
-        assert!(!p.panels.contains_key("p1"), "panel id must be removed after Delete");
-        assert!(dm.calls.iter().any(|c| c.starts_with("delete:")), "dm.calls: {:?}", dm.calls);
+        p.apply(
+            PanelCommand::Create {
+                spec: spec("p1"),
+                frame: blank_frame(),
+            },
+            &mut dm,
+        )
+        .unwrap();
+        p.apply(
+            PanelCommand::Delete {
+                id: "p1".to_string(),
+            },
+            &mut dm,
+        )
+        .unwrap();
+        assert!(
+            !p.panels.contains_key("p1"),
+            "panel id must be removed after Delete"
+        );
+        assert!(
+            dm.calls.iter().any(|c| c.starts_with("delete:")),
+            "dm.calls: {:?}",
+            dm.calls
+        );
     }
 
     #[test]
     fn presenter_update_picture_calls_update_image_immediately() {
         let mut p: Presenter<MockDM> = Presenter::new();
         let mut dm = MockDM::new();
-        p.apply(PanelCommand::Create { spec: spec("p1"), frame: blank_frame() }, &mut dm).unwrap();
-        let frame = PanelFrame { pixels: Arc::new(vec![42u8; 4]), width: 1, height: 1 };
-        p.apply(PanelCommand::UpdatePicture { id: "p1".to_string(), frame }, &mut dm).unwrap();
-        assert!(dm.calls.iter().any(|c| c.starts_with("image:")),
-            "UpdatePicture must call dm.update_image immediately; got {:?}", dm.calls);
+        p.apply(
+            PanelCommand::Create {
+                spec: spec("p1"),
+                frame: blank_frame(),
+            },
+            &mut dm,
+        )
+        .unwrap();
+        let frame = PanelFrame {
+            pixels: Arc::new(vec![42u8; 4]),
+            width: 1,
+            height: 1,
+        };
+        p.apply(
+            PanelCommand::UpdatePicture {
+                id: "p1".to_string(),
+                frame,
+            },
+            &mut dm,
+        )
+        .unwrap();
+        assert!(
+            dm.calls.iter().any(|c| c.starts_with("image:")),
+            "UpdatePicture must call dm.update_image immediately; got {:?}",
+            dm.calls
+        );
     }
 
     #[test]
     fn presenter_update_picture_for_unknown_panel_is_noop() {
         let mut p: Presenter<MockDM> = Presenter::new();
         let mut dm = MockDM::new();
-        let frame = PanelFrame { pixels: Arc::new(vec![42u8; 4]), width: 1, height: 1 };
-        p.apply(PanelCommand::UpdatePicture { id: "ghost".to_string(), frame }, &mut dm).unwrap();
-        assert!(!dm.calls.iter().any(|c| c.starts_with("image:")),
-            "UpdatePicture for unknown panel must not call update_image; got {:?}", dm.calls);
+        let frame = PanelFrame {
+            pixels: Arc::new(vec![42u8; 4]),
+            width: 1,
+            height: 1,
+        };
+        p.apply(
+            PanelCommand::UpdatePicture {
+                id: "ghost".to_string(),
+                frame,
+            },
+            &mut dm,
+        )
+        .unwrap();
+        assert!(
+            !dm.calls.iter().any(|c| c.starts_with("image:")),
+            "UpdatePicture for unknown panel must not call update_image; got {:?}",
+            dm.calls
+        );
     }
 
     #[test]
     fn presenter_move_and_resize_only_affect_matching_id() {
         let mut p: Presenter<MockDM> = Presenter::new();
         let mut dm = MockDM::new();
-        p.apply(PanelCommand::Create { spec: spec("p1"), frame: blank_frame() }, &mut dm).unwrap();
+        p.apply(
+            PanelCommand::Create {
+                spec: spec("p1"),
+                frame: blank_frame(),
+            },
+            &mut dm,
+        )
+        .unwrap();
         p.apply(PanelCommand::Move(spec("p2")), &mut dm).unwrap(); // unknown id: no-op
-        p.apply(PanelCommand::Resize { spec: spec("p1"), frame: blank_frame() }, &mut dm).unwrap();
-        assert!(dm.calls.iter().any(|c| c.starts_with("resize:p1")), "Resize on known id must call dm");
-        assert!(!dm.calls.iter().any(|c| c.starts_with("move:")), "Move on unknown id must be a no-op");
+        p.apply(
+            PanelCommand::Resize {
+                spec: spec("p1"),
+                frame: blank_frame(),
+            },
+            &mut dm,
+        )
+        .unwrap();
+        assert!(
+            dm.calls.iter().any(|c| c.starts_with("resize:p1")),
+            "Resize on known id must call dm"
+        );
+        assert!(
+            !dm.calls.iter().any(|c| c.starts_with("move:")),
+            "Move on unknown id must be a no-op"
+        );
     }
 }

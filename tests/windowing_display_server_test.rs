@@ -55,7 +55,10 @@ fn dispatch_error_connection_lost_implements_error() {
     // std::error::Error requires Display + Debug; .to_string() exercises Display.
     let msg = err.to_string();
     // Any non-empty message is acceptable; we just confirm it doesn't panic.
-    assert!(!msg.is_empty(), "DispatchError::ConnectionLost must produce a non-empty Display message");
+    assert!(
+        !msg.is_empty(),
+        "DispatchError::ConnectionLost must produce a non-empty Display message"
+    );
 }
 
 // ---------------------------------------------------------------------------
