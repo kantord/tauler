@@ -1,6 +1,8 @@
+use costae::windowing::wayland::{
+    build_dispatch_result, WaylandConnectError, WaylandDisplayServer,
+};
 use costae::windowing::DisplayServer;
 use costae::windowing::{DispatchError, WindowEvent};
-use costae::windowing::wayland::{WaylandDisplayServer, WaylandConnectError, build_dispatch_result};
 
 // ---------------------------------------------------------------------------
 // Test 1: connect() fails gracefully when WAYLAND_DISPLAY is unset.
@@ -69,7 +71,10 @@ fn wayland_display_server_implements_display_server() {
     // The test body itself is trivially true; the interesting assertion is the
     // static type-check above that prevents this file from compiling if the
     // trait impl is absent.
-    assert!(true, "WaylandDisplayServer implements DisplayServer (compile-time proven)");
+    assert!(
+        true,
+        "WaylandDisplayServer implements DisplayServer (compile-time proven)"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -85,7 +90,11 @@ fn build_dispatch_result_both_ok_returns_pending_events() {
     let result = build_dispatch_result(true, true, events);
     assert!(result.is_ok(), "expected Ok when both flags are true");
     let returned = result.unwrap();
-    assert_eq!(returned.len(), 2, "returned vec must contain all pending events");
+    assert_eq!(
+        returned.len(),
+        2,
+        "returned vec must contain all pending events"
+    );
     assert!(
         matches!(returned[0], WindowEvent::OutputsChanged),
         "first event must be OutputsChanged"
@@ -122,7 +131,10 @@ fn build_dispatch_result_flush_false_returns_connection_lost() {
 #[test]
 fn build_dispatch_result_both_ok_empty_pending_returns_ok_empty() {
     let result = build_dispatch_result(true, true, vec![]);
-    assert!(result.is_ok(), "expected Ok when both flags are true and pending is empty");
+    assert!(
+        result.is_ok(),
+        "expected Ok when both flags are true and pending is empty"
+    );
     assert!(
         result.unwrap().is_empty(),
         "returned vec must be empty when no events were pending"

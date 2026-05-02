@@ -1,29 +1,23 @@
-pub mod jsx;
-pub mod ui;
-pub mod theme;
 pub mod config;
 pub mod data;
 pub mod display_manager;
+pub mod jsx;
 pub mod layout;
-pub mod panel;
-pub mod render;
-pub mod modules;
-pub mod x11;
 pub mod managed_set;
+pub mod modules;
+pub mod panel;
 pub mod presentation;
+pub mod render;
+pub mod theme;
+pub mod ui;
 pub mod windowing;
+pub mod x11;
 
-pub use takumi::GlobalContext;
 pub use takumi::rendering::MeasuredNode;
+pub use takumi::GlobalContext;
 
 // layout
-pub use layout::{
-    PanelAnchor,
-    PanelSpecData,
-    OutputInfo,
-    parse_layout,
-    parse_root_node,
-};
+pub use layout::{parse_layout, parse_root_node, OutputInfo, PanelAnchor, PanelSpecData};
 
 // panel — generic PanelSpec<DM>
 pub use panel::PanelSpec;
@@ -36,31 +30,18 @@ pub use panel::X11PanelContext;
 
 // render
 pub use render::{
-    render_frame,
-    render_frame_rgba,
-    measure_layout_frame,
-    init_global_ctx,
-    reload_font_config,
-    preload_layout_images,
-    with_global_ctx,
+    init_global_ctx, measure_layout_frame, preload_layout_images, reload_font_config, render_frame,
+    render_frame_rgba, with_global_ctx,
 };
 
 // modules
 pub use modules::hit_test;
 
 // x11
-pub use x11::{
-    x11_bgrx_to_rgba,
-    solid_color_rgba,
-    strut_partial_values_for_anchor,
-};
+pub use x11::{solid_color_rgba, strut_partial_values_for_anchor, x11_bgrx_to_rgba};
 // data spawn functions
 pub use data::{
-    spawn_module,
-    spawn_string_stream,
-    spawn_bi_stream,
-    SpawnedModule,
-    SpawnedBiStream,
+    spawn_bi_stream, spawn_module, spawn_string_stream, SpawnedBiStream, SpawnedModule,
 };
 
 // also re-export fullscreen helpers that were in lib.rs
@@ -71,7 +52,9 @@ pub use data::{
 ///   root → output → content_container → workspace → windows
 /// We follow the `focus` array at each level until we reach a workspace node.
 pub fn has_fullscreen_on_output(tree: &serde_json::Value, output_name: &str) -> bool {
-    let Some(outputs) = tree["nodes"].as_array() else { return false; };
+    let Some(outputs) = tree["nodes"].as_array() else {
+        return false;
+    };
     for output in outputs {
         if output["name"].as_str() != Some(output_name) {
             continue;
@@ -87,7 +70,8 @@ fn focused_workspace_has_fullscreen(container: &serde_json::Value) -> bool {
     if container["type"].as_str() == Some("workspace") {
         return node_has_fullscreen(container);
     }
-    let focused_id = container["focus"].as_array()
+    let focused_id = container["focus"]
+        .as_array()
         .and_then(|f| f.first())
         .and_then(|id| id.as_u64());
     if let (Some(fid), Some(nodes)) = (focused_id, container["nodes"].as_array()) {
@@ -170,10 +154,10 @@ mod tests {
     fn strut_for_anchor_left_sets_left_strut() {
         let v = strut_partial_values_for_anchor(PanelAnchor::Left, 0, 0, 1920, 2160, 365, 2160);
         assert_eq!(v[0], 365); // left strut
-        assert_eq!(v[1], 0);   // right strut
-        assert_eq!(v[2], 0);   // top strut
-        assert_eq!(v[3], 0);   // bottom strut
-        assert_eq!(v[4], 0);   // left_start_y
+        assert_eq!(v[1], 0); // right strut
+        assert_eq!(v[2], 0); // top strut
+        assert_eq!(v[3], 0); // bottom strut
+        assert_eq!(v[4], 0); // left_start_y
         assert_eq!(v[5], 2159); // left_end_y
     }
 
@@ -181,9 +165,8 @@ mod tests {
     fn strut_for_anchor_top_sets_top_strut() {
         let v = strut_partial_values_for_anchor(PanelAnchor::Top, 0, 0, 1920, 2160, 1920, 32);
         assert_eq!(v[0], 0);
-        assert_eq!(v[2], 32);  // top strut
-        assert_eq!(v[8], 0);   // top_start_x
+        assert_eq!(v[2], 32); // top strut
+        assert_eq!(v[8], 0); // top_start_x
         assert_eq!(v[9], 1919); // top_end_x
     }
-
 }

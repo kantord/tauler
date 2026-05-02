@@ -14,6 +14,7 @@ pub struct NotifyServer {
 
 #[interface(name = "org.freedesktop.Notifications")]
 impl NotifyServer {
+    #[allow(clippy::too_many_arguments)]
     async fn notify(
         &self,
         app_name: &str,
@@ -41,9 +42,13 @@ impl NotifyServer {
         let enwiro_env = async {
             let sender = header.sender()?;
             let dbus = zbus::fdo::DBusProxy::new(connection).await.ok()?;
-            let pid = dbus.get_connection_unix_process_id(zbus::names::BusName::Unique(sender.clone())).await.ok()?;
+            let pid = dbus
+                .get_connection_unix_process_id(zbus::names::BusName::Unique(sender.clone()))
+                .await
+                .ok()?;
             read_enwiro_env(pid)
-        }.await;
+        }
+        .await;
 
         let _ = self.tx.send(Event::Add(
             Notification {

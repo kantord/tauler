@@ -1,5 +1,5 @@
-use costae::{init_global_ctx, preload_layout_images, with_global_ctx};
 use costae::config::FontConfig;
+use costae::{init_global_ctx, preload_layout_images, with_global_ctx};
 
 fn write_temp_png() -> std::path::PathBuf {
     let path = std::env::temp_dir().join("costae_test_1x1.png");
@@ -29,7 +29,10 @@ fn preload_layout_images_ignores_missing_files() {
     let layout = serde_json::json!({"type": "image", "src": "/nonexistent/image.png"});
     preload_layout_images(&layout);
     with_global_ctx(|global| {
-        assert!(global.persistent_image_store.get("/nonexistent/image.png").is_none());
+        assert!(global
+            .persistent_image_store
+            .get("/nonexistent/image.png")
+            .is_none());
     });
 }
 
@@ -39,6 +42,9 @@ fn preload_layout_images_skips_http_urls() {
     let layout = serde_json::json!({"type": "image", "src": "https://example.com/img.png"});
     preload_layout_images(&layout);
     with_global_ctx(|global| {
-        assert!(global.persistent_image_store.get("https://example.com/img.png").is_none());
+        assert!(global
+            .persistent_image_store
+            .get("https://example.com/img.png")
+            .is_none());
     });
 }

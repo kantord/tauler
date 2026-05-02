@@ -3,7 +3,11 @@ use costae::ui::cva::Cva;
 mod base_only {
     use super::*;
 
-    const CVA: Cva = Cva { base: "bg-card text-foreground", variants: &[], defaults: &[] };
+    const CVA: Cva = Cva {
+        base: "bg-card text-foreground",
+        variants: &[],
+        defaults: &[],
+    };
 
     #[test]
     fn resolve_returns_base() {
@@ -12,7 +16,10 @@ mod base_only {
 
     #[test]
     fn resolve_appends_extra_tw() {
-        assert_eq!(CVA.resolve(&[], "extra-class"), "bg-card text-foreground extra-class");
+        assert_eq!(
+            CVA.resolve(&[], "extra-class"),
+            "bg-card text-foreground extra-class"
+        );
     }
 }
 
@@ -21,10 +28,13 @@ mod single_axis {
 
     const CVA: Cva = Cva {
         base: "inline-flex items-center",
-        variants: &[("variant", &[
-            ("default", "bg-primary text-primary-foreground"),
-            ("destructive", "bg-destructive text-destructive-foreground"),
-        ])],
+        variants: &[(
+            "variant",
+            &[
+                ("default", "bg-primary text-primary-foreground"),
+                ("destructive", "bg-destructive text-destructive-foreground"),
+            ],
+        )],
         defaults: &[("variant", "default")],
     };
 
@@ -55,25 +65,31 @@ mod multi_axis {
     const CVA: Cva = Cva {
         base: "inline-flex items-center font-medium",
         variants: &[
-            ("variant", &[
-                ("default", "bg-primary text-primary-foreground"),
-                ("destructive", "bg-destructive text-destructive-foreground"),
-            ]),
-            ("size", &[
-                ("sm", "h-8 px-3 text-[12px]"),
-                ("lg", "h-12 px-6 text-[16px]"),
-            ]),
+            (
+                "variant",
+                &[
+                    ("default", "bg-primary text-primary-foreground"),
+                    ("destructive", "bg-destructive text-destructive-foreground"),
+                ],
+            ),
+            (
+                "size",
+                &[
+                    ("sm", "h-8 px-3 text-[12px]"),
+                    ("lg", "h-12 px-6 text-[16px]"),
+                ],
+            ),
         ],
-        defaults: &[
-            ("variant", "default"),
-            ("size", "sm"),
-        ],
+        defaults: &[("variant", "default"), ("size", "sm")],
     };
 
     #[test]
     fn each_axis_resolved_independently() {
         assert_eq!(
-            CVA.resolve(&[("variant", Some("destructive")), ("size", Some("lg"))], ""),
+            CVA.resolve(
+                &[("variant", Some("destructive")), ("size", Some("lg"))],
+                ""
+            ),
             "inline-flex items-center font-medium bg-destructive text-destructive-foreground h-12 px-6 text-[16px]",
         );
     }

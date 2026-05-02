@@ -10,8 +10,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{mpsc, Arc, Mutex};
 use std::time::Duration;
 
-use crate::managed_set::{ManagedSet, Reconcile};
 use crate::managed_set::reconcile::ReconcileErrors;
+use crate::managed_set::{ManagedSet, Reconcile};
 use costae_lifecycle_derive::Ephemeral;
 
 #[derive(Debug, PartialEq, Eq)]
@@ -57,9 +57,15 @@ struct ProcessPool {
 
 impl ProcessPool {
     fn new(stream_tx: mpsc::Sender<StreamItem>) -> Self {
-        Self { inner: ManagedSet::new(), stream_tx }
+        Self {
+            inner: ManagedSet::new(),
+            stream_tx,
+        }
     }
-    fn reconcile(&mut self, desired: Vec<ProcessSource>) -> ReconcileErrors<ProcessIdentity, SpawnError> {
+    fn reconcile(
+        &mut self,
+        desired: Vec<ProcessSource>,
+    ) -> ReconcileErrors<ProcessIdentity, SpawnError> {
         self.inner.reconcile(desired, &mut (), &mut self.stream_tx)
     }
     fn get(&self, identity: &ProcessIdentity) -> Option<&ProcessState> {
@@ -79,9 +85,15 @@ struct BuiltInPool {
 
 impl BuiltInPool {
     fn new(stream_tx: mpsc::Sender<StreamItem>) -> Self {
-        Self { inner: ManagedSet::new(), stream_tx }
+        Self {
+            inner: ManagedSet::new(),
+            stream_tx,
+        }
     }
-    fn reconcile(&mut self, desired: Vec<BuiltInSource>) -> ReconcileErrors<String, std::convert::Infallible> {
+    fn reconcile(
+        &mut self,
+        desired: Vec<BuiltInSource>,
+    ) -> ReconcileErrors<String, std::convert::Infallible> {
         self.inner.reconcile(desired, &mut (), &mut self.stream_tx)
     }
 }
@@ -137,7 +149,8 @@ impl DataLoop {
     }
 
     pub fn collect_event_txs(&self) -> HashMap<ProcessIdentity, mpsc::Sender<serde_json::Value>> {
-        self.process_pool.iter()
+        self.process_pool
+            .iter()
             .map(|(identity, state)| (identity.clone(), state.event_tx.clone()))
             .collect()
     }
@@ -177,7 +190,9 @@ impl DataLoop {
 
     fn update_event_txs_snapshot(&self) {
         let mut snapshot = self.event_txs_snapshot.lock().unwrap();
-        *snapshot = self.process_pool.iter()
+        *snapshot = self
+            .process_pool
+            .iter()
             .map(|(identity, state)| (identity.bin.clone(), state.event_tx.clone()))
             .collect();
     }
@@ -256,7 +271,10 @@ mod tests {
     #[test]
     fn script_content_is_executed_and_output_delivered() {
         let spec = ProcessSource {
-            identity: ProcessIdentity { bin: "/bin/sh".to_string(), key: "/bin/sh".to_string() },
+            identity: ProcessIdentity {
+                bin: "/bin/sh".to_string(),
+                key: "/bin/sh".to_string(),
+            },
             args: vec![],
             env: BTreeMap::new(),
             current_dir: None,
@@ -272,10 +290,14 @@ mod tests {
         let stop = Arc::new(AtomicBool::new(false));
         let stop_for_run = Arc::clone(&stop);
 
-        data_loop.run(stop_for_run, |item| {
-            items_clone.lock().unwrap().push(item);
-            stop.store(true, Ordering::Relaxed);
-        }, || {});
+        data_loop.run(
+            stop_for_run,
+            |item| {
+                items_clone.lock().unwrap().push(item);
+                stop.store(true, Ordering::Relaxed);
+            },
+            || {},
+        );
 
         let items = items.lock().unwrap();
         assert_eq!(items.len(), 1);
@@ -291,7 +313,10 @@ mod tests {
     #[test]
     fn duplicate_specs_without_key_spawn_only_one_process() {
         let spec = ProcessSource {
-            identity: ProcessIdentity { bin: "/bin/sh".to_string(), key: "/bin/sh".to_string() },
+            identity: ProcessIdentity {
+                bin: "/bin/sh".to_string(),
+                key: "/bin/sh".to_string(),
+            },
             args: vec!["-c".to_string(), "echo hello; sleep 10".to_string()],
             env: BTreeMap::new(),
             current_dir: None,
@@ -300,7 +325,10 @@ mod tests {
         };
 
         let (mut data_loop, handle) = DataLoop::new();
-        handle.set_desired(vec![StreamSource::Process(spec.clone()), StreamSource::Process(spec.clone())]);
+        handle.set_desired(vec![
+            StreamSource::Process(spec.clone()),
+            StreamSource::Process(spec.clone()),
+        ]);
 
         let collected: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
         let collected_clone = Arc::clone(&collected);
@@ -308,13 +336,17 @@ mod tests {
         let stop_clone = Arc::clone(&stop);
 
         thread::spawn(move || {
-            data_loop.run(stop_clone, |item| {
-                let mut guard = collected_clone.lock().unwrap();
-                guard.push(item.line);
-                if guard.len() >= 2 {
-                    stop.store(true, Ordering::Relaxed);
-                }
-            }, || {});
+            data_loop.run(
+                stop_clone,
+                |item| {
+                    let mut guard = collected_clone.lock().unwrap();
+                    guard.push(item.line);
+                    if guard.len() >= 2 {
+                        stop.store(true, Ordering::Relaxed);
+                    }
+                },
+                || {},
+            );
         });
 
         thread::sleep(Duration::from_millis(500));
@@ -322,19 +354,20 @@ mod tests {
         let items = collected.lock().unwrap();
         let len = items.len();
         assert_eq!(
-            len,
-            1,
+            len, 1,
             "expected exactly one process to be spawned for duplicate specs, \
              got {} items: {:?}",
-            len,
-            *items
+            len, *items
         );
     }
 
     #[test]
     fn stdout_line_is_delivered_to_handler_with_correct_source_and_kind() {
         let spec = ProcessSource {
-            identity: ProcessIdentity { bin: "/bin/sh".to_string(), key: "/bin/sh".to_string() },
+            identity: ProcessIdentity {
+                bin: "/bin/sh".to_string(),
+                key: "/bin/sh".to_string(),
+            },
             args: vec!["-c".to_string(), "echo hello".to_string()],
             env: BTreeMap::new(),
             current_dir: None,
@@ -350,10 +383,14 @@ mod tests {
         let stop = Arc::new(AtomicBool::new(false));
         let stop_for_run = Arc::clone(&stop);
 
-        data_loop.run(stop_for_run, |item| {
-            items_clone.lock().unwrap().push(item);
-            stop.store(true, Ordering::Relaxed);
-        }, || {});
+        data_loop.run(
+            stop_for_run,
+            |item| {
+                items_clone.lock().unwrap().push(item);
+                stop.store(true, Ordering::Relaxed);
+            },
+            || {},
+        );
 
         let items = items.lock().unwrap();
         assert_eq!(items.len(), 1);
@@ -366,7 +403,10 @@ mod tests {
     #[test]
     fn crashed_process_is_restarted_and_output_continues() {
         let spec = ProcessSource {
-            identity: ProcessIdentity { bin: "/bin/sh".to_string(), key: "/bin/sh".to_string() },
+            identity: ProcessIdentity {
+                bin: "/bin/sh".to_string(),
+                key: "/bin/sh".to_string(),
+            },
             args: vec!["-c".to_string(), "echo hello".to_string()],
             env: BTreeMap::new(),
             current_dir: None,
@@ -383,9 +423,13 @@ mod tests {
         let stop_for_run = Arc::clone(&stop);
 
         let run_handle = thread::spawn(move || {
-            data_loop.run(stop_for_run, |item| {
-                collected_for_run.lock().unwrap().push(item.line);
-            }, || {});
+            data_loop.run(
+                stop_for_run,
+                |item| {
+                    collected_for_run.lock().unwrap().push(item.line);
+                },
+                || {},
+            );
         });
 
         let deadline = std::time::Instant::now() + Duration::from_secs(5);
@@ -416,7 +460,10 @@ mod tests {
     #[test]
     fn run_stops_when_cancellation_token_is_set() {
         let spec = ProcessSource {
-            identity: ProcessIdentity { bin: "/bin/sh".to_string(), key: "/bin/sh".to_string() },
+            identity: ProcessIdentity {
+                bin: "/bin/sh".to_string(),
+                key: "/bin/sh".to_string(),
+            },
             args: vec![
                 "-c".to_string(),
                 "while true; do echo tick; sleep 0.1; done".to_string(),
@@ -436,9 +483,13 @@ mod tests {
         let collected_for_run = Arc::clone(&collected);
 
         let run_handle = thread::spawn(move || {
-            data_loop.run(stop_for_run, |item| {
-                collected_for_run.lock().unwrap().push(item.line);
-            }, || {});
+            data_loop.run(
+                stop_for_run,
+                |item| {
+                    collected_for_run.lock().unwrap().push(item.line);
+                },
+                || {},
+            );
         });
 
         let deadline = std::time::Instant::now() + Duration::from_secs(5);
@@ -469,9 +520,13 @@ mod tests {
         let tick_called = Arc::new(Mutex::new(false));
         let tick_called_clone = Arc::clone(&tick_called);
 
-        data_loop.run(stop, |_item: StreamItem| {}, move || {
-            *tick_called_clone.lock().unwrap() = true;
-        });
+        data_loop.run(
+            stop,
+            |_item: StreamItem| {},
+            move || {
+                *tick_called_clone.lock().unwrap() = true;
+            },
+        );
     }
 
     #[test]
@@ -520,8 +575,14 @@ mod tests {
         let props_value = serde_json::json!({"color": "red"});
         let expected_payload = serde_json::json!({"color": "red"});
         let spec = ProcessSource {
-            identity: ProcessIdentity { bin: "/bin/sh".to_string(), key: "init-test".to_string() },
-            args: vec!["-c".to_string(), "read line; echo \"got:$line\"".to_string()],
+            identity: ProcessIdentity {
+                bin: "/bin/sh".to_string(),
+                key: "init-test".to_string(),
+            },
+            args: vec![
+                "-c".to_string(),
+                "read line; echo \"got:$line\"".to_string(),
+            ],
             env: BTreeMap::new(),
             current_dir: None,
             props: Some(props_value),
@@ -539,15 +600,22 @@ mod tests {
         let run_handle = thread::spawn(move || {
             data_loop.run(
                 stop_for_run,
-                |item| { collected_clone.lock().unwrap().push(item.line); },
+                |item| {
+                    collected_clone.lock().unwrap().push(item.line);
+                },
                 || {},
             );
         });
 
         let deadline = std::time::Instant::now() + Duration::from_secs(3);
         loop {
-            if !collected.lock().unwrap().is_empty() { break; }
-            assert!(std::time::Instant::now() < deadline, "timed out waiting for subprocess to echo init message");
+            if !collected.lock().unwrap().is_empty() {
+                break;
+            }
+            assert!(
+                std::time::Instant::now() < deadline,
+                "timed out waiting for subprocess to echo init message"
+            );
             thread::sleep(Duration::from_millis(20));
         }
         stop.store(true, Ordering::Relaxed);
@@ -576,7 +644,10 @@ mod tests {
 
         let spec_v1 = ProcessSource {
             identity: identity.clone(),
-            args: vec!["-c".to_string(), "while read line; do echo \"got:$line\"; done".to_string()],
+            args: vec![
+                "-c".to_string(),
+                "while read line; do echo \"got:$line\"; done".to_string(),
+            ],
             env: BTreeMap::new(),
             current_dir: None,
             props: Some(initial_props),
@@ -594,21 +665,31 @@ mod tests {
         let run_handle = thread::spawn(move || {
             data_loop.run(
                 stop_for_run,
-                |item| { collected_clone.lock().unwrap().push(item.line); },
+                |item| {
+                    collected_clone.lock().unwrap().push(item.line);
+                },
                 || {},
             );
         });
 
         let deadline = std::time::Instant::now() + Duration::from_secs(3);
         loop {
-            if !collected.lock().unwrap().is_empty() { break; }
-            assert!(std::time::Instant::now() < deadline, "timed out waiting for subprocess to echo init message");
+            if !collected.lock().unwrap().is_empty() {
+                break;
+            }
+            assert!(
+                std::time::Instant::now() < deadline,
+                "timed out waiting for subprocess to echo init message"
+            );
             thread::sleep(Duration::from_millis(20));
         }
 
         let spec_v2 = ProcessSource {
             identity: identity.clone(),
-            args: vec!["-c".to_string(), "while read line; do echo \"got:$line\"; done".to_string()],
+            args: vec![
+                "-c".to_string(),
+                "while read line; do echo \"got:$line\"; done".to_string(),
+            ],
             env: BTreeMap::new(),
             current_dir: None,
             props: Some(updated_props),
@@ -619,8 +700,13 @@ mod tests {
         let expected_got = format!("got:{}", expected_update_payload);
         let update_deadline = std::time::Instant::now() + Duration::from_secs(3);
         loop {
-            if collected.lock().unwrap().iter().any(|l| l == &expected_got) { break; }
-            assert!(std::time::Instant::now() < update_deadline, "timed out waiting for subprocess to echo update message");
+            if collected.lock().unwrap().iter().any(|l| l == &expected_got) {
+                break;
+            }
+            assert!(
+                std::time::Instant::now() < update_deadline,
+                "timed out waiting for subprocess to echo update message"
+            );
             thread::sleep(Duration::from_millis(20));
         }
 
@@ -632,11 +718,9 @@ mod tests {
         let items = collected.lock().unwrap();
         let count = items.iter().filter(|l| l.as_str() == expected_got).count();
         assert_eq!(
-            count,
-            1,
+            count, 1,
             "expected updated props payload to be sent exactly once, but got {} occurrences: {:?}",
-            count,
-            *items
+            count, *items
         );
     }
 
@@ -648,7 +732,10 @@ mod tests {
         };
         let spec = ProcessSource {
             identity: identity.clone(),
-            args: vec!["-c".to_string(), "while read line; do echo \"got:$line\"; done".to_string()],
+            args: vec![
+                "-c".to_string(),
+                "while read line; do echo \"got:$line\"; done".to_string(),
+            ],
             env: BTreeMap::new(),
             current_dir: None,
             props: None,
@@ -669,7 +756,9 @@ mod tests {
             data_loop.send_event(&identity, event.clone());
             data_loop.run(
                 stop_for_run,
-                |item| { collected_clone.lock().unwrap().push(item.line); },
+                |item| {
+                    collected_clone.lock().unwrap().push(item.line);
+                },
                 || {},
             );
         });
@@ -677,8 +766,13 @@ mod tests {
         let expected_got = format!("got:{}", serde_json::json!({"type": "ping", "id": 42}));
         let deadline = std::time::Instant::now() + Duration::from_secs(3);
         loop {
-            if collected.lock().unwrap().iter().any(|l| l == &expected_got) { break; }
-            assert!(std::time::Instant::now() < deadline, "timed out waiting for send_event echo");
+            if collected.lock().unwrap().iter().any(|l| l == &expected_got) {
+                break;
+            }
+            assert!(
+                std::time::Instant::now() < deadline,
+                "timed out waiting for send_event echo"
+            );
             thread::sleep(Duration::from_millis(20));
         }
         stop.store(true, Ordering::Relaxed);
@@ -703,7 +797,10 @@ mod tests {
 
         let spec = ProcessSource {
             identity: identity.clone(),
-            args: vec!["-c".to_string(), "while read line; do echo \"got:$line\"; done".to_string()],
+            args: vec![
+                "-c".to_string(),
+                "while read line; do echo \"got:$line\"; done".to_string(),
+            ],
             env: BTreeMap::new(),
             current_dir: None,
             props: Some(props_value.clone()),
@@ -721,7 +818,9 @@ mod tests {
         let run_handle = thread::spawn(move || {
             data_loop.run(
                 stop_for_run,
-                |item| { collected_clone.lock().unwrap().push(item.line); },
+                |item| {
+                    collected_clone.lock().unwrap().push(item.line);
+                },
                 || {},
             );
         });
@@ -729,8 +828,13 @@ mod tests {
         let expected_got = format!("got:{}", props_value);
         let deadline = std::time::Instant::now() + Duration::from_secs(3);
         loop {
-            if collected.lock().unwrap().iter().any(|l| l == &expected_got) { break; }
-            assert!(std::time::Instant::now() < deadline, "timed out waiting for first props echo");
+            if collected.lock().unwrap().iter().any(|l| l == &expected_got) {
+                break;
+            }
+            assert!(
+                std::time::Instant::now() < deadline,
+                "timed out waiting for first props echo"
+            );
             thread::sleep(Duration::from_millis(20));
         }
 
@@ -744,18 +848,19 @@ mod tests {
         let items = collected.lock().unwrap();
         let count = items.iter().filter(|l| l.as_str() == expected_got).count();
         assert_eq!(
-            count,
-            1,
+            count, 1,
             "expected props payload to be delivered exactly once, but got {} occurrences: {:?}",
-            count,
-            *items
+            count, *items
         );
     }
 
     #[test]
     fn handle_set_desired_spawns_process_into_running_loop() {
         let spec = ProcessSource {
-            identity: ProcessIdentity { bin: "/bin/sh".to_string(), key: "/bin/sh".to_string() },
+            identity: ProcessIdentity {
+                bin: "/bin/sh".to_string(),
+                key: "/bin/sh".to_string(),
+            },
             args: vec!["-c".to_string(), "echo handle_output".to_string()],
             env: BTreeMap::new(),
             current_dir: None,
@@ -773,7 +878,9 @@ mod tests {
         thread::spawn(move || {
             data_loop.run(
                 stop_for_run,
-                |item| { collected_for_run.lock().unwrap().push(item.line); },
+                |item| {
+                    collected_for_run.lock().unwrap().push(item.line);
+                },
                 || {},
             );
         });
@@ -782,7 +889,9 @@ mod tests {
 
         let deadline = std::time::Instant::now() + Duration::from_secs(3);
         loop {
-            if !collected.lock().unwrap().is_empty() { break; }
+            if !collected.lock().unwrap().is_empty() {
+                break;
+            }
             assert!(
                 std::time::Instant::now() < deadline,
                 "timed out waiting for output from handle-spawned process"

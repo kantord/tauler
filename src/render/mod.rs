@@ -4,10 +4,10 @@ use cached::proc_macro::cached;
 use cached::Cached;
 use parley::fontique::GenericFamily;
 use takumi::{
-    GlobalContext,
-    layout::{Viewport, node::Node},
-    rendering::{MeasuredNode, RenderOptions, measure_layout as takumi_measure_layout, render},
+    layout::{node::Node, Viewport},
+    rendering::{measure_layout as takumi_measure_layout, render, MeasuredNode, RenderOptions},
     resources::image::ImageSource,
+    GlobalContext,
 };
 
 use crate::config::FontConfig;
@@ -27,7 +27,11 @@ pub fn with_global_ctx<F, R>(f: F) -> R
 where
     F: FnOnce(&GlobalContext) -> R,
 {
-    let g = GLOBAL_CTX.get().expect("call init_global_ctx before rendering").lock().unwrap();
+    let g = GLOBAL_CTX
+        .get()
+        .expect("call init_global_ctx before rendering")
+        .lock()
+        .unwrap();
     f(&g)
 }
 
@@ -47,7 +51,12 @@ pub fn reload_font_config(font_config: FontConfig) {
 /// `width` and `height` are **physical** pixels. `dpr` scales CSS `px` units.
 /// The returned buffer is always `width × height × 4` bytes (BGRX).
 /// Identical calls (same content + dimensions) return a cloned Arc — no re-render.
-pub fn render_frame(content: &serde_json::Value, width: u32, height: u32, dpr: f32) -> Arc<Vec<u8>> {
+pub fn render_frame(
+    content: &serde_json::Value,
+    width: u32,
+    height: u32,
+    dpr: f32,
+) -> Arc<Vec<u8>> {
     let canonical = json_canon::to_string(content).unwrap_or_default();
     render_frame_cached(canonical, width, height, dpr.to_bits())
 }
@@ -57,7 +66,11 @@ fn render_frame_cached(canonical: String, width: u32, height: u32, dpr_bits: u32
     let dpr = f32::from_bits(dpr_bits);
     let layout = serde_json::from_str::<serde_json::Value>(&canonical)
         .ok()
-        .and_then(|v| parse_layout(&v).map_err(|e| tracing::error!(error = %e, "layout parse error")).ok());
+        .and_then(|v| {
+            parse_layout(&v)
+                .map_err(|e| tracing::error!(error = %e, "layout parse error"))
+                .ok()
+        });
     with_global_ctx(|global| {
         let node = layout.unwrap_or_else(|| Node::container(vec![]));
         let options = RenderOptions::builder()
@@ -78,16 +91,28 @@ fn render_frame_cached(canonical: String, width: u32, height: u32, dpr_bits: u32
 ///
 /// `width` and `height` are **physical** pixels. `dpr` scales CSS `px` units.
 /// The returned buffer is always `width × height × 4` bytes (RGBA).
-pub fn render_frame_rgba(content: &serde_json::Value, width: u32, height: u32, dpr: f32) -> Arc<Vec<u8>> {
+pub fn render_frame_rgba(
+    content: &serde_json::Value,
+    width: u32,
+    height: u32,
+    dpr: f32,
+) -> Arc<Vec<u8>> {
     let canonical = json_canon::to_string(content).unwrap_or_default();
     let layout = serde_json::from_str::<serde_json::Value>(&canonical)
         .ok()
-        .and_then(|v| parse_layout(&v).map_err(|e| tracing::error!(error = %e, "layout parse error")).ok());
+        .and_then(|v| {
+            parse_layout(&v)
+                .map_err(|e| tracing::error!(error = %e, "layout parse error"))
+                .ok()
+        });
     with_global_ctx(|global| {
         let node = layout.unwrap_or_else(|| takumi::layout::node::Node::container(vec![]));
         let options = RenderOptions::builder()
             .global(global)
-            .viewport(takumi::layout::Viewport::new((Some(width), Some(height))).with_device_pixel_ratio(dpr))
+            .viewport(
+                takumi::layout::Viewport::new((Some(width), Some(height)))
+                    .with_device_pixel_ratio(dpr),
+            )
             .node(node)
             .build();
         let rgba = render(options).expect("render").into_raw();
@@ -99,11 +124,17 @@ pub(crate) fn apply_font_config(ctx: &mut GlobalContext, config: &FontConfig) {
     ctx.font_context.collection.load_system_fonts();
     let path_loaded_family: Option<String> = if let Some(path) = &config.primary_path {
         let before: std::collections::HashSet<String> = ctx
-            .font_context.collection.family_names()
+            .font_context
+            .collection
+            .family_names()
             .map(|s| s.to_string())
             .collect();
-        ctx.font_context.collection.load_fonts_from_paths(std::iter::once(path));
-        ctx.font_context.collection.family_names()
+        ctx.font_context
+            .collection
+            .load_fonts_from_paths(std::iter::once(path));
+        ctx.font_context
+            .collection
+            .family_names()
             .find(|name| !before.contains(*name))
             .map(|s| s.to_string())
     } else {
@@ -130,8 +161,7 @@ pub(crate) fn apply_font_config(ctx: &mut GlobalContext, config: &FontConfig) {
         }
     }
 
-    let primary_name = config.primary.as_deref()
-        .or(path_loaded_family.as_deref());
+    let primary_name = config.primary.as_deref().or(path_loaded_family.as_deref());
     if let Some(name) = primary_name {
         if let Some(family_info) = ctx.font_context.collection.family_by_name(name) {
             ctx.font_context
@@ -186,11 +216,20 @@ fn preload_layout_images_impl(layout: &serde_json::Value, global: &GlobalContext
 /// Cached layout-only pass (no rasterization). Same cache key as `render_frame`
 /// so click handling gets a warm cache hit after any render.
 #[cached(size = 6)]
-fn measure_layout_cached(canonical: String, width: u32, height: u32, dpr_bits: u32) -> Arc<MeasuredNode> {
+fn measure_layout_cached(
+    canonical: String,
+    width: u32,
+    height: u32,
+    dpr_bits: u32,
+) -> Arc<MeasuredNode> {
     let dpr = f32::from_bits(dpr_bits);
     let layout = serde_json::from_str::<serde_json::Value>(&canonical)
         .ok()
-        .and_then(|v| parse_layout(&v).map_err(|e| tracing::error!(error = %e, "layout parse error")).ok());
+        .and_then(|v| {
+            parse_layout(&v)
+                .map_err(|e| tracing::error!(error = %e, "layout parse error"))
+                .ok()
+        });
     with_global_ctx(|global| {
         let node = layout.unwrap_or_else(|| Node::container(vec![]));
         let options = RenderOptions::builder()
@@ -202,7 +241,12 @@ fn measure_layout_cached(canonical: String, width: u32, height: u32, dpr_bits: u
     })
 }
 
-pub fn measure_layout_frame(content: &serde_json::Value, width: u32, height: u32, dpr: f32) -> Arc<MeasuredNode> {
+pub fn measure_layout_frame(
+    content: &serde_json::Value,
+    width: u32,
+    height: u32,
+    dpr: f32,
+) -> Arc<MeasuredNode> {
     let canonical = json_canon::to_string(content).unwrap_or_default();
     measure_layout_cached(canonical, width, height, dpr.to_bits())
 }
@@ -217,7 +261,11 @@ mod tests {
     where
         F: FnOnce(&mut takumi::GlobalContext) -> R,
     {
-        let mut g = GLOBAL_CTX.get().expect("call init_global_ctx before rendering").lock().unwrap();
+        let mut g = GLOBAL_CTX
+            .get()
+            .expect("call init_global_ctx before rendering")
+            .lock()
+            .unwrap();
         f(&mut g)
     }
 
@@ -227,7 +275,10 @@ mod tests {
         let content = serde_json::json!({});
         let a1 = render_frame(&content, 10, 10, 1.0);
         let a2 = render_frame(&content, 10, 10, 1.0);
-        assert!(Arc::ptr_eq(&a1, &a2), "second call with identical args must return same Arc (cache hit)");
+        assert!(
+            Arc::ptr_eq(&a1, &a2),
+            "second call with identical args must return same Arc (cache hit)"
+        );
     }
 
     #[test]
@@ -236,7 +287,10 @@ mod tests {
         let content = serde_json::json!({});
         let a1 = render_frame(&content, 10, 10, 1.0);
         let a2 = render_frame(&content, 20, 20, 1.0);
-        assert!(!Arc::ptr_eq(&a1, &a2), "different dims must return a distinct Arc (cache miss)");
+        assert!(
+            !Arc::ptr_eq(&a1, &a2),
+            "different dims must return a distinct Arc (cache miss)"
+        );
     }
 
     #[test]
@@ -248,7 +302,11 @@ mod tests {
         }
 
         let mut ctx = takumi::GlobalContext::default();
-        let config = FontConfig { emoji: Some("Noto Color Emoji".to_string()), primary: None, primary_path: None };
+        let config = FontConfig {
+            emoji: Some("Noto Color Emoji".to_string()),
+            primary: None,
+            primary_path: None,
+        };
 
         apply_font_config(&mut ctx, &config);
 
@@ -267,11 +325,23 @@ mod tests {
     fn apply_font_config_maps_sans_serif_generic_family_when_primary_font_is_present() {
         let mut ctx = takumi::GlobalContext::default();
         ctx.font_context.collection.load_system_fonts();
-        if ctx.font_context.collection.family_by_name("Adwaita Sans").is_none() {
+        if ctx
+            .font_context
+            .collection
+            .family_by_name("Adwaita Sans")
+            .is_none()
+        {
             eprintln!("SKIP: Adwaita Sans not found on this system");
             return;
         }
-        apply_font_config(&mut ctx, &FontConfig { primary: Some("Adwaita Sans".to_string()), emoji: None, primary_path: None });
+        apply_font_config(
+            &mut ctx,
+            &FontConfig {
+                primary: Some("Adwaita Sans".to_string()),
+                emoji: None,
+                primary_path: None,
+            },
+        );
         let families: Vec<_> = ctx
             .font_context
             .collection
@@ -281,18 +351,41 @@ mod tests {
     }
 
     #[test]
-    fn apply_font_config_updates_sans_serif_mapping_when_called_twice_with_different_primary_font() {
+    fn apply_font_config_updates_sans_serif_mapping_when_called_twice_with_different_primary_font()
+    {
         let mut ctx = takumi::GlobalContext::default();
 
-        apply_font_config(&mut ctx, &FontConfig { primary: Some("Adwaita Sans".to_string()), emoji: None, primary_path: None });
-        let first_id = ctx.font_context.collection.generic_families(parley::GenericFamily::SansSerif).next();
+        apply_font_config(
+            &mut ctx,
+            &FontConfig {
+                primary: Some("Adwaita Sans".to_string()),
+                emoji: None,
+                primary_path: None,
+            },
+        );
+        let first_id = ctx
+            .font_context
+            .collection
+            .generic_families(parley::GenericFamily::SansSerif)
+            .next();
         if first_id.is_none() {
             eprintln!("SKIP: Adwaita Sans not found on this system");
             return;
         }
 
-        apply_font_config(&mut ctx, &FontConfig { primary: Some("Liberation Serif".to_string()), emoji: None, primary_path: None });
-        let second_id = ctx.font_context.collection.generic_families(parley::GenericFamily::SansSerif).next();
+        apply_font_config(
+            &mut ctx,
+            &FontConfig {
+                primary: Some("Liberation Serif".to_string()),
+                emoji: None,
+                primary_path: None,
+            },
+        );
+        let second_id = ctx
+            .font_context
+            .collection
+            .generic_families(parley::GenericFamily::SansSerif)
+            .next();
         if second_id.is_none() {
             eprintln!("SKIP: Liberation Serif not found on this system");
             return;
@@ -306,20 +399,34 @@ mod tests {
         // This test verifies that a public `reload_font_config` function exists and
         // updates the global context's SansSerif mapping. The function does not exist
         // yet — this test is expected to fail to compile until it is implemented.
-        init_global_ctx(FontConfig { primary: Some("Adwaita Sans".to_string()), emoji: None, primary_path: None });
+        init_global_ctx(FontConfig {
+            primary: Some("Adwaita Sans".to_string()),
+            emoji: None,
+            primary_path: None,
+        });
 
         let first_id = with_global_ctx_mut(|ctx| {
-            ctx.font_context.collection.generic_families(parley::GenericFamily::SansSerif).next()
+            ctx.font_context
+                .collection
+                .generic_families(parley::GenericFamily::SansSerif)
+                .next()
         });
         if first_id.is_none() {
             eprintln!("SKIP: Adwaita Sans not found on this system");
             return;
         }
 
-        super::reload_font_config(FontConfig { primary: Some("Liberation Serif".to_string()), emoji: None, primary_path: None });
+        super::reload_font_config(FontConfig {
+            primary: Some("Liberation Serif".to_string()),
+            emoji: None,
+            primary_path: None,
+        });
 
         let second_id = with_global_ctx_mut(|ctx| {
-            ctx.font_context.collection.generic_families(parley::GenericFamily::SansSerif).next()
+            ctx.font_context
+                .collection
+                .generic_families(parley::GenericFamily::SansSerif)
+                .next()
         });
         assert!(second_id.is_some());
         assert_ne!(first_id, second_id);

@@ -10,7 +10,8 @@ impl Cva {
 
         for (axis, value_opt) in selections {
             let effective = value_opt.or_else(|| {
-                self.defaults.iter()
+                self.defaults
+                    .iter()
                     .find(|(d_axis, _)| d_axis == axis)
                     .map(|(_, d_val)| *d_val)
             });

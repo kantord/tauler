@@ -1,9 +1,9 @@
+use costae::presentation::PanelCommand;
 use std::sync::mpsc;
 use std::time::Duration;
-use costae::presentation::PanelCommand;
 
-pub(crate) mod x11;
 pub(crate) mod wayland;
+pub(crate) mod x11;
 
 /// Drains the command channel for one presenter-thread iteration.
 /// Blocks up to 8 ms waiting for the first command, then drains non-blocking.

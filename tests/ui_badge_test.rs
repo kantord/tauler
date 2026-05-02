@@ -5,7 +5,8 @@ const BASE_TW: &str =
 
 const DEFAULT_VARIANT_TW: &str = "border-transparent bg-primary text-primary-foreground";
 const SECONDARY_VARIANT_TW: &str = "border-transparent bg-secondary text-secondary-foreground";
-const DESTRUCTIVE_VARIANT_TW: &str = "border-transparent bg-destructive text-destructive-foreground";
+const DESTRUCTIVE_VARIANT_TW: &str =
+    "border-transparent bg-destructive text-destructive-foreground";
 const OUTLINE_VARIANT_TW: &str = "text-foreground";
 
 fn eval_badge(inner_jsx: &str) -> serde_json::Value {
@@ -29,12 +30,18 @@ mod variant_classes {
 
     fn assert_variant(variant: &str, expected_variant_tw: &str) {
         let expected = format!("{BASE_TW} {expected_variant_tw}");
-        assert_eq!(eval_badge(&format!(r#"<Badge variant="{variant}" />"#))["tw"], expected);
+        assert_eq!(
+            eval_badge(&format!(r#"<Badge variant="{variant}" />"#))["tw"],
+            expected
+        );
     }
 
     #[test]
     fn default_variant_applies_base_and_default_classes() {
-        assert_eq!(eval_badge("<Badge />")["tw"], format!("{BASE_TW} {DEFAULT_VARIANT_TW}"));
+        assert_eq!(
+            eval_badge("<Badge />")["tw"],
+            format!("{BASE_TW} {DEFAULT_VARIANT_TW}")
+        );
     }
 
     #[test]

@@ -24,8 +24,10 @@ fn hit_test_inner(
     let node_x = measured.transform[4];
     let node_y = measured.transform[5];
 
-    if click_x < node_x || click_x > node_x + measured.width
-        || click_y < node_y || click_y > node_y + measured.height
+    if click_x < node_x
+        || click_x > node_x + measured.width
+        || click_y < node_y
+        || click_y > node_y + measured.height
     {
         return None;
     }
@@ -43,4 +45,3 @@ fn hit_test_inner(
     // This node is the deepest hit — return it if it has on_click
     json.get("on_click").map(|v| (path.to_string(), v.clone()))
 }
-

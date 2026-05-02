@@ -1,5 +1,5 @@
-use costae::{init_global_ctx, render_frame};
 use costae::config::FontConfig;
+use costae::{init_global_ctx, render_frame};
 
 #[test]
 fn render_frame_output_matches_physical_dimensions() {

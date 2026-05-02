@@ -3,19 +3,19 @@ use std::sync::{mpsc, Arc};
 use std::thread;
 use std::time::Duration;
 
+use costae::config::{CostaeConfig, FontConfig};
 use costae::data::data_loop::{DataLoop, StreamItem};
+use costae::init_global_ctx;
 use costae::windowing::wayland::WaylandDisplayServer;
 use costae::x11::panel::{i3_dpi, PanelContext};
-use costae::init_global_ctx;
-use costae::config::{CostaeConfig, FontConfig};
 use x11rb::{
     connection::Connection,
     protocol::{randr::ConnectionExt as RandrExt, xproto::*},
     rust_connection::RustConnection,
 };
 
-mod presenter;
 mod app;
+mod presenter;
 use app::{App, TickReceivers, X11Init};
 
 const FREEZE_WATCHDOG_POLL_SECS: u64 = 10;
@@ -23,10 +23,16 @@ const FREEZE_STALE_THRESHOLD_SECS: u64 = 10;
 
 fn detect_backend() -> &'static str {
     if let Ok(b) = std::env::var("COSTAE_BACKEND") {
-        if b == "wayland" { return "wayland"; }
+        if b == "wayland" {
+            return "wayland";
+        }
         return "x11";
     }
-    if std::env::var("WAYLAND_DISPLAY").is_ok() { "wayland" } else { "x11" }
+    if std::env::var("WAYLAND_DISPLAY").is_ok() {
+        "wayland"
+    } else {
+        "x11"
+    }
 }
 
 fn init_logging() {
@@ -42,7 +48,11 @@ fn install_panic_hook(log_path: String) {
     std::panic::set_hook(Box::new(move |info| {
         let msg = format!("PANIC: {info}");
         tracing::error!("{msg}");
-        if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(&log_path) {
+        if let Ok(mut f) = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&log_path)
+        {
             use std::io::Write;
             let _ = writeln!(f, "{msg}");
         }
@@ -50,23 +60,27 @@ fn install_panic_hook(log_path: String) {
 }
 
 fn spawn_freeze_watchdog(last_tick: Arc<std::sync::atomic::AtomicU64>, log_path: String) {
-    thread::spawn(move || {
-        loop {
-            thread::sleep(Duration::from_secs(FREEZE_WATCHDOG_POLL_SECS));
-            let last = last_tick.load(Ordering::Relaxed);
-            if last == 0 { continue; }
-            let now = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_secs();
-            let stale = now.saturating_sub(last);
-            if stale > FREEZE_STALE_THRESHOLD_SECS {
-                let msg = format!("FREEZE: main loop stalled for {stale}s");
-                tracing::error!("{msg}");
-                if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(&log_path) {
-                    use std::io::Write;
-                    let _ = writeln!(f, "{msg}");
-                }
+    thread::spawn(move || loop {
+        thread::sleep(Duration::from_secs(FREEZE_WATCHDOG_POLL_SECS));
+        let last = last_tick.load(Ordering::Relaxed);
+        if last == 0 {
+            continue;
+        }
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+        let stale = now.saturating_sub(last);
+        if stale > FREEZE_STALE_THRESHOLD_SECS {
+            let msg = format!("FREEZE: main loop stalled for {stale}s");
+            tracing::error!("{msg}");
+            if let Ok(mut f) = std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(&log_path)
+            {
+                use std::io::Write;
+                let _ = writeln!(f, "{msg}");
             }
         }
     });
@@ -144,22 +158,32 @@ fn init_x11() -> Result<X11Init, Box<dyn std::error::Error>> {
 
     let output_map = costae::x11::outputs::build_output_map(&conn, screen.root);
 
-    let (screen_width_logical, screen_height_logical) = output_map.get(&output_name)
-        .map(|o| (
-            (o.width as f32 / dpr).round() as u32,
-            (o.height as f32 / dpr).round() as u32,
-        ))
-        .unwrap_or((screen.width_in_pixels as u32, screen.height_in_pixels as u32));
+    let (screen_width_logical, screen_height_logical) = output_map
+        .get(&output_name)
+        .map(|o| {
+            (
+                (o.width as f32 / dpr).round() as u32,
+                (o.height as f32 / dpr).round() as u32,
+            )
+        })
+        .unwrap_or((
+            screen.width_in_pixels as u32,
+            screen.height_in_pixels as u32,
+        ));
 
     conn.change_window_attributes(
         screen.root,
         &ChangeWindowAttributesAux::new().event_mask(EventMask::PROPERTY_CHANGE),
     )?;
     let xrootpmap_atom: Option<u32> = conn
-        .intern_atom(false, b"_XROOTPMAP_ID").ok()
+        .intern_atom(false, b"_XROOTPMAP_ID")
+        .ok()
         .and_then(|c| c.reply().ok())
         .map(|r| r.atom);
-    let strut_atom = conn.intern_atom(false, b"_NET_WM_STRUT_PARTIAL")?.reply()?.atom;
+    let strut_atom = conn
+        .intern_atom(false, b"_NET_WM_STRUT_PARTIAL")?
+        .reply()?
+        .atom;
     let strut_legacy_atom = conn.intern_atom(false, b"_NET_WM_STRUT")?.reply()?.atom;
 
     let panel_ctx = PanelContext {
@@ -228,7 +252,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let (item_tx, item_rx) = mpsc::channel::<((String, Option<String>), String)>();
     let stop = Arc::new(AtomicBool::new(false));
-    let rx = TickReceivers { item_rx, bin_reload_rx, reload_rx };
+    let rx = TickReceivers {
+        item_rx,
+        bin_reload_rx,
+        reload_rx,
+    };
     let backend = detect_backend();
 
     init_global_ctx(font_config);
@@ -237,27 +265,42 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         tracing::info!("display backend: Wayland");
         let server = WaylandDisplayServer::connect()?;
         let mut app = App::new_wayland(
-            server, handle, rx, layout_jsx_path, config_yaml_path,
+            server,
+            handle,
+            rx,
+            layout_jsx_path,
+            config_yaml_path,
             Arc::clone(&module_event_txs),
-            Arc::clone(&stop), Arc::clone(&last_tick),
+            Arc::clone(&stop),
+            Arc::clone(&last_tick),
             Arc::clone(&_watcher),
         );
         data_loop.run(
             Arc::clone(&stop),
-            move |item: StreamItem| { let _ = item_tx.send((item.key, item.line)); },
+            move |item: StreamItem| {
+                let _ = item_tx.send((item.key, item.line));
+            },
             move || app.tick(),
         );
     } else {
         tracing::info!("display backend: X11");
         let x11 = init_x11()?;
         let mut app = App::new_x11(
-            x11, handle, rx, layout_jsx_path, config_yaml_path, module_event_txs,
-            Arc::clone(&stop), Arc::clone(&last_tick),
+            x11,
+            handle,
+            rx,
+            layout_jsx_path,
+            config_yaml_path,
+            module_event_txs,
+            Arc::clone(&stop),
+            Arc::clone(&last_tick),
             Arc::clone(&_watcher),
         );
         data_loop.run(
             Arc::clone(&stop),
-            move |item: StreamItem| { let _ = item_tx.send((item.key, item.line)); },
+            move |item: StreamItem| {
+                let _ = item_tx.send((item.key, item.line));
+            },
             move || app.tick(),
         );
     }

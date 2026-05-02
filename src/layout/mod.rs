@@ -13,11 +13,11 @@ pub enum PanelAnchor {
 impl PanelAnchor {
     pub fn parse(s: &str) -> Option<Self> {
         match s {
-            "left"   => Some(Self::Left),
-            "right"  => Some(Self::Right),
-            "top"    => Some(Self::Top),
+            "left" => Some(Self::Left),
+            "right" => Some(Self::Right),
+            "top" => Some(Self::Top),
             "bottom" => Some(Self::Bottom),
-            _        => None,
+            _ => None,
         }
     }
 }
@@ -78,23 +78,28 @@ pub fn parse_root_node(root: &serde_json::Value) -> Result<Vec<PanelSpecData>, S
     if root.get("type").and_then(|t| t.as_str()) != Some("root") {
         return Err(format!("expected root node, got {:?}", root.get("type")));
     }
-    let children = root.get("children")
+    let children = root
+        .get("children")
         .and_then(|c| c.as_array())
         .ok_or_else(|| "root node has no children array".to_string())?;
 
-    children.iter().enumerate()
+    children
+        .iter()
+        .enumerate()
         .filter(|(_, p)| p.get("type").and_then(|t| t.as_str()) == Some("panel"))
         .map(|(i, p)| parse_panel_spec(i, p))
         .collect()
 }
 
 fn required_str<'a>(obj: &'a serde_json::Value, key: &str, label: &str) -> Result<&'a str, String> {
-    obj.get(key).and_then(|v| v.as_str())
+    obj.get(key)
+        .and_then(|v| v.as_str())
         .ok_or_else(|| format!("{label} missing {key}"))
 }
 
 fn required_u64(obj: &serde_json::Value, key: &str, label: &str) -> Result<u64, String> {
-    obj.get(key).and_then(|v| v.as_u64())
+    obj.get(key)
+        .and_then(|v| v.as_u64())
         .ok_or_else(|| format!("{label} missing {key}"))
 }
 
@@ -127,16 +132,15 @@ fn parse_panel_spec(i: usize, panel: &serde_json::Value) -> Result<PanelSpecData
     let label = format!("panel '{id}'");
     Ok(PanelSpecData {
         id,
-        width:     required_u64(panel, "width",  &label)? as u32,
-        height:    required_u64(panel, "height", &label)? as u32,
-        anchor:    optional_str(panel, "anchor").and_then(PanelAnchor::parse),
-        x:         optional_i64(panel, "x",         0) as i32,
-        y:         optional_i64(panel, "y",         0) as i32,
+        width: required_u64(panel, "width", &label)? as u32,
+        height: required_u64(panel, "height", &label)? as u32,
+        anchor: optional_str(panel, "anchor").and_then(PanelAnchor::parse),
+        x: optional_i64(panel, "x", 0) as i32,
+        y: optional_i64(panel, "y", 0) as i32,
         outer_gap: optional_u64(panel, "outer_gap", 0) as u32,
-        output:    optional_str(panel, "output").map(str::to_string),
-        above:     optional_bool(panel, "above", false),
-        content:   first_child(panel),
-        dpr:       1.0,
+        output: optional_str(panel, "output").map(str::to_string),
+        above: optional_bool(panel, "above", false),
+        content: first_child(panel),
+        dpr: 1.0,
     })
 }
-

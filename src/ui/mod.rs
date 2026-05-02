@@ -1,6 +1,6 @@
-use serde::{Deserialize, Serialize};
-pub use costae_ui_macro::rsx;
 pub use costae_ui_macro::component;
+pub use costae_ui_macro::rsx;
+use serde::{Deserialize, Serialize};
 
 pub mod components;
 pub mod cva;
@@ -84,10 +84,8 @@ pub trait UiComponent {
         ctx: rquickjs::Ctx<'js>,
         props: rquickjs::Value<'js>,
     ) -> rquickjs::Result<rquickjs::Value<'js>> {
-        let p = rquickjs_serde::from_value(props)
-            .map_err(|_| rquickjs::Error::Unknown)?;
-        rquickjs_serde::to_value(ctx, &Self::render(p))
-            .map_err(|_| rquickjs::Error::Unknown)
+        let p = rquickjs_serde::from_value(props).map_err(|_| rquickjs::Error::Unknown)?;
+        rquickjs_serde::to_value(ctx, Self::render(p)).map_err(|_| rquickjs::Error::Unknown)
     }
 }
 

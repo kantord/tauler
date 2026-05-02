@@ -1,16 +1,16 @@
 use std::sync::mpsc;
 
+use super::drain_commands;
 use costae::layout::OutputInfo;
 use costae::presentation::{PanelCommand, PresentationThread, PresenterEvent};
 use costae::windowing::wayland::WaylandDisplayServer;
 use costae::windowing::{DisplayServer, WindowEvent};
-use super::drain_commands;
 
-fn apply_wayland_cmd(
-    pt: &mut PresentationThread<WaylandDisplayServer>,
-    cmd: PanelCommand,
-) {
-    let PresentationThread { ref mut dm, ref mut presenter } = pt;
+fn apply_wayland_cmd(pt: &mut PresentationThread<WaylandDisplayServer>, cmd: PanelCommand) {
+    let PresentationThread {
+        ref mut dm,
+        ref mut presenter,
+    } = pt;
     if let Err(e) = presenter.apply(cmd, dm) {
         tracing::error!(error = %e, "wayland presenter apply failed");
     }
@@ -22,14 +22,22 @@ pub(crate) fn run_wayland_presenter_thread(
     event_tx: mpsc::Sender<PresenterEvent>,
 ) {
     loop {
-        if drain_commands(&command_rx, |cmd| apply_wayland_cmd(&mut pt, cmd)) { return; }
+        if drain_commands(&command_rx, |cmd| apply_wayland_cmd(&mut pt, cmd)) {
+            return;
+        }
         pt.dm.flush();
 
         for (surface_id, new_size) in pt.dm.take_pending_configures() {
             for panel in pt.presenter.panels.values_mut() {
-                if panel.surface_id != surface_id { continue; }
-                if new_size.0 > 0 { panel.width = new_size.0; }
-                if new_size.1 > 0 { panel.height = new_size.1; }
+                if panel.surface_id != surface_id {
+                    continue;
+                }
+                if new_size.0 > 0 {
+                    panel.width = new_size.0;
+                }
+                if new_size.1 > 0 {
+                    panel.height = new_size.1;
+                }
                 panel.configured = true;
                 let _ = event_tx.send(PresenterEvent::NeedsRender);
             }
@@ -53,12 +61,24 @@ pub(crate) fn run_wayland_presenter_thread(
                                 let _ = event_tx.send(PresenterEvent::OutputsChanged { outputs });
                             }
                         }
-                        WindowEvent::Click { panel_id, x_logical, y_logical, .. } => {
-                            if let Some((id, panel)) = pt.presenter.panels.iter()
+                        WindowEvent::Click {
+                            panel_id,
+                            x_logical,
+                            y_logical,
+                            ..
+                        } => {
+                            if let Some((id, panel)) = pt
+                                .presenter
+                                .panels
+                                .iter()
                                 .find(|(_, p)| p.surface_id.to_string() == panel_id)
                             {
                                 let (x, y, phys_width, phys_height) = scale_click_to_physical(
-                                    x_logical, y_logical, panel.width, panel.height, panel.dpr,
+                                    x_logical,
+                                    y_logical,
+                                    panel.width,
+                                    panel.height,
+                                    panel.dpr,
                                 );
                                 let _ = event_tx.send(PresenterEvent::Click {
                                     panel_id: id.clone(),
@@ -81,7 +101,13 @@ pub(crate) fn run_wayland_presenter_thread(
     }
 }
 
-fn scale_click_to_physical(x_logical: f32, y_logical: f32, logical_width: u32, logical_height: u32, dpr: f32) -> (f32, f32, u32, u32) {
+fn scale_click_to_physical(
+    x_logical: f32,
+    y_logical: f32,
+    logical_width: u32,
+    logical_height: u32,
+    dpr: f32,
+) -> (f32, f32, u32, u32) {
     (
         x_logical * dpr,
         y_logical * dpr,

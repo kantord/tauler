@@ -37,7 +37,8 @@ mod tests {
 
     #[test]
     fn parse_init_event_extracts_output_and_config() {
-        let json = r#"{"type":"init","output":"DP-1","config":{"width":200,"outer_gap":8},"dpi":96.0}"#;
+        let json =
+            r#"{"type":"init","output":"DP-1","config":{"width":200,"outer_gap":8},"dpi":96.0}"#;
         let ev = parse_init_event(json).unwrap();
         assert_eq!(ev.output, "DP-1");
         assert_eq!(ev.bar_width, 200);

@@ -34,7 +34,11 @@ impl Lifecycle for PanelSpec {
         self.0.id.clone()
     }
 
-    fn enter(self, _ctx: &mut (), output: &mut Sender<PanelCommand>) -> Result<PanelSpecData, anyhow::Error> {
+    fn enter(
+        self,
+        _ctx: &mut (),
+        output: &mut Sender<PanelCommand>,
+    ) -> Result<PanelSpecData, anyhow::Error> {
         let spec = self.0.clone();
         let phys_w = (spec.width as f32 * spec.dpr).round() as u32;
         let phys_h = (spec.height as f32 * spec.dpr).round() as u32;
@@ -44,11 +48,19 @@ impl Lifecycle for PanelSpec {
             width: phys_w,
             height: phys_h,
         };
-        output.send(PanelCommand::Create { spec: self.0.clone(), frame })?;
+        output.send(PanelCommand::Create {
+            spec: self.0.clone(),
+            frame,
+        })?;
         Ok(self.0)
     }
 
-    fn reconcile_self(self, state: &mut PanelSpecData, _ctx: &mut (), output: &mut Sender<PanelCommand>) -> Result<(), anyhow::Error> {
+    fn reconcile_self(
+        self,
+        state: &mut PanelSpecData,
+        _ctx: &mut (),
+        output: &mut Sender<PanelCommand>,
+    ) -> Result<(), anyhow::Error> {
         let new = self.0;
         let phys_w = (new.width as f32 * new.dpr).round() as u32;
         let phys_h = (new.height as f32 * new.dpr).round() as u32;
@@ -68,7 +80,10 @@ impl Lifecycle for PanelSpec {
                 width: phys_w,
                 height: phys_h,
             };
-            output.send(PanelCommand::Resize { spec: new.clone(), frame })?;
+            output.send(PanelCommand::Resize {
+                spec: new.clone(),
+                frame,
+            })?;
             output.send(PanelCommand::Move(new.clone()))?;
         } else {
             if pos_changed {
@@ -80,14 +95,21 @@ impl Lifecycle for PanelSpec {
                     width: phys_w,
                     height: phys_h,
                 };
-                output.send(PanelCommand::UpdatePicture { id: new.id.clone(), frame })?;
+                output.send(PanelCommand::UpdatePicture {
+                    id: new.id.clone(),
+                    frame,
+                })?;
             }
         }
         *state = new;
         Ok(())
     }
 
-    fn exit(state: PanelSpecData, _ctx: &mut (), output: &mut Sender<PanelCommand>) -> Result<(), anyhow::Error> {
+    fn exit(
+        state: PanelSpecData,
+        _ctx: &mut (),
+        output: &mut Sender<PanelCommand>,
+    ) -> Result<(), anyhow::Error> {
         let _ = output.send(PanelCommand::Delete { id: state.id });
         Ok(())
     }
@@ -95,11 +117,11 @@ impl Lifecycle for PanelSpec {
 
 #[cfg(test)]
 mod tests {
+    use super::PanelSpec;
+    use crate::config::FontConfig;
     use crate::layout::PanelSpecData;
     use crate::managed_set::Lifecycle;
     use crate::presentation::PanelCommand;
-    use crate::config::FontConfig;
-    use super::PanelSpec;
 
     fn init_ctx() {
         crate::render::init_global_ctx(FontConfig::default());
@@ -126,11 +148,15 @@ mod tests {
         init_ctx();
         let (mut tx, rx) = std::sync::mpsc::channel::<PanelCommand>();
         let spec = PanelSpec(make_spec_data("p1"));
-        let state = <PanelSpec as Lifecycle>::enter(spec, &mut (), &mut tx).expect("enter should succeed");
+        let state =
+            <PanelSpec as Lifecycle>::enter(spec, &mut (), &mut tx).expect("enter should succeed");
         assert_eq!(state.id, "p1", "enter returns the spec data as state");
         let cmds: Vec<PanelCommand> = rx.try_iter().collect();
-        assert!(matches!(cmds.as_slice(), [PanelCommand::Create { spec: s, .. }] if s.id == "p1"),
-            "enter must emit exactly one Create command; got {} commands", cmds.len());
+        assert!(
+            matches!(cmds.as_slice(), [PanelCommand::Create { spec: s, .. }] if s.id == "p1"),
+            "enter must emit exactly one Create command; got {} commands",
+            cmds.len()
+        );
     }
 
     #[test]
@@ -140,7 +166,11 @@ mod tests {
         let spec = PanelSpec(make_spec_data("p1"));
         <PanelSpec as Lifecycle>::reconcile_self(spec, &mut state, &mut (), &mut tx).unwrap();
         let cmds: Vec<PanelCommand> = rx.try_iter().collect();
-        assert!(cmds.is_empty(), "reconcile_self must emit no commands when nothing changed; got {}", cmds.len());
+        assert!(
+            cmds.is_empty(),
+            "reconcile_self must emit no commands when nothing changed; got {}",
+            cmds.len()
+        );
     }
 
     #[test]
@@ -153,10 +183,17 @@ mod tests {
         let spec = PanelSpec(next);
         <PanelSpec as Lifecycle>::reconcile_self(spec, &mut state, &mut (), &mut tx).unwrap();
         let cmds: Vec<PanelCommand> = rx.try_iter().collect();
-        assert!(cmds.iter().any(|c| matches!(c, PanelCommand::Resize { spec: s, .. } if s.id == "p1")),
-            "reconcile_self must emit Resize when dimensions change");
-        assert!(!cmds.iter().any(|c| matches!(c, PanelCommand::UpdatePicture { .. })),
-            "reconcile_self must NOT emit UpdatePicture when dimensions change");
+        assert!(
+            cmds.iter()
+                .any(|c| matches!(c, PanelCommand::Resize { spec: s, .. } if s.id == "p1")),
+            "reconcile_self must emit Resize when dimensions change"
+        );
+        assert!(
+            !cmds
+                .iter()
+                .any(|c| matches!(c, PanelCommand::UpdatePicture { .. })),
+            "reconcile_self must NOT emit UpdatePicture when dimensions change"
+        );
     }
 
     #[test]
@@ -168,10 +205,17 @@ mod tests {
         let spec = PanelSpec(next);
         <PanelSpec as Lifecycle>::reconcile_self(spec, &mut state, &mut (), &mut tx).unwrap();
         let cmds: Vec<PanelCommand> = rx.try_iter().collect();
-        assert!(cmds.iter().any(|c| matches!(c, PanelCommand::Move(s) if s.id == "p1")),
-            "reconcile_self must emit Move when position changes");
-        assert!(!cmds.iter().any(|c| matches!(c, PanelCommand::Resize { .. })),
-            "reconcile_self must NOT emit Resize when only position changes");
+        assert!(
+            cmds.iter()
+                .any(|c| matches!(c, PanelCommand::Move(s) if s.id == "p1")),
+            "reconcile_self must emit Move when position changes"
+        );
+        assert!(
+            !cmds
+                .iter()
+                .any(|c| matches!(c, PanelCommand::Resize { .. })),
+            "reconcile_self must NOT emit Resize when only position changes"
+        );
     }
 
     #[test]
@@ -184,8 +228,12 @@ mod tests {
         let spec = PanelSpec(next);
         <PanelSpec as Lifecycle>::reconcile_self(spec, &mut state, &mut (), &mut tx).unwrap();
         let cmds: Vec<PanelCommand> = rx.try_iter().collect();
-        assert!(cmds.iter().any(|c| matches!(c, PanelCommand::UpdatePicture { id, .. } if id == "p1")),
-            "reconcile_self must emit UpdatePicture on content-only change; got {} commands", cmds.len());
+        assert!(
+            cmds.iter()
+                .any(|c| matches!(c, PanelCommand::UpdatePicture { id, .. } if id == "p1")),
+            "reconcile_self must emit UpdatePicture on content-only change; got {} commands",
+            cmds.len()
+        );
     }
 
     #[test]
@@ -205,40 +253,50 @@ mod tests {
         <PanelSpec as Lifecycle>::reconcile_self(spec, &mut state, &mut (), &mut tx).unwrap();
         let cmds: Vec<PanelCommand> = rx.try_iter().collect();
         assert!(
-            cmds.iter().any(|c| matches!(c, PanelCommand::Resize { spec: s, .. } if s.id == "p1")),
+            cmds.iter()
+                .any(|c| matches!(c, PanelCommand::Resize { spec: s, .. } if s.id == "p1")),
             "reconcile_self must emit Resize when DPR change causes physical dims to change; got {:?} command variants",
-            cmds.iter().map(|c| match c {
-                PanelCommand::Create { .. } => "Create",
-                PanelCommand::Move(_) => "Move",
-                PanelCommand::Resize { .. } => "Resize",
-                PanelCommand::Delete { .. } => "Delete",
-                PanelCommand::UpdatePicture { .. } => "UpdatePicture",
-                PanelCommand::Shutdown => "Shutdown",
-            }).collect::<Vec<_>>()
+            cmds.iter()
+                .map(|c| match c {
+                    PanelCommand::Create { .. } => "Create",
+                    PanelCommand::Move(_) => "Move",
+                    PanelCommand::Resize { .. } => "Resize",
+                    PanelCommand::Delete { .. } => "Delete",
+                    PanelCommand::UpdatePicture { .. } => "UpdatePicture",
+                    PanelCommand::Shutdown => "Shutdown",
+                })
+                .collect::<Vec<_>>()
         );
         assert!(
-            !cmds.iter().any(|c| matches!(c, PanelCommand::UpdatePicture { .. })),
+            !cmds
+                .iter()
+                .any(|c| matches!(c, PanelCommand::UpdatePicture { .. })),
             "reconcile_self must NOT emit UpdatePicture when physical dims change due to DPR; got {:?} command variants",
-            cmds.iter().map(|c| match c {
-                PanelCommand::Create { .. } => "Create",
-                PanelCommand::Move(_) => "Move",
-                PanelCommand::Resize { .. } => "Resize",
-                PanelCommand::Delete { .. } => "Delete",
-                PanelCommand::UpdatePicture { .. } => "UpdatePicture",
-                PanelCommand::Shutdown => "Shutdown",
-            }).collect::<Vec<_>>()
+            cmds.iter()
+                .map(|c| match c {
+                    PanelCommand::Create { .. } => "Create",
+                    PanelCommand::Move(_) => "Move",
+                    PanelCommand::Resize { .. } => "Resize",
+                    PanelCommand::Delete { .. } => "Delete",
+                    PanelCommand::UpdatePicture { .. } => "UpdatePicture",
+                    PanelCommand::Shutdown => "Shutdown",
+                })
+                .collect::<Vec<_>>()
         );
         assert!(
-            cmds.iter().any(|c| matches!(c, PanelCommand::Move(s) if s.id == "p1")),
+            cmds.iter()
+                .any(|c| matches!(c, PanelCommand::Move(s) if s.id == "p1")),
             "reconcile_self must emit Move after Resize so the presenter can reposition anchored panels; got {:?} command variants",
-            cmds.iter().map(|c| match c {
-                PanelCommand::Create { .. } => "Create",
-                PanelCommand::Move(_) => "Move",
-                PanelCommand::Resize { .. } => "Resize",
-                PanelCommand::Delete { .. } => "Delete",
-                PanelCommand::UpdatePicture { .. } => "UpdatePicture",
-                PanelCommand::Shutdown => "Shutdown",
-            }).collect::<Vec<_>>()
+            cmds.iter()
+                .map(|c| match c {
+                    PanelCommand::Create { .. } => "Create",
+                    PanelCommand::Move(_) => "Move",
+                    PanelCommand::Resize { .. } => "Resize",
+                    PanelCommand::Delete { .. } => "Delete",
+                    PanelCommand::UpdatePicture { .. } => "UpdatePicture",
+                    PanelCommand::Shutdown => "Shutdown",
+                })
+                .collect::<Vec<_>>()
         );
     }
 
@@ -248,8 +306,9 @@ mod tests {
         let state = make_spec_data("p1");
         <PanelSpec as Lifecycle>::exit(state, &mut (), &mut tx).unwrap();
         let cmds: Vec<PanelCommand> = rx.try_iter().collect();
-        assert!(matches!(cmds.as_slice(), [PanelCommand::Delete { id }] if id == "p1"),
-            "exit must emit exactly one Delete command carrying the id");
+        assert!(
+            matches!(cmds.as_slice(), [PanelCommand::Delete { id }] if id == "p1"),
+            "exit must emit exactly one Delete command carrying the id"
+        );
     }
 }
-

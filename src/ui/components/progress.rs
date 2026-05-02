@@ -1,5 +1,5 @@
+use crate::ui::{component, cva::Cva, rsx};
 use serde_json::{Map, Value};
-use crate::ui::{component, rsx, cva::Cva};
 
 const PROGRESS_VARIANTS: Cva = Cva {
     base: "flex flex-row w-full h-[4px] rounded-full bg-muted",

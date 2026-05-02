@@ -9,15 +9,16 @@ use server::NotifyServer;
 use std::sync::atomic::AtomicU32;
 
 fn emit(notifications: &[Notification]) {
-    if let Ok(json) = serde_json::to_string(&serde_json::json!({ "notifications": notifications })) {
+    if let Ok(json) = serde_json::to_string(&serde_json::json!({ "notifications": notifications }))
+    {
         println!("{json}");
     }
 }
 
 fn expire_ms(timeout: i32) -> Option<u64> {
     match timeout {
-        0 => None,            // never
-        -1 => Some(5_000),    // server default: 5 s
+        0 => None,         // never
+        -1 => Some(5_000), // server default: 5 s
         ms => Some(ms as u64),
     }
 }

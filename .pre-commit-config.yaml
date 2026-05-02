@@ -1,5 +1,6 @@
 repos:
-  - repo: builtin
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
     hooks:
       - id: trailing-whitespace
       - id: end-of-file-fixer
@@ -13,9 +14,10 @@ repos:
     hooks:
       - id: cargo-fmt
         name: cargo fmt
-        entry: cargo fmt --all --
+        entry: cargo fmt --all
         language: system
         types: [rust]
+        pass_filenames: false
       - id: cargo-clippy
         name: cargo clippy
         entry: cargo clippy --workspace -- -D warnings

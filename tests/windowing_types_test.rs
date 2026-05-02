@@ -52,7 +52,8 @@ fn window_event_click_fields_are_named_x_logical_y_logical() {
         x_logical,
         y_logical,
         button,
-    } = event else {
+    } = event
+    else {
         panic!("expected WindowEvent::Click");
     };
 

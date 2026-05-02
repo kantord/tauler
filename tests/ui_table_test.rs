@@ -131,9 +131,7 @@ fn table_row_containers_have_text_foreground_tw() {
 /// The header container must carry the `border-border` Tailwind class.
 #[test]
 fn table_header_has_border_border_tw() {
-    let node = eval_table(
-        r#"<DataTable columns={[{key:"repo", label:"REPO"}]} rows={[]} />"#,
-    );
+    let node = eval_table(r#"<DataTable columns={[{key:"repo", label:"REPO"}]} rows={[]} />"#);
     let header = &node["children"][0];
     let header_tw = header["tw"].as_str().unwrap_or("");
     assert!(
@@ -145,9 +143,7 @@ fn table_header_has_border_border_tw() {
 /// The header container must carry the `uppercase` Tailwind class.
 #[test]
 fn table_header_has_uppercase_tw() {
-    let node = eval_table(
-        r#"<DataTable columns={[{key:"repo", label:"REPO"}]} rows={[]} />"#,
-    );
+    let node = eval_table(r#"<DataTable columns={[{key:"repo", label:"REPO"}]} rows={[]} />"#);
     let header = &node["children"][0];
     let header_tw = header["tw"].as_str().unwrap_or("");
     assert!(
@@ -188,11 +184,13 @@ fn table_even_rows_have_bg_card_tw() {
     );
     assert!(
         tws[0].contains("bg-card"),
-        "expected row 0 tw to contain 'bg-card'; got: '{}'", tws[0]
+        "expected row 0 tw to contain 'bg-card'; got: '{}'",
+        tws[0]
     );
     assert!(
         tws[2].contains("bg-card"),
-        "expected row 2 tw to contain 'bg-card'; got: '{}'", tws[2]
+        "expected row 2 tw to contain 'bg-card'; got: '{}'",
+        tws[2]
     );
 }
 
@@ -212,6 +210,7 @@ fn table_odd_rows_have_bg_muted_tw() {
     );
     assert!(
         tws[1].contains("bg-muted/30"),
-        "expected row 1 tw to contain 'bg-muted/30'; got: '{}'", tws[1]
+        "expected row 1 tw to contain 'bg-muted/30'; got: '{}'",
+        tws[1]
     );
 }

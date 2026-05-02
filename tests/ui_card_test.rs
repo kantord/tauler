@@ -1,7 +1,6 @@
 mod common;
 
-const BASE_TW: &str =
-    "rounded-lg border border-border bg-card text-card-foreground px-3 py-[10px]";
+const BASE_TW: &str = "rounded-lg border border-border bg-card text-card-foreground px-3 py-[10px]";
 
 fn eval_card(inner_jsx: &str) -> serde_json::Value {
     let source = format!(
@@ -50,8 +49,7 @@ fn card_with_no_children_omits_children_key() {
 
 #[test]
 fn card_passes_single_child_through() {
-    let children = eval_card(r#"<Card><text tw="text-white">{"hello"}</text></Card>"#)
-        ["children"]
+    let children = eval_card(r#"<Card><text tw="text-white">{"hello"}</text></Card>"#)["children"]
         .as_array()
         .expect("children array")
         .clone();
@@ -63,12 +61,12 @@ fn card_passes_single_child_through() {
 
 #[test]
 fn card_preserves_child_order() {
-    let children = eval_card(
-        r#"<Card><text tw="a">{"first"}</text><text tw="b">{"second"}</text></Card>"#,
-    )["children"]
-        .as_array()
-        .expect("children array")
-        .clone();
+    let children =
+        eval_card(r#"<Card><text tw="a">{"first"}</text><text tw="b">{"second"}</text></Card>"#)
+            ["children"]
+            .as_array()
+            .expect("children array")
+            .clone();
     assert_eq!(children.len(), 2);
     assert_eq!(children[0]["text"], "first");
     assert_eq!(children[1]["text"], "second");

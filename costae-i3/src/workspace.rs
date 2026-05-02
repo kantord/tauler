@@ -85,8 +85,16 @@ mod tests {
     #[test]
     fn build_workspace_data_includes_name_and_focused() {
         let ws = vec![
-            Workspace { name: "1".into(), focused: true, urgent: false },
-            Workspace { name: "2".into(), focused: false, urgent: false },
+            Workspace {
+                name: "1".into(),
+                focused: true,
+                urgent: false,
+            },
+            Workspace {
+                name: "2".into(),
+                focused: false,
+                urgent: false,
+            },
         ];
         let data = build_workspace_data(&ws);
         let workspaces = data["workspaces"].as_array().unwrap();
@@ -99,8 +107,16 @@ mod tests {
     #[test]
     fn build_workspace_data_includes_urgent() {
         let ws = vec![
-            Workspace { name: "1".into(), focused: true, urgent: true },
-            Workspace { name: "2".into(), focused: false, urgent: false },
+            Workspace {
+                name: "1".into(),
+                focused: true,
+                urgent: true,
+            },
+            Workspace {
+                name: "2".into(),
+                focused: false,
+                urgent: false,
+            },
         ];
         let data = build_workspace_data(&ws);
         let workspaces = data["workspaces"].as_array().unwrap();

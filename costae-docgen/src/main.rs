@@ -56,7 +56,9 @@ fn parse_fenced_code_block(raw: &[String], i: &mut usize) -> Option<Vec<String>>
         block.push(raw[*i].clone());
         *i += 1;
     }
-    if *i < raw.len() { *i += 1; }
+    if *i < raw.len() {
+        *i += 1;
+    }
     Some(block)
 }
 
@@ -71,29 +73,50 @@ fn parse_doc_comments(raw: &[String]) -> DocComments {
             jsx_block = parse_fenced_code_block(raw, &mut i);
         } else if raw[i].trim() == "# Shadcn" {
             i += 1;
-            if i < raw.len() { shadcn_url = Some(raw[i].trim().to_string()); i += 1; }
+            if i < raw.len() {
+                shadcn_url = Some(raw[i].trim().to_string());
+                i += 1;
+            }
         } else {
             prose.push(raw[i].clone());
             i += 1;
         }
     }
-    DocComments { prose, jsx_block, shadcn_url }
+    DocComments {
+        prose,
+        jsx_block,
+        shadcn_url,
+    }
 }
 
 fn component_module_path(line: &str) -> Option<String> {
-    let inner = line.trim()
+    let inner = line
+        .trim()
         .strip_prefix("#[component(\"")
         .and_then(|s| s.strip_suffix("\")]"))?;
-    if inner.starts_with('@') { Some(inner.to_string()) } else { None }
+    if inner.starts_with('@') {
+        Some(inner.to_string())
+    } else {
+        None
+    }
 }
 
 fn fn_name_after_attr(lines: &[&str], attr_idx: usize) -> Option<String> {
     let j = (attr_idx + 1..lines.len()).find(|&j| !lines[j].trim().is_empty())?;
     let fn_line = lines[j].trim();
     // Accept both `pub fn name` and `fn name`.
-    let after_fn = fn_line.strip_prefix("pub fn ").or_else(|| fn_line.strip_prefix("fn "))?;
-    let name: String = after_fn.chars().take_while(|c| c.is_alphanumeric() || *c == '_').collect();
-    if name.is_empty() { None } else { Some(name) }
+    let after_fn = fn_line
+        .strip_prefix("pub fn ")
+        .or_else(|| fn_line.strip_prefix("fn "))?;
+    let name: String = after_fn
+        .chars()
+        .take_while(|c| c.is_alphanumeric() || *c == '_')
+        .collect();
+    if name.is_empty() {
+        None
+    } else {
+        Some(name)
+    }
 }
 
 fn extract_components(path: &Path) -> Result<Vec<Component>, std::io::Error> {
@@ -101,8 +124,12 @@ fn extract_components(path: &Path) -> Result<Vec<Component>, std::io::Error> {
     let lines: Vec<&str> = source.lines().collect();
     let mut components = Vec::new();
     for (i, line) in lines.iter().enumerate() {
-        let Some(module_path) = component_module_path(line) else { continue };
-        let Some(fn_name) = fn_name_after_attr(&lines, i) else { continue };
+        let Some(module_path) = component_module_path(line) else {
+            continue;
+        };
+        let Some(fn_name) = fn_name_after_attr(&lines, i) else {
+            continue;
+        };
         let doc = parse_doc_comments(&collect_doc_comment_lines(&lines, i));
         components.push(Component {
             module_path,
@@ -135,7 +162,12 @@ fn collect_rs_files(dir: &Path) -> Vec<PathBuf> {
 fn component_rs_files(components_dir: &Path) -> Vec<PathBuf> {
     let mut files: Vec<PathBuf> = collect_rs_files(components_dir)
         .into_iter()
-        .filter(|p| !p.file_stem().and_then(|s| s.to_str()).unwrap_or("").contains("test"))
+        .filter(|p| {
+            !p.file_stem()
+                .and_then(|s| s.to_str())
+                .unwrap_or("")
+                .contains("test")
+        })
         .collect();
     files.sort();
     files
@@ -146,7 +178,10 @@ fn load_all_components(components_dir: &Path) -> Vec<Component> {
         .iter()
         .flat_map(|p| match extract_components(p) {
             Ok(comps) => comps,
-            Err(e) => { eprintln!("warning: failed to read {}: {}", p.display(), e); vec![] }
+            Err(e) => {
+                eprintln!("warning: failed to read {}: {}", p.display(), e);
+                vec![]
+            }
         })
         .collect();
     components.sort_by(|a, b| a.export_name.cmp(&b.export_name));
@@ -161,7 +196,9 @@ const SCREENSHOT_BINARY_CANDIDATES: &[&str] = &[
 fn find_screenshot_binary() -> Option<PathBuf> {
     for candidate in SCREENSHOT_BINARY_CANDIDATES {
         let p = PathBuf::from(candidate);
-        if p.exists() { return Some(p); }
+        if p.exists() {
+            return Some(p);
+        }
     }
     None
 }
@@ -169,7 +206,9 @@ fn find_screenshot_binary() -> Option<PathBuf> {
 fn parse_pascal_tag_name(s: &str) -> Option<(&str, String)> {
     let mut chars = s.chars();
     let first = chars.next().filter(|c| c.is_uppercase())?;
-    let tail: String = chars.take_while(|c| c.is_alphanumeric() || *c == '_').collect();
+    let tail: String = chars
+        .take_while(|c| c.is_alphanumeric() || *c == '_')
+        .collect();
     let name = format!("{}{}", first, tail);
     Some((&s[name.len()..], name))
 }
@@ -190,7 +229,10 @@ fn jsx_component_names(jsx_block: &[String]) -> Vec<String> {
 }
 
 fn format_import(comp: &Component) -> String {
-    format!("import {{ {} }} from '{}';\n", comp.export_name, comp.module_path)
+    format!(
+        "import {{ {} }} from '{}';\n",
+        comp.export_name, comp.module_path
+    )
 }
 
 fn collect_jsx_imports(jsx_block: &[String], all_components: &[Component]) -> String {
@@ -218,8 +260,10 @@ fn render_screenshot(
     let bin = find_screenshot_binary()?;
 
     let source = build_jsx_module(jsx_block, all_components);
-    let tmp_jsx_file = std::env::temp_dir()
-        .join(format!("costae-docgen-{}.jsx", component.export_name.to_lowercase()));
+    let tmp_jsx_file = std::env::temp_dir().join(format!(
+        "costae-docgen-{}.jsx",
+        component.export_name.to_lowercase()
+    ));
     fs::write(&tmp_jsx_file, &source).ok()?;
 
     fs::create_dir_all(assets_dir).ok()?;
@@ -230,46 +274,80 @@ fn render_screenshot(
         .join("assets/fonts/inter/InterVariable.ttf");
 
     let status = std::process::Command::new(&bin)
-        .arg("--input").arg(&tmp_jsx_file)
-        .arg("--output").arg(&output_path)
-        .arg("--font-path").arg(&inter_font)
+        .arg("--input")
+        .arg(&tmp_jsx_file)
+        .arg("--output")
+        .arg(&output_path)
+        .arg("--font-path")
+        .arg(&inter_font)
         .status()
         .ok()?;
 
     let _ = fs::remove_file(&tmp_jsx_file);
-    if status.success() { Some(output_path) } else { None }
+    if status.success() {
+        Some(output_path)
+    } else {
+        None
+    }
 }
 
 fn trim_blank_lines(lines: &[String]) -> &[String] {
-    let start = lines.iter().position(|l| !l.trim().is_empty()).unwrap_or(lines.len());
-    let end = lines.iter().rposition(|l| !l.trim().is_empty()).map(|i| i + 1).unwrap_or(0);
-    if start <= end { &lines[start..end] } else { &[] }
+    let start = lines
+        .iter()
+        .position(|l| !l.trim().is_empty())
+        .unwrap_or(lines.len());
+    let end = lines
+        .iter()
+        .rposition(|l| !l.trim().is_empty())
+        .map(|i| i + 1)
+        .unwrap_or(0);
+    if start <= end {
+        &lines[start..end]
+    } else {
+        &[]
+    }
 }
 
 fn render_prose(out: &mut String, prose: &[String]) {
     let trimmed = trim_blank_lines(prose);
-    for line in trimmed { out.push_str(line); out.push('\n'); }
-    if !trimmed.is_empty() { out.push('\n'); }
+    for line in trimmed {
+        out.push_str(line);
+        out.push('\n');
+    }
+    if !trimmed.is_empty() {
+        out.push('\n');
+    }
 }
 
 fn render_jsx_usage(out: &mut String, block: &[String]) {
     out.push_str("### Usage\n\n```jsx\n");
-    for line in block { out.push_str(line); out.push('\n'); }
+    for line in block {
+        out.push_str(line);
+        out.push('\n');
+    }
     out.push_str("```\n\n");
 }
 
 fn render_component_section(comp: &Component, screenshot: &Option<PathBuf>) -> String {
     let mut out = String::new();
-    out.push_str(&format!("## {}\n\n**Module:** `{}`\n\n", comp.export_name, comp.module_path));
+    out.push_str(&format!(
+        "## {}\n\n**Module:** `{}`\n\n",
+        comp.export_name, comp.module_path
+    ));
     if let Some(url) = &comp.shadcn_url {
         out.push_str(&format!("**Shadcn reference:** {}\n\n", url));
     }
     if let Some(path) = screenshot {
         let filename = path.file_name().unwrap().to_string_lossy();
-        out.push_str(&format!("![{} screenshot](./assets/{})\n\n", comp.export_name, filename));
+        out.push_str(&format!(
+            "![{} screenshot](./assets/{})\n\n",
+            comp.export_name, filename
+        ));
     }
     render_prose(&mut out, &comp.prose);
-    if let Some(block) = &comp.jsx_block { render_jsx_usage(&mut out, block); }
+    if let Some(block) = &comp.jsx_block {
+        render_jsx_usage(&mut out, block);
+    }
     out
 }
 
@@ -288,7 +366,10 @@ fn main() {
     let output_path = docs_dir.join("components.md");
 
     if !components_dir.exists() {
-        eprintln!("error: components directory not found at {}", components_dir.display());
+        eprintln!(
+            "error: components directory not found at {}",
+            components_dir.display()
+        );
         std::process::exit(1);
     }
 
@@ -313,7 +394,11 @@ fn main() {
         eprintln!("error: could not write {}: {}", output_path.display(), e);
         std::process::exit(1);
     }
-    println!("wrote {} ({} component(s))", output_path.display(), all_components.len());
+    println!(
+        "wrote {} ({} component(s))",
+        output_path.display(),
+        all_components.len()
+    );
 }
 
 #[cfg(test)]
@@ -323,7 +408,9 @@ mod tests {
     #[test]
     fn render_screenshot_saves_png_for_component_with_jsx_block() {
         if find_screenshot_binary().is_none() {
-            eprintln!("skipping: costae-screenshot binary not found (run `cargo build -p costae-screenshot` first)");
+            eprintln!(
+                "skipping: costae-screenshot binary not found (run `cargo build -p costae-screenshot` first)"
+            );
             return;
         }
 

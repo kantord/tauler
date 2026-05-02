@@ -6,7 +6,7 @@ use std::io::BufRead;
 use std::sync::mpsc;
 use std::thread;
 
-use events::{parse_click_event, parse_init_event, ModuleEvent};
+use events::{ModuleEvent, parse_click_event, parse_init_event};
 use ipc::{apply_bar_gap, i3_recv, i3_send, i3_socket_path, should_apply_bar_gap};
 use workspace::{build_workspace_data, fetch_workspaces};
 
@@ -44,10 +44,10 @@ fn main() {
             let stdin = std::io::stdin();
             let mut lines = stdin.lock().lines();
             while let Some(Ok(line)) = lines.next() {
-                if let Ok(val) = serde_json::from_str::<serde_json::Value>(&line) {
-                    if event_tx.send(ModuleEvent::Stdin(val)).is_err() {
-                        break;
-                    }
+                if let Ok(val) = serde_json::from_str::<serde_json::Value>(&line)
+                    && event_tx.send(ModuleEvent::Stdin(val)).is_err()
+                {
+                    break;
                 }
             }
         });
@@ -76,11 +76,18 @@ fn main() {
                         continue;
                     }
                 };
-                if i3_send(&mut sub, 2, b"[\"workspace\"]").is_err() { continue; }
-                if i3_recv(&mut sub).is_err() { continue; }
+                if i3_send(&mut sub, 2, b"[\"workspace\"]").is_err() {
+                    continue;
+                }
+                if i3_recv(&mut sub).is_err() {
+                    continue;
+                }
                 tracing::info!("i3 subscription connected");
                 // Trigger an immediate workspace refresh after (re)connect
-                if event_tx.send(ModuleEvent::I3(0x80000000, b"{}".to_vec())).is_err() {
+                if event_tx
+                    .send(ModuleEvent::I3(0x80000000, b"{}".to_vec()))
+                    .is_err()
+                {
                     return;
                 }
                 loop {
@@ -104,11 +111,11 @@ fn main() {
     while let Ok(event) = event_rx.recv() {
         match event {
             ModuleEvent::I3(0x80000000, payload) => {
-                if let Ok(ev) = serde_json::from_slice::<serde_json::Value>(&payload) {
-                    if should_apply_bar_gap(&init.output)
-                        && ev["current"]["output"].as_str() == Some(init.output.as_str()) {
-                        apply_bar_gap(&socket, init.dpi, init.bar_width, init.outer_gap);
-                    }
+                if let Ok(ev) = serde_json::from_slice::<serde_json::Value>(&payload)
+                    && should_apply_bar_gap(&init.output)
+                    && ev["current"]["output"].as_str() == Some(init.output.as_str())
+                {
+                    apply_bar_gap(&socket, init.dpi, init.bar_width, init.outer_gap);
                 }
                 if let Ok(ws) = fetch_workspaces(&socket, &init.output) {
                     println!("{}", build_workspace_data(&ws));
