@@ -41,6 +41,10 @@ struct Args {
     /// Maximum render width in CSS pixels. The final image is this wide (including 16px margins).
     #[arg(long, default_value_t = 400)]
     width: u32,
+
+    /// Path to a TTF/OTF font file to use as the primary (sans-serif) font.
+    #[arg(long)]
+    font_path: Option<std::path::PathBuf>,
 }
 
 /// Extract the x/y translation from a 2D affine transform matrix stored as [a,b,c,d,tx,ty].
@@ -54,7 +58,10 @@ fn main() {
     let source = std::fs::read_to_string(&args.input)
         .unwrap_or_else(|e| panic!("failed to read {}: {}", args.input, e));
 
-    costae::init_global_ctx();
+    costae::init_global_ctx(costae::config::FontConfig {
+        primary_path: args.font_path,
+        ..Default::default()
+    });
     let theme = costae::theme::Theme::default_theme();
 
     let eval_output: EvalOutput = JsxEvaluator::new(&source, serde_json::Value::Null, None)

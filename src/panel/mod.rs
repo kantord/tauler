@@ -98,7 +98,12 @@ mod tests {
     use crate::layout::PanelSpecData;
     use crate::managed_set::Lifecycle;
     use crate::presentation::PanelCommand;
+    use crate::config::FontConfig;
     use super::PanelSpec;
+
+    fn init_ctx() {
+        crate::render::init_global_ctx(FontConfig::default());
+    }
 
     fn make_spec_data(id: &str) -> PanelSpecData {
         PanelSpecData {
@@ -118,6 +123,7 @@ mod tests {
 
     #[test]
     fn panel_spec_enter_emits_create_command_and_returns_state() {
+        init_ctx();
         let (mut tx, rx) = std::sync::mpsc::channel::<PanelCommand>();
         let spec = PanelSpec(make_spec_data("p1"));
         let state = <PanelSpec as Lifecycle>::enter(spec, &mut (), &mut tx).expect("enter should succeed");
@@ -139,6 +145,7 @@ mod tests {
 
     #[test]
     fn panel_spec_reconcile_self_emits_resize_when_dimensions_change() {
+        init_ctx();
         let (mut tx, rx) = std::sync::mpsc::channel::<PanelCommand>();
         let mut state = make_spec_data("p1");
         let mut next = make_spec_data("p1");
@@ -169,6 +176,7 @@ mod tests {
 
     #[test]
     fn panel_spec_reconcile_self_emits_update_picture_when_only_content_changes() {
+        init_ctx();
         let (mut tx, rx) = std::sync::mpsc::channel::<PanelCommand>();
         let mut state = make_spec_data("p1");
         let mut next = make_spec_data("p1");
@@ -182,6 +190,7 @@ mod tests {
 
     #[test]
     fn panel_spec_reconcile_self_emits_resize_not_update_picture_when_dpr_changes_phys_dims() {
+        init_ctx();
         // State has dpr=1.0, logical 100x30 → physical 100x30.
         // New spec has dpr=2.0, logical 100x30 → physical 200x60.
         // Physical dims changed, so reconcile_self must emit Resize (not UpdatePicture)

@@ -7,6 +7,7 @@ use costae::data::data_loop::{DataLoop, StreamItem};
 use costae::windowing::wayland::WaylandDisplayServer;
 use costae::x11::panel::{i3_dpi, PanelContext};
 use costae::init_global_ctx;
+use costae::config::{CostaeConfig, FontConfig};
 use x11rb::{
     connection::Connection,
     protocol::{randr::ConnectionExt as RandrExt, xproto::*},
@@ -121,6 +122,14 @@ fn setup_file_watchers(
     watcher
 }
 
+fn load_font_config(config_path: &std::path::Path) -> FontConfig {
+    std::fs::read_to_string(config_path)
+        .ok()
+        .and_then(|yaml| CostaeConfig::from_yaml(&yaml).ok())
+        .map(|c| c.fonts)
+        .unwrap_or_default()
+}
+
 fn init_x11() -> Result<X11Init, Box<dyn std::error::Error>> {
     let (conn, screen_num) = RustConnection::connect(None)?;
     let conn = Arc::new(conn);
@@ -141,8 +150,6 @@ fn init_x11() -> Result<X11Init, Box<dyn std::error::Error>> {
             (o.height as f32 / dpr).round() as u32,
         ))
         .unwrap_or((screen.width_in_pixels as u32, screen.height_in_pixels as u32));
-
-    init_global_ctx();
 
     conn.change_window_attributes(
         screen.root,
@@ -197,6 +204,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let layout_jsx_path = std::path::PathBuf::from(&home).join(".config/costae/layout.jsx");
     let config_yaml_path = std::path::PathBuf::from(&home).join(".config/costae/config.yaml");
 
+    let font_config = load_font_config(&config_yaml_path);
+
     let last_tick = Arc::new(std::sync::atomic::AtomicU64::new(0));
     spawn_freeze_watchdog(Arc::clone(&last_tick), log_path);
 
@@ -221,6 +230,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let stop = Arc::new(AtomicBool::new(false));
     let rx = TickReceivers { item_rx, bin_reload_rx, reload_rx };
     let backend = detect_backend();
+
+    init_global_ctx(font_config);
 
     if backend == "wayland" {
         tracing::info!("display backend: Wayland");

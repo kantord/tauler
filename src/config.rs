@@ -23,9 +23,18 @@ impl Default for ThemeConfig {
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
+pub struct FontConfig {
+    pub primary: Option<String>,
+    pub primary_path: Option<std::path::PathBuf>,
+    pub emoji: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
 pub struct CostaeConfig {
     #[serde(default)]
     pub theme: ThemeConfig,
+    #[serde(default)]
+    pub fonts: FontConfig,
 }
 
 impl CostaeConfig {

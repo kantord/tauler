@@ -225,9 +225,14 @@ fn render_screenshot(
     fs::create_dir_all(assets_dir).ok()?;
     let output_path = assets_dir.join(format!("{}.png", component.export_name.to_lowercase()));
 
+    let inter_font = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()?
+        .join("assets/fonts/inter/InterVariable.ttf");
+
     let status = std::process::Command::new(&bin)
         .arg("--input").arg(&tmp_jsx_file)
         .arg("--output").arg(&output_path)
+        .arg("--font-path").arg(&inter_font)
         .status()
         .ok()?;
 

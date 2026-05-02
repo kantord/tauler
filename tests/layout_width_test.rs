@@ -1,11 +1,12 @@
 use costae::{init_global_ctx, parse_layout, render_frame, with_global_ctx};
+use costae::config::FontConfig;
 use takumi::{
     layout::Viewport,
     rendering::{RenderOptions, measure_layout},
 };
 
 fn measure_node(node: &serde_json::Value, width: u32, dpr: f32) -> takumi::rendering::MeasuredNode {
-    init_global_ctx();
+    init_global_ctx(FontConfig::default());
     let layout = parse_layout(node).unwrap();
     with_global_ctx(|global| {
         let options = RenderOptions::builder()
@@ -66,7 +67,7 @@ fn padded_root_children_with_w_full_fill_content_box() {
 
 #[test]
 fn rendered_child_width_matches_layout_at_dpr_1_46() {
-    init_global_ctx();
+    init_global_ctx(FontConfig::default());
     let content = serde_json::json!({
         "type": "container",
         "tw": "flex flex-col h-full w-full",

@@ -40,6 +40,7 @@ pub use render::{
     render_frame_rgba,
     measure_layout_frame,
     init_global_ctx,
+    reload_font_config,
     preload_layout_images,
     with_global_ctx,
 };

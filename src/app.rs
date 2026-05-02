@@ -3,7 +3,6 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{mpsc, Arc};
 use std::thread;
 
-use costae::init_global_ctx;
 use costae::config::CostaeConfig;
 use costae::layout::OutputInfo;
 use costae::theme::{Theme, ThemeMode};
@@ -231,11 +230,15 @@ fn expand_tilde(path: &str) -> std::path::PathBuf {
     }
 }
 
-fn load_theme_from_config(config_path: &std::path::Path) -> (Theme, ThemeMode, Option<std::path::PathBuf>) {
-    let config = std::fs::read_to_string(config_path)
+fn parse_config(config_path: &std::path::Path) -> CostaeConfig {
+    std::fs::read_to_string(config_path)
         .ok()
         .and_then(|s| CostaeConfig::from_yaml(&s).ok())
-        .unwrap_or_default();
+        .unwrap_or_default()
+}
+
+fn load_theme_from_config(config_path: &std::path::Path) -> (Theme, ThemeMode, Option<std::path::PathBuf>) {
+    let config = parse_config(config_path);
     let theme_file_path = config.theme.file.as_deref().map(expand_tilde);
     let theme = match theme_file_path.as_ref() {
         None => Theme::default_theme(),
@@ -371,7 +374,6 @@ impl App {
             module_event_txs,
             presenter_thread: Some(presenter_thread),
         };
-        init_global_ctx();
         state.initial_load();
         state.reconcile_theme_file_watch(theme_file_path);
         state
@@ -442,6 +444,8 @@ impl App {
 
     fn handle_layout_reload(&mut self) -> bool {
         if self.reload_rx.try_recv().is_err() { return false; }
+        let config = parse_config(&self.config_path);
+        costae::reload_font_config(config.fonts);
         let (theme, mode, theme_file_path) = load_theme_from_config(&self.config_path);
         self.theme = theme;
         self.theme_mode = mode;
