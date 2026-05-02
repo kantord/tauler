@@ -105,6 +105,14 @@ pub(crate) fn apply_font_config(ctx: &mut GlobalContext, config: &FontConfig) {
                 .append_generic_families(GenericFamily::Emoji, std::iter::once(family_info.id()));
         }
     }
+
+    if let Some(name) = &config.primary {
+        if let Some(family_info) = ctx.font_context.collection.family_by_name(name) {
+            ctx.font_context
+                .collection
+                .append_generic_families(GenericFamily::SansSerif, std::iter::once(family_info.id()));
+        }
+    }
 }
 
 pub fn preload_layout_images(layout: &serde_json::Value) {
@@ -206,7 +214,7 @@ mod tests {
         }
 
         let mut ctx = takumi::GlobalContext::default();
-        let config = FontConfig { emoji: Some("Noto Color Emoji".to_string()) };
+        let config = FontConfig { emoji: Some("Noto Color Emoji".to_string()), primary: None };
 
         apply_font_config(&mut ctx, &config);
 
@@ -218,6 +226,29 @@ mod tests {
         assert!(
             !families.is_empty(),
             "GenericFamily::Emoji should be mapped to at least one family after apply_font_config"
+        );
+    }
+
+    #[test]
+    fn apply_font_config_maps_sans_serif_generic_family_when_primary_font_is_present() {
+        let mut ctx = takumi::GlobalContext::default();
+        let config = FontConfig { primary: Some("Adwaita Sans".to_string()), emoji: None };
+
+        apply_font_config(&mut ctx, &config);
+
+        if ctx.font_context.collection.family_by_name("Adwaita Sans").is_none() {
+            eprintln!("SKIP: Adwaita Sans not found on this system");
+            return;
+        }
+
+        let families: Vec<_> = ctx
+            .font_context
+            .collection
+            .generic_families(parley::GenericFamily::SansSerif)
+            .collect();
+        assert!(
+            !families.is_empty(),
+            "GenericFamily::SansSerif should be mapped to at least one family after apply_font_config with primary font"
         );
     }
 }

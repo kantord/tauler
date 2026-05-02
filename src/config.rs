@@ -24,6 +24,7 @@ impl Default for ThemeConfig {
 
 #[derive(Debug, Clone, Default, Deserialize)]
 pub struct FontConfig {
+    pub primary: Option<String>,
     pub emoji: Option<String>,
 }
 
