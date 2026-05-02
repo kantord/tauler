@@ -347,42 +347,48 @@ fn collect_bboxes(measured: &MeasuredNode, node: &FakeNode, bboxes: &mut HashMap
         },
     );
     if let FakeNode::Collection { children, .. } = node {
-        // Taffy groups absolutely-positioned children under a zero-height placeholder
-        // node positioned at the parent's bottom edge.  Detect it by:
-        //   h==0, has children, y >= parent_bottom − 0.5
-        // Only activate this unwrapping when the FakeNode tree actually has absolute
-        // children — avoids false positives from legitimate zero-height nodes.
-        let parent_bottom = measured.transform[5] + measured.height;
-        let has_abs_f = children.iter().any(|c| {
-            matches!(c, FakeNode::Collection { tw, .. }
-                if tw.split_whitespace().any(|t| t == "absolute"))
-        });
-        let is_placeholder = |mc: &MeasuredNode| -> bool {
-            has_abs_f
-                && mc.height == 0.0
-                && !mc.children.is_empty()
-                && mc.transform[5] >= parent_bottom - 0.5
-        };
-        let mut in_flow_m: Vec<&MeasuredNode> = Vec::new();
-        let mut abs_m: Vec<&MeasuredNode> = Vec::new();
-        for mc in &measured.children {
-            if is_placeholder(mc) {
-                abs_m.extend(mc.children.iter());
-            } else {
-                in_flow_m.push(mc);
-            }
-        }
+        // Taffy's absolute-child layout varies by container type:
+        //
+        //   Block layout with mixed in-flow + absolute children:
+        //     measured.children = [in_flow_0..N-1, placeholder]
+        //     where placeholder.height==0 and contains the absolute MeasuredNodes.
+        //
+        //   Flex layout OR all-absolute (no in-flow) children:
+        //     measured.children = [in_flow_0..N-1, abs_0..M-1]  (inline, actual heights)
+        //     No wrapper placeholder node.
+        //
+        // Use FakeNode child counts to distinguish the two cases instead of
+        // relying on a zero-height heuristic that only works for block layout.
         let in_flow_f: Vec<&FakeNode> = children.iter()
-            .filter(|c| !matches!(c, FakeNode::Collection { tw, .. } if tw.split_whitespace().any(|t| t == "absolute")))
+            .filter(|c| !matches!(c, FakeNode::Collection { tw, .. }
+                if tw.split_whitespace().any(|t| t == "absolute")))
             .collect();
         let abs_f: Vec<&FakeNode> = children.iter()
-            .filter(|c|  matches!(c, FakeNode::Collection { tw, .. } if tw.split_whitespace().any(|t| t == "absolute")))
+            .filter(|c|  matches!(c, FakeNode::Collection { tw, .. }
+                if tw.split_whitespace().any(|t| t == "absolute")))
             .collect();
-        for (m, f) in in_flow_m.iter().zip(in_flow_f.iter()) {
-            collect_bboxes(m, f, bboxes);
-        }
-        for (m, f) in abs_m.iter().zip(abs_f.iter()) {
-            collect_bboxes(m, f, bboxes);
+        if abs_f.is_empty() {
+            for (m, f) in measured.children.iter().zip(in_flow_f.iter()) {
+                collect_bboxes(m, f, bboxes);
+            }
+        } else {
+            let n_if = in_flow_f.len();
+            let n_ab = abs_f.len();
+            let n_m  = measured.children.len();
+            // Block-with-placeholder: n_measured == n_in_flow + 1 (one placeholder)
+            // Flex/inline:            n_measured == n_in_flow + n_abs
+            let (in_flow_m, abs_m): (Vec<&MeasuredNode>, Vec<&MeasuredNode>) =
+                if n_m == n_if + 1 && !measured.children[n_if].children.is_empty() {
+                    let ph = &measured.children[n_if];
+                    (measured.children[..n_if].iter().collect(),
+                     ph.children.iter().collect())
+                } else {
+                    let split = n_if.min(n_m);
+                    (measured.children[..split].iter().collect(),
+                     measured.children[split..split + n_ab.min(n_m - split)].iter().collect())
+                };
+            for (m, f) in in_flow_m.iter().zip(in_flow_f.iter()) { collect_bboxes(m, f, bboxes); }
+            for (m, f) in abs_m.iter().zip(abs_f.iter())         { collect_bboxes(m, f, bboxes); }
         }
     }
 }
@@ -3057,6 +3063,264 @@ fn suite_notification_panel() -> TestSuite {
 ///             must sample the freshly-rendered card pixels each frame.
 ///
 /// If the glass-panel tiles are served from a stale cache entry, the blurred
+// ---------------------------------------------------------------------------
+// Two-region — greedy merge exercise
+// ---------------------------------------------------------------------------
+
+/// 440×200 px.  Left panel (clock + 4 metrics) updates every frame.  Right
+/// panel (system log) updates every 4th frame.  The 80 px gap between the
+/// panels is wider than MERGE_THRESHOLD (2 tiles = 64 px), so on frames where
+/// both panels are dirty two genuinely separate candidates are produced and the
+/// greedy merge must decide whether to combine them.
+fn suite_two_region() -> TestSuite {
+    let log_entries = [
+        "INFO  kernel: usb 1-1 attached",
+        "WARN  sshd: auth failed 10.0.0.5",
+        "INFO  systemd: nginx started",
+        "ERR   disk: I/O error /dev/sda",
+        "INFO  net: link up eth0 1G",
+        "WARN  oom: killed process 1842",
+        "INFO  cron: mail.daily started",
+    ];
+    let frames = (0..25)
+        .map(|i| {
+            let time = format!("14:30:{i:02}");
+            let cpu = format!("CPU  {}%", 20 + (i * 7) % 60);
+            let mem = format!("MEM  {:.1}G", 3.0 + (i as f32 * 0.13).sin() * 0.8);
+            let net = format!("NET  {} MB/s", i * 3 % 100);
+            let log = log_entries[(i / 4) % log_entries.len()];
+            let age = format!("{}s ago", (i % 4) * 10);
+            let root = FakeNode::Collection {
+                id: "canvas".into(),
+                tw: "relative w-[440px] h-[200px] bg-gray-950".into(),
+                children: vec![
+                    // Left panel — every frame
+                    FakeNode::Collection {
+                        id: "left".into(),
+                        tw: "absolute bottom-[8px] left-[8px] w-[180px] h-[184px] \
+                             bg-gray-900 rounded-xl p-3 flex flex-col gap-2"
+                            .into(),
+                        children: vec![
+                            FakeNode::Text {
+                                id: "time".into(),
+                                content: time.clone(),
+                                tw: "text-white text-sm font-mono font-bold whitespace-nowrap"
+                                    .into(),
+                            },
+                            FakeNode::Text {
+                                id: "cpu".into(),
+                                content: cpu,
+                                tw: "text-green-400 text-xs font-mono whitespace-nowrap".into(),
+                            },
+                            FakeNode::Text {
+                                id: "mem".into(),
+                                content: mem,
+                                tw: "text-blue-400 text-xs font-mono whitespace-nowrap".into(),
+                            },
+                            FakeNode::Text {
+                                id: "net".into(),
+                                content: net,
+                                tw: "text-yellow-400 text-xs font-mono whitespace-nowrap".into(),
+                            },
+                        ],
+                    },
+                    // Right panel — every 4th frame  (left=252 = 440-180-8)
+                    FakeNode::Collection {
+                        id: "right".into(),
+                        tw: "absolute bottom-[8px] left-[252px] w-[180px] h-[184px] \
+                             bg-gray-900 rounded-xl p-3 flex flex-col gap-2"
+                            .into(),
+                        children: vec![
+                            FakeNode::Text {
+                                id: "log-hdr".into(),
+                                content: "System Log".into(),
+                                tw: "text-gray-400 text-[10px] font-bold whitespace-nowrap".into(),
+                            },
+                            FakeNode::Text {
+                                id: "log-entry".into(),
+                                content: log.into(),
+                                tw: "text-green-300 text-[9px] font-mono whitespace-nowrap".into(),
+                            },
+                            FakeNode::Text {
+                                id: "log-age".into(),
+                                content: age,
+                                tw: "text-gray-600 text-[9px] font-mono whitespace-nowrap".into(),
+                            },
+                        ],
+                    },
+                ],
+            };
+            SuiteFrame {
+                label: format!("f{i}: t={time} log={}", i / 4),
+                root,
+            }
+        })
+        .collect();
+    TestSuite {
+        name: "Two Region",
+        description: "440×200 px. Left panel (clock+metrics) dirty every frame; right panel \
+                      (system log) dirty every 4th frame. 80 px gap forces two separate \
+                      candidates when both are active — primary exercise for the greedy merge.",
+        frames,
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Kanban board — structural changes, movement, compositing overlay
+// ---------------------------------------------------------------------------
+
+/// 440×300 px kanban with three columns.  Cards appear, disappear, and move
+/// between columns at keyframe boundaries (ManagedSet structural changes).
+/// A semi-transparent ball with `backdrop-blur-md` and `shadow-2xl` bounces
+/// over the board every frame — its absolute position changes each frame,
+/// exercising compositing + moved-node detection simultaneously.
+fn suite_kanban() -> TestSuite {
+    use std::f32::consts::PI;
+
+    // (id, title, left-border colour)
+    let task_def: &[(&str, &str, &str)] = &[
+        ("A", "Implement auth", "border-red-400"),
+        ("B", "Fix login bug", "border-purple-400"),
+        ("C", "Add dark mode", "border-yellow-400"),
+        ("D", "Write unit tests", "border-green-400"),
+        ("E", "Perf audit", "border-orange-400"),
+        ("F", "Code review", "border-blue-400"),
+    ];
+
+    let make_card = |id: &str| -> FakeNode {
+        let &(_, title, border) = task_def.iter().find(|(i, _, _)| *i == id).unwrap();
+        FakeNode::Collection {
+            id: format!("card-{id}"),
+            tw: format!(
+                "flex flex-col gap-[2px] px-2 py-[6px] bg-gray-800 rounded-lg \
+                 border-l-2 {border} shadow-md"
+            ),
+            children: vec![
+                FakeNode::Text {
+                    id: format!("card-{id}-t"),
+                    content: title.into(),
+                    tw: "text-white text-[10px] font-bold whitespace-nowrap".into(),
+                },
+                FakeNode::Text {
+                    id: format!("card-{id}-i"),
+                    content: format!("#{id}"),
+                    tw: "text-gray-500 text-[9px] font-mono whitespace-nowrap".into(),
+                },
+            ],
+        }
+    };
+
+    let make_col = |col_id: &str, title: &str, cards: Vec<FakeNode>| -> FakeNode {
+        let n = cards.len();
+        let mut children = vec![FakeNode::Collection {
+            id: format!("{col_id}-hdr"),
+            tw: "flex flex-row items-center justify-between px-1".into(),
+            children: vec![
+                FakeNode::Text {
+                    id: format!("{col_id}-title"),
+                    content: title.into(),
+                    tw: "text-gray-300 text-[10px] font-bold whitespace-nowrap".into(),
+                },
+                FakeNode::Text {
+                    id: format!("{col_id}-n"),
+                    content: n.to_string(),
+                    tw: "text-gray-500 text-[10px] font-mono whitespace-nowrap".into(),
+                },
+            ],
+        }];
+        children.extend(cards);
+        FakeNode::Collection {
+            id: col_id.into(),
+            tw: "flex flex-col w-[132px] h-[284px] bg-gray-900 rounded-xl \
+                 p-[6px] gap-[6px]"
+                .into(),
+            children,
+        }
+    };
+
+    // Column assignment keyframes: (start_frame, todo, wip, done)
+    let phases: &[(usize, &[&str], &[&str], &[&str])] = &[
+        (0,  &["A", "B", "C"], &["D"],      &[]),
+        (8,  &["B", "C"],      &["A", "D"], &[]),
+        (14, &["C"],           &["A", "B"], &["D"]),
+        (20, &["C"],           &["B"],      &["A", "D"]),
+        (25, &["C", "E"],      &["B"],      &["A", "D"]),
+        (30, &["E"],           &["B", "C"], &["A", "D"]),
+        (35, &["E"],           &["C"],      &["A", "B", "D"]),
+    ];
+
+    let frames = (0..40)
+        .map(|i| {
+            // current column assignment
+            let &(_, todo_ids, wip_ids, done_ids) = phases
+                .iter()
+                .rev()
+                .find(|&&(start, _, _, _)| i >= start)
+                .unwrap();
+
+            // Ball: bounces diagonally across the board.
+            // Use bottom-[N] + left-[N] (top doesn't work in takumi).
+            let t = i as f32;
+            let ball_x = (180.0 + 150.0 * (t * 0.18 * PI).sin()) as u32;
+            // ball_y_top: distance from canvas top (0..220 for 80px ball in 300px canvas)
+            let ball_y_top = (80.0 + 90.0 * (t * 0.27 * PI).sin().abs()) as u32;
+            let ball_bottom = 300u32.saturating_sub(ball_y_top + 80);
+
+            let root = FakeNode::Collection {
+                id: "canvas".into(),
+                tw: "relative flex flex-row gap-[8px] p-[8px] \
+                     w-[440px] h-[300px] bg-gray-950"
+                    .into(),
+                children: vec![
+                    make_col(
+                        "col-todo",
+                        "TODO",
+                        todo_ids.iter().map(|&id| make_card(id)).collect(),
+                    ),
+                    make_col(
+                        "col-wip",
+                        "IN PROGRESS",
+                        wip_ids.iter().map(|&id| make_card(id)).collect(),
+                    ),
+                    make_col(
+                        "col-done",
+                        "DONE",
+                        done_ids.iter().map(|&id| make_card(id)).collect(),
+                    ),
+                    // Bouncing overlay ball — position changes every frame
+                    FakeNode::Collection {
+                        id: "ball".into(),
+                        tw: format!(
+                            "absolute bottom-[{ball_bottom}px] left-[{ball_x}px] \
+                             w-[80px] h-[80px] rounded-full opacity-60 bg-gray-400 \
+                             backdrop-blur-md shadow-2xl border border-gray-300"
+                        ),
+                        children: vec![],
+                    },
+                ],
+            };
+            SuiteFrame {
+                label: format!(
+                    "f{i}: todo={} wip={} done={} ball=({ball_x},{ball_bottom})",
+                    todo_ids.len(),
+                    wip_ids.len(),
+                    done_ids.len()
+                ),
+                root,
+            }
+        })
+        .collect();
+
+    TestSuite {
+        name: "Kanban Board",
+        description: "440×300 px. Three columns; cards appear, disappear, and move between \
+                      columns at keyframes (ManagedSet structural changes + moved-node detection). \
+                      A backdrop-blur-md semi-transparent ball with shadow-2xl bounces across \
+                      the board every frame — compositing + absolute-position stress test.",
+        frames,
+    }
+}
+
 /// values on the right will lag one or more frames behind the crisp left half —
 /// immediately visible in the diff image.
 ///
@@ -3404,6 +3668,8 @@ fn main() {
         suite_notification_panel(),
         suite_scroll_list(),
         suite_compositing_overlay(),
+        suite_two_region(),
+        suite_kanban(),
     ];
 
     // ── Pass 1: calibration run ───────────────────────────────────────────────
