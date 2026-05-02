@@ -1,3 +1,14 @@
+fmt:
+    cargo fmt --all
+
+lint:
+    cargo clippy --workspace -- -D warnings
+
+test:
+    cargo test --workspace
+
+ci: fmt lint test
+
 docs:
     cargo build -p costae-screenshot
     cargo run -p costae-docgen
