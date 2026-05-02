@@ -11,6 +11,7 @@ use takumi::{
     layout::{Viewport, node::Node},
     rendering::{MeasuredNode, RenderOptions, measure_layout as takumi_measure_layout, render as takumi_render},
     resources::font::FontResource,
+    resources::image::ImageSource,
 };
 
 use costae::managed_set::{Lifecycle, ManagedSet};
@@ -22,7 +23,7 @@ use costae::render::find_font_files;
 // GlobalContext factory
 // ---------------------------------------------------------------------------
 
-fn new_ctx_with_fonts() -> GlobalContext {
+fn new_ctx() -> GlobalContext {
     let home = std::env::var("HOME").unwrap_or_default();
     let dirs: Vec<std::path::PathBuf> = vec![
         "/usr/share/fonts/TTF".into(),
@@ -37,6 +38,19 @@ fn new_ctx_with_fonts() -> GlobalContext {
             let _ = ctx.font_context.load_and_store(FontResource::new(bytes));
         }
     }
+    let assets_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("test-assets");
+    if let Ok(entries) = std::fs::read_dir(&assets_dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.extension().and_then(|e| e.to_str()) == Some("png") {
+                if let (Ok(bytes), Some(stem)) = (std::fs::read(&path), path.file_stem().and_then(|s| s.to_str())) {
+                    if let Ok(src) = ImageSource::from_bytes(&bytes) {
+                        ctx.persistent_image_store.insert(stem.to_string(), src);
+                    }
+                }
+            }
+        }
+    }
     ctx
 }
 
@@ -48,12 +62,13 @@ fn new_ctx_with_fonts() -> GlobalContext {
 enum FakeNode {
     Text       { id: String, content: String, tw: String },
     Image      { id: String, color: String, width: u32, height: u32 },
+    Photo      { id: String, src: String, width: u32, height: u32 },
     Collection { id: String, tw: String, children: Vec<FakeNode> },
 }
 
 impl FakeNode {
     fn id(&self) -> &str {
-        match self { Self::Text{id,..}|Self::Image{id,..}|Self::Collection{id,..} => id }
+        match self { Self::Text{id,..}|Self::Image{id,..}|Self::Photo{id,..}|Self::Collection{id,..} => id }
     }
 
     /// Generate the takumi layout JSON for this node.
@@ -64,6 +79,8 @@ impl FakeNode {
             Self::Image { color, width, height, .. } =>
                 // inline-block so explicit w/h are respected in the block containing context
                 serde_json::json!({"type":"container","style":{"display":"inline-block"},"tw":format!("w-[{}px] h-[{}px] bg-{}",width,height,color)}),
+            Self::Photo { src, width, height, .. } =>
+                serde_json::json!({"type":"image","src":src,"width":width,"height":height}),
             Self::Collection { tw, children, .. } => {
                 let ch: Vec<_> = children.iter().map(|c| c.to_json()).collect();
                 serde_json::json!({"type":"container","tw":tw,"children":ch})
@@ -83,12 +100,13 @@ impl std::fmt::Display for FakeNode {
 enum FakeNodeState {
     Text       { id: String, content: String, tw: String },
     Image      { id: String, color: String, width: u32, height: u32 },
+    Photo      { id: String, src: String, width: u32, height: u32 },
     Collection { id: String, tw: String, children: ManagedSet<FakeNode> },
 }
 
 impl FakeNodeState {
     fn id(&self) -> &str {
-        match self { Self::Text{id,..}|Self::Image{id,..}|Self::Collection{id,..} => id }
+        match self { Self::Text{id,..}|Self::Image{id,..}|Self::Photo{id,..}|Self::Collection{id,..} => id }
     }
 }
 
@@ -106,7 +124,7 @@ struct Ctx {
 impl Ctx {
     fn fresh() -> Self {
         Self {
-            global: new_ctx_with_fonts(),
+            global: new_ctx(),
             changed_ids: Vec::new(),
             node_dims: HashMap::new(),
         }
@@ -135,6 +153,8 @@ impl Lifecycle for FakeNode {
                 Ok(FakeNodeState::Text { id, content, tw }),
             FakeNode::Image { id, color, width, height } =>
                 Ok(FakeNodeState::Image { id, color, width, height }),
+            FakeNode::Photo { id, src, width, height } =>
+                Ok(FakeNodeState::Photo { id, src, width, height }),
             FakeNode::Collection { id, tw, children } => {
                 let mut cs: ManagedSet<FakeNode> = ManagedSet::new();
                 cs.reconcile(children, ctx, &mut ());
@@ -156,6 +176,13 @@ impl Lifecycle for FakeNode {
                 if color != *oc || width != *ow || height != *oh {
                     ctx.changed_ids.push(id);
                     *oc = color; *ow = width; *oh = height;
+                }
+                Ok(())
+            }
+            (FakeNode::Photo{id,src,width,height}, FakeNodeState::Photo{src:os,width:ow,height:oh,..}) => {
+                if src != *os || width != *ow || height != *oh {
+                    ctx.changed_ids.push(id);
+                    *os = src; *ow = width; *oh = height;
                 }
                 Ok(())
             }
@@ -238,6 +265,8 @@ fn stub_scene_json(node: &FakeNode, dims: &HashMap<String, (f32, f32)>) -> serde
         // preserves display:inline-block and tw-based dimensions, ensuring the stub
         // layout places the image at the same position as the full layout would.
         FakeNode::Image { .. } => node.to_json(),
+        FakeNode::Photo { src, width, height, .. } =>
+            serde_json::json!({"type":"image","src":src,"width":width,"height":height}),
         FakeNode::Collection { tw, children, .. } => {
             let ch: Vec<_> = children.iter().map(|c| stub_scene_json(c, dims)).collect();
             serde_json::json!({"type":"container","tw":tw,"children":ch})
@@ -313,6 +342,13 @@ fn collect_nested_whitelist(
                              "width":*width as f32,"height":*height as f32}}));
             }
         }
+        FakeNode::Photo { src, width, height, .. } => {
+            if in_set {
+                out.push(serde_json::json!({"type":"image","src":src,
+                    "style":{"display":"block","position":"absolute","left":lx,"top":ly,
+                             "width":*width as f32,"height":*height as f32}}));
+            }
+        }
         FakeNode::Collection { tw, children, .. } => {
             if has_overflow_clip(tw) {
                 let mut ch = Vec::new();
@@ -372,6 +408,13 @@ fn collect_flat_whitelist(
         FakeNode::Image { color, width, height, .. } => {
             if in_set {
                 out.push(serde_json::json!({"type":"container","tw":format!("bg-{}",color),
+                    "style":{"display":"block","position":"absolute","left":lx,"top":ly,
+                             "width":*width as f32,"height":*height as f32}}));
+            }
+        }
+        FakeNode::Photo { src, width, height, .. } => {
+            if in_set {
+                out.push(serde_json::json!({"type":"image","src":src,
                     "style":{"display":"block","position":"absolute","left":lx,"top":ly,
                              "width":*width as f32,"height":*height as f32}}));
             }
@@ -540,6 +583,12 @@ fn tile_fingerprint(
                 FakeNode::Image { color, width, height, .. } => {
                     h = fnv_mix(h, b"I");
                     h = fnv_mix(h, color.as_bytes());
+                    h = fnv_mix(h, &width.to_le_bytes());
+                    h = fnv_mix(h, &height.to_le_bytes());
+                }
+                FakeNode::Photo { src, width, height, .. } => {
+                    h = fnv_mix(h, b"P");
+                    h = fnv_mix(h, src.as_bytes());
                     h = fnv_mix(h, &width.to_le_bytes());
                     h = fnv_mix(h, &height.to_le_bytes());
                 }
@@ -1109,6 +1158,13 @@ fn run_suite(suite: &TestSuite, cm: &CostModel, cal_samples: &mut Vec<(f64, f64,
                         incr_ctx.node_dims.insert(id.clone(), new_dims);
                     }
                     FakeNode::Image { width, height, .. } => {
+                        let new_dims = (*width as f32, *height as f32);
+                        if incr_ctx.node_dims.get(id.as_str()).copied() != Some(new_dims) {
+                            dims_changed = true;
+                        }
+                        incr_ctx.node_dims.insert(id.clone(), new_dims);
+                    }
+                    FakeNode::Photo { width, height, .. } => {
                         let new_dims = (*width as f32, *height as f32);
                         if incr_ctx.node_dims.get(id.as_str()).copied() != Some(new_dims) {
                             dims_changed = true;
@@ -2303,31 +2359,55 @@ fn suite_scroll_list() -> TestSuite {
     let frames = (0..20).map(|i| {
         let scroll_y = i as u32 * 2; // 0, 2, 4 … 38 px total
 
+        // Monitor thumbnail cycles between two images every 5 frames.
+        let monitor_src = if (i / 5) % 2 == 0 { "great-wave" } else { "water-lilies" };
+
         let items: Vec<FakeNode> = notif_data.iter().enumerate().map(|(idx, (app, msg, color))| {
+            // Items 1 (Messages), 3 (Monitor), 5 (Calendar) get a 48×48 Photo thumbnail.
+            let photo_src: Option<&str> = match idx {
+                1 => Some("pearl-earring"),
+                3 => Some(monitor_src),
+                5 => Some("starry-night"),
+                _ => None,
+            };
+
+            let mut children: Vec<FakeNode> = Vec::new();
+
+            if let Some(src) = photo_src {
+                children.push(FakeNode::Photo {
+                    id: format!("item-{idx}-thumb"),
+                    src: src.to_string(),
+                    width: 48,
+                    height: 48,
+                });
+            }
+
+            // Dot is smaller (6×6) for photo items, same for plain items.
+            children.push(FakeNode::Collection {
+                id: format!("item-{idx}-dot"),
+                tw: format!("flex-shrink-0 w-[6px] h-[6px] rounded-full bg-{color}-400"),
+                children: vec![],
+            });
+
+            children.push(FakeNode::Collection {
+                id: format!("item-{idx}-body"),
+                tw: "flex flex-col".into(),
+                children: vec![
+                    FakeNode::Text {
+                        id: format!("item-{idx}-app"), content: app.to_string(),
+                        tw: format!("text-[11px] font-bold text-{color}-300 whitespace-nowrap"),
+                    },
+                    FakeNode::Text {
+                        id: format!("item-{idx}-msg"), content: msg.to_string(),
+                        tw: "text-[10px] text-gray-400 whitespace-nowrap".into(),
+                    },
+                ],
+            });
+
             FakeNode::Collection {
                 id: format!("item-{idx}"),
                 tw: format!("flex flex-row items-center gap-2 px-3 py-2 bg-{color}-950 rounded-lg"),
-                children: vec![
-                    FakeNode::Collection {
-                        id: format!("item-{idx}-dot"),
-                        tw: format!("flex-shrink-0 w-[6px] h-[6px] rounded-full bg-{color}-400"),
-                        children: vec![],
-                    },
-                    FakeNode::Collection {
-                        id: format!("item-{idx}-body"),
-                        tw: "flex flex-col".into(),
-                        children: vec![
-                            FakeNode::Text {
-                                id: format!("item-{idx}-app"), content: app.to_string(),
-                                tw: format!("text-[11px] font-bold text-{color}-300 whitespace-nowrap"),
-                            },
-                            FakeNode::Text {
-                                id: format!("item-{idx}-msg"), content: msg.to_string(),
-                                tw: "text-[10px] text-gray-400 whitespace-nowrap".into(),
-                            },
-                        ],
-                    },
-                ],
+                children,
             }
         }).collect();
 
