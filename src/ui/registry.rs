@@ -4,6 +4,7 @@ use crate::ui::components::{
         __UI_ENTRY_CARD, __UI_ENTRY_CARD_CONTENT, __UI_ENTRY_CARD_DESCRIPTION,
         __UI_ENTRY_CARD_FOOTER, __UI_ENTRY_CARD_HEADER, __UI_ENTRY_CARD_TITLE,
     },
+    icon::__UI_ENTRY_ICON,
     progress::__UI_ENTRY_PROGRESS,
     table::datatable::__UI_ENTRY_DATA_TABLE,
     table::{
@@ -23,6 +24,7 @@ pub struct UiEntry {
 pub const UI_COMPONENTS: &[UiEntry] = &[
     __UI_ENTRY_BADGE,
     __UI_ENTRY_CARD,
+    __UI_ENTRY_ICON,
     __UI_ENTRY_CARD_HEADER,
     __UI_ENTRY_CARD_TITLE,
     __UI_ENTRY_CARD_DESCRIPTION,
