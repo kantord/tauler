@@ -78,45 +78,43 @@ estimated_time(candidate) = O_fixed + k_area × canvas_area + k_nodes × n_nodes
 merge if: savings_from_one_fewer_call > extra_area_cost + extra_node_cost
 ```
 
-**PoC calibration** (OLS on ~56 render samples, R² = 0.996):
+**Release-build calibration** (OLS on 199 samples, R²=0.742):
 
-| Coefficient | Calibrated value | Initial guess | Error |
+| Coefficient | Release value | CV (bootstrap) | Verdict |
 |---|---|---|---|
-| `O_fixed` | 0.050 ms | 1.0 ms | 20× over |
-| `k_area` | 2.97×10⁻⁵ ms/px | 4×10⁻⁵ ms/px | ~25% over |
-| `k_nodes` | 0.106 ms/node | 0.3 ms/node | 3× over |
+| `O_fixed` | ~0.95 ms | **73%** | unstable — but irrelevant (see below) |
+| `k_area` | 9.2×10⁻⁵ ms/px² | 24% | stable enough to hardcode |
+| `k_nodes` | 0.83 ms/node | 18% | stable; carries signal (keep) |
 
-The bad initial `O_fixed` caused over-merging; calibration fixed it.
+**Model selection:** dropping `k_nodes` costs 0.115 R² (0.742→0.627) — too
+large to discard. **Keep the 3-param model.**
 
-### Cost model collapse plan
+**Key finding — O_fixed is irrelevant in practice:** a sensitivity sweep varying
+O_fixed ×0.5/1.0/2.0 showed **0% change** in merge decisions across all 16
+suites. The reason: nearly every frame produces exactly one render candidate
+after categorical split, leaving nothing for the greedy merge to act on. O_fixed
+controls when merging two *separate* candidates is worthwhile; with only one
+candidate per frame it never fires. Any value in the right order of magnitude
+(0.5–2.0 ms) works.
 
-The OLS runtime calibration is a **PoC diagnostic tool**, not a production
-feature. Before production, the model should be collapsed to hardcoded constants.
+**Node type split:** not worth pursuing. k_nodes=0.83ms/node is a useful average
+that makes correct merge decisions; the uniform model never demonstrably
+mis-merges in the 16-suite benchmark.
 
-**Steps before collapsing:**
+### Collapse decision (ready to execute)
 
-1. **Model selection** — compare 3-param (`O_fixed + k_area + k_nodes`) vs
-   2-param (`O_fixed + k_area` only). If R² is similar, drop `k_nodes` —
-   simpler merge formula, no node-counting needed.
+All pre-collapse steps are complete.  Hardcode:
 
-2. **Sensitivity analysis** — vary `O_fixed` ±50%, measure how often merge
-   decisions actually change. If the answer is "rarely", the constant is robust
-   and any value in the right order of magnitude works.
+```rust
+const O_FIXED_MS:  f64 = 1.0;          // round number; sensitivity shows it's irrelevant
+const K_AREA:      f64 = 9.2e-5;       // ms per px² of candidate canvas
+const K_NODES:     f64 = 0.83;         // ms per node in candidate whitelist
+```
 
-3. **Node type split** — `k_nodes` currently treats text, image, and container
-   nodes identically. Text shaping dominates; containers are nearly free.
-   Splitting into `k_text` / `k_nontext` would improve accuracy at the cost
-   of tracking node type counts per candidate. Worth it only if the uniform
-   model makes materially wrong merge decisions.
-
-4. **Stability check** — run calibration N times, measure variance of each
-   coefficient. High variance → the constant is noise-sensitive and a simple
-   default is safer than a calibrated value.
-
-5. **Collapse** — hardcode the final values as compile-time constants in
-   `PartialRenderContext::default()`. Make them config-file tuneable
-   (`o_fixed_ms`, `k_area`, `k_nodes`) with the calibrated values as defaults.
-   Remove the OLS machinery and the two-pass benchmark loop from production code.
+Remove: OLS machinery (`fit_cost_model`, `fit_2param`, `bootstrap_stability`,
+`CalibrationResult`), Pass 1 calibration run, and the sensitivity sweep block in
+`main`.  Replace with a single `let cm = CostModel::default();` using the
+constants above.
 
 ---
 

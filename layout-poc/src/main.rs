@@ -1453,6 +1453,63 @@ fn greedy_merge_candidates(mut cs: Vec<RenderCandidate>, cm: &CostModel) -> Vec<
 // OLS self-calibration
 // ---------------------------------------------------------------------------
 
+/// 2-param OLS: time_ms = o_fixed + k_area × canvas_area  (k_nodes dropped).
+/// Returns (o_fixed, k_area, r_squared).
+fn fit_2param(samples: &[(f64, f64, f64)]) -> Option<(f64, f64, f64)> {
+    let n = samples.len() as f64;
+    if samples.len() < 3 {
+        return None;
+    }
+    let sum_a: f64 = samples.iter().map(|&(a, _, _)| a).sum();
+    let sum_t: f64 = samples.iter().map(|&(_, _, t)| t).sum();
+    let sum_a2: f64 = samples.iter().map(|&(a, _, _)| a * a).sum();
+    let sum_at: f64 = samples.iter().map(|&(a, _, t)| a * t).sum();
+    let det = n * sum_a2 - sum_a * sum_a;
+    if det.abs() < 1e-14 {
+        return None;
+    }
+    let k = (n * sum_at - sum_a * sum_t) / det;
+    let o = (sum_t - k * sum_a) / n;
+    let mean_t = sum_t / n;
+    let ss_tot: f64 = samples.iter().map(|&(_, _, t)| (t - mean_t).powi(2)).sum();
+    let ss_res: f64 = samples.iter().map(|&(a, _, t)| (t - (o + k * a)).powi(2)).sum();
+    let r2 = if ss_tot > 1e-15 { (1.0 - ss_res / ss_tot).max(0.0) } else { 0.0 };
+    Some((o.max(0.05), k.max(1e-7), r2))
+}
+
+/// Bootstrap stability: resample `samples` with replacement 20 times, fit each,
+/// return (std_dev_o_fixed, std_dev_k_area, std_dev_k_nodes).
+fn bootstrap_stability(samples: &[(f64, f64, f64)]) -> (f64, f64, f64) {
+    let mut o_vals: Vec<f64> = Vec::new();
+    let mut ka_vals: Vec<f64> = Vec::new();
+    let mut kn_vals: Vec<f64> = Vec::new();
+    // Cheap LCG for deterministic resampling without pulling in rand.
+    let mut rng: u64 = 0xdeadbeef_cafebabe;
+    for _ in 0..20 {
+        let resample: Vec<(f64, f64, f64)> = (0..samples.len())
+            .map(|_| {
+                rng ^= rng << 13;
+                rng ^= rng >> 7;
+                rng ^= rng << 17;
+                samples[rng as usize % samples.len()]
+            })
+            .collect();
+        if let Some(c) = fit_cost_model(&resample) {
+            o_vals.push(c.model.o_fixed);
+            ka_vals.push(c.model.k_area);
+            kn_vals.push(c.model.k_nodes);
+        }
+    }
+    fn sd(v: &[f64]) -> f64 {
+        if v.len() < 2 {
+            return 0.0;
+        }
+        let m = v.iter().sum::<f64>() / v.len() as f64;
+        (v.iter().map(|x| (x - m).powi(2)).sum::<f64>() / v.len() as f64).sqrt()
+    }
+    (sd(&o_vals), sd(&ka_vals), sd(&kn_vals))
+}
+
 /// Fit  time_ms = o_fixed + k_area × canvas_area + k_nodes × n_nodes
 /// from observed render samples using ordinary least squares.
 ///
@@ -3359,7 +3416,7 @@ fn main() {
         run_suite(suite, &default_cm, &mut cal_samples);
     }
 
-    // ── OLS fit ───────────────────────────────────────────────────────────────
+    // ── OLS fit (3-param) ─────────────────────────────────────────────────────
     let cal = fit_cost_model(&cal_samples);
     let cm = cal.as_ref().map(|c| c.model.clone()).unwrap_or_default();
 
@@ -3379,6 +3436,82 @@ fn main() {
             msg
         }
     };
+
+    // ── Model selection: 2-param vs 3-param ──────────────────────────────────
+    eprintln!("\n── Model selection ──────────────────────────────────────────");
+    if let Some((o2, ka2, r2_2)) = fit_2param(&cal_samples) {
+        let r2_3 = cal.as_ref().map(|c| c.r_squared).unwrap_or(0.0);
+        eprintln!("  3-param (O+area+nodes): R²={r2_3:.3}");
+        eprintln!("  2-param (O+area only):  R²={r2_2:.3}  O={o2:.4} ms  K_AREA={ka2:.3e}");
+        let delta = r2_3 - r2_2;
+        if delta < 0.02 {
+            eprintln!("  → R² drop = {delta:.3} < 0.02  ✓  k_nodes is noise — DROP IT");
+        } else {
+            eprintln!("  → R² drop = {delta:.3} ≥ 0.02  ✗  k_nodes carries signal — KEEP IT");
+        }
+    }
+
+    // ── Bootstrap stability (20 resamples) ────────────────────────────────────
+    eprintln!("\n── Bootstrap stability (20 resamples) ───────────────────────");
+    let (sd_o, sd_ka, sd_kn) = bootstrap_stability(&cal_samples);
+    let o_fixed = cm.o_fixed;
+    let k_area  = cm.k_area;
+    let k_nodes = cm.k_nodes;
+    eprintln!(
+        "  O_FIXED:  {o_fixed:.4} ± {sd_o:.4} ms  ({:.0}% CV)",
+        sd_o / o_fixed * 100.0
+    );
+    eprintln!(
+        "  K_AREA:   {k_area:.3e} ± {sd_ka:.3e}  ({:.0}% CV)",
+        sd_ka / k_area * 100.0
+    );
+    eprintln!(
+        "  K_NODES:  {k_nodes:.4} ± {sd_kn:.4} ms/node  ({:.0}% CV)",
+        sd_kn / k_nodes * 100.0
+    );
+    if sd_o / o_fixed < 0.15 && sd_ka / k_area < 0.15 {
+        eprintln!("  → All CV < 15%  ✓  constants are stable enough to hardcode");
+    } else {
+        eprintln!("  → High variance — constants are noise-sensitive, default safer");
+    }
+
+    // ── Sensitivity: vary O_FIXED ±50%, count changed merge decisions ─────────
+    eprintln!("\n── O_FIXED sensitivity (×0.5 / ×1.0 / ×2.0) ────────────────");
+    let mut discard = Vec::new();
+    let factors = [0.5f64, 1.0, 2.0];
+    let mut total_calls = [0u32; 3];
+    for (i, &f) in factors.iter().enumerate() {
+        let test_cm = CostModel { o_fixed: cm.o_fixed * f, ..cm.clone() };
+        total_calls[i] = suites_defs
+            .iter()
+            .map(|s| {
+                run_suite(s, &test_cm, &mut discard)
+                    .frames
+                    .iter()
+                    .map(|fr| fr.render_calls)
+                    .sum::<u32>()
+            })
+            .sum();
+    }
+    for (i, &f) in factors.iter().enumerate() {
+        let diff_pct = (total_calls[i] as i32 - total_calls[1] as i32).unsigned_abs() as f64
+            / total_calls[1] as f64
+            * 100.0;
+        eprintln!(
+            "  ×{f:.1}: {} render calls  (Δ {diff_pct:.1}% from baseline)",
+            total_calls[i]
+        );
+    }
+    let max_dev = (total_calls[0].abs_diff(total_calls[1]))
+        .max(total_calls[2].abs_diff(total_calls[1])) as f64
+        / total_calls[1] as f64
+        * 100.0;
+    if max_dev < 5.0 {
+        eprintln!("  → Max deviation {max_dev:.1}% < 5%  ✓  O_FIXED is robust — any value in right order works");
+    } else {
+        eprintln!("  → Max deviation {max_dev:.1}% ≥ 5%  ✗  O_FIXED materially affects merge decisions");
+    }
+    eprintln!();
 
     // ── Pass 2: benchmark with calibrated constants ───────────────────────────
     eprintln!("Pass 2/2 — benchmark with calibrated cost model...");
