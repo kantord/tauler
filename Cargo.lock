@@ -687,7 +687,7 @@ dependencies = [
  "json-canon",
  "libc",
  "notify",
- "oxc_allocator 0.124.0",
+ "oxc_allocator 0.128.0",
  "oxc_ast 0.128.0",
  "oxc_codegen",
  "oxc_parser",
