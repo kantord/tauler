@@ -10,4 +10,4 @@ proc-macro = true
 rstml = "0.12"
 syn = { version = "2", features = ["full"] }
 quote = "1"
-proc-macro2 = "1"
+proc-macro2 = "1.0.106"
