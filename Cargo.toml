@@ -39,7 +39,7 @@ anyhow = "1.0.102"
 serde_yaml = "0.9.34"
 costae-lifecycle-derive = { path = "costae-lifecycle-derive" }
 costae-ui-macro = { path = "costae-ui-macro" }
-notify = "6.1.1"
+notify = "8.2.0"
 smithay-client-toolkit = "0.20.0"
 wayland-client = "0.31.14"
 cached = { version = "0.59.0", features = ["proc_macro"] }
