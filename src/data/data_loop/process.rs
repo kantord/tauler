@@ -7,7 +7,7 @@ use std::sync::mpsc;
 use std::thread;
 
 use crate::managed_set::Lifecycle;
-use costae_lifecycle_derive::lifecycle_trace;
+use tauler_lifecycle_derive::lifecycle_trace;
 
 use super::{StreamItem, StreamKind};
 
@@ -128,7 +128,7 @@ pub(super) fn spawn_process(
     // If a script is provided, write it to a memfd and pass the path as an argument.
     #[allow(clippy::option_if_let_else)]
     let _memfd_file = if let Some(ref content) = spec.script {
-        let fd = unsafe { libc::memfd_create(c"costae-script".as_ptr(), 0) };
+        let fd = unsafe { libc::memfd_create(c"tauler-script".as_ptr(), 0) };
         if fd < 0 {
             return Err(SpawnError::MemfdCreateFailed {
                 bin: spec.identity.bin.clone(),

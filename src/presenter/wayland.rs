@@ -1,10 +1,10 @@
 use std::sync::mpsc;
 
 use super::drain_commands;
-use costae::layout::OutputInfo;
-use costae::presentation::{PanelCommand, PresentationThread, PresenterEvent};
-use costae::windowing::wayland::WaylandDisplayServer;
-use costae::windowing::{DisplayServer, WindowEvent};
+use tauler::layout::OutputInfo;
+use tauler::presentation::{PanelCommand, PresentationThread, PresenterEvent};
+use tauler::windowing::wayland::WaylandDisplayServer;
+use tauler::windowing::{DisplayServer, WindowEvent};
 
 fn apply_wayland_cmd(pt: &mut PresentationThread<WaylandDisplayServer>, cmd: PanelCommand) {
     let PresentationThread {

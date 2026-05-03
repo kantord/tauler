@@ -43,12 +43,12 @@ Fan-out arises naturally when one level's desired state is a collection and each
 its own child reconciler. No special framework support needed — it falls out of
 `Lifecycle::enter()` creating a child `ManagedSet`.
 
-Fan-out already exists in the actual costae config at three levels:
+Fan-out already exists in the actual tauler config at three levels:
 
 ```
 root
 ├── sidebar panel (static)
-│   ├── costae-i3 process
+│   ├── tauler-i3 process
 │   ├── weather process
 │   └── 2× bash processes (BashCard)
 ├── outputs.map(o => <panel>)       ← fan-out: 1 stream → N monitor-dot panels

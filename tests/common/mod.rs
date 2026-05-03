@@ -3,7 +3,7 @@
 use std::collections::HashMap;
 use std::path::Path;
 
-use costae::jsx::{EvalOutput, JsxEvaluator};
+use tauler::jsx::{EvalOutput, JsxEvaluator};
 
 pub fn eval_jsx(source: &str) -> EvalOutput {
     JsxEvaluator::new(source, serde_json::Value::Null, None)

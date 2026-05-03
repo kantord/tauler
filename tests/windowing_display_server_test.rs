@@ -1,6 +1,6 @@
 use std::os::fd::RawFd;
 
-use costae::windowing::{DispatchError, DisplayServer, WindowEvent};
+use tauler::windowing::{DispatchError, DisplayServer, WindowEvent};
 
 // ---------------------------------------------------------------------------
 // In-test stub — no real Wayland or X11 connection required.

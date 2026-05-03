@@ -1,4 +1,4 @@
-use costae::has_fullscreen_on_output;
+use tauler::has_fullscreen_on_output;
 
 fn make_window(id: u64, fullscreen_mode: u64) -> serde_json::Value {
     serde_json::json!({

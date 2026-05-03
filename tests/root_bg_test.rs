@@ -1,4 +1,4 @@
-use costae::{solid_color_rgba, x11_bgrx_to_rgba};
+use tauler::{solid_color_rgba, x11_bgrx_to_rgba};
 
 #[test]
 fn converts_bgrx_pixel_to_rgba() {

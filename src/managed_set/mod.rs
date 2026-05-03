@@ -673,7 +673,7 @@ mod tests {
 
     mod lifecycle_trace_tests {
         use super::super::*;
-        use costae_lifecycle_derive::lifecycle_trace;
+        use tauler_lifecycle_derive::lifecycle_trace;
 
         struct TraceSpec {
             id: String,

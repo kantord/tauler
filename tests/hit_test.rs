@@ -1,4 +1,4 @@
-use costae::{hit_test, MeasuredNode};
+use tauler::{hit_test, MeasuredNode};
 
 fn node(x: f32, y: f32, w: f32, h: f32, children: Vec<MeasuredNode>) -> MeasuredNode {
     MeasuredNode {

@@ -1,5 +1,5 @@
-pub use costae_ui_macro::component;
-pub use costae_ui_macro::rsx;
+pub use tauler_ui_macro::component;
+pub use tauler_ui_macro::rsx;
 use serde::{Deserialize, Serialize};
 
 pub mod components;

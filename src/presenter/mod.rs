@@ -1,4 +1,4 @@
-use costae::presentation::PanelCommand;
+use tauler::presentation::PanelCommand;
 use std::sync::mpsc;
 use std::time::Duration;
 

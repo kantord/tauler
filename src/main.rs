@@ -3,11 +3,11 @@ use std::sync::{mpsc, Arc};
 use std::thread;
 use std::time::Duration;
 
-use costae::config::{CostaeConfig, FontConfig};
-use costae::data::data_loop::{DataLoop, StreamItem};
-use costae::init_global_ctx;
-use costae::windowing::wayland::WaylandDisplayServer;
-use costae::x11::panel::{i3_dpi, PanelContext};
+use tauler::config::{TaulerConfig, FontConfig};
+use tauler::data::data_loop::{DataLoop, StreamItem};
+use tauler::init_global_ctx;
+use tauler::windowing::wayland::WaylandDisplayServer;
+use tauler::x11::panel::{i3_dpi, PanelContext};
 use x11rb::{
     connection::Connection,
     protocol::{randr::ConnectionExt as RandrExt, xproto::*},
@@ -22,7 +22,7 @@ const FREEZE_WATCHDOG_POLL_SECS: u64 = 10;
 const FREEZE_STALE_THRESHOLD_SECS: u64 = 10;
 
 fn detect_backend() -> &'static str {
-    if let Ok(b) = std::env::var("COSTAE_BACKEND") {
+    if let Ok(b) = std::env::var("TAULER_BACKEND") {
         if b == "wayland" {
             return "wayland";
         }
@@ -139,7 +139,7 @@ fn setup_file_watchers(
 fn load_font_config(config_path: &std::path::Path) -> FontConfig {
     std::fs::read_to_string(config_path)
         .ok()
-        .and_then(|yaml| CostaeConfig::from_yaml(&yaml).ok())
+        .and_then(|yaml| TaulerConfig::from_yaml(&yaml).ok())
         .map(|c| c.fonts)
         .unwrap_or_default()
 }
@@ -156,7 +156,7 @@ fn init_x11() -> Result<X11Init, Box<dyn std::error::Error>> {
     let output_info = conn.randr_get_output_info(primary_output, 0)?.reply()?;
     let output_name = String::from_utf8_lossy(&output_info.name).into_owned();
 
-    let output_map = costae::x11::outputs::build_output_map(&conn, screen.root);
+    let output_map = tauler::x11::outputs::build_output_map(&conn, screen.root);
 
     let (screen_width_logical, screen_height_logical) = output_map
         .get(&output_name)
@@ -218,15 +218,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let log_path = {
         let home = std::env::var("HOME").unwrap_or_default();
-        format!("{home}/.local/share/costae-crash.log")
+        format!("{home}/.local/share/tauler-crash.log")
     };
     install_panic_hook(log_path.clone());
 
     let exe_path = std::env::current_exe().unwrap_or_default();
 
     let home = std::env::var("HOME").unwrap_or_default();
-    let layout_jsx_path = std::path::PathBuf::from(&home).join(".config/costae/layout.jsx");
-    let config_yaml_path = std::path::PathBuf::from(&home).join(".config/costae/config.yaml");
+    let layout_jsx_path = std::path::PathBuf::from(&home).join(".config/tauler/layout.jsx");
+    let config_yaml_path = std::path::PathBuf::from(&home).join(".config/tauler/config.yaml");
 
     let font_config = load_font_config(&config_yaml_path);
 
@@ -308,10 +308,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // run() returned because stop was set (binary reload). App::drop handles cleanup.
     use std::os::unix::process::CommandExt;
     let mut cmd = std::process::Command::new(&exe_path);
-    cmd.env("COSTAE_BACKEND", backend);
+    cmd.env("TAULER_BACKEND", backend);
     if let Ok(mtime) = std::fs::metadata(&exe_path).and_then(|m| m.modified()) {
         if let Ok(dur) = mtime.duration_since(std::time::UNIX_EPOCH) {
-            cmd.env("COSTAE_EXE_MTIME_NS", dur.as_nanos().to_string());
+            cmd.env("TAULER_EXE_MTIME_NS", dur.as_nanos().to_string());
         }
     }
     let _ = cmd.exec();

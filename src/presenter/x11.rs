@@ -1,9 +1,9 @@
 use std::sync::{mpsc, Arc};
 
-use costae::layout::OutputInfo;
-use costae::presentation::{PanelCommand, PresentationThread, PresenterEvent};
-use costae::x11::outputs::build_output_map;
-use costae::x11::panel::{put_image_chunked, resolve_panel_dpr, X11PanelContext};
+use tauler::layout::OutputInfo;
+use tauler::presentation::{PanelCommand, PresentationThread, PresenterEvent};
+use tauler::x11::outputs::build_output_map;
+use tauler::x11::panel::{put_image_chunked, resolve_panel_dpr, X11PanelContext};
 use x11rb::connection::Connection as _;
 use x11rb::protocol::randr::{ConnectionExt as RandrExt, NotifyMask};
 

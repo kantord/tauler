@@ -25,7 +25,7 @@ fn expire_ms(timeout: i32) -> Option<u64> {
 
 #[tokio::main]
 async fn main() {
-    // Drain stdin so costae doesn't block when it writes the init event; we
+    // Drain stdin so tauler doesn't block when it writes the init event; we
     // don't need any of its fields for a notification daemon.
     tokio::task::spawn_blocking(|| {
         use std::io::BufRead;
@@ -52,7 +52,7 @@ async fn main() {
         .await
         .expect("D-Bus connection failed");
 
-    // Emit empty list immediately so costae has an initial value.
+    // Emit empty list immediately so tauler has an initial value.
     emit(&[]);
 
     let mut notifications: Vec<Notification> = Vec::new();

@@ -1,6 +1,6 @@
-# costae architecture specification
+# tauler architecture specification
 
-costae is a **status bar and widget system** for Linux desktops. It is not a general-purpose
+tauler is a **status bar and widget system** for Linux desktops. It is not a general-purpose
 GUI framework. The scope is desktop shell surfaces: bars, docks, notification areas, and
 similar widgets. Layouts are declared in JSX, data comes from subprocess streams, and
 rendering is done in software via takumi + tiny-skia.
@@ -48,7 +48,7 @@ OXC transform + wrap: **<1ms** (layout-file-change only). QuickJS `_render()` ca
 ### Sandbox
 
 rquickjs is deny-by-default. No filesystem, network, or process access unless explicitly
-registered from Rust. costae exposes only `useStringStream`, `useJSONStream`, `Module`,
+registered from Rust. tauler exposes only `useStringStream`, `useJSONStream`, `Module`,
 `globals`, and `ctx`.
 
 ### Example layout file
@@ -69,7 +69,7 @@ function TimeCard() {
 <root>
   <panel anchor="left" width={250} height={ctx.screen_height}>
     <container tw="flex flex-col h-full w-full px-4 py-4">
-      <Module bin="/home/kantord/.cargo/bin/costae-i3">
+      <Module bin="/home/kantord/.cargo/bin/tauler-i3">
         {(data, events) => <WorkspaceList workspaces={data?.workspaces} events={events} />}
       </Module>
       <TimeCard />
@@ -203,7 +203,7 @@ click is detected, Rust performs a hit-test on the rendered tree, finds the `on_
 value, and writes it to the subprocess's stdin. No JS executes on click.
 
 ```jsx
-<Module bin="/home/kantord/.cargo/bin/costae-i3">
+<Module bin="/home/kantord/.cargo/bin/tauler-i3">
   {(data, events) => (
     <WorkspaceList workspaces={data?.workspaces} events={events} />
   )}

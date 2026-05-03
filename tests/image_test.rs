@@ -1,5 +1,5 @@
-use costae::config::FontConfig;
-use costae::{init_global_ctx, preload_layout_images, with_global_ctx};
+use tauler::config::FontConfig;
+use tauler::{init_global_ctx, preload_layout_images, with_global_ctx};
 
 fn write_temp_png() -> std::path::PathBuf {
     let path = std::env::temp_dir().join("costae_test_1x1.png");

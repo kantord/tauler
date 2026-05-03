@@ -1,4 +1,4 @@
-// costae-screenshot: render a JSX layout to a PNG file.
+// tauler-screenshot: render a JSX layout to a PNG file.
 //
 // Pipeline:
 //  1. Parse args (clap)
@@ -13,9 +13,9 @@
 use std::collections::HashMap;
 
 use clap::Parser;
-use costae::jsx::{EvalOutput, JsxEvaluator};
-use costae::theme::resolver::resolve_tw_in_json;
-use costae::theme::ThemeMode;
+use tauler::jsx::{EvalOutput, JsxEvaluator};
+use tauler::theme::resolver::resolve_tw_in_json;
+use tauler::theme::ThemeMode;
 use image::RgbaImage;
 
 fn parse_theme_mode(s: &str) -> Result<ThemeMode, String> {
@@ -27,7 +27,7 @@ fn parse_theme_mode(s: &str) -> Result<ThemeMode, String> {
 }
 
 #[derive(Parser)]
-#[command(name = "costae-screenshot")]
+#[command(name = "tauler-screenshot")]
 struct Args {
     #[arg(long)]
     input: String,
@@ -58,11 +58,11 @@ fn main() {
     let source = std::fs::read_to_string(&args.input)
         .unwrap_or_else(|e| panic!("failed to read {}: {}", args.input, e));
 
-    costae::init_global_ctx(costae::config::FontConfig {
+    tauler::init_global_ctx(tauler::config::FontConfig {
         primary_path: args.font_path,
         ..Default::default()
     });
-    let theme = costae::theme::Theme::default_theme();
+    let theme = tauler::theme::Theme::default_theme();
 
     let eval_output: EvalOutput = JsxEvaluator::new(&source, serde_json::Value::Null, None)
         .expect("JsxEvaluator failed")
@@ -92,8 +92,8 @@ fn main() {
     });
     resolve_tw_in_json(&mut canvas, &theme, args.theme);
 
-    let bgrx = costae::render_frame(&canvas, render_w, CANVAS_H, 1.0);
-    let measured = costae::measure_layout_frame(&canvas, render_w, CANVAS_H, 1.0);
+    let bgrx = tauler::render_frame(&canvas, render_w, CANVAS_H, 1.0);
+    let measured = tauler::measure_layout_frame(&canvas, render_w, CANVAS_H, 1.0);
 
     let (obj_x, obj_y, obj_w, obj_h) = if let Some(child) = measured.children.first() {
         let (x, y) = translation_xy(&child.transform);

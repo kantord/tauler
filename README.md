@@ -1,14 +1,14 @@
-# costae
+# tauler
 
-A JSX-based Linux status bar renderer. Layout is written as a `.jsx` file that returns a tree of `<panel>` nodes; costae evaluates it on every data tick and renders to X11 windows.
+A JSX-based Linux status bar renderer. Layout is written as a `.jsx` file that returns a tree of `<panel>` nodes; tauler evaluates it on every data tick and renders to X11 windows.
 
 ## The rendering model vs React
 
-costae uses JSX syntax but the execution model is deliberately simpler than React.
+tauler uses JSX syntax but the execution model is deliberately simpler than React.
 
 **React** is incremental: components have local state, effects manage subscriptions, and re-renders are triggered by state or prop changes. The framework tracks what changed and re-renders the minimum necessary subtree.
 
-**costae** is a pure function called on every tick:
+**tauler** is a pure function called on every tick:
 
 ```
 (all stream values) → UI tree
@@ -28,7 +28,7 @@ useEffect(() => {
 }, []);
 ```
 
-In costae you declare the data source inline and get the latest value synchronously:
+In tauler you declare the data source inline and get the latest value synchronously:
 
 ```jsx
 const time = useStringStream("/usr/bin/bash", "while true; do date; sleep 1; done");
@@ -40,12 +40,12 @@ The runtime manages the subprocess lifecycle. You never write subscription or cl
 
 In React, sharing data between unrelated parts of the tree requires context providers, prop drilling, or external state managers.
 
-In costae, all stream values are computed at the top of the render function and are in scope everywhere — including inside Module render-prop callbacks:
+In tauler, all stream values are computed at the top of the render function and are in scope everywhere — including inside Module render-prop callbacks:
 
 ```jsx
-const notifications = useJSONStream("...costae-notify")?.notifications ?? [];
+const notifications = useJSONStream("...tauler-notify")?.notifications ?? [];
 
-<Module bin="...costae-i3">
+<Module bin="...tauler-i3">
   {(data, events) => {
     // notifications is in scope here — no context, no prop drilling
     const urgent = notifications.some(n => data.workspaces.find(...));

@@ -17,9 +17,9 @@ use takumi::{
     GlobalContext,
 };
 
-use costae::layout::parse_layout;
-use costae::managed_set::reconcile::Reconcile;
-use costae::managed_set::{Lifecycle, ManagedSet};
+use tauler::layout::parse_layout;
+use tauler::managed_set::reconcile::Reconcile;
+use tauler::managed_set::{Lifecycle, ManagedSet};
 // ---------------------------------------------------------------------------
 // GlobalContext factory
 // ---------------------------------------------------------------------------
@@ -2109,7 +2109,7 @@ function showTab(id,btn){{
 }
 
 // ---------------------------------------------------------------------------
-// Realistic sidebar suite — mirrors actual costae layout
+// Realistic sidebar suite — mirrors actual tauler layout
 // ---------------------------------------------------------------------------
 
 fn suite_realistic_sidebar() -> TestSuite {

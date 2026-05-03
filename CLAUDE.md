@@ -13,7 +13,7 @@ Use subagents for each stage:
 
 ## Deployment
 
-- Rust code changes: `cargo build --release` — costae watches its own binary and re-execs automatically
-- `costae-i3` is a separate binary; build with `cargo build --release -p costae-i3` and replace atomically: `cp target/release/costae-i3 ~/.cargo/bin/costae-i3.new && mv ~/.cargo/bin/costae-i3.new ~/.cargo/bin/costae-i3`
-- Config-only changes: `chezmoi apply ~/.config/costae/config.yaml` — costae hot-reloads it within 500ms, no restart needed
+- Rust code changes: `cargo build --release` — tauler watches its own binary and re-execs automatically
+- `tauler-i3` is a separate binary; build with `cargo build --release -p tauler-i3` and replace atomically: `cp target/release/tauler-i3 ~/.cargo/bin/tauler-i3.new && mv ~/.cargo/bin/tauler-i3.new ~/.cargo/bin/tauler-i3`
+- Config-only changes: `chezmoi apply ~/.config/tauler/config.yaml` — tauler hot-reloads it within 500ms, no restart needed
 - `bar_width` or `outer_gap` changes trigger a full re-exec automatically

@@ -1,5 +1,5 @@
-use costae::config::FontConfig;
-use costae::{init_global_ctx, parse_layout, render_frame, with_global_ctx};
+use tauler::config::FontConfig;
+use tauler::{init_global_ctx, parse_layout, render_frame, with_global_ctx};
 use takumi::{
     layout::Viewport,
     rendering::{measure_layout, RenderOptions},

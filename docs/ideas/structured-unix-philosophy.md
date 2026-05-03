@@ -2,7 +2,7 @@
 
 ## Core idea
 
-costae's internal message-passing should follow a "structured unix philosophy": every
+tauler's internal message-passing should follow a "structured unix philosophy": every
 message is a typed Rust value that is always round-trippable to and from JSON. The wire
 format at process boundaries is JSONL (one JSON object per line), but internally no
 serialization happens — components communicate over typed channels.
@@ -39,7 +39,7 @@ common substrate instead of newline-delimited text.
 
 ## Current state
 
-costae does not follow this yet. The current `StreamItem` type carries a `line: String`
+tauler does not follow this yet. The current `StreamItem` type carries a `line: String`
 which is raw JSONL text produced by external processes — deserialization happens
 inconsistently and only in some consumers. Internal components (e.g. file watchers,
 layout reload signals) use ad-hoc channel types with no defined JSON shape. There is no

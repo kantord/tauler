@@ -3,7 +3,7 @@ use std::sync::{mpsc, Arc};
 use std::thread::JoinHandle;
 
 use crate::managed_set::Lifecycle;
-use costae_lifecycle_derive::lifecycle_trace;
+use tauler_lifecycle_derive::lifecycle_trace;
 
 use super::StreamItem;
 

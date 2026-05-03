@@ -30,14 +30,14 @@ pub struct FontConfig {
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
-pub struct CostaeConfig {
+pub struct TaulerConfig {
     #[serde(default)]
     pub theme: ThemeConfig,
     #[serde(default)]
     pub fonts: FontConfig,
 }
 
-impl CostaeConfig {
+impl TaulerConfig {
     pub fn from_yaml(yaml: &str) -> Result<Self, serde_yaml::Error> {
         serde_yaml::from_str(yaml)
     }
@@ -51,23 +51,23 @@ mod tests {
     #[test]
     fn config_from_yaml_parses_light_theme_mode() {
         let yaml = "theme:\n  mode: light";
-        let config = CostaeConfig::from_yaml(yaml).expect("valid yaml should parse");
+        let config = TaulerConfig::from_yaml(yaml).expect("valid yaml should parse");
         assert_eq!(config.theme.mode, ThemeMode::Light);
     }
 
     #[test]
     fn config_from_yaml_defaults_to_dark_when_theme_absent() {
-        let config = CostaeConfig::from_yaml("").expect("empty yaml should parse");
+        let config = TaulerConfig::from_yaml("").expect("empty yaml should parse");
         assert_eq!(config.theme.mode, ThemeMode::Dark);
     }
 
     #[test]
     fn config_from_yaml_parses_optional_theme_file() {
-        let yaml = "theme:\n  mode: dark\n  file: ~/.config/costae/my-theme.yaml";
-        let config = CostaeConfig::from_yaml(yaml).expect("valid yaml should parse");
+        let yaml = "theme:\n  mode: dark\n  file: ~/.config/tauler/my-theme.yaml";
+        let config = TaulerConfig::from_yaml(yaml).expect("valid yaml should parse");
         assert_eq!(
             config.theme.file.as_deref(),
-            Some("~/.config/costae/my-theme.yaml")
+            Some("~/.config/tauler/my-theme.yaml")
         );
     }
 }

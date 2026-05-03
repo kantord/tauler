@@ -1,5 +1,5 @@
-use costae::config::FontConfig;
-use costae::{init_global_ctx, parse_layout, render_frame, render_frame_rgba};
+use tauler::config::FontConfig;
+use tauler::{init_global_ctx, parse_layout, render_frame, render_frame_rgba};
 
 #[test]
 fn render_frame_respects_width_parameter() {

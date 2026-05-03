@@ -1,4 +1,4 @@
-use costae::windowing::{MouseButton, WindowEvent};
+use tauler::windowing::{MouseButton, WindowEvent};
 
 #[test]
 fn mouse_button_variants_are_distinct() {
