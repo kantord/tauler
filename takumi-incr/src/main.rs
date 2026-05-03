@@ -3,6 +3,7 @@ use std::num::NonZeroUsize;
 use std::time::{Duration, Instant};
 
 use lru::LruCache;
+use parley::fontique::GenericFamily;
 
 use anyhow::Result;
 use image::{ImageBuffer, Rgba};
@@ -25,7 +26,15 @@ use costae::managed_set::{Lifecycle, ManagedSet};
 
 fn new_ctx() -> GlobalContext {
     let mut ctx = GlobalContext::default();
-    ctx.font_context.collection.load_system_fonts();
+    let font_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../assets/fonts/inter/InterVariable.ttf");
+    ctx.font_context.collection.load_fonts_from_paths(std::iter::once(&font_path));
+    if let Some(info) = ctx.font_context.collection.family_by_name("Inter Variable") {
+        ctx.font_context.collection.set_generic_families(
+            GenericFamily::SansSerif,
+            std::iter::once(info.id()),
+        );
+    }
     let assets_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("test-assets");
     if let Ok(entries) = std::fs::read_dir(&assets_dir) {
         for entry in entries.flatten() {
