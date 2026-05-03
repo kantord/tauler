@@ -78,43 +78,37 @@ estimated_time(candidate) = O_fixed + k_area × canvas_area + k_nodes × n_nodes
 merge if: savings_from_one_fewer_call > extra_area_cost + extra_node_cost
 ```
 
-**Release-build calibration** (OLS on 199 samples, R²=0.742):
+**Release-build calibration** (OLS on 260 samples at TILE_SIZE=24, R²=0.733):
 
-| Coefficient | Release value | CV (bootstrap) | Verdict |
+| Coefficient | Value | CV (bootstrap) | Verdict |
 |---|---|---|---|
-| `O_fixed` | ~0.95 ms | **73%** | unstable — but irrelevant (see below) |
-| `k_area` | 9.2×10⁻⁵ ms/px² | 24% | stable enough to hardcode |
-| `k_nodes` | 0.83 ms/node | 18% | stable; carries signal (keep) |
+| `O_fixed` | 1.0 ms (rounded) | **62%** | unstable — but irrelevant (see below) |
+| `k_area` | 8.75×10⁻⁵ ms/px² | 22% | stable enough to hardcode |
+| `k_nodes` | 0.88 ms/node | 13% | stable; carries signal (keep) |
 
-**Model selection:** dropping `k_nodes` costs 0.115 R² (0.742→0.627) — too
+**Model selection:** dropping `k_nodes` costs 0.131 R² (0.733→0.602) — too
 large to discard. **Keep the 3-param model.**
 
 **Key finding — O_fixed is irrelevant in practice:** a sensitivity sweep varying
-O_fixed ×0.5/1.0/2.0 showed **0% change** in merge decisions across all 16
-suites. The reason: nearly every frame produces exactly one render candidate
-after categorical split, leaving nothing for the greedy merge to act on. O_fixed
-controls when merging two *separate* candidates is worthwhile; with only one
-candidate per frame it never fires. Any value in the right order of magnitude
-(0.5–2.0 ms) works.
+O_fixed ×0.5/1.0/2.0 showed **2.7% change** in merge decisions across all 18
+suites. Any value in the right order of magnitude (0.5–2.0 ms) works.
 
-**Node type split:** not worth pursuing. k_nodes=0.83ms/node is a useful average
+**Node type split:** not worth pursuing. k_nodes=0.88ms/node is a useful average
 that makes correct merge decisions; the uniform model never demonstrably
-mis-merges in the 16-suite benchmark.
+mis-merges in the 18-suite benchmark.
 
-### Collapse decision (ready to execute)
+### Collapse decision (executed ✓)
 
-All pre-collapse steps are complete.  Hardcode:
+OLS machinery removed. Hardcoded constants in source:
 
 ```rust
-const O_FIXED_MS:  f64 = 1.0;          // round number; sensitivity shows it's irrelevant
-const K_AREA:      f64 = 9.2e-5;       // ms per px² of candidate canvas
-const K_NODES:     f64 = 0.83;         // ms per node in candidate whitelist
+const O_FIXED_MS: f64 = 1.0;    // insensitive, rounded
+const K_AREA:     f64 = 8.75e-5; // ms/px², OLS-calibrated at TILE_SIZE=24
+const K_NODES:    f64 = 0.88;    // ms/node, OLS-calibrated at TILE_SIZE=24
 ```
 
-Remove: OLS machinery (`fit_cost_model`, `fit_2param`, `bootstrap_stability`,
-`CalibrationResult`), Pass 1 calibration run, and the sensitivity sweep block in
-`main`.  Replace with a single `let cm = CostModel::default();` using the
-constants above.
+Removed: `fit_cost_model`, `fit_2param`, `bootstrap_stability`, `CalibrationResult`,
+Pass 1 calibration loop, sensitivity sweep, `cal_samples` parameter from `run_suite`.
 
 ---
 
@@ -261,3 +255,28 @@ cargo test -p layout-poc                  # CI: fail if any hash changed
 
 Suites with all-dirty frames (Scroll List): ~1.5× — stub layout savings only,
 no tile skipping possible when every tile changes every frame.
+
+---
+
+## Investigated and rejected optimisations
+
+### Two-level pixel-hash tile cache (✗ wrong abstraction level)
+
+Idea: store `metadata_fp → pixel_hash → Arc<[u8]>` so tiles with identical
+pixels share one buffer and survive metadata fingerprint churn.
+
+**Why it doesn't help:** the tile cache already avoids re-renders on metadata_fp
+hits. A pixel-hash level only saves allocation cost after the render has already
+run — it cannot skip any render calls. Benchmarked: 0% improvement across all 18
+suites, all differences within ±0.1× noise.
+
+The correct level for content-addressed pixel caching is **per-node sub-renders**:
+render each node independently, cache `node_id → pixels`, composite into tiles.
+That skips render calls for unchanged nodes. Requires per-node compositing support
+from the renderer — out of scope for this PoC.
+
+### Arc tile store + zombie LRU (✗ same root problem)
+
+Sharing `Arc<[u8]>` across tile cache entries and keeping recently-evicted tiles
+in a secondary "zombie" LRU has the same limitation: it reduces allocation/copy
+cost but not render call count. Not worth the complexity.

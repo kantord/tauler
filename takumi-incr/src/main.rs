@@ -1459,7 +1459,7 @@ fn run_suite(suite: &TestSuite, cm: &CostModel) -> SuiteResult {
     // Bboxes from the PREVIOUS frame's stub layout, used for moved-node detection
     // so we always compare stub vs stub and avoid false positives.
     let mut prev_stub_bboxes: HashMap<String, Rect> = HashMap::new();
-    // LRU tile render cache: fingerprint → TILE_SIZE×TILE_SIZE×4 bytes.
+    // LRU tile render cache: metadata_fp → TILE_SIZE×TILE_SIZE×4 bytes.
     // Capacity is derived from TILE_CACHE_MB so it auto-adjusts when TILE_SIZE changes.
     let tile_bytes = (TILE_SIZE * TILE_SIZE * 4) as usize;
     let cache_cap =
