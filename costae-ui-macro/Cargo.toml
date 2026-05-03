@@ -7,7 +7,7 @@ edition = "2021"
 proc-macro = true
 
 [dependencies]
-rstml = "0.12"
+rstml = "0.12.1"
 syn = { version = "2.0.117", features = ["full"] }
 quote = "1.0.45"
 proc-macro2 = "1.0.106"
