@@ -85,49 +85,6 @@ impl SceneNode {
         }
     }
 
-    /// Generate the takumi layout JSON for this node.
-    fn to_json(&self) -> serde_json::Value {
-        match self {
-            Self::Text { text, tw, .. } => {
-                serde_json::json!({"type":"text","text":text,"tw":tw})
-            }
-            Self::Image {
-                color,
-                width,
-                height,
-                ..
-            } =>
-            // inline-block so explicit w/h are respected in the block containing context
-            {
-                serde_json::json!({"type":"container","style":{"display":"inline-block"},"tw":format!("w-[{}px] h-[{}px] bg-{}",width,height,color)})
-            }
-            Self::Photo {
-                src, width, height, ..
-            } => serde_json::json!({"type":"image","src":src,"width":width,"height":height}),
-            Self::Collection { tw, children, .. } => {
-                let ch: Vec<_> = children.iter().map(|c| c.to_json()).collect();
-                serde_json::json!({"type":"container","tw":tw,"children":ch})
-            }
-        }
-    }
-
-    fn to_json_with_ids(&self) -> serde_json::Value {
-        let mut v = match self {
-            Self::Text { text, tw, .. } =>
-                serde_json::json!({"type":"text","text":text,"tw":tw}),
-            Self::Image { color, width, height, .. } =>
-                serde_json::json!({"type":"container","style":{"display":"inline-block"},
-                    "tw":format!("w-[{}px] h-[{}px] bg-{}",width,height,color)}),
-            Self::Photo { src, width, height, .. } =>
-                serde_json::json!({"type":"image","src":src,"width":width,"height":height}),
-            Self::Collection { tw, children, .. } => {
-                let ch: Vec<_> = children.iter().map(|c| c.to_json_with_ids()).collect();
-                serde_json::json!({"type":"container","tw":tw,"children":ch})
-            }
-        };
-        v["id"] = serde_json::json!(self.id());
-        v
-    }
 }
 
 impl std::fmt::Display for SceneNode {
@@ -137,46 +94,129 @@ impl std::fmt::Display for SceneNode {
 }
 
 // ---------------------------------------------------------------------------
-// JSON-based node and state types (change tracking only — no pixel buffers)
+// IncrNode — properly typed node for change tracking
 // ---------------------------------------------------------------------------
 
-struct JsonNode {
-    id: String,
-    value: serde_json::Value,
+#[derive(Clone)]
+enum IncrNode {
+    Text {
+        id: String,
+        text: String,
+        tw: String,
+        style: Option<serde_json::Value>,
+    },
+    Image {
+        id: String,
+        src: String,
+        width: Option<f32>,
+        height: Option<f32>,
+        tw: String,
+        style: Option<serde_json::Value>,
+    },
+    Container {
+        id: String,
+        tw: String,
+        style: Option<serde_json::Value>,
+        children: Vec<IncrNode>,
+    },
 }
 
-impl std::fmt::Display for JsonNode {
+impl IncrNode {
+    fn id(&self) -> &str {
+        match self {
+            Self::Text { id, .. } | Self::Image { id, .. } | Self::Container { id, .. } => id,
+        }
+    }
+
+    fn to_json(&self) -> serde_json::Value {
+        match self {
+            Self::Text { text, tw, style, .. } => {
+                let mut v = serde_json::json!({"type":"text","text":text,"tw":tw,"id":self.id()});
+                if let Some(s) = style { v["style"] = s.clone(); }
+                v
+            }
+            Self::Image { src, width, height, tw, style, .. } => {
+                let mut v = serde_json::json!({"type":"image","src":src,"id":self.id()});
+                if let Some(w) = width { v["width"] = serde_json::json!(w); }
+                if let Some(h) = height { v["height"] = serde_json::json!(h); }
+                if !tw.is_empty() { v["tw"] = serde_json::json!(tw); }
+                if let Some(s) = style { v["style"] = s.clone(); }
+                v
+            }
+            Self::Container { tw, style, children, .. } => {
+                let ch: Vec<_> = children.iter().map(|c| c.to_json()).collect();
+                let mut v = serde_json::json!({"type":"container","tw":tw,"children":ch,"id":self.id()});
+                if let Some(s) = style { v["style"] = s.clone(); }
+                v
+            }
+        }
+    }
+
+    fn leaf_hash(&self) -> u64 {
+        let mut h: u64 = 14695981039346656037;
+        match self {
+            Self::Text { text, tw, style, .. } => {
+                h = fnv_mix(h, b"text");
+                h = fnv_mix(h, tw.as_bytes());
+                h = fnv_mix(h, text.as_bytes());
+                if let Some(s) = style { h = fnv_mix(h, s.to_string().as_bytes()); }
+            }
+            Self::Image { src, width, height, tw, style, .. } => {
+                h = fnv_mix(h, b"image");
+                h = fnv_mix(h, tw.as_bytes());
+                h = fnv_mix(h, src.as_bytes());
+                if let Some(w) = width { h = fnv_mix(h, &w.to_bits().to_le_bytes()); }
+                if let Some(ht) = height { h = fnv_mix(h, &ht.to_bits().to_le_bytes()); }
+                if let Some(s) = style { h = fnv_mix(h, s.to_string().as_bytes()); }
+            }
+            Self::Container { tw, style, .. } => {
+                h = fnv_mix(h, b"container");
+                h = fnv_mix(h, tw.as_bytes());
+                if let Some(s) = style { h = fnv_mix(h, s.to_string().as_bytes()); }
+            }
+        }
+        h
+    }
+}
+
+impl SceneNode {
+    fn into_incr_node(self) -> IncrNode {
+        match self {
+            Self::Text { id, text, tw } => IncrNode::Text { id, text, tw, style: None },
+            Self::Image { id, color, width, height } => IncrNode::Container {
+                id,
+                tw: format!("w-[{}px] h-[{}px] bg-{}", width, height, color),
+                style: Some(serde_json::json!({"display":"inline-block"})),
+                children: vec![],
+            },
+            Self::Photo { id, src, width, height } => IncrNode::Image {
+                id,
+                src,
+                width: Some(width as f32),
+                height: Some(height as f32),
+                tw: String::new(),
+                style: None,
+            },
+            Self::Collection { id, tw, children } => IncrNode::Container {
+                id,
+                tw,
+                style: None,
+                children: children.into_iter().map(|c| c.into_incr_node()).collect(),
+            },
+        }
+    }
+}
+
+impl std::fmt::Display for IncrNode {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.id)
+        write!(f, "{}", self.id())
     }
 }
 
-impl JsonNode {
-    fn child_nodes(&self) -> Vec<JsonNode> {
-        self.value["children"].as_array()
-            .map(|arr| arr.iter()
-                .map(|c| JsonNode {
-                    id: c["id"].as_str().unwrap_or("").to_string(),
-                    value: c.clone(),
-                })
-                .collect())
-            .unwrap_or_default()
-    }
-}
-
-struct JsonNodeState {
+struct IncrNodeState {
     id: String,
     leaf_hash: u64,
-    children: ManagedSet<JsonNode>,
-}
-
-fn leaf_hash(v: &serde_json::Value) -> u64 {
-    let mut h = fnv_mix(14695981039346656037u64, v["type"].as_str().unwrap_or("").as_bytes());
-    h = fnv_mix(h, v["tw"].as_str().unwrap_or("").as_bytes());
-    h = fnv_mix(h, v["text"].as_str().unwrap_or("").as_bytes());
-    h = fnv_mix(h, v["src"].as_str().unwrap_or("").as_bytes());
-    if !v["style"].is_null() { h = fnv_mix(h, v["style"].to_string().as_bytes()); }
-    h
+    children: ManagedSet<IncrNode>,
 }
 
 // ---------------------------------------------------------------------------
@@ -216,35 +256,43 @@ struct Rect {
 // Lifecycle — tracks which nodes changed, no rendering
 // ---------------------------------------------------------------------------
 
-impl Lifecycle for JsonNode {
+impl Lifecycle for IncrNode {
     type Key = String;
-    type State = JsonNodeState;
+    type State = IncrNodeState;
     type Context = Ctx;
     type Output = ();
     type Error = anyhow::Error;
 
-    fn key(&self) -> String { self.id.clone() }
+    fn key(&self) -> String { self.id().to_string() }
 
-    fn enter(self, ctx: &mut Ctx, _: &mut ()) -> Result<JsonNodeState> {
-        ctx.changed_ids.push(self.id.clone());
-        let child_nodes = self.child_nodes();
-        let mut children: ManagedSet<JsonNode> = ManagedSet::new();
-        children.reconcile(child_nodes, ctx, &mut ());
-        Ok(JsonNodeState { id: self.id, leaf_hash: leaf_hash(&self.value), children })
+    fn enter(self, ctx: &mut Ctx, _: &mut ()) -> Result<IncrNodeState> {
+        ctx.changed_ids.push(self.id().to_string());
+        let id = self.id().to_string();
+        let hash = self.leaf_hash();
+        let child_list = match &self {
+            IncrNode::Container { children, .. } => children.clone(),
+            _ => vec![],
+        };
+        let mut children: ManagedSet<IncrNode> = ManagedSet::new();
+        children.reconcile(child_list, ctx, &mut ());
+        Ok(IncrNodeState { id, leaf_hash: hash, children })
     }
 
-    fn reconcile_self(self, state: &mut JsonNodeState, ctx: &mut Ctx, _: &mut ()) -> Result<()> {
-        let new_hash = leaf_hash(&self.value);
+    fn reconcile_self(self, state: &mut IncrNodeState, ctx: &mut Ctx, _: &mut ()) -> Result<()> {
+        let new_hash = self.leaf_hash();
         if new_hash != state.leaf_hash {
-            ctx.changed_ids.push(self.id.clone());
+            ctx.changed_ids.push(self.id().to_string());
             state.leaf_hash = new_hash;
         }
-        let child_nodes = self.child_nodes();
-        state.children.reconcile(child_nodes, ctx, &mut ());
+        let child_list = match &self {
+            IncrNode::Container { children, .. } => children.clone(),
+            _ => vec![],
+        };
+        state.children.reconcile(child_list, ctx, &mut ());
         Ok(())
     }
 
-    fn exit(mut state: JsonNodeState, ctx: &mut Ctx, _: &mut ()) -> Result<()> {
+    fn exit(mut state: IncrNodeState, ctx: &mut Ctx, _: &mut ()) -> Result<()> {
         ctx.changed_ids.push(state.id.clone());
         state.children.reconcile(vec![], ctx, &mut ());
         Ok(())
@@ -255,19 +303,17 @@ impl Lifecycle for JsonNode {
 // Bbox collection — walk MeasuredNode + JSON node trees in parallel
 // ---------------------------------------------------------------------------
 
-fn collect_bboxes(measured: &MeasuredNode, node: &serde_json::Value, bboxes: &mut HashMap<String, Rect>) {
-    if let Some(id) = node["id"].as_str() {
-        bboxes.insert(
-            id.to_string(),
-            Rect {
-                x: measured.transform[4],
-                y: measured.transform[5],
-                w: measured.width,
-                h: measured.height,
-            },
-        );
-    }
-    if let Some(children) = node["children"].as_array() {
+fn collect_bboxes(measured: &MeasuredNode, node: &IncrNode, bboxes: &mut HashMap<String, Rect>) {
+    bboxes.insert(
+        node.id().to_string(),
+        Rect {
+            x: measured.transform[4],
+            y: measured.transform[5],
+            w: measured.width,
+            h: measured.height,
+        },
+    );
+    if let IncrNode::Container { children, .. } = node {
         // Taffy's absolute-child layout varies by container type:
         //
         //   Block layout with mixed in-flow + absolute children:
@@ -278,14 +324,16 @@ fn collect_bboxes(measured: &MeasuredNode, node: &serde_json::Value, bboxes: &mu
         //     measured.children = [in_flow_0..N-1, abs_0..M-1]  (inline, actual heights)
         //     No wrapper placeholder node.
         //
-        // Use JSON child counts to distinguish the two cases instead of
+        // Use child counts to distinguish the two cases instead of
         // relying on a zero-height heuristic that only works for block layout.
-        let in_flow_f: Vec<&serde_json::Value> = children.iter()
-            .filter(|c| !c["tw"].as_str().unwrap_or("").split_whitespace().any(|t| t == "absolute"))
-            .collect();
-        let abs_f: Vec<&serde_json::Value> = children.iter()
-            .filter(|c| c["tw"].as_str().unwrap_or("").split_whitespace().any(|t| t == "absolute"))
-            .collect();
+        let is_absolute = |c: &IncrNode| -> bool {
+            let tw = match c {
+                IncrNode::Text { tw, .. } | IncrNode::Image { tw, .. } | IncrNode::Container { tw, .. } => tw.as_str(),
+            };
+            tw.split_whitespace().any(|t| t == "absolute")
+        };
+        let in_flow_f: Vec<&IncrNode> = children.iter().filter(|c| !is_absolute(c)).collect();
+        let abs_f: Vec<&IncrNode> = children.iter().filter(|c| is_absolute(c)).collect();
         if abs_f.is_empty() {
             for (m, f) in measured.children.iter().zip(in_flow_f.iter()) {
                 collect_bboxes(m, f, bboxes);
@@ -346,12 +394,10 @@ fn layout_tw(tw: &str) -> String {
         .join(" ")
 }
 
-fn stub_scene_json(node: &serde_json::Value, dims: &HashMap<String, (f32, f32)>) -> serde_json::Value {
-    match node["type"].as_str() {
-        Some("text") => {
-            let id = node["id"].as_str().unwrap_or("");
-            let tw = node["tw"].as_str().unwrap_or("");
-            let (w, h) = dims.get(id).copied().unwrap_or((0.0, 0.0));
+fn stub_scene_json(node: &IncrNode, dims: &HashMap<String, (f32, f32)>) -> serde_json::Value {
+    match node {
+        IncrNode::Text { id, tw, .. } => {
+            let (w, h) = dims.get(id.as_str()).copied().unwrap_or((0.0, 0.0));
             let ltw = layout_tw(tw);
             // Preserve layout-affecting classes (ml-auto, flex-1, …) so the flex
             // container places this stub at the same position the real text node
@@ -362,31 +408,24 @@ fn stub_scene_json(node: &serde_json::Value, dims: &HashMap<String, (f32, f32)>)
                 serde_json::json!({"type":"container","tw":ltw,"style":{"width":w,"height":h}})
             }
         }
-        Some("image") | Some("img") => node.clone(),
-        _ => {
-            // Container variant
-            match node["children"].as_array() {
-                None => {
-                    // Leaf container (Image variant encoded as inline-block container)
-                    node.clone()
-                }
-                Some(children) if children.is_empty() => {
-                    node.clone()
-                }
-                Some(children) => {
-                    let tw = node["tw"].as_str().unwrap_or("");
-                    let ch: Vec<_> = children.iter().map(|c| stub_scene_json(c, dims)).collect();
-                    serde_json::json!({"type":"container","tw":tw,"children":ch})
-                }
+        IncrNode::Image { .. } => node.to_json(),
+        IncrNode::Container { tw, children, .. } => {
+            if children.is_empty() {
+                // Leaf container (Image variant encoded as inline-block container)
+                node.to_json()
+            } else {
+                let ch: Vec<_> = children.iter().map(|c| stub_scene_json(c, dims)).collect();
+                serde_json::json!({"type":"container","tw":tw,"children":ch})
             }
         }
     }
 }
 
 /// Measure a single node in isolation to obtain its natural (W, H).
-/// Only meaningful for leaf nodes (Text, Image); call on Collection returns its content size.
-fn measure_natural(node: &serde_json::Value, global: &GlobalContext) -> (f32, f32) {
-    let n = parse_layout(node).unwrap_or_else(|_| Node::container(vec![]));
+/// Only meaningful for leaf nodes (Text, Image); call on Container returns its content size.
+fn measure_natural(node: &IncrNode, global: &GlobalContext) -> (f32, f32) {
+    let json = node.to_json();
+    let n = parse_layout(&json).unwrap_or_else(|_| Node::container(vec![]));
     let m = takumi_measure_layout(
         RenderOptions::builder()
             .global(global)
@@ -442,48 +481,41 @@ fn has_overflow_clip(tw: &str) -> bool {
 /// Whitelist variant: emit `node` and its subtree into `out`, only for nodes in `node_set`,
 /// with coordinates relative to (`parent_x`, `parent_y`).  Used inside clipping containers.
 fn collect_nested_whitelist(
-    node: &serde_json::Value,
+    node: &IncrNode,
     bboxes: &HashMap<String, Rect>,
     node_set: &BTreeSet<String>,
     parent_x: f32,
     parent_y: f32,
     out: &mut Vec<serde_json::Value>,
 ) {
-    let id = node["id"].as_str().unwrap_or("");
+    let id = node.id();
     let Some(r) = bboxes.get(id) else {
         return;
     };
     let lx = r.x - parent_x;
     let ly = r.y - parent_y;
     let in_set = node_set.contains(id);
-    match node["type"].as_str() {
-        Some("text") => {
+    match node {
+        IncrNode::Text { text, tw, .. } => {
             if in_set {
-                let text = node["text"].as_str().unwrap_or("");
-                let tw = node["tw"].as_str().unwrap_or("");
                 out.push(serde_json::json!({"type":"text","text":text,"tw":tw,
                     "style":{"position":"absolute","left":lx,"top":ly,"width":r.w}}));
             }
         }
-        Some("image") | Some("img") => {
+        IncrNode::Image { src, width, height, .. } => {
             if in_set {
-                let src = node["src"].as_str().unwrap_or("");
-                let width = node["width"].as_f64().unwrap_or(0.0) as f32;
-                let height = node["height"].as_f64().unwrap_or(0.0) as f32;
+                let w = width.unwrap_or(0.0);
+                let h = height.unwrap_or(0.0);
                 out.push(serde_json::json!({"type":"image","src":src,
                     "style":{"display":"block","position":"absolute","left":lx,"top":ly,
-                             "width":width,"height":height}}));
+                             "width":w,"height":h}}));
             }
         }
-        _ => {
-            // Container
-            let tw = node["tw"].as_str().unwrap_or("");
+        IncrNode::Container { tw, style, children, .. } => {
             if has_overflow_clip(tw) {
                 let mut ch = Vec::new();
-                if let Some(children) = node["children"].as_array() {
-                    for child in children {
-                        collect_nested_whitelist(child, bboxes, node_set, r.x, r.y, &mut ch);
-                    }
+                for child in children {
+                    collect_nested_whitelist(child, bboxes, node_set, r.x, r.y, &mut ch);
                 }
                 if in_set {
                     out.push(serde_json::json!({"type":"container","tw":visual_tw(tw),
@@ -499,8 +531,8 @@ fn collect_nested_whitelist(
                 if in_set {
                     // Leaf containers (Image variant: no children, display:inline-block)
                     // need to be emitted as plain colored blocks.
-                    if node["children"].as_array().map(|a| a.is_empty()).unwrap_or(true)
-                        && node["style"]["display"].as_str() == Some("inline-block")
+                    if children.is_empty()
+                        && style.as_ref().and_then(|s| s["display"].as_str()) == Some("inline-block")
                     {
                         // Image variant: extract background color from tw
                         let bg_tw = tw.split_whitespace()
@@ -514,10 +546,8 @@ fn collect_nested_whitelist(
                             "style":{"position":"absolute","left":lx,"top":ly,"width":r.w,"height":r.h}}));
                     }
                 }
-                if let Some(children) = node["children"].as_array() {
-                    for child in children {
-                        collect_nested_whitelist(child, bboxes, node_set, parent_x, parent_y, out);
-                    }
+                for child in children {
+                    collect_nested_whitelist(child, bboxes, node_set, parent_x, parent_y, out);
                 }
             }
         }
@@ -525,12 +555,12 @@ fn collect_nested_whitelist(
 }
 
 /// Collect nodes in `node_set` into an absolutely-positioned flat list.
-/// from a RenderCandidate.  Nodes not in the set are skipped; Collection nodes
+/// from a RenderCandidate.  Nodes not in the set are skipped; Container nodes
 /// not in the set are still recursed (children may be in the set).
 /// Spatial cull still applied for early-exit on branches far from the region.
 /// Containers with overflow-hidden have their children nested to preserve clip.
 fn collect_flat_whitelist(
-    node: &serde_json::Value,
+    node: &IncrNode,
     bboxes: &HashMap<String, Rect>,
     node_set: &BTreeSet<String>,
     qx: f32,
@@ -539,7 +569,7 @@ fn collect_flat_whitelist(
     qh: f32,
     out: &mut Vec<serde_json::Value>,
 ) {
-    let id = node["id"].as_str().unwrap_or("");
+    let id = node.id();
     let Some(r) = bboxes.get(id) else {
         return;
     };
@@ -555,34 +585,27 @@ fn collect_flat_whitelist(
     let in_set = node_set.contains(id);
     let lx = r.x - qx;
     let ly = r.y - qy;
-    match node["type"].as_str() {
-        Some("text") => {
+    match node {
+        IncrNode::Text { text, tw, .. } => {
             if in_set {
-                let text = node["text"].as_str().unwrap_or("");
-                let tw = node["tw"].as_str().unwrap_or("");
                 out.push(serde_json::json!({"type":"text","text":text,"tw":tw,
                     "style":{"position":"absolute","left":lx,"top":ly,"width":r.w}}));
             }
         }
-        Some("image") | Some("img") => {
+        IncrNode::Image { src, width, height, .. } => {
             if in_set {
-                let src = node["src"].as_str().unwrap_or("");
-                let width = node["width"].as_f64().unwrap_or(0.0) as f32;
-                let height = node["height"].as_f64().unwrap_or(0.0) as f32;
+                let w = width.unwrap_or(0.0);
+                let h = height.unwrap_or(0.0);
                 out.push(serde_json::json!({"type":"image","src":src,
                     "style":{"display":"block","position":"absolute","left":lx,"top":ly,
-                             "width":width,"height":height}}));
+                             "width":w,"height":h}}));
             }
         }
-        _ => {
-            // Container
-            let tw = node["tw"].as_str().unwrap_or("");
+        IncrNode::Container { tw, style, children, .. } => {
             if has_overflow_clip(tw) {
                 let mut ch = Vec::new();
-                if let Some(children) = node["children"].as_array() {
-                    for child in children {
-                        collect_nested_whitelist(child, bboxes, node_set, r.x, r.y, &mut ch);
-                    }
+                for child in children {
+                    collect_nested_whitelist(child, bboxes, node_set, r.x, r.y, &mut ch);
                 }
                 if in_set {
                     out.push(serde_json::json!({"type":"container","tw":visual_tw(tw),
@@ -596,8 +619,8 @@ fn collect_flat_whitelist(
                 if in_set {
                     // Leaf containers (Image variant: no children, display:inline-block)
                     // need to be emitted as plain colored blocks.
-                    if node["children"].as_array().map(|a| a.is_empty()).unwrap_or(true)
-                        && node["style"]["display"].as_str() == Some("inline-block")
+                    if children.is_empty()
+                        && style.as_ref().and_then(|s| s["display"].as_str()) == Some("inline-block")
                     {
                         // Image variant: extract background color from tw
                         let bg_tw = tw.split_whitespace()
@@ -612,10 +635,8 @@ fn collect_flat_whitelist(
                     }
                 }
                 // Always recurse — children may be in the set even if this container isn't.
-                if let Some(children) = node["children"].as_array() {
-                    for child in children {
-                        collect_flat_whitelist(child, bboxes, node_set, qx, qy, qw, qh, out);
-                    }
+                for child in children {
+                    collect_flat_whitelist(child, bboxes, node_set, qx, qy, qw, qh, out);
                 }
             }
         }
@@ -734,20 +755,18 @@ fn fnv_mix(mut h: u64, bytes: &[u8]) -> u64 {
 ///
 /// Covers every node in `tile_node_map[(tx,ty)]`: its id, bbox (f32 bits),
 /// and all content fields that affect pixel output (text string + tw, image
-/// color + dims, collection tw).  BTreeSet iteration order is deterministic,
+/// color + dims, container tw).  BTreeSet iteration order is deterministic,
 /// so equal visual states always produce equal fingerprints.
 ///
 /// Collision risk: FNV-64 has a ~10⁻¹⁸ false-hit probability per tile per
 /// frame — negligible for a UI renderer.
 /// Flat id→node map built once per frame; avoids repeated O(N) tree walks.
-fn build_node_map(root: &serde_json::Value) -> HashMap<&str, &serde_json::Value> {
+fn build_node_map<'a>(root: &'a IncrNode) -> HashMap<&'a str, &'a IncrNode> {
     let mut map = HashMap::new();
     let mut stack = vec![root];
     while let Some(node) = stack.pop() {
-        if let Some(id) = node["id"].as_str() {
-            map.insert(id, node);
-        }
-        if let Some(children) = node["children"].as_array() {
+        map.insert(node.id(), node);
+        if let IncrNode::Container { children, .. } = node {
             stack.extend(children.iter());
         }
     }
@@ -759,7 +778,7 @@ fn tile_fingerprint(
     ty: u32,
     tile_node_map: &HashMap<(u32, u32), BTreeSet<String>>,
     bboxes: &HashMap<String, Rect>,
-    node_map: &HashMap<&str, &serde_json::Value>,
+    node_map: &HashMap<&str, &IncrNode>,
 ) -> u64 {
     let empty = BTreeSet::new();
     let node_set = tile_node_map.get(&(tx, ty)).unwrap_or(&empty);
@@ -777,16 +796,31 @@ fn tile_fingerprint(
             h = fnv_mix(h, &r.h.to_bits().to_le_bytes());
         }
         if let Some(&node) = node_map.get(id.as_str()) {
-            h = fnv_mix(h, node["type"].as_str().unwrap_or("").as_bytes());
-            h = fnv_mix(h, b"|");
-            h = fnv_mix(h, node["tw"].as_str().unwrap_or("").as_bytes());
-            h = fnv_mix(h, b"|");
-            h = fnv_mix(h, node["text"].as_str().unwrap_or("").as_bytes());
-            h = fnv_mix(h, b"|");
-            h = fnv_mix(h, node["src"].as_str().unwrap_or("").as_bytes());
-            h = fnv_mix(h, b"|");
-            if !node["style"].is_null() {
-                h = fnv_mix(h, node["style"].to_string().as_bytes());
+            match node {
+                IncrNode::Text { text, tw, style, .. } => {
+                    h = fnv_mix(h, b"text|");
+                    h = fnv_mix(h, tw.as_bytes());
+                    h = fnv_mix(h, b"|");
+                    h = fnv_mix(h, text.as_bytes());
+                    h = fnv_mix(h, b"|");
+                    if let Some(s) = style { h = fnv_mix(h, s.to_string().as_bytes()); }
+                }
+                IncrNode::Image { src, width, height, tw, style, .. } => {
+                    h = fnv_mix(h, b"image|");
+                    h = fnv_mix(h, tw.as_bytes());
+                    h = fnv_mix(h, b"|");
+                    h = fnv_mix(h, src.as_bytes());
+                    h = fnv_mix(h, b"|");
+                    if let Some(w) = width { h = fnv_mix(h, &w.to_bits().to_le_bytes()); }
+                    if let Some(ht) = height { h = fnv_mix(h, &ht.to_bits().to_le_bytes()); }
+                    if let Some(s) = style { h = fnv_mix(h, s.to_string().as_bytes()); }
+                }
+                IncrNode::Container { tw, style, .. } => {
+                    h = fnv_mix(h, b"container|");
+                    h = fnv_mix(h, tw.as_bytes());
+                    h = fnv_mix(h, b"|");
+                    if let Some(s) = style { h = fnv_mix(h, s.to_string().as_bytes()); }
+                }
             }
         }
         h = fnv_mix(h, b"\0"); // node separator
@@ -1382,7 +1416,7 @@ fn greedy_merge_candidates(mut cs: Vec<RenderCandidate>, cm: &CostModel) -> Vec<
 
 fn run_suite(suite: &TestSuite, cm: &CostModel) -> SuiteResult {
     let mut incr_ctx = Ctx::fresh();
-    let mut incr_set: ManagedSet<JsonNode> = ManagedSet::new();
+    let mut incr_set: ManagedSet<IncrNode> = ManagedSet::new();
     let mut frame_buf: Vec<u8> = Vec::new();
     let mut prev_full: Vec<u8> = Vec::new();
     // Bboxes from the PREVIOUS frame's stub layout, used for moved-node detection
@@ -1404,10 +1438,11 @@ fn run_suite(suite: &TestSuite, cm: &CostModel) -> SuiteResult {
         .iter()
         .map(|f| {
             // ── Full render (fresh context, no caching) ──────────────────────────
-            let root_json = f.root.to_json_with_ids();
+            let root_incr = f.root.clone().into_incr_node();
             let full_ctx = Ctx::fresh();
             let t = Instant::now();
             let (full_px, w, h) = {
+                let root_json = root_incr.to_json();
                 let node =
                     parse_layout(&root_json).unwrap_or_else(|_| Node::container(vec![]));
                 let img = takumi_render(
@@ -1428,7 +1463,7 @@ fn run_suite(suite: &TestSuite, cm: &CostModel) -> SuiteResult {
             let t = Instant::now();
 
             // 1. Reconcile — populates changed_ids
-            incr_set.reconcile(vec![JsonNode { id: root_json["id"].as_str().unwrap_or("root").to_string(), value: root_json.clone() }], &mut incr_ctx, &mut ());
+            incr_set.reconcile(vec![root_incr.clone()], &mut incr_ctx, &mut ());
 
             let cols = (w + TILE_SIZE - 1) / TILE_SIZE;
             let rows = (h + TILE_SIZE - 1) / TILE_SIZE;
@@ -1467,38 +1502,36 @@ fn run_suite(suite: &TestSuite, cm: &CostModel) -> SuiteResult {
             //
             //    node_map is built once and shared by both the measure step (O(1)
             //    lookup vs the old O(N) find_node) and later fingerprinting.
-            let node_map = build_node_map(&root_json);
+            let node_map = build_node_map(&root_incr);
 
             // Step (a): update node_dims for changed leaves; track whether anything
             // that affects flex geometry actually changed.
             //   dims_changed        — a Text/Image node rendered to a different size
-            //   collection_changed  — a Collection tw changed (affects flex positions)
+            //   collection_changed  — a Container tw changed (affects flex positions)
             // If neither is true the stub layout would produce identical positions to
             // last frame, so step (b) can be skipped entirely.
             let mut dims_changed = false;
             let mut collection_changed = false;
             for id in &incr_ctx.changed_ids {
                 if let Some(&node) = node_map.get(id.as_str()) {
-                    match node["type"].as_str() {
-                        Some("text") => {
+                    match node {
+                        IncrNode::Text { .. } => {
                             let new_dims = measure_natural(node, &incr_ctx.global);
                             if incr_ctx.node_dims.get(id.as_str()).copied() != Some(new_dims) {
                                 dims_changed = true;
                             }
                             incr_ctx.node_dims.insert(id.clone(), new_dims);
                         }
-                        Some("image") | Some("img") => {
+                        IncrNode::Image { .. } => {
                             let new_dims = measure_natural(node, &incr_ctx.global);
                             if incr_ctx.node_dims.get(id.as_str()).copied() != Some(new_dims) {
                                 dims_changed = true;
                             }
                             incr_ctx.node_dims.insert(id.clone(), new_dims);
                         }
-                        _ => {
-                            // Container: check if it's a leaf container (Image variant)
-                            // or a real collection.
-                            if node["children"].as_array().map(|a| a.is_empty()).unwrap_or(true) {
-                                // Leaf container (Image variant) — get dims from tw or measure
+                        IncrNode::Container { children, .. } => {
+                            if children.is_empty() {
+                                // Leaf container (Image variant) — measure it
                                 let new_dims = measure_natural(node, &incr_ctx.global);
                                 if incr_ctx.node_dims.get(id.as_str()).copied() != Some(new_dims) {
                                     dims_changed = true;
@@ -1519,7 +1552,7 @@ fn run_suite(suite: &TestSuite, cm: &CostModel) -> SuiteResult {
             // No HashMap clone when stub is skipped — avoids O(N) allocation per frame.
             let stub_recomputed = dims_changed || collection_changed;
             let new_bboxes: Option<HashMap<String, Rect>> = if stub_recomputed {
-                let stub_json = stub_scene_json(&root_json, &incr_ctx.node_dims);
+                let stub_json = stub_scene_json(&root_incr, &incr_ctx.node_dims);
                 let node = parse_layout(&stub_json).unwrap_or_else(|_| Node::container(vec![]));
                 let measured = takumi_measure_layout(
                     RenderOptions::builder()
@@ -1530,7 +1563,7 @@ fn run_suite(suite: &TestSuite, cm: &CostModel) -> SuiteResult {
                 )
                 .expect("stub layout");
                 let mut sb = HashMap::new();
-                collect_bboxes(&measured, &root_json, &mut sb);
+                collect_bboxes(&measured, &root_incr, &mut sb);
                 Some(sb)
             } else {
                 None
@@ -1662,7 +1695,7 @@ fn run_suite(suite: &TestSuite, cm: &CostModel) -> SuiteResult {
 
                 let mut nodes: Vec<serde_json::Value> = Vec::new();
                 collect_flat_whitelist(
-                    &root_json,
+                    &root_incr,
                     &bboxes,
                     &cand.node_set,
                     qx,
