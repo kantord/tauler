@@ -36,7 +36,7 @@ oxc_span = "0.124"
 oxc_ast = "0.124"
 oxc_resolver = "11.19.1"
 anyhow = "1.0.102"
-serde_yaml = "0.9"
+serde_yaml = "0.9.34"
 costae-lifecycle-derive = { path = "costae-lifecycle-derive" }
 costae-ui-macro = { path = "costae-ui-macro" }
 notify = "6.1.1"
