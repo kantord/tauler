@@ -9,5 +9,5 @@ proc-macro = true
 [dependencies]
 rstml = "0.12"
 syn = { version = "2", features = ["full"] }
-quote = "1"
+quote = "1.0.45"
 proc-macro2 = "1.0.106"
