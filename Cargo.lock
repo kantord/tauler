@@ -693,7 +693,7 @@ dependencies = [
  "oxc_parser",
  "oxc_resolver",
  "oxc_semantic",
- "oxc_span 0.124.0",
+ "oxc_span 0.128.0",
  "oxc_transformer",
  "parley",
  "rquickjs",
