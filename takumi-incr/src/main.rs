@@ -110,6 +110,24 @@ impl SceneNode {
             }
         }
     }
+
+    fn to_json_with_ids(&self) -> serde_json::Value {
+        let mut v = match self {
+            Self::Text { text, tw, .. } =>
+                serde_json::json!({"type":"text","text":text,"tw":tw}),
+            Self::Image { color, width, height, .. } =>
+                serde_json::json!({"type":"container","style":{"display":"inline-block"},
+                    "tw":format!("w-[{}px] h-[{}px] bg-{}",width,height,color)}),
+            Self::Photo { src, width, height, .. } =>
+                serde_json::json!({"type":"image","src":src,"width":width,"height":height}),
+            Self::Collection { tw, children, .. } => {
+                let ch: Vec<_> = children.iter().map(|c| c.to_json_with_ids()).collect();
+                serde_json::json!({"type":"container","tw":tw,"children":ch})
+            }
+        };
+        v["id"] = serde_json::json!(self.id());
+        v
+    }
 }
 
 impl std::fmt::Display for SceneNode {
@@ -119,43 +137,46 @@ impl std::fmt::Display for SceneNode {
 }
 
 // ---------------------------------------------------------------------------
-// Per-node state (change tracking only — no pixel buffers)
+// JSON-based node and state types (change tracking only — no pixel buffers)
 // ---------------------------------------------------------------------------
 
-enum SceneNodeState {
-    Text {
-        id: String,
-        text: String,
-        tw: String,
-    },
-    Image {
-        id: String,
-        color: String,
-        width: u32,
-        height: u32,
-    },
-    Photo {
-        id: String,
-        src: String,
-        width: u32,
-        height: u32,
-    },
-    Collection {
-        id: String,
-        tw: String,
-        children: ManagedSet<SceneNode>,
-    },
+struct JsonNode {
+    id: String,
+    value: serde_json::Value,
 }
 
-impl SceneNodeState {
-    fn id(&self) -> &str {
-        match self {
-            Self::Text { id, .. }
-            | Self::Image { id, .. }
-            | Self::Photo { id, .. }
-            | Self::Collection { id, .. } => id,
-        }
+impl std::fmt::Display for JsonNode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.id)
     }
+}
+
+impl JsonNode {
+    fn child_nodes(&self) -> Vec<JsonNode> {
+        self.value["children"].as_array()
+            .map(|arr| arr.iter()
+                .map(|c| JsonNode {
+                    id: c["id"].as_str().unwrap_or("").to_string(),
+                    value: c.clone(),
+                })
+                .collect())
+            .unwrap_or_default()
+    }
+}
+
+struct JsonNodeState {
+    id: String,
+    leaf_hash: u64,
+    children: ManagedSet<JsonNode>,
+}
+
+fn leaf_hash(v: &serde_json::Value) -> u64 {
+    let mut h = fnv_mix(14695981039346656037u64, v["type"].as_str().unwrap_or("").as_bytes());
+    h = fnv_mix(h, v["tw"].as_str().unwrap_or("").as_bytes());
+    h = fnv_mix(h, v["text"].as_str().unwrap_or("").as_bytes());
+    h = fnv_mix(h, v["src"].as_str().unwrap_or("").as_bytes());
+    if !v["style"].is_null() { h = fnv_mix(h, v["style"].to_string().as_bytes()); }
+    h
 }
 
 // ---------------------------------------------------------------------------
@@ -195,158 +216,58 @@ struct Rect {
 // Lifecycle — tracks which nodes changed, no rendering
 // ---------------------------------------------------------------------------
 
-impl Lifecycle for SceneNode {
+impl Lifecycle for JsonNode {
     type Key = String;
-    type State = SceneNodeState;
+    type State = JsonNodeState;
     type Context = Ctx;
     type Output = ();
     type Error = anyhow::Error;
-    fn key(&self) -> String {
-        self.id().to_string()
+
+    fn key(&self) -> String { self.id.clone() }
+
+    fn enter(self, ctx: &mut Ctx, _: &mut ()) -> Result<JsonNodeState> {
+        ctx.changed_ids.push(self.id.clone());
+        let child_nodes = self.child_nodes();
+        let mut children: ManagedSet<JsonNode> = ManagedSet::new();
+        children.reconcile(child_nodes, ctx, &mut ());
+        Ok(JsonNodeState { id: self.id, leaf_hash: leaf_hash(&self.value), children })
     }
 
-    fn enter(self, ctx: &mut Ctx, _: &mut ()) -> Result<SceneNodeState> {
-        ctx.changed_ids.push(self.id().to_string());
-        match self {
-            SceneNode::Text { id, text, tw } => Ok(SceneNodeState::Text { id, text, tw }),
-            SceneNode::Image {
-                id,
-                color,
-                width,
-                height,
-            } => Ok(SceneNodeState::Image {
-                id,
-                color,
-                width,
-                height,
-            }),
-            SceneNode::Photo {
-                id,
-                src,
-                width,
-                height,
-            } => Ok(SceneNodeState::Photo {
-                id,
-                src,
-                width,
-                height,
-            }),
-            SceneNode::Collection { id, tw, children } => {
-                let mut cs: ManagedSet<SceneNode> = ManagedSet::new();
-                cs.reconcile(children, ctx, &mut ());
-                Ok(SceneNodeState::Collection {
-                    id,
-                    tw,
-                    children: cs,
-                })
-            }
+    fn reconcile_self(self, state: &mut JsonNodeState, ctx: &mut Ctx, _: &mut ()) -> Result<()> {
+        let new_hash = leaf_hash(&self.value);
+        if new_hash != state.leaf_hash {
+            ctx.changed_ids.push(self.id.clone());
+            state.leaf_hash = new_hash;
         }
+        let child_nodes = self.child_nodes();
+        state.children.reconcile(child_nodes, ctx, &mut ());
+        Ok(())
     }
 
-    fn reconcile_self(self, state: &mut SceneNodeState, ctx: &mut Ctx, _: &mut ()) -> Result<()> {
-        match (self, state) {
-            (
-                SceneNode::Text { id, text, tw },
-                SceneNodeState::Text {
-                    text: oc,
-                    tw: otw,
-                    ..
-                },
-            ) => {
-                if text != *oc || tw != *otw {
-                    ctx.changed_ids.push(id);
-                    *oc = text;
-                    *otw = tw;
-                }
-                Ok(())
-            }
-            (
-                SceneNode::Image {
-                    id,
-                    color,
-                    width,
-                    height,
-                },
-                SceneNodeState::Image {
-                    color: oc,
-                    width: ow,
-                    height: oh,
-                    ..
-                },
-            ) => {
-                if color != *oc || width != *ow || height != *oh {
-                    ctx.changed_ids.push(id);
-                    *oc = color;
-                    *ow = width;
-                    *oh = height;
-                }
-                Ok(())
-            }
-            (
-                SceneNode::Photo {
-                    id,
-                    src,
-                    width,
-                    height,
-                },
-                SceneNodeState::Photo {
-                    src: os,
-                    width: ow,
-                    height: oh,
-                    ..
-                },
-            ) => {
-                if src != *os || width != *ow || height != *oh {
-                    ctx.changed_ids.push(id);
-                    *os = src;
-                    *ow = width;
-                    *oh = height;
-                }
-                Ok(())
-            }
-            (
-                SceneNode::Collection { id, tw, children },
-                SceneNodeState::Collection {
-                    tw: otw,
-                    children: cs,
-                    ..
-                },
-            ) => {
-                if tw != *otw {
-                    ctx.changed_ids.push(id);
-                    *otw = tw;
-                }
-                cs.reconcile(children, ctx, &mut ());
-                Ok(())
-            }
-            _ => Err(anyhow::anyhow!("type mismatch")),
-        }
-    }
-
-    fn exit(state: SceneNodeState, ctx: &mut Ctx, _: &mut ()) -> Result<()> {
-        ctx.changed_ids.push(state.id().to_string());
-        if let SceneNodeState::Collection { mut children, .. } = state {
-            children.reconcile(vec![], ctx, &mut ());
-        }
+    fn exit(mut state: JsonNodeState, ctx: &mut Ctx, _: &mut ()) -> Result<()> {
+        ctx.changed_ids.push(state.id.clone());
+        state.children.reconcile(vec![], ctx, &mut ());
         Ok(())
     }
 }
 
 // ---------------------------------------------------------------------------
-// Bbox collection — walk MeasuredNode + SceneNode trees in parallel
+// Bbox collection — walk MeasuredNode + JSON node trees in parallel
 // ---------------------------------------------------------------------------
 
-fn collect_bboxes(measured: &MeasuredNode, node: &SceneNode, bboxes: &mut HashMap<String, Rect>) {
-    bboxes.insert(
-        node.id().to_string(),
-        Rect {
-            x: measured.transform[4],
-            y: measured.transform[5],
-            w: measured.width,
-            h: measured.height,
-        },
-    );
-    if let SceneNode::Collection { children, .. } = node {
+fn collect_bboxes(measured: &MeasuredNode, node: &serde_json::Value, bboxes: &mut HashMap<String, Rect>) {
+    if let Some(id) = node["id"].as_str() {
+        bboxes.insert(
+            id.to_string(),
+            Rect {
+                x: measured.transform[4],
+                y: measured.transform[5],
+                w: measured.width,
+                h: measured.height,
+            },
+        );
+    }
+    if let Some(children) = node["children"].as_array() {
         // Taffy's absolute-child layout varies by container type:
         //
         //   Block layout with mixed in-flow + absolute children:
@@ -357,15 +278,13 @@ fn collect_bboxes(measured: &MeasuredNode, node: &SceneNode, bboxes: &mut HashMa
         //     measured.children = [in_flow_0..N-1, abs_0..M-1]  (inline, actual heights)
         //     No wrapper placeholder node.
         //
-        // Use SceneNode child counts to distinguish the two cases instead of
+        // Use JSON child counts to distinguish the two cases instead of
         // relying on a zero-height heuristic that only works for block layout.
-        let in_flow_f: Vec<&SceneNode> = children.iter()
-            .filter(|c| !matches!(c, SceneNode::Collection { tw, .. }
-                if tw.split_whitespace().any(|t| t == "absolute")))
+        let in_flow_f: Vec<&serde_json::Value> = children.iter()
+            .filter(|c| !c["tw"].as_str().unwrap_or("").split_whitespace().any(|t| t == "absolute"))
             .collect();
-        let abs_f: Vec<&SceneNode> = children.iter()
-            .filter(|c|  matches!(c, SceneNode::Collection { tw, .. }
-                if tw.split_whitespace().any(|t| t == "absolute")))
+        let abs_f: Vec<&serde_json::Value> = children.iter()
+            .filter(|c| c["tw"].as_str().unwrap_or("").split_whitespace().any(|t| t == "absolute"))
             .collect();
         if abs_f.is_empty() {
             for (m, f) in measured.children.iter().zip(in_flow_f.iter()) {
@@ -427,10 +346,12 @@ fn layout_tw(tw: &str) -> String {
         .join(" ")
 }
 
-fn stub_scene_json(node: &SceneNode, dims: &HashMap<String, (f32, f32)>) -> serde_json::Value {
-    match node {
-        SceneNode::Text { id, tw, .. } => {
-            let (w, h) = dims.get(id.as_str()).copied().unwrap_or((0.0, 0.0));
+fn stub_scene_json(node: &serde_json::Value, dims: &HashMap<String, (f32, f32)>) -> serde_json::Value {
+    match node["type"].as_str() {
+        Some("text") => {
+            let id = node["id"].as_str().unwrap_or("");
+            let tw = node["tw"].as_str().unwrap_or("");
+            let (w, h) = dims.get(id).copied().unwrap_or((0.0, 0.0));
             let ltw = layout_tw(tw);
             // Preserve layout-affecting classes (ml-auto, flex-1, …) so the flex
             // container places this stub at the same position the real text node
@@ -441,25 +362,31 @@ fn stub_scene_json(node: &SceneNode, dims: &HashMap<String, (f32, f32)>) -> serd
                 serde_json::json!({"type":"container","tw":ltw,"style":{"width":w,"height":h}})
             }
         }
-        // Images don't involve text shaping so we reuse their exact JSON — this
-        // preserves display:inline-block and tw-based dimensions, ensuring the stub
-        // layout places the image at the same position as the full layout would.
-        SceneNode::Image { .. } => node.to_json(),
-        SceneNode::Photo {
-            src, width, height, ..
-        } => serde_json::json!({"type":"image","src":src,"width":width,"height":height}),
-        SceneNode::Collection { tw, children, .. } => {
-            let ch: Vec<_> = children.iter().map(|c| stub_scene_json(c, dims)).collect();
-            serde_json::json!({"type":"container","tw":tw,"children":ch})
+        Some("image") | Some("img") => node.clone(),
+        _ => {
+            // Container variant
+            match node["children"].as_array() {
+                None => {
+                    // Leaf container (Image variant encoded as inline-block container)
+                    node.clone()
+                }
+                Some(children) if children.is_empty() => {
+                    node.clone()
+                }
+                Some(children) => {
+                    let tw = node["tw"].as_str().unwrap_or("");
+                    let ch: Vec<_> = children.iter().map(|c| stub_scene_json(c, dims)).collect();
+                    serde_json::json!({"type":"container","tw":tw,"children":ch})
+                }
+            }
         }
     }
 }
 
 /// Measure a single node in isolation to obtain its natural (W, H).
 /// Only meaningful for leaf nodes (Text, Image); call on Collection returns its content size.
-fn measure_natural(node: &SceneNode, global: &GlobalContext) -> (f32, f32) {
-    let json = node.to_json();
-    let n = parse_layout(&json).unwrap_or_else(|_| Node::container(vec![]));
+fn measure_natural(node: &serde_json::Value, global: &GlobalContext) -> (f32, f32) {
+    let n = parse_layout(node).unwrap_or_else(|_| Node::container(vec![]));
     let m = takumi_measure_layout(
         RenderOptions::builder()
             .global(global)
@@ -515,54 +442,48 @@ fn has_overflow_clip(tw: &str) -> bool {
 /// Whitelist variant: emit `node` and its subtree into `out`, only for nodes in `node_set`,
 /// with coordinates relative to (`parent_x`, `parent_y`).  Used inside clipping containers.
 fn collect_nested_whitelist(
-    node: &SceneNode,
+    node: &serde_json::Value,
     bboxes: &HashMap<String, Rect>,
     node_set: &BTreeSet<String>,
     parent_x: f32,
     parent_y: f32,
     out: &mut Vec<serde_json::Value>,
 ) {
-    let Some(r) = bboxes.get(node.id()) else {
+    let id = node["id"].as_str().unwrap_or("");
+    let Some(r) = bboxes.get(id) else {
         return;
     };
     let lx = r.x - parent_x;
     let ly = r.y - parent_y;
-    let in_set = node_set.contains(node.id());
-    match node {
-        SceneNode::Text { text, tw, .. } => {
+    let in_set = node_set.contains(id);
+    match node["type"].as_str() {
+        Some("text") => {
             if in_set {
+                let text = node["text"].as_str().unwrap_or("");
+                let tw = node["tw"].as_str().unwrap_or("");
                 out.push(serde_json::json!({"type":"text","text":text,"tw":tw,
                     "style":{"position":"absolute","left":lx,"top":ly,"width":r.w}}));
             }
         }
-        SceneNode::Image {
-            color,
-            width,
-            height,
-            ..
-        } => {
+        Some("image") | Some("img") => {
             if in_set {
-                out.push(
-                    serde_json::json!({"type":"container","tw":format!("bg-{}",color),
-                    "style":{"display":"block","position":"absolute","left":lx,"top":ly,
-                             "width":*width as f32,"height":*height as f32}}),
-                );
-            }
-        }
-        SceneNode::Photo {
-            src, width, height, ..
-        } => {
-            if in_set {
+                let src = node["src"].as_str().unwrap_or("");
+                let width = node["width"].as_f64().unwrap_or(0.0) as f32;
+                let height = node["height"].as_f64().unwrap_or(0.0) as f32;
                 out.push(serde_json::json!({"type":"image","src":src,
                     "style":{"display":"block","position":"absolute","left":lx,"top":ly,
-                             "width":*width as f32,"height":*height as f32}}));
+                             "width":width,"height":height}}));
             }
         }
-        SceneNode::Collection { tw, children, .. } => {
+        _ => {
+            // Container
+            let tw = node["tw"].as_str().unwrap_or("");
             if has_overflow_clip(tw) {
                 let mut ch = Vec::new();
-                for child in children {
-                    collect_nested_whitelist(child, bboxes, node_set, r.x, r.y, &mut ch);
+                if let Some(children) = node["children"].as_array() {
+                    for child in children {
+                        collect_nested_whitelist(child, bboxes, node_set, r.x, r.y, &mut ch);
+                    }
                 }
                 if in_set {
                     out.push(serde_json::json!({"type":"container","tw":visual_tw(tw),
@@ -576,11 +497,27 @@ fn collect_nested_whitelist(
                 }
             } else {
                 if in_set {
-                    out.push(serde_json::json!({"type":"container","tw":visual_tw(tw),
-                        "style":{"position":"absolute","left":lx,"top":ly,"width":r.w,"height":r.h}}));
+                    // Leaf containers (Image variant: no children, display:inline-block)
+                    // need to be emitted as plain colored blocks.
+                    if node["children"].as_array().map(|a| a.is_empty()).unwrap_or(true)
+                        && node["style"]["display"].as_str() == Some("inline-block")
+                    {
+                        // Image variant: extract background color from tw
+                        let bg_tw = tw.split_whitespace()
+                            .find(|t| t.starts_with("bg-"))
+                            .unwrap_or("");
+                        out.push(serde_json::json!({"type":"container","tw":bg_tw,
+                            "style":{"display":"block","position":"absolute","left":lx,"top":ly,
+                                     "width":r.w,"height":r.h}}));
+                    } else {
+                        out.push(serde_json::json!({"type":"container","tw":visual_tw(tw),
+                            "style":{"position":"absolute","left":lx,"top":ly,"width":r.w,"height":r.h}}));
+                    }
                 }
-                for child in children {
-                    collect_nested_whitelist(child, bboxes, node_set, parent_x, parent_y, out);
+                if let Some(children) = node["children"].as_array() {
+                    for child in children {
+                        collect_nested_whitelist(child, bboxes, node_set, parent_x, parent_y, out);
+                    }
                 }
             }
         }
@@ -593,7 +530,7 @@ fn collect_nested_whitelist(
 /// Spatial cull still applied for early-exit on branches far from the region.
 /// Containers with overflow-hidden have their children nested to preserve clip.
 fn collect_flat_whitelist(
-    node: &SceneNode,
+    node: &serde_json::Value,
     bboxes: &HashMap<String, Rect>,
     node_set: &BTreeSet<String>,
     qx: f32,
@@ -602,7 +539,8 @@ fn collect_flat_whitelist(
     qh: f32,
     out: &mut Vec<serde_json::Value>,
 ) {
-    let Some(r) = bboxes.get(node.id()) else {
+    let id = node["id"].as_str().unwrap_or("");
+    let Some(r) = bboxes.get(id) else {
         return;
     };
     let buf = SHADOW_BUF as f32;
@@ -614,44 +552,37 @@ fn collect_flat_whitelist(
         return;
     }
 
-    let in_set = node_set.contains(node.id());
+    let in_set = node_set.contains(id);
     let lx = r.x - qx;
     let ly = r.y - qy;
-    match node {
-        SceneNode::Text { text, tw, .. } => {
+    match node["type"].as_str() {
+        Some("text") => {
             if in_set {
+                let text = node["text"].as_str().unwrap_or("");
+                let tw = node["tw"].as_str().unwrap_or("");
                 out.push(serde_json::json!({"type":"text","text":text,"tw":tw,
                     "style":{"position":"absolute","left":lx,"top":ly,"width":r.w}}));
             }
         }
-        SceneNode::Image {
-            color,
-            width,
-            height,
-            ..
-        } => {
+        Some("image") | Some("img") => {
             if in_set {
-                out.push(
-                    serde_json::json!({"type":"container","tw":format!("bg-{}",color),
-                    "style":{"display":"block","position":"absolute","left":lx,"top":ly,
-                             "width":*width as f32,"height":*height as f32}}),
-                );
-            }
-        }
-        SceneNode::Photo {
-            src, width, height, ..
-        } => {
-            if in_set {
+                let src = node["src"].as_str().unwrap_or("");
+                let width = node["width"].as_f64().unwrap_or(0.0) as f32;
+                let height = node["height"].as_f64().unwrap_or(0.0) as f32;
                 out.push(serde_json::json!({"type":"image","src":src,
                     "style":{"display":"block","position":"absolute","left":lx,"top":ly,
-                             "width":*width as f32,"height":*height as f32}}));
+                             "width":width,"height":height}}));
             }
         }
-        SceneNode::Collection { tw, children, .. } => {
+        _ => {
+            // Container
+            let tw = node["tw"].as_str().unwrap_or("");
             if has_overflow_clip(tw) {
                 let mut ch = Vec::new();
-                for child in children {
-                    collect_nested_whitelist(child, bboxes, node_set, r.x, r.y, &mut ch);
+                if let Some(children) = node["children"].as_array() {
+                    for child in children {
+                        collect_nested_whitelist(child, bboxes, node_set, r.x, r.y, &mut ch);
+                    }
                 }
                 if in_set {
                     out.push(serde_json::json!({"type":"container","tw":visual_tw(tw),
@@ -663,12 +594,28 @@ fn collect_flat_whitelist(
                 }
             } else {
                 if in_set {
-                    out.push(serde_json::json!({"type":"container","tw":visual_tw(tw),
-                        "style":{"position":"absolute","left":lx,"top":ly,"width":r.w,"height":r.h}}));
+                    // Leaf containers (Image variant: no children, display:inline-block)
+                    // need to be emitted as plain colored blocks.
+                    if node["children"].as_array().map(|a| a.is_empty()).unwrap_or(true)
+                        && node["style"]["display"].as_str() == Some("inline-block")
+                    {
+                        // Image variant: extract background color from tw
+                        let bg_tw = tw.split_whitespace()
+                            .find(|t| t.starts_with("bg-"))
+                            .unwrap_or("");
+                        out.push(serde_json::json!({"type":"container","tw":bg_tw,
+                            "style":{"display":"block","position":"absolute","left":lx,"top":ly,
+                                     "width":r.w,"height":r.h}}));
+                    } else {
+                        out.push(serde_json::json!({"type":"container","tw":visual_tw(tw),
+                            "style":{"position":"absolute","left":lx,"top":ly,"width":r.w,"height":r.h}}));
+                    }
                 }
                 // Always recurse — children may be in the set even if this container isn't.
-                for child in children {
-                    collect_flat_whitelist(child, bboxes, node_set, qx, qy, qw, qh, out);
+                if let Some(children) = node["children"].as_array() {
+                    for child in children {
+                        collect_flat_whitelist(child, bboxes, node_set, qx, qy, qw, qh, out);
+                    }
                 }
             }
         }
@@ -793,12 +740,14 @@ fn fnv_mix(mut h: u64, bytes: &[u8]) -> u64 {
 /// Collision risk: FNV-64 has a ~10⁻¹⁸ false-hit probability per tile per
 /// frame — negligible for a UI renderer.
 /// Flat id→node map built once per frame; avoids repeated O(N) tree walks.
-fn build_node_map(root: &SceneNode) -> HashMap<&str, &SceneNode> {
+fn build_node_map(root: &serde_json::Value) -> HashMap<&str, &serde_json::Value> {
     let mut map = HashMap::new();
     let mut stack = vec![root];
     while let Some(node) = stack.pop() {
-        map.insert(node.id(), node);
-        if let SceneNode::Collection { children, .. } = node {
+        if let Some(id) = node["id"].as_str() {
+            map.insert(id, node);
+        }
+        if let Some(children) = node["children"].as_array() {
             stack.extend(children.iter());
         }
     }
@@ -810,7 +759,7 @@ fn tile_fingerprint(
     ty: u32,
     tile_node_map: &HashMap<(u32, u32), BTreeSet<String>>,
     bboxes: &HashMap<String, Rect>,
-    node_map: &HashMap<&str, &SceneNode>,
+    node_map: &HashMap<&str, &serde_json::Value>,
 ) -> u64 {
     let empty = BTreeSet::new();
     let node_set = tile_node_map.get(&(tx, ty)).unwrap_or(&empty);
@@ -828,36 +777,16 @@ fn tile_fingerprint(
             h = fnv_mix(h, &r.h.to_bits().to_le_bytes());
         }
         if let Some(&node) = node_map.get(id.as_str()) {
-            match node {
-                SceneNode::Text { text, tw, .. } => {
-                    h = fnv_mix(h, b"T");
-                    h = fnv_mix(h, text.as_bytes());
-                    h = fnv_mix(h, b"|");
-                    h = fnv_mix(h, tw.as_bytes());
-                }
-                SceneNode::Image {
-                    color,
-                    width,
-                    height,
-                    ..
-                } => {
-                    h = fnv_mix(h, b"I");
-                    h = fnv_mix(h, color.as_bytes());
-                    h = fnv_mix(h, &width.to_le_bytes());
-                    h = fnv_mix(h, &height.to_le_bytes());
-                }
-                SceneNode::Photo {
-                    src, width, height, ..
-                } => {
-                    h = fnv_mix(h, b"P");
-                    h = fnv_mix(h, src.as_bytes());
-                    h = fnv_mix(h, &width.to_le_bytes());
-                    h = fnv_mix(h, &height.to_le_bytes());
-                }
-                SceneNode::Collection { tw, .. } => {
-                    h = fnv_mix(h, b"C");
-                    h = fnv_mix(h, tw.as_bytes());
-                }
+            h = fnv_mix(h, node["type"].as_str().unwrap_or("").as_bytes());
+            h = fnv_mix(h, b"|");
+            h = fnv_mix(h, node["tw"].as_str().unwrap_or("").as_bytes());
+            h = fnv_mix(h, b"|");
+            h = fnv_mix(h, node["text"].as_str().unwrap_or("").as_bytes());
+            h = fnv_mix(h, b"|");
+            h = fnv_mix(h, node["src"].as_str().unwrap_or("").as_bytes());
+            h = fnv_mix(h, b"|");
+            if !node["style"].is_null() {
+                h = fnv_mix(h, node["style"].to_string().as_bytes());
             }
         }
         h = fnv_mix(h, b"\0"); // node separator
@@ -1453,7 +1382,7 @@ fn greedy_merge_candidates(mut cs: Vec<RenderCandidate>, cm: &CostModel) -> Vec<
 
 fn run_suite(suite: &TestSuite, cm: &CostModel) -> SuiteResult {
     let mut incr_ctx = Ctx::fresh();
-    let mut incr_set: ManagedSet<SceneNode> = ManagedSet::new();
+    let mut incr_set: ManagedSet<JsonNode> = ManagedSet::new();
     let mut frame_buf: Vec<u8> = Vec::new();
     let mut prev_full: Vec<u8> = Vec::new();
     // Bboxes from the PREVIOUS frame's stub layout, used for moved-node detection
@@ -1475,11 +1404,12 @@ fn run_suite(suite: &TestSuite, cm: &CostModel) -> SuiteResult {
         .iter()
         .map(|f| {
             // ── Full render (fresh context, no caching) ──────────────────────────
+            let root_json = f.root.to_json_with_ids();
             let full_ctx = Ctx::fresh();
             let t = Instant::now();
             let (full_px, w, h) = {
                 let node =
-                    parse_layout(&f.root.to_json()).unwrap_or_else(|_| Node::container(vec![]));
+                    parse_layout(&root_json).unwrap_or_else(|_| Node::container(vec![]));
                 let img = takumi_render(
                     RenderOptions::builder()
                         .global(&full_ctx.global)
@@ -1498,7 +1428,7 @@ fn run_suite(suite: &TestSuite, cm: &CostModel) -> SuiteResult {
             let t = Instant::now();
 
             // 1. Reconcile — populates changed_ids
-            incr_set.reconcile(vec![f.root.clone()], &mut incr_ctx, &mut ());
+            incr_set.reconcile(vec![JsonNode { id: root_json["id"].as_str().unwrap_or("root").to_string(), value: root_json.clone() }], &mut incr_ctx, &mut ());
 
             let cols = (w + TILE_SIZE - 1) / TILE_SIZE;
             let rows = (h + TILE_SIZE - 1) / TILE_SIZE;
@@ -1537,7 +1467,7 @@ fn run_suite(suite: &TestSuite, cm: &CostModel) -> SuiteResult {
             //
             //    node_map is built once and shared by both the measure step (O(1)
             //    lookup vs the old O(N) find_node) and later fingerprinting.
-            let node_map = build_node_map(&f.root);
+            let node_map = build_node_map(&root_json);
 
             // Step (a): update node_dims for changed leaves; track whether anything
             // that affects flex geometry actually changed.
@@ -1549,30 +1479,34 @@ fn run_suite(suite: &TestSuite, cm: &CostModel) -> SuiteResult {
             let mut collection_changed = false;
             for id in &incr_ctx.changed_ids {
                 if let Some(&node) = node_map.get(id.as_str()) {
-                    match node {
-                        SceneNode::Text { .. } => {
+                    match node["type"].as_str() {
+                        Some("text") => {
                             let new_dims = measure_natural(node, &incr_ctx.global);
                             if incr_ctx.node_dims.get(id.as_str()).copied() != Some(new_dims) {
                                 dims_changed = true;
                             }
                             incr_ctx.node_dims.insert(id.clone(), new_dims);
                         }
-                        SceneNode::Image { width, height, .. } => {
-                            let new_dims = (*width as f32, *height as f32);
+                        Some("image") | Some("img") => {
+                            let new_dims = measure_natural(node, &incr_ctx.global);
                             if incr_ctx.node_dims.get(id.as_str()).copied() != Some(new_dims) {
                                 dims_changed = true;
                             }
                             incr_ctx.node_dims.insert(id.clone(), new_dims);
                         }
-                        SceneNode::Photo { width, height, .. } => {
-                            let new_dims = (*width as f32, *height as f32);
-                            if incr_ctx.node_dims.get(id.as_str()).copied() != Some(new_dims) {
-                                dims_changed = true;
+                        _ => {
+                            // Container: check if it's a leaf container (Image variant)
+                            // or a real collection.
+                            if node["children"].as_array().map(|a| a.is_empty()).unwrap_or(true) {
+                                // Leaf container (Image variant) — get dims from tw or measure
+                                let new_dims = measure_natural(node, &incr_ctx.global);
+                                if incr_ctx.node_dims.get(id.as_str()).copied() != Some(new_dims) {
+                                    dims_changed = true;
+                                }
+                                incr_ctx.node_dims.insert(id.clone(), new_dims);
+                            } else {
+                                collection_changed = true;
                             }
-                            incr_ctx.node_dims.insert(id.clone(), new_dims);
-                        }
-                        SceneNode::Collection { .. } => {
-                            collection_changed = true;
                         }
                     }
                 }
@@ -1585,7 +1519,7 @@ fn run_suite(suite: &TestSuite, cm: &CostModel) -> SuiteResult {
             // No HashMap clone when stub is skipped — avoids O(N) allocation per frame.
             let stub_recomputed = dims_changed || collection_changed;
             let new_bboxes: Option<HashMap<String, Rect>> = if stub_recomputed {
-                let stub_json = stub_scene_json(&f.root, &incr_ctx.node_dims);
+                let stub_json = stub_scene_json(&root_json, &incr_ctx.node_dims);
                 let node = parse_layout(&stub_json).unwrap_or_else(|_| Node::container(vec![]));
                 let measured = takumi_measure_layout(
                     RenderOptions::builder()
@@ -1596,7 +1530,7 @@ fn run_suite(suite: &TestSuite, cm: &CostModel) -> SuiteResult {
                 )
                 .expect("stub layout");
                 let mut sb = HashMap::new();
-                collect_bboxes(&measured, &f.root, &mut sb);
+                collect_bboxes(&measured, &root_json, &mut sb);
                 Some(sb)
             } else {
                 None
@@ -1728,7 +1662,7 @@ fn run_suite(suite: &TestSuite, cm: &CostModel) -> SuiteResult {
 
                 let mut nodes: Vec<serde_json::Value> = Vec::new();
                 collect_flat_whitelist(
-                    &f.root,
+                    &root_json,
                     &bboxes,
                     &cand.node_set,
                     qx,
