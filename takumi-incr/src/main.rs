@@ -46,54 +46,6 @@ fn new_ctx() -> GlobalContext {
 }
 
 // ---------------------------------------------------------------------------
-// Scene description
-// ---------------------------------------------------------------------------
-
-#[derive(Clone)]
-enum SceneNode {
-    Text {
-        id: String,
-        text: String,
-        tw: String,
-    },
-    Image {
-        id: String,
-        color: String,
-        width: u32,
-        height: u32,
-    },
-    Photo {
-        id: String,
-        src: String,
-        width: u32,
-        height: u32,
-    },
-    Collection {
-        id: String,
-        tw: String,
-        children: Vec<SceneNode>,
-    },
-}
-
-impl SceneNode {
-    fn id(&self) -> &str {
-        match self {
-            Self::Text { id, .. }
-            | Self::Image { id, .. }
-            | Self::Photo { id, .. }
-            | Self::Collection { id, .. } => id,
-        }
-    }
-
-}
-
-impl std::fmt::Display for SceneNode {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.id())
-    }
-}
-
-// ---------------------------------------------------------------------------
 // IncrNode — properly typed node for change tracking
 // ---------------------------------------------------------------------------
 
@@ -176,34 +128,6 @@ impl IncrNode {
             }
         }
         h
-    }
-}
-
-impl SceneNode {
-    fn into_incr_node(self) -> IncrNode {
-        match self {
-            Self::Text { id, text, tw } => IncrNode::Text { id, text, tw, style: None },
-            Self::Image { id, color, width, height } => IncrNode::Container {
-                id,
-                tw: format!("w-[{}px] h-[{}px] bg-{}", width, height, color),
-                style: Some(serde_json::json!({"display":"inline-block"})),
-                children: vec![],
-            },
-            Self::Photo { id, src, width, height } => IncrNode::Image {
-                id,
-                src,
-                width: Some(width as f32),
-                height: Some(height as f32),
-                tw: String::new(),
-                style: None,
-            },
-            Self::Collection { id, tw, children } => IncrNode::Container {
-                id,
-                tw,
-                style: None,
-                children: children.into_iter().map(|c| c.into_incr_node()).collect(),
-            },
-        }
     }
 }
 
@@ -935,7 +859,7 @@ fn diff_masked(a: &[u8], b: &[u8], mask: &[bool], _w: u32, _h: u32) -> DiffResul
 
 struct SuiteFrame {
     label: String,
-    root: SceneNode,
+    root: IncrNode,
 }
 struct TestSuite {
     name: &'static str,
@@ -955,60 +879,70 @@ fn suite_simple_bar() -> TestSuite {
             } else {
                 format!("clock → {clock}")
             };
-            let root = SceneNode::Collection {
+            let root = IncrNode::Container {
                 id: "bar".into(),
                 tw: "flex flex-row items-center justify-between w-[400px] h-[24px] bg-gray-900"
                     .into(),
+                style: None,
                 children: vec![
-                    SceneNode::Collection {
+                    IncrNode::Container {
                         id: "left".into(),
                         tw: "flex flex-row items-center gap-1".into(),
+                        style: None,
                         children: vec![
-                            SceneNode::Image {
+                            IncrNode::Container {
                                 id: "logo".into(),
-                                color: "blue-500".into(),
-                                width: 16,
-                                height: 16,
+                                tw: "w-[16px] h-[16px] bg-blue-500".into(),
+                                style: Some(serde_json::json!({"display":"inline-block"})),
+                                children: vec![],
                             },
-                            SceneNode::Text {
+                            IncrNode::Text {
                                 id: "ws".into(),
                                 text:"1: term".into(),
                                 tw: "text-white text-xs whitespace-nowrap".into(),
+                                style: None,
                             },
-                            SceneNode::Text {
+                            IncrNode::Text {
                                 id: "title".into(),
                                 text:"nvim main.rs".into(),
                                 tw: "text-gray-400 text-xs whitespace-nowrap".into(),
+                                style: None,
                             },
                         ],
                     },
-                    SceneNode::Collection {
+                    IncrNode::Container {
                         id: "center".into(),
                         tw: "flex flex-row items-center".into(),
-                        children: vec![SceneNode::Text {
+                        style: None,
+                        children: vec![IncrNode::Text {
                             id: "clock".into(),
                             text:clock.clone(),
                             tw: "text-white text-xs font-mono whitespace-nowrap".into(),
+                            style: None,
                         }],
                     },
-                    SceneNode::Collection {
+                    IncrNode::Container {
                         id: "right".into(),
                         tw: "flex flex-row items-center gap-1".into(),
+                        style: None,
                         children: vec![
-                            SceneNode::Text {
+                            IncrNode::Text {
                                 id: "cpu".into(),
                                 text:cpu.clone(),
                                 tw: "text-white text-xs whitespace-nowrap".into(),
+                                style: None,
                             },
-                            SceneNode::Text {
+                            IncrNode::Text {
                                 id: "mem".into(),
                                 text:"MEM 4G".into(),
                                 tw: "text-white text-xs whitespace-nowrap".into(),
+                                style: None,
                             },
-                            SceneNode::Text {
+                            IncrNode::Text {
                                 id: "bat".into(),
                                 text:"87%".into(),
                                 tw: "text-white text-xs whitespace-nowrap".into(),
+                                style: None,
                             },
                         ],
                     },
@@ -1030,17 +964,17 @@ fn suite_shadow_cards() -> TestSuite {
         let msgs = ["Build complete","Tests passed","Deploy done","Lint clean","Type check ok"];
         let msg   = msgs[i % msgs.len()];
         let label = if i==0{"cold".into()}else{format!("notification #{count}")};
-        let root = SceneNode::Collection{id:"cards".into(),
-            tw:"flex flex-row gap-4 p-4 bg-gray-100 w-[440px] h-[90px]".into(),children:vec![
-            SceneNode::Collection{id:"notif".into(),
-                tw:"flex flex-col justify-between p-3 bg-white rounded-xl shadow-2xl w-[190px]".into(),children:vec![
-                SceneNode::Text{id:"notif-title".into(),text:format!("{count} new"),tw:"text-gray-900 text-sm font-bold whitespace-nowrap".into()},
-                SceneNode::Text{id:"notif-body".into(),text:msg.into(),tw:"text-gray-500 text-xs whitespace-nowrap".into()},
+        let root = IncrNode::Container{id:"cards".into(),
+            tw:"flex flex-row gap-4 p-4 bg-gray-100 w-[440px] h-[90px]".into(),style:None,children:vec![
+            IncrNode::Container{id:"notif".into(),
+                tw:"flex flex-col justify-between p-3 bg-white rounded-xl shadow-2xl w-[190px]".into(),style:None,children:vec![
+                IncrNode::Text{id:"notif-title".into(),text:format!("{count} new"),tw:"text-gray-900 text-sm font-bold whitespace-nowrap".into(),style:None},
+                IncrNode::Text{id:"notif-body".into(),text:msg.into(),tw:"text-gray-500 text-xs whitespace-nowrap".into(),style:None},
             ]},
-            SceneNode::Collection{id:"static-card".into(),
-                tw:"flex flex-col justify-center items-center p-3 bg-white rounded-xl shadow-2xl w-[190px]".into(),children:vec![
-                SceneNode::Text{id:"static-label".into(),text:"System OK".into(),tw:"text-green-600 text-sm font-bold whitespace-nowrap".into()},
-                SceneNode::Text{id:"static-sub".into(),text:"All services running".into(),tw:"text-gray-500 text-xs whitespace-nowrap".into()},
+            IncrNode::Container{id:"static-card".into(),
+                tw:"flex flex-col justify-center items-center p-3 bg-white rounded-xl shadow-2xl w-[190px]".into(),style:None,children:vec![
+                IncrNode::Text{id:"static-label".into(),text:"System OK".into(),tw:"text-green-600 text-sm font-bold whitespace-nowrap".into(),style:None},
+                IncrNode::Text{id:"static-sub".into(),text:"All services running".into(),tw:"text-gray-500 text-xs whitespace-nowrap".into(),style:None},
             ]},
         ]};
         SuiteFrame{label,root}
@@ -1057,17 +991,17 @@ fn suite_blurred_overlay() -> TestSuite {
         let value = format!("{}°C", 42 + i);
         let alert = if i % 4 == 0 { format!("⚠ spike at {}s", i * 10) } else { "nominal".into() };
         let label = if i==0{"cold".into()} else if i%4==0{format!("value+alert → {value}")} else{format!("value → {value}")};
-        let root = SceneNode::Collection{id:"overlay".into(),
-            tw:"flex flex-row items-center gap-4 px-4 w-[440px] h-[40px] bg-slate-900/80 rounded-2xl shadow-inner".into(),children:vec![
-            SceneNode::Collection{id:"badge".into(),
-                tw:"flex items-center justify-center w-[32px] h-[32px] bg-blue-600 rounded-lg shadow-md".into(),children:vec![
-                SceneNode::Text{id:"badge-icon".into(),text:"⚡".into(),tw:"text-white text-sm".into()},
+        let root = IncrNode::Container{id:"overlay".into(),
+            tw:"flex flex-row items-center gap-4 px-4 w-[440px] h-[40px] bg-slate-900/80 rounded-2xl shadow-inner".into(),style:None,children:vec![
+            IncrNode::Container{id:"badge".into(),
+                tw:"flex items-center justify-center w-[32px] h-[32px] bg-blue-600 rounded-lg shadow-md".into(),style:None,children:vec![
+                IncrNode::Text{id:"badge-icon".into(),text:"⚡".into(),tw:"text-white text-sm".into(),style:None},
             ]},
-            SceneNode::Text{id:"temp".into(),text:value.clone(),tw:"text-white text-sm font-mono font-bold whitespace-nowrap".into()},
-            SceneNode::Text{id:"label".into(),text:"GPU Temp".into(),tw:"text-slate-400 text-xs whitespace-nowrap".into()},
-            SceneNode::Collection{id:"status".into(),
-                tw:"flex items-center ml-auto px-2 py-0.5 bg-slate-700 rounded-md".into(),children:vec![
-                SceneNode::Text{id:"alert".into(),text:alert.clone(),tw:"text-yellow-300 text-xs whitespace-nowrap".into()},
+            IncrNode::Text{id:"temp".into(),text:value.clone(),tw:"text-white text-sm font-mono font-bold whitespace-nowrap".into(),style:None},
+            IncrNode::Text{id:"label".into(),text:"GPU Temp".into(),tw:"text-slate-400 text-xs whitespace-nowrap".into(),style:None},
+            IncrNode::Container{id:"status".into(),
+                tw:"flex items-center ml-auto px-2 py-0.5 bg-slate-700 rounded-md".into(),style:None,children:vec![
+                IncrNode::Text{id:"alert".into(),text:alert.clone(),tw:"text-yellow-300 text-xs whitespace-nowrap".into(),style:None},
             ]},
         ]};
         SuiteFrame{label,root}
@@ -1099,29 +1033,33 @@ fn suite_dense_metrics() -> TestSuite {
                 format!("cpu={} gpu={}%", metrics[0].1, 60 + i * 2)
             };
 
-            let cols: Vec<SceneNode> = metrics
+            let cols: Vec<IncrNode> = metrics
                 .iter()
-                .map(|(name, val)| SceneNode::Collection {
+                .map(|(name, val)| IncrNode::Container {
                     id: format!("col-{name}"),
                     tw: "flex flex-col items-center px-2 bg-gray-800 rounded-lg shadow-md".into(),
+                    style: None,
                     children: vec![
-                        SceneNode::Text {
+                        IncrNode::Text {
                             id: format!("lbl-{name}"),
                             text:name.to_string(),
                             tw: "text-gray-400 text-[10px] whitespace-nowrap".into(),
+                            style: None,
                         },
-                        SceneNode::Text {
+                        IncrNode::Text {
                             id: format!("val-{name}"),
                             text:val.clone(),
                             tw: "text-white text-xs font-mono font-bold whitespace-nowrap".into(),
+                            style: None,
                         },
                     ],
                 })
                 .collect();
 
-            let root = SceneNode::Collection {
+            let root = IncrNode::Container {
                 id: "grid".into(),
                 tw: "flex flex-row gap-1 p-1 bg-gray-900 w-[360px] h-[36px]".into(),
+                style: None,
                 children: cols,
             };
 
@@ -1438,7 +1376,7 @@ fn run_suite(suite: &TestSuite, cm: &CostModel) -> SuiteResult {
         .iter()
         .map(|f| {
             // ── Full render (fresh context, no caching) ──────────────────────────
-            let root_incr = f.root.clone().into_incr_node();
+            let root_incr = f.root.clone();
             let full_ctx = Ctx::fresh();
             let t = Instant::now();
             let (full_px, w, h) = {
@@ -2095,7 +2033,7 @@ fn suite_realistic_sidebar() -> TestSuite {
         };
         let label = changed;
 
-        let ws_cards: Vec<SceneNode> = ws_data.iter().enumerate().map(|(j, (key, name, sub))| {
+        let ws_cards: Vec<IncrNode> = ws_data.iter().enumerate().map(|(j, (key, name, sub))| {
             let is_focused = j == focused;
             let card_tw = if is_focused {
                 "flex flex-col justify-center px-3 h-[52px] rounded-lg bg-gray-800 border border-blue-500 w-full"
@@ -2113,30 +2051,36 @@ fn suite_realistic_sidebar() -> TestSuite {
                 "text-[13px] text-gray-300 truncate"
             };
 
-            let mut lbl_children = vec![SceneNode::Text {
-                id: format!("ws-{j}-name"), text:name.to_string(), tw: name_tw.into(),
+            let mut lbl_children = vec![IncrNode::Text {
+                id: format!("ws-{j}-name"), text:name.to_string(), tw: name_tw.into(), style: None,
             }];
             if let Some(s) = sub {
-                lbl_children.push(SceneNode::Text {
+                lbl_children.push(IncrNode::Text {
                     id: format!("ws-{j}-sub"), text:s.to_string(),
                     tw: "text-[11px] text-gray-500 truncate".into(),
+                    style: None,
                 });
             }
 
-            SceneNode::Collection {
+            IncrNode::Container {
                 id: format!("ws-{j}"), tw: card_tw.into(),
-                children: vec![SceneNode::Collection {
+                style: None,
+                children: vec![IncrNode::Container {
                     id: format!("ws-{j}-inner"), tw: "flex flex-row items-center gap-2 w-full".into(),
+                    style: None,
                     children: vec![
-                        SceneNode::Collection {
+                        IncrNode::Container {
                             id: format!("ws-{j}-badge"), tw: badge_tw.into(),
-                            children: vec![SceneNode::Text {
+                            style: None,
+                            children: vec![IncrNode::Text {
                                 id: format!("ws-{j}-key"), text:key.to_string(),
                                 tw: "text-[12px] text-white font-bold".into(),
+                                style: None,
                             }],
                         },
-                        SceneNode::Collection {
+                        IncrNode::Container {
                             id: format!("ws-{j}-lbl"), tw: "flex flex-col min-w-0 flex-1".into(),
+                            style: None,
                             children: lbl_children,
                         },
                     ],
@@ -2144,119 +2088,136 @@ fn suite_realistic_sidebar() -> TestSuite {
             }
         }).collect();
 
-        let root = SceneNode::Collection {
+        let root = IncrNode::Container {
             id: "sidebar".into(),
             tw: "flex flex-col w-[300px] h-[2500px] px-4 py-4 bg-gray-900".into(),
+            style: None,
             children: vec![
                 // Workspace list fills the top (flex-1 pushes bottom cards down)
-                SceneNode::Collection {
+                IncrNode::Container {
                     id: "ws-area".into(),
                     tw: "flex-1 flex flex-col w-full".into(),
-                    children: vec![SceneNode::Collection {
+                    style: None,
+                    children: vec![IncrNode::Container {
                         id: "ws-list".into(),
                         tw: "flex flex-col gap-2 w-full pt-4".into(),
+                        style: None,
                         children: ws_cards,
                     }],
                 },
                 // Bottom info cards
-                SceneNode::Collection {
+                IncrNode::Container {
                     id: "bottom".into(),
                     tw: "flex flex-col gap-[10px] w-full".into(),
+                    style: None,
                     children: vec![
                         // GitHub WIP (fully static)
-                        SceneNode::Collection {
+                        IncrNode::Container {
                             id: "gh-card".into(),
                             tw: "flex flex-col gap-1 px-3 py-2 bg-gray-800 rounded-xl w-full".into(),
+                            style: None,
                             children: vec![
-                                SceneNode::Collection { id: "gh-hdr".into(),
+                                IncrNode::Container { id: "gh-hdr".into(),
                                     tw: "flex flex-row items-baseline".into(),
+                                    style: None,
                                     children: vec![
-                                        SceneNode::Text { id: "gh-ttl".into(),  text:"GITHUB WIP".into(), tw: "flex-1 text-[10px] text-gray-400".into() },
-                                        SceneNode::Text { id: "gh-pr-h".into(), text:"PR".into(),         tw: "w-[24px] text-right text-[8px] text-gray-400".into() },
-                                        SceneNode::Text { id: "gh-tsk-h".into(),text:"tsk".into(),        tw: "w-[24px] text-right text-[8px] text-gray-400".into() },
+                                        IncrNode::Text { id: "gh-ttl".into(),  text:"GITHUB WIP".into(), tw: "flex-1 text-[10px] text-gray-400".into(), style: None },
+                                        IncrNode::Text { id: "gh-pr-h".into(), text:"PR".into(),         tw: "w-[24px] text-right text-[8px] text-gray-400".into(), style: None },
+                                        IncrNode::Text { id: "gh-tsk-h".into(),text:"tsk".into(),        tw: "w-[24px] text-right text-[8px] text-gray-400".into(), style: None },
                                     ],
                                 },
-                                SceneNode::Collection { id: "gh-r1".into(),
+                                IncrNode::Container { id: "gh-r1".into(),
                                     tw: "flex flex-row items-baseline".into(),
+                                    style: None,
                                     children: vec![
-                                        SceneNode::Text { id: "gh-n1".into(), text:"costae".into(), tw: "flex-1 text-[11px] text-white".into() },
-                                        SceneNode::Text { id: "gh-p1".into(), text:"3".into(),       tw: "w-[24px] text-right text-[11px] text-white".into() },
-                                        SceneNode::Text { id: "gh-t1".into(), text:"—".into(),       tw: "w-[24px] text-right text-[11px] text-gray-400".into() },
+                                        IncrNode::Text { id: "gh-n1".into(), text:"costae".into(), tw: "flex-1 text-[11px] text-white".into(), style: None },
+                                        IncrNode::Text { id: "gh-p1".into(), text:"3".into(),       tw: "w-[24px] text-right text-[11px] text-white".into(), style: None },
+                                        IncrNode::Text { id: "gh-t1".into(), text:"—".into(),       tw: "w-[24px] text-right text-[11px] text-gray-400".into(), style: None },
                                     ],
                                 },
-                                SceneNode::Collection { id: "gh-r2".into(),
+                                IncrNode::Container { id: "gh-r2".into(),
                                     tw: "flex flex-row items-baseline".into(),
+                                    style: None,
                                     children: vec![
-                                        SceneNode::Text { id: "gh-n2".into(), text:"takumi".into(), tw: "flex-1 text-[11px] text-white".into() },
-                                        SceneNode::Text { id: "gh-p2".into(), text:"1".into(),       tw: "w-[24px] text-right text-[11px] text-white".into() },
-                                        SceneNode::Text { id: "gh-t2".into(), text:"2".into(),       tw: "w-[24px] text-right text-[11px] text-white".into() },
+                                        IncrNode::Text { id: "gh-n2".into(), text:"takumi".into(), tw: "flex-1 text-[11px] text-white".into(), style: None },
+                                        IncrNode::Text { id: "gh-p2".into(), text:"1".into(),       tw: "w-[24px] text-right text-[11px] text-white".into(), style: None },
+                                        IncrNode::Text { id: "gh-t2".into(), text:"2".into(),       tw: "w-[24px] text-right text-[11px] text-white".into(), style: None },
                                     ],
                                 },
                             ],
                         },
                         // Weather (static in this suite)
-                        SceneNode::Collection {
+                        IncrNode::Container {
                             id: "wx-card".into(),
                             tw: "flex flex-col gap-1 px-3 py-2 bg-gray-800 rounded-xl w-full".into(),
+                            style: None,
                             children: vec![
-                                SceneNode::Collection { id: "wx-r1".into(),
+                                IncrNode::Container { id: "wx-r1".into(),
                                     tw: "flex flex-row items-baseline justify-between".into(),
+                                    style: None,
                                     children: vec![
-                                        SceneNode::Text { id: "wx-temp".into(),  text:"21°C".into(),       tw: "text-[15px] text-white font-bold".into() },
-                                        SceneNode::Text { id: "wx-feels".into(), text:"feels 19°C".into(), tw: "text-[10px] text-gray-400".into() },
+                                        IncrNode::Text { id: "wx-temp".into(),  text:"21°C".into(),       tw: "text-[15px] text-white font-bold".into(), style: None },
+                                        IncrNode::Text { id: "wx-feels".into(), text:"feels 19°C".into(), tw: "text-[10px] text-gray-400".into(), style: None },
                                     ],
                                 },
-                                SceneNode::Collection { id: "wx-r2".into(),
+                                IncrNode::Container { id: "wx-r2".into(),
                                     tw: "flex flex-row justify-between".into(),
+                                    style: None,
                                     children: vec![
-                                        SceneNode::Text { id: "wx-cond".into(), text:"Partly cloudy".into(), tw: "text-[10px] text-gray-400".into() },
-                                        SceneNode::Text { id: "wx-rh".into(),   text:"RH 62%".into(),        tw: "text-[10px] text-gray-400".into() },
+                                        IncrNode::Text { id: "wx-cond".into(), text:"Partly cloudy".into(), tw: "text-[10px] text-gray-400".into(), style: None },
+                                        IncrNode::Text { id: "wx-rh".into(),   text:"RH 62%".into(),        tw: "text-[10px] text-gray-400".into(), style: None },
                                     ],
                                 },
                             ],
                         },
                         // Claude usage (pct and progress bar change every 2 frames)
-                        SceneNode::Collection {
+                        IncrNode::Container {
                             id: "claude-card".into(),
                             tw: "flex flex-col gap-1 px-3 py-2 bg-gray-800 rounded-xl w-full".into(),
+                            style: None,
                             children: vec![
-                                SceneNode::Text { id: "claude-lbl".into(), text:"Claude · main".into(), tw: "text-[10px] text-gray-400".into() },
-                                SceneNode::Collection { id: "claude-row".into(),
+                                IncrNode::Text { id: "claude-lbl".into(), text:"Claude · main".into(), tw: "text-[10px] text-gray-400".into(), style: None },
+                                IncrNode::Container { id: "claude-row".into(),
                                     tw: "flex flex-row items-baseline justify-between".into(),
+                                    style: None,
                                     children: vec![
-                                        SceneNode::Text { id: "claude-pct".into(),  text:format!("{claude_pct}%"), tw: "text-[15px] text-white font-bold".into() },
-                                        SceneNode::Text { id: "claude-rst".into(),  text:"resets 2h".into(),       tw: "text-[10px] text-gray-400".into() },
+                                        IncrNode::Text { id: "claude-pct".into(),  text:format!("{claude_pct}%"), tw: "text-[15px] text-white font-bold".into(), style: None },
+                                        IncrNode::Text { id: "claude-rst".into(),  text:"resets 2h".into(),       tw: "text-[10px] text-gray-400".into(), style: None },
                                     ],
                                 },
-                                SceneNode::Collection {
+                                IncrNode::Container {
                                     id: "claude-prog".into(),
                                     tw: "w-full h-[4px] bg-gray-700 rounded-full".into(),
-                                    children: vec![SceneNode::Image {
+                                    style: None,
+                                    children: vec![IncrNode::Container {
                                         id: "claude-fill".into(),
-                                        color: "green-400".into(),
-                                        width: ((claude_pct * 200 / 100) as u32).min(200),
-                                        height: 4,
+                                        tw: format!("w-[{}px] h-[4px] bg-green-400", ((claude_pct * 200 / 100) as u32).min(200)),
+                                        style: Some(serde_json::json!({"display":"inline-block"})),
+                                        children: vec![],
                                     }],
                                 },
                             ],
                         },
                         // DateTime (time changes every frame)
-                        SceneNode::Collection {
+                        IncrNode::Container {
                             id: "dt-card".into(),
                             tw: "flex flex-row gap-[10px] px-3 py-2 bg-gray-800 rounded-xl w-full".into(),
+                            style: None,
                             children: vec![
-                                SceneNode::Collection { id: "dt-date".into(),
+                                IncrNode::Container { id: "dt-date".into(),
                                     tw: "flex-1 flex flex-col gap-1".into(),
+                                    style: None,
                                     children: vec![
-                                        SceneNode::Text { id: "dt-dl".into(), text:"DATE".into(),   tw: "text-[10px] text-gray-400".into() },
-                                        SceneNode::Text { id: "dt-dv".into(), text:"Apr 30".into(), tw: "text-[14px] text-white".into() },
+                                        IncrNode::Text { id: "dt-dl".into(), text:"DATE".into(),   tw: "text-[10px] text-gray-400".into(), style: None },
+                                        IncrNode::Text { id: "dt-dv".into(), text:"Apr 30".into(), tw: "text-[14px] text-white".into(), style: None },
                                     ],
                                 },
-                                SceneNode::Collection { id: "dt-time".into(),
+                                IncrNode::Container { id: "dt-time".into(),
                                     tw: "flex-1 flex flex-col gap-1".into(),
+                                    style: None,
                                     children: vec![
-                                        SceneNode::Text { id: "dt-tl".into(), text:"TIME".into(),        tw: "text-[10px] text-gray-400".into() },
-                                        SceneNode::Text { id: "dt-tv".into(), text:time_str.clone(),     tw: "text-[14px] text-white font-mono".into() },
+                                        IncrNode::Text { id: "dt-tl".into(), text:"TIME".into(),        tw: "text-[10px] text-gray-400".into(), style: None },
+                                        IncrNode::Text { id: "dt-tv".into(), text:time_str.clone(),     tw: "text-[14px] text-white font-mono".into(), style: None },
                                     ],
                                 },
                             ],
@@ -2293,13 +2254,15 @@ fn suite_shrink_bug() -> TestSuite {
     .iter()
     .enumerate()
     .map(|(i, &text)| {
-        let root = SceneNode::Collection {
+        let root = IncrNode::Container {
             id: "bar".into(),
             tw: "w-[400px] h-[24px] bg-blue-900 flex items-center".into(),
-            children: vec![SceneNode::Text {
+            style: None,
+            children: vec![IncrNode::Text {
                 id: "label".into(),
                 text:text.into(),
                 tw: "text-white text-xs font-mono whitespace-nowrap".into(),
+                style: None,
             }],
         };
         SuiteFrame {
@@ -2324,32 +2287,37 @@ fn suite_moving_ball() -> TestSuite {
         let t = i as f64 / 11.0;
         let bx = (8 + (t * 352.0) as u32).min(368);
         let sz = 16u32 + (8.0 * (t * std::f64::consts::TAU).sin().abs()) as u32;
-        let root = SceneNode::Collection {
+        let root = IncrNode::Container {
             id: "canvas".into(),
             tw: "flex flex-col w-[400px] h-[80px] bg-gray-900".into(),
+            style: None,
             children: vec![
-                SceneNode::Collection {
+                IncrNode::Container {
                     id: "header".into(),
                     tw: "flex flex-row items-center h-[20px] px-2".into(),
+                    style: None,
                     children: vec![
-                        SceneNode::Text { id: "title".into(), text:"Ball Track".into(),
-                            tw: "text-gray-500 text-[10px] whitespace-nowrap".into() },
-                        SceneNode::Text { id: "pos-lbl".into(), text:format!("x={bx} sz={sz}"),
-                            tw: "ml-2 text-gray-400 text-[10px] font-mono whitespace-nowrap".into() },
+                        IncrNode::Text { id: "title".into(), text:"Ball Track".into(),
+                            tw: "text-gray-500 text-[10px] whitespace-nowrap".into(), style: None },
+                        IncrNode::Text { id: "pos-lbl".into(), text:format!("x={bx} sz={sz}"),
+                            tw: "ml-2 text-gray-400 text-[10px] font-mono whitespace-nowrap".into(), style: None },
                     ],
                 },
-                SceneNode::Collection {
+                IncrNode::Container {
                     id: "track".into(),
                     tw: "flex flex-row items-center flex-1 px-2".into(),
+                    style: None,
                     children: vec![
-                        SceneNode::Collection {
+                        IncrNode::Container {
                             id: "spacer".into(),
                             tw: format!("flex-shrink-0 w-[{bx}px] h-[2px] bg-gray-700"),
+                            style: None,
                             children: vec![],
                         },
-                        SceneNode::Collection {
+                        IncrNode::Container {
                             id: "ball".into(),
                             tw: format!("flex-shrink-0 w-[{sz}px] h-[{sz}px] rounded-full bg-orange-500 shadow-lg"),
+                            style: None,
                             children: vec![],
                         },
                     ],
@@ -2368,22 +2336,26 @@ fn suite_moving_ball() -> TestSuite {
 fn suite_tile_crossing() -> TestSuite {
     let frames = (0..10).map(|i| {
         let bx = i as u32 * TILE_SIZE;
-        let root = SceneNode::Collection {
+        let root = IncrNode::Container {
             id: "canvas".into(),
             tw: "flex flex-row items-center w-[320px] h-[64px] bg-gray-900".into(),
+            style: None,
             children: vec![
-                SceneNode::Collection {
+                IncrNode::Container {
                     id: "spacer".into(),
                     tw: format!("flex-shrink-0 w-[{bx}px] h-[2px] bg-gray-700"),
+                    style: None,
                     children: vec![],
                 },
-                SceneNode::Collection {
+                IncrNode::Container {
                     id: "block".into(),
                     tw: "flex-shrink-0 w-[32px] h-[32px] bg-cyan-400 rounded shadow-sm flex items-center justify-center".into(),
-                    children: vec![SceneNode::Text {
+                    style: None,
+                    children: vec![IncrNode::Text {
                         id: "n".into(),
                         text:format!("{i}"),
                         tw: "text-gray-900 text-xs font-bold".into(),
+                        style: None,
                     }],
                 },
             ],
@@ -2401,26 +2373,30 @@ fn suite_panel_focus() -> TestSuite {
     let frames = (0..10).map(|i| {
         let active = i % 3;
         let count = i + 1;
-        let root = SceneNode::Collection {
+        let root = IncrNode::Container {
             id: "canvas".into(),
             tw: "flex flex-row gap-3 p-4 w-[460px] h-[120px] bg-gray-950".into(),
+            style: None,
             children: (0usize..3).map(|idx| {
                 let is_active = idx == active;
-                SceneNode::Collection {
+                IncrNode::Container {
                     id: format!("panel-{idx}"),
                     tw: if is_active {
                         "flex flex-col p-3 bg-blue-800 rounded-xl shadow-xl w-[130px] border-2 border-blue-400".into()
                     } else {
                         "flex flex-col p-3 bg-gray-800 rounded-xl shadow-md w-[130px] border border-gray-600".into()
                     },
+                    style: None,
                     children: vec![
-                        SceneNode::Text { id: format!("p{idx}-title"),
+                        IncrNode::Text { id: format!("p{idx}-title"),
                             text:["Alpha", "Beta", "Gamma"][idx].into(),
                             tw: format!("text-[11px] font-bold {} whitespace-nowrap",
-                                if is_active { "text-blue-100" } else { "text-gray-300" }) },
-                        SceneNode::Text { id: format!("p{idx}-val"),
+                                if is_active { "text-blue-100" } else { "text-gray-300" }),
+                            style: None },
+                        IncrNode::Text { id: format!("p{idx}-val"),
                             text:if idx == 0 { format!("{count}") } else { "—".into() },
-                            tw: "text-[22px] font-bold text-white".into() },
+                            tw: "text-[22px] font-bold text-white".into(),
+                            style: None },
                     ],
                 }
             }).collect(),
@@ -2440,30 +2416,34 @@ fn suite_diagonal_scatter() -> TestSuite {
     ];
     let frames = (0..10).map(|i| {
         let hot = i % 9;
-        let rows: Vec<SceneNode> = (0usize..3).map(|r| SceneNode::Collection {
+        let rows: Vec<IncrNode> = (0usize..3).map(|r| IncrNode::Container {
             id: format!("row-{r}"),
             tw: "flex flex-row gap-2".into(),
+            style: None,
             children: (0usize..3).map(|c| {
                 let idx = r * 3 + c;
                 let is_hot = idx == hot;
-                SceneNode::Collection {
+                IncrNode::Container {
                     id: format!("cell-{idx}"),
                     tw: if is_hot {
                         format!("w-[72px] h-[72px] bg-{}-400 rounded-lg shadow-lg flex items-center justify-center", colors[idx])
                     } else {
                         format!("w-[72px] h-[72px] bg-{}-900 rounded flex items-center justify-center", colors[idx])
                     },
-                    children: vec![SceneNode::Text {
+                    style: None,
+                    children: vec![IncrNode::Text {
                         id: format!("cell-{idx}-lbl"),
                         text:if is_hot { "●".into() } else { "○".into() },
                         tw: format!("text-{}-{} text-sm font-bold", colors[idx], if is_hot { "100" } else { "600" }),
+                        style: None,
                     }],
                 }
             }).collect(),
         }).collect();
-        let root = SceneNode::Collection {
+        let root = IncrNode::Container {
             id: "canvas".into(),
             tw: "flex flex-col gap-2 w-[248px] h-[248px] p-2 bg-gray-950".into(),
+            style: None,
             children: rows,
         };
         SuiteFrame { label: format!("frame {i}: hot=cell-{hot}"), root }
@@ -2479,41 +2459,48 @@ fn suite_notification_badge() -> TestSuite {
     let frames = (0..12).map(|i| {
         let count = i + 1;
         let two_digit = count >= 10;
-        let root = SceneNode::Collection {
+        let root = IncrNode::Container {
             id: "widget".into(),
             tw: "flex flex-row items-center gap-3 w-[240px] h-[72px] px-4 py-3 bg-gray-900 rounded-xl".into(),
+            style: None,
             children: vec![
-                SceneNode::Collection {
+                IncrNode::Container {
                     id: "icon".into(),
                     tw: "flex-shrink-0 w-[48px] h-[48px] bg-blue-600 rounded-xl shadow-md flex items-center justify-center".into(),
-                    children: vec![SceneNode::Text {
+                    style: None,
+                    children: vec![IncrNode::Text {
                         id: "icon-lbl".into(),
                         text:"✉".into(),
                         tw: "text-white text-[20px]".into(),
+                        style: None,
                     }],
                 },
-                SceneNode::Collection {
+                IncrNode::Container {
                     id: "content".into(),
                     tw: "flex flex-col gap-1".into(),
+                    style: None,
                     children: vec![
-                        SceneNode::Text { id: "app-name".into(), text:"Messages".into(),
-                            tw: "text-[12px] text-white font-semibold whitespace-nowrap".into() },
-                        SceneNode::Collection {
+                        IncrNode::Text { id: "app-name".into(), text:"Messages".into(),
+                            tw: "text-[12px] text-white font-semibold whitespace-nowrap".into(), style: None },
+                        IncrNode::Container {
                             id: "badge-row".into(),
                             tw: "flex flex-row items-center gap-2".into(),
+                            style: None,
                             children: vec![
-                                SceneNode::Collection {
+                                IncrNode::Container {
                                     id: "badge".into(),
                                     tw: format!("flex items-center justify-center {} h-[18px] bg-red-500 rounded-full",
                                         if two_digit { "min-w-[28px]" } else { "min-w-[18px]" }),
-                                    children: vec![SceneNode::Text {
+                                    style: None,
+                                    children: vec![IncrNode::Text {
                                         id: "badge-n".into(),
                                         text:format!("{count}"),
                                         tw: "text-white text-[10px] font-bold px-1 whitespace-nowrap".into(),
+                                        style: None,
                                     }],
                                 },
-                                SceneNode::Text { id: "badge-lbl".into(), text:"unread".into(),
-                                    tw: "text-[10px] text-gray-400 whitespace-nowrap".into() },
+                                IncrNode::Text { id: "badge-lbl".into(), text:"unread".into(),
+                                    tw: "text-[10px] text-gray-400 whitespace-nowrap".into(), style: None },
                             ],
                         },
                     ],
@@ -2540,16 +2527,18 @@ fn suite_progress_fill() -> TestSuite {
             };
             let fill_w = (pct * 320 / 100).min(320);
             let complete = pct >= 100;
-            let root = SceneNode::Collection {
+            let root = IncrNode::Container {
                 id: "card".into(),
                 tw: "flex flex-col gap-2 w-[360px] h-[60px] px-3 py-2 bg-gray-800 rounded-xl"
                     .into(),
+                style: None,
                 children: vec![
-                    SceneNode::Collection {
+                    IncrNode::Container {
                         id: "header".into(),
                         tw: "flex flex-row items-baseline justify-between".into(),
+                        style: None,
                         children: vec![
-                            SceneNode::Text {
+                            IncrNode::Text {
                                 id: "label".into(),
                                 text:if complete {
                                     "Complete!"
@@ -2558,26 +2547,25 @@ fn suite_progress_fill() -> TestSuite {
                                 }
                                 .into(),
                                 tw: "text-[11px] text-gray-400 whitespace-nowrap".into(),
+                                style: None,
                             },
-                            SceneNode::Text {
+                            IncrNode::Text {
                                 id: "pct".into(),
                                 text:format!("{pct}%"),
                                 tw: "text-[11px] text-white font-mono whitespace-nowrap".into(),
+                                style: None,
                             },
                         ],
                     },
-                    SceneNode::Collection {
+                    IncrNode::Container {
                         id: "bar-bg".into(),
                         tw: "w-full h-[8px] bg-gray-700 rounded-full overflow-hidden".into(),
-                        children: vec![SceneNode::Image {
+                        style: None,
+                        children: vec![IncrNode::Container {
                             id: "bar-fill".into(),
-                            color: if complete {
-                                "green-400".into()
-                            } else {
-                                "blue-500".into()
-                            },
-                            width: fill_w,
-                            height: 8,
+                            tw: format!("w-[{fill_w}px] h-[8px] bg-{}", if complete { "green-400" } else { "blue-500" }),
+                            style: Some(serde_json::json!({"display":"inline-block"})),
+                            children: vec![],
                         }],
                     },
                 ],
@@ -2615,37 +2603,44 @@ fn suite_keyframe_animation() -> TestSuite {
         // Phase label: 4 keyframe segments
         let phase = if t < 0.25 { "IDLE" } else if t < 0.5 { "RISING" } else if t < 0.75 { "PEAK" } else { "FALLING" };
 
-        let root = SceneNode::Collection {
+        let root = IncrNode::Container {
             id: "canvas".into(),
             tw: "flex flex-col w-[500px] h-[260px] p-4 bg-gray-950 gap-3".into(),
+            style: None,
             children: vec![
                 // Header: title + frame counter + current phase
-                SceneNode::Collection { id: "hdr".into(), tw: "flex flex-row items-baseline gap-2".into(),
+                IncrNode::Container { id: "hdr".into(), tw: "flex flex-row items-baseline gap-2".into(),
+                    style: None,
                     children: vec![
-                        SceneNode::Text { id: "hdr-title".into(), text:"Keyframe Animation".into(),
-                            tw: "text-[12px] text-gray-300 font-bold whitespace-nowrap".into() },
-                        SceneNode::Text { id: "hdr-frame".into(), text:format!("{i:02}/20"),
-                            tw: "text-[10px] text-gray-500 font-mono whitespace-nowrap".into() },
-                        SceneNode::Text { id: "hdr-phase".into(), text:phase.into(),
-                            tw: "ml-auto text-[11px] text-yellow-300 font-bold whitespace-nowrap".into() },
+                        IncrNode::Text { id: "hdr-title".into(), text:"Keyframe Animation".into(),
+                            tw: "text-[12px] text-gray-300 font-bold whitespace-nowrap".into(), style: None },
+                        IncrNode::Text { id: "hdr-frame".into(), text:format!("{i:02}/20"),
+                            tw: "text-[10px] text-gray-500 font-mono whitespace-nowrap".into(), style: None },
+                        IncrNode::Text { id: "hdr-phase".into(), text:phase.into(),
+                            tw: "ml-auto text-[11px] text-yellow-300 font-bold whitespace-nowrap".into(), style: None },
                     ],
                 },
                 // Bounce row
-                SceneNode::Collection { id: "bounce-row".into(),
+                IncrNode::Container { id: "bounce-row".into(),
                     tw: "flex flex-row items-start gap-3 h-[60px]".into(),
+                    style: None,
                     children: vec![
-                        SceneNode::Text { id: "bounce-lbl".into(), text:"Bounce".into(),
-                            tw: "w-[46px] text-[10px] text-gray-500 whitespace-nowrap pt-1 flex-shrink-0".into() },
-                        SceneNode::Collection { id: "bounce-track".into(),
+                        IncrNode::Text { id: "bounce-lbl".into(), text:"Bounce".into(),
+                            tw: "w-[46px] text-[10px] text-gray-500 whitespace-nowrap pt-1 flex-shrink-0".into(), style: None },
+                        IncrNode::Container { id: "bounce-track".into(),
                             tw: "flex-1 h-[60px] bg-gray-900 rounded overflow-hidden".into(),
-                            children: vec![SceneNode::Collection { id: "bounce-col".into(),
+                            style: None,
+                            children: vec![IncrNode::Container { id: "bounce-col".into(),
                                 tw: "flex flex-col pl-2".into(),
+                                style: None,
                                 children: vec![
-                                    SceneNode::Collection { id: "bounce-spacer".into(),
+                                    IncrNode::Container { id: "bounce-spacer".into(),
                                         tw: format!("flex-shrink-0 w-[20px] h-[{bounce_y}px]"),
+                                        style: None,
                                         children: vec![] },
-                                    SceneNode::Collection { id: "bounce-ball".into(),
+                                    IncrNode::Container { id: "bounce-ball".into(),
                                         tw: "flex-shrink-0 w-[20px] h-[20px] rounded-full bg-blue-400 shadow-md".into(),
+                                        style: None,
                                         children: vec![] },
                                 ],
                             }],
@@ -2653,50 +2648,59 @@ fn suite_keyframe_animation() -> TestSuite {
                     ],
                 },
                 // Slide row
-                SceneNode::Collection { id: "slide-row".into(),
+                IncrNode::Container { id: "slide-row".into(),
                     tw: "flex flex-row items-center gap-3 h-[32px]".into(),
+                    style: None,
                     children: vec![
-                        SceneNode::Text { id: "slide-lbl".into(), text:"Slide".into(),
-                            tw: "w-[46px] text-[10px] text-gray-500 whitespace-nowrap flex-shrink-0".into() },
-                        SceneNode::Collection { id: "slide-track".into(),
+                        IncrNode::Text { id: "slide-lbl".into(), text:"Slide".into(),
+                            tw: "w-[46px] text-[10px] text-gray-500 whitespace-nowrap flex-shrink-0".into(), style: None },
+                        IncrNode::Container { id: "slide-track".into(),
                             tw: "flex-1 h-[8px] bg-gray-800 rounded-full flex flex-row items-center".into(),
+                            style: None,
                             children: vec![
-                                SceneNode::Collection { id: "slide-spacer".into(),
+                                IncrNode::Container { id: "slide-spacer".into(),
                                     tw: format!("flex-shrink-0 w-[{slide_x}px] h-[8px]"),
+                                    style: None,
                                     children: vec![] },
-                                SceneNode::Collection { id: "slide-thumb".into(),
+                                IncrNode::Container { id: "slide-thumb".into(),
                                     tw: "flex-shrink-0 w-[12px] h-[12px] rounded-full bg-white shadow-sm".into(),
+                                    style: None,
                                     children: vec![] },
                             ],
                         },
                     ],
                 },
                 // Pulse row
-                SceneNode::Collection { id: "pulse-row".into(),
+                IncrNode::Container { id: "pulse-row".into(),
                     tw: "flex flex-row items-center gap-3 h-[44px]".into(),
+                    style: None,
                     children: vec![
-                        SceneNode::Text { id: "pulse-lbl".into(), text:"Pulse".into(),
-                            tw: "w-[46px] text-[10px] text-gray-500 whitespace-nowrap flex-shrink-0".into() },
-                        SceneNode::Collection { id: "pulse-box".into(),
+                        IncrNode::Text { id: "pulse-lbl".into(), text:"Pulse".into(),
+                            tw: "w-[46px] text-[10px] text-gray-500 whitespace-nowrap flex-shrink-0".into(), style: None },
+                        IncrNode::Container { id: "pulse-box".into(),
                             tw: format!("flex-shrink-0 w-[{pulse_sz}px] h-[{pulse_sz}px] bg-{pulse_color} rounded shadow-md"),
+                            style: None,
                             children: vec![] },
                     ],
                 },
                 // Phase indicator row: 4 segments, active one highlighted
-                SceneNode::Collection { id: "phase-row".into(),
+                IncrNode::Container { id: "phase-row".into(),
                     tw: "flex flex-row items-center gap-3 h-[24px]".into(),
+                    style: None,
                     children: vec![
-                        SceneNode::Text { id: "phase-lbl".into(), text:"Phase".into(),
-                            tw: "w-[46px] text-[10px] text-gray-500 whitespace-nowrap flex-shrink-0".into() },
-                        SceneNode::Collection { id: "phase-bar".into(),
+                        IncrNode::Text { id: "phase-lbl".into(), text:"Phase".into(),
+                            tw: "w-[46px] text-[10px] text-gray-500 whitespace-nowrap flex-shrink-0".into(), style: None },
+                        IncrNode::Container { id: "phase-bar".into(),
                             tw: "flex-1 flex flex-row gap-1 h-[16px]".into(),
-                            children: ["IDLE","RISING","PEAK","FALLING"].iter().map(|&p| SceneNode::Collection {
+                            style: None,
+                            children: ["IDLE","RISING","PEAK","FALLING"].iter().map(|&p| IncrNode::Container {
                                 id: format!("phase-seg-{p}"),
                                 tw: if p == phase {
                                     "flex-1 h-full bg-yellow-400 rounded-sm".into()
                                 } else {
                                     "flex-1 h-full bg-gray-700 rounded-sm".into()
                                 },
+                                style: None,
                                 children: vec![],
                             }).collect(),
                         },
@@ -2742,40 +2746,45 @@ fn suite_notification_panel() -> TestSuite {
             ((19 - i) as f64 / 9.0 * 360.0) as u32
         };
 
-        let notif_items: Vec<SceneNode> = notifs.iter().enumerate().map(|(idx, (app, msg))| {
+        let notif_items: Vec<IncrNode> = notifs.iter().enumerate().map(|(idx, (app, msg))| {
             let hot = idx == active;
-            SceneNode::Collection {
+            IncrNode::Container {
                 id: format!("notif-{idx}"),
                 tw: if hot {
                     "flex flex-row items-center gap-2 px-3 py-2 bg-blue-950 rounded-lg".into()
                 } else {
                     "flex flex-row items-center gap-2 px-3 py-2".into()
                 },
+                style: None,
                 children: vec![
-                    SceneNode::Collection {
+                    IncrNode::Container {
                         id: format!("notif-{idx}-dot"),
                         tw: if hot {
                             "flex-shrink-0 w-[8px] h-[8px] rounded-full bg-blue-400".into()
                         } else {
                             "flex-shrink-0 w-[8px] h-[8px] rounded-full bg-gray-700".into()
                         },
+                        style: None,
                         children: vec![],
                     },
-                    SceneNode::Collection {
+                    IncrNode::Container {
                         id: format!("notif-{idx}-body"),
                         tw: "flex flex-col".into(),
+                        style: None,
                         children: vec![
-                            SceneNode::Text {
+                            IncrNode::Text {
                                 id: format!("notif-{idx}-app"),
                                 text:app.to_string(),
                                 tw: format!("text-[11px] font-bold whitespace-nowrap {}",
                                     if hot { "text-blue-300" } else { "text-gray-500" }),
+                                style: None,
                             },
-                            SceneNode::Text {
+                            IncrNode::Text {
                                 id: format!("notif-{idx}-msg"),
                                 text:msg.to_string(),
                                 tw: format!("text-[10px] whitespace-nowrap {}",
                                     if hot { "text-gray-200" } else { "text-gray-600" }),
+                                style: None,
                             },
                         ],
                     },
@@ -2783,57 +2792,67 @@ fn suite_notification_panel() -> TestSuite {
             }
         }).collect();
 
-        let root = SceneNode::Collection {
+        let root = IncrNode::Container {
             id: "panel".into(),
             tw: "flex flex-col w-[400px] h-[200px] bg-gray-900 rounded-xl p-3 gap-2".into(),
+            style: None,
             children: vec![
                 // Header: static title + badge (every 4th) + spinner (every frame)
-                SceneNode::Collection {
+                IncrNode::Container {
                     id: "hdr".into(),
                     tw: "flex flex-row items-center gap-2 h-[24px]".into(),
+                    style: None,
                     children: vec![
-                        SceneNode::Text { id: "title".into(), text:"NOTIFICATIONS".into(),
-                            tw: "text-[10px] text-gray-400 font-bold whitespace-nowrap".into() },
-                        SceneNode::Collection { id: "hdr-gap".into(), tw: "flex-1".into(), children: vec![] },
-                        SceneNode::Collection {
+                        IncrNode::Text { id: "title".into(), text:"NOTIFICATIONS".into(),
+                            tw: "text-[10px] text-gray-400 font-bold whitespace-nowrap".into(), style: None },
+                        IncrNode::Container { id: "hdr-gap".into(), tw: "flex-1".into(), style: None, children: vec![] },
+                        IncrNode::Container {
                             id: "badge".into(),
                             tw: "flex-shrink-0 flex items-center justify-center w-[18px] h-[18px] bg-red-500 rounded-full".into(),
-                            children: vec![SceneNode::Text {
+                            style: None,
+                            children: vec![IncrNode::Text {
                                 id: "badge-n".into(), text:format!("{count}"),
                                 tw: "text-white text-[10px] font-bold".into(),
+                                style: None,
                             }],
                         },
-                        SceneNode::Text {
+                        IncrNode::Text {
                             id: "spin".into(), text:spin.into(),
                             tw: "ml-auto text-blue-400 text-[14px] font-mono whitespace-nowrap".into(),
+                            style: None,
                         },
                     ],
                 },
                 // Notification list — one item highlights on a 2-frame cycle
-                SceneNode::Collection {
+                IncrNode::Container {
                     id: "notif-list".into(),
                     tw: "flex flex-col gap-1".into(),
+                    style: None,
                     children: notif_items,
                 },
                 // Slide track — thumb bounces L↔R every frame
-                SceneNode::Collection {
+                IncrNode::Container {
                     id: "slide-row".into(),
                     tw: "flex flex-row items-center gap-2 h-[20px]".into(),
+                    style: None,
                     children: vec![
-                        SceneNode::Text { id: "slide-lbl".into(), text:"activity".into(),
-                            tw: "w-[46px] text-[10px] text-gray-600 whitespace-nowrap flex-shrink-0".into() },
-                        SceneNode::Collection {
+                        IncrNode::Text { id: "slide-lbl".into(), text:"activity".into(),
+                            tw: "w-[46px] text-[10px] text-gray-600 whitespace-nowrap flex-shrink-0".into(), style: None },
+                        IncrNode::Container {
                             id: "slide-track".into(),
                             tw: "flex-1 h-[4px] bg-gray-800 rounded-full flex flex-row items-center overflow-hidden".into(),
+                            style: None,
                             children: vec![
-                                SceneNode::Collection {
+                                IncrNode::Container {
                                     id: "slide-spacer".into(),
                                     tw: format!("flex-shrink-0 w-[{slide_x}px] h-[4px]"),
+                                    style: None,
                                     children: vec![],
                                 },
-                                SceneNode::Collection {
+                                IncrNode::Container {
                                     id: "slide-thumb".into(),
                                     tw: "flex-shrink-0 w-[8px] h-[8px] rounded-full bg-blue-400".into(),
+                                    style: None,
                                     children: vec![],
                                 },
                             ],
@@ -2898,61 +2917,71 @@ fn suite_two_region() -> TestSuite {
             let net = format!("NET  {} MB/s", i * 3 % 100);
             let log = log_entries[(i / 4) % log_entries.len()];
             let age = format!("{}s ago", (i % 4) * 10);
-            let root = SceneNode::Collection {
+            let root = IncrNode::Container {
                 id: "canvas".into(),
                 tw: "relative w-[440px] h-[200px] bg-gray-950".into(),
+                style: None,
                 children: vec![
                     // Left panel — every frame
-                    SceneNode::Collection {
+                    IncrNode::Container {
                         id: "left".into(),
                         tw: "absolute bottom-[8px] left-[8px] w-[180px] h-[184px] \
                              bg-gray-900 rounded-xl p-3 flex flex-col gap-2"
                             .into(),
+                        style: None,
                         children: vec![
-                            SceneNode::Text {
+                            IncrNode::Text {
                                 id: "time".into(),
                                 text:time.clone(),
                                 tw: "text-white text-sm font-mono font-bold whitespace-nowrap"
                                     .into(),
+                                style: None,
                             },
-                            SceneNode::Text {
+                            IncrNode::Text {
                                 id: "cpu".into(),
                                 text:cpu,
                                 tw: "text-green-400 text-xs font-mono whitespace-nowrap".into(),
+                                style: None,
                             },
-                            SceneNode::Text {
+                            IncrNode::Text {
                                 id: "mem".into(),
                                 text:mem,
                                 tw: "text-blue-400 text-xs font-mono whitespace-nowrap".into(),
+                                style: None,
                             },
-                            SceneNode::Text {
+                            IncrNode::Text {
                                 id: "net".into(),
                                 text:net,
                                 tw: "text-yellow-400 text-xs font-mono whitespace-nowrap".into(),
+                                style: None,
                             },
                         ],
                     },
                     // Right panel — every 4th frame  (left=252 = 440-180-8)
-                    SceneNode::Collection {
+                    IncrNode::Container {
                         id: "right".into(),
                         tw: "absolute bottom-[8px] left-[252px] w-[180px] h-[184px] \
                              bg-gray-900 rounded-xl p-3 flex flex-col gap-2"
                             .into(),
+                        style: None,
                         children: vec![
-                            SceneNode::Text {
+                            IncrNode::Text {
                                 id: "log-hdr".into(),
                                 text:"System Log".into(),
                                 tw: "text-gray-400 text-[10px] font-bold whitespace-nowrap".into(),
+                                style: None,
                             },
-                            SceneNode::Text {
+                            IncrNode::Text {
                                 id: "log-entry".into(),
                                 text:log.into(),
                                 tw: "text-green-300 text-[9px] font-mono whitespace-nowrap".into(),
+                                style: None,
                             },
-                            SceneNode::Text {
+                            IncrNode::Text {
                                 id: "log-age".into(),
                                 text:age,
                                 tw: "text-gray-600 text-[9px] font-mono whitespace-nowrap".into(),
+                                style: None,
                             },
                         ],
                     },
@@ -2995,53 +3024,60 @@ fn suite_kanban() -> TestSuite {
         ("F", "Code review", "border-blue-400"),
     ];
 
-    let make_card = |id: &str| -> SceneNode {
+    let make_card = |id: &str| -> IncrNode {
         let &(_, title, border) = task_def.iter().find(|(i, _, _)| *i == id).unwrap();
-        SceneNode::Collection {
+        IncrNode::Container {
             id: format!("card-{id}"),
             tw: format!(
                 "flex flex-col gap-[2px] px-2 py-[6px] bg-gray-800 rounded-lg \
                  border-l-2 {border} shadow-md"
             ),
+            style: None,
             children: vec![
-                SceneNode::Text {
+                IncrNode::Text {
                     id: format!("card-{id}-t"),
                     text:title.into(),
                     tw: "text-white text-[10px] font-bold whitespace-nowrap".into(),
+                    style: None,
                 },
-                SceneNode::Text {
+                IncrNode::Text {
                     id: format!("card-{id}-i"),
                     text:format!("#{id}"),
                     tw: "text-gray-500 text-[9px] font-mono whitespace-nowrap".into(),
+                    style: None,
                 },
             ],
         }
     };
 
-    let make_col = |col_id: &str, title: &str, cards: Vec<SceneNode>| -> SceneNode {
+    let make_col = |col_id: &str, title: &str, cards: Vec<IncrNode>| -> IncrNode {
         let n = cards.len();
-        let mut children = vec![SceneNode::Collection {
+        let mut children = vec![IncrNode::Container {
             id: format!("{col_id}-hdr"),
             tw: "flex flex-row items-center justify-between px-1".into(),
+            style: None,
             children: vec![
-                SceneNode::Text {
+                IncrNode::Text {
                     id: format!("{col_id}-title"),
                     text:title.into(),
                     tw: "text-gray-300 text-[10px] font-bold whitespace-nowrap".into(),
+                    style: None,
                 },
-                SceneNode::Text {
+                IncrNode::Text {
                     id: format!("{col_id}-n"),
                     text:n.to_string(),
                     tw: "text-gray-500 text-[10px] font-mono whitespace-nowrap".into(),
+                    style: None,
                 },
             ],
         }];
         children.extend(cards);
-        SceneNode::Collection {
+        IncrNode::Container {
             id: col_id.into(),
             tw: "flex flex-col w-[132px] h-[284px] bg-gray-900 rounded-xl \
                  p-[6px] gap-[6px]"
                 .into(),
+            style: None,
             children,
         }
     };
@@ -3074,11 +3110,12 @@ fn suite_kanban() -> TestSuite {
             let ball_y_top = (80.0 + 90.0 * (t * 0.27 * PI).sin().abs()) as u32;
             let ball_bottom = 300u32.saturating_sub(ball_y_top + 80);
 
-            let root = SceneNode::Collection {
+            let root = IncrNode::Container {
                 id: "canvas".into(),
                 tw: "relative flex flex-row gap-[8px] p-[8px] \
                      w-[440px] h-[300px] bg-gray-950"
                     .into(),
+                style: None,
                 children: vec![
                     make_col(
                         "col-todo",
@@ -3096,13 +3133,14 @@ fn suite_kanban() -> TestSuite {
                         done_ids.iter().map(|&id| make_card(id)).collect(),
                     ),
                     // Bouncing overlay ball — position changes every frame
-                    SceneNode::Collection {
+                    IncrNode::Container {
                         id: "ball".into(),
                         tw: format!(
                             "absolute bottom-[{ball_bottom}px] left-[{ball_x}px] \
                              w-[80px] h-[80px] rounded-full opacity-60 bg-gray-400 \
                              backdrop-blur-md shadow-2xl border border-gray-300"
                         ),
+                        style: None,
                         children: vec![],
                     },
                 ],
@@ -3157,80 +3195,91 @@ fn suite_compositing_overlay() -> TestSuite {
             let spinner = ["|", "/", "—", "\\"][i % 4];
 
             // 8 metric cards in a 4×2 grid filling the canvas — all change every frame.
-            let cards: Vec<SceneNode> = metrics
+            let cards: Vec<IncrNode> = metrics
                 .iter()
-                .map(|(name, val)| SceneNode::Collection {
+                .map(|(name, val)| IncrNode::Container {
                     id: format!("card-{name}"),
                     tw: "flex flex-col items-center justify-center w-[96px] h-[64px] \
                      bg-gray-800 rounded-lg shadow-lg"
                         .into(),
+                    style: None,
                     children: vec![
-                        SceneNode::Text {
+                        IncrNode::Text {
                             id: format!("card-{name}-lbl"),
                             text:name.to_string(),
                             tw: "text-gray-400 text-[10px] whitespace-nowrap".into(),
+                            style: None,
                         },
-                        SceneNode::Text {
+                        IncrNode::Text {
                             id: format!("card-{name}-val"),
                             text:val.clone(),
                             tw: "text-white text-sm font-mono font-bold whitespace-nowrap".into(),
+                            style: None,
                         },
                     ],
                 })
                 .collect();
 
-            let root = SceneNode::Collection {
+            let root = IncrNode::Container {
                 id: "canvas".into(),
                 // relative so the absolute glass panel is positioned within this container.
                 tw: "relative w-[440px] h-[160px] bg-gray-950".into(),
+                style: None,
                 children: vec![
                     // All 8 metric cards in a 4×2 flex-wrap grid — fill the full canvas.
-                    SceneNode::Collection {
+                    IncrNode::Container {
                         id: "grid".into(),
                         tw: "flex flex-row flex-wrap gap-[8px] p-[8px] w-[440px] h-[160px]".into(),
+                        style: None,
                         children: cards,
                     },
                     // Semi-transparent overlay — ABSOLUTE, covers right half only (x=220 to x=432).
                     // STATIC: tw never changes after frame 0.  The cards underneath change every
                     // frame; the overlay must composite correctly over freshly-rendered card tiles.
-                    SceneNode::Collection {
+                    IncrNode::Container {
                         id: "glass".into(),
                         tw: "absolute bottom-[8px] left-[220px] w-[212px] h-[144px] \
                          opacity-40 bg-blue-400 backdrop-blur-md mix-blend-screen \
                          rounded-xl border border-blue-300 shadow-xl \
                          flex flex-col items-center justify-center gap-1"
                             .into(),
+                        style: None,
                         children: vec![
-                            SceneNode::Text {
+                            IncrNode::Text {
                                 id: "glass-lbl".into(),
                                 text:"Overlay (static)".into(),
                                 tw: "text-white text-xs font-bold whitespace-nowrap".into(),
+                                style: None,
                             },
-                            SceneNode::Text {
+                            IncrNode::Text {
                                 id: "glass-hint".into(),
                                 text:"opacity-70".into(),
                                 tw: "text-white text-[10px] whitespace-nowrap".into(),
+                                style: None,
                             },
                         ],
                     },
                     // Opacity-pulsing badge — bottom-left, changes every frame independently.
-                    SceneNode::Collection {
+                    IncrNode::Container {
                         id: "badge".into(),
                         tw: format!(
                             "absolute bottom-[8px] left-[8px] flex items-center \
                                  justify-center gap-1 px-2 h-[18px] bg-yellow-400 \
                                  rounded {badge_opacity}"
                         ),
+                        style: None,
                         children: vec![
-                            SceneNode::Text {
+                            IncrNode::Text {
                                 id: "spin".into(),
                                 text:spinner.into(),
                                 tw: "text-black text-[10px] font-mono".into(),
+                                style: None,
                             },
-                            SceneNode::Text {
+                            IncrNode::Text {
                                 id: "badge-lbl".into(),
                                 text:"LIVE".into(),
                                 tw: "text-black text-[10px] font-bold".into(),
+                                style: None,
                             },
                         ],
                     },
@@ -3287,7 +3336,7 @@ fn suite_scroll_list() -> TestSuite {
                 "water-lilies"
             };
 
-            let items: Vec<SceneNode> = notif_data
+            let items: Vec<IncrNode> = notif_data
                 .iter()
                 .enumerate()
                 .map(|(idx, (app, msg, color))| {
@@ -3299,48 +3348,55 @@ fn suite_scroll_list() -> TestSuite {
                         _ => None,
                     };
 
-                    let mut children: Vec<SceneNode> = Vec::new();
+                    let mut children: Vec<IncrNode> = Vec::new();
 
                     if let Some(src) = photo_src {
-                        children.push(SceneNode::Photo {
+                        children.push(IncrNode::Image {
                             id: format!("item-{idx}-thumb"),
                             src: src.to_string(),
-                            width: 48,
-                            height: 48,
+                            width: Some(48.0),
+                            height: Some(48.0),
+                            tw: String::new(),
+                            style: None,
                         });
                     }
 
                     // Dot is smaller (6×6) for photo items, same for plain items.
-                    children.push(SceneNode::Collection {
+                    children.push(IncrNode::Container {
                         id: format!("item-{idx}-dot"),
                         tw: format!("flex-shrink-0 w-[6px] h-[6px] rounded-full bg-{color}-400"),
+                        style: None,
                         children: vec![],
                     });
 
-                    children.push(SceneNode::Collection {
+                    children.push(IncrNode::Container {
                         id: format!("item-{idx}-body"),
                         tw: "flex flex-col".into(),
+                        style: None,
                         children: vec![
-                            SceneNode::Text {
+                            IncrNode::Text {
                                 id: format!("item-{idx}-app"),
                                 text:app.to_string(),
                                 tw: format!(
                                     "text-[11px] font-bold text-{color}-300 whitespace-nowrap"
                                 ),
+                                style: None,
                             },
-                            SceneNode::Text {
+                            IncrNode::Text {
                                 id: format!("item-{idx}-msg"),
                                 text:msg.to_string(),
                                 tw: "text-[10px] text-gray-400 whitespace-nowrap".into(),
+                                style: None,
                             },
                         ],
                     });
 
-                    SceneNode::Collection {
+                    IncrNode::Container {
                         id: format!("item-{idx}"),
                         tw: format!(
                             "flex flex-row items-center gap-2 px-3 py-2 bg-{color}-950 rounded-lg"
                         ),
+                        style: None,
                         children,
                     }
                 })
@@ -3353,35 +3409,41 @@ fn suite_scroll_list() -> TestSuite {
                 format!("flex flex-col gap-1 mt-[-{scroll_y}px]")
             };
 
-            let root = SceneNode::Collection {
+            let root = IncrNode::Container {
                 id: "panel".into(),
                 tw: "flex flex-col w-[400px] h-[200px] bg-gray-900 rounded-xl p-3 gap-2".into(),
+                style: None,
                 children: vec![
                     // Header — static except for scroll position readout
-                    SceneNode::Collection {
+                    IncrNode::Container {
                         id: "hdr".into(),
                         tw: "flex flex-row items-center h-[24px]".into(),
+                        style: None,
                         children: vec![
-                            SceneNode::Text {
+                            IncrNode::Text {
                                 id: "hdr-title".into(),
                                 text:"NOTIFICATIONS".into(),
                                 tw: "text-[10px] text-gray-400 font-bold whitespace-nowrap".into(),
+                                style: None,
                             },
-                            SceneNode::Text {
+                            IncrNode::Text {
                                 id: "hdr-pos".into(),
                                 text:format!("↕ {scroll_y}px"),
                                 tw: "ml-auto text-[10px] text-gray-600 font-mono whitespace-nowrap"
                                     .into(),
+                                style: None,
                             },
                         ],
                     },
                     // Clipped scroll viewport — overflow-hidden clips scrolled-past content
-                    SceneNode::Collection {
+                    IncrNode::Container {
                         id: "scroll-win".into(),
                         tw: "flex-1 overflow-hidden".into(),
-                        children: vec![SceneNode::Collection {
+                        style: None,
+                        children: vec![IncrNode::Container {
                             id: "scroll-content".into(),
                             tw: content_tw,
+                            style: None,
                             children: items,
                         }],
                     },
@@ -3664,10 +3726,11 @@ mod visual_regression {
     ///   Frame 2: node-a + node-c (same slot, purple) — old node-b area fully replaced
     #[test]
     fn reg_structure_change_no_ghost() {
-        let mk_frame = |label: &str, children: Vec<SceneNode>| -> SuiteFrame {
-            let root = SceneNode::Collection {
+        let mk_frame = |label: &str, children: Vec<IncrNode>| -> SuiteFrame {
+            let root = IncrNode::Container {
                 id: "canvas".into(),
                 tw: "flex flex-row items-center w-[320px] h-[48px] bg-gray-900".into(),
+                style: None,
                 children: children,
             };
             SuiteFrame {
@@ -3675,21 +3738,24 @@ mod visual_regression {
                 root,
             }
         };
-        let node_a = || SceneNode::Collection {
+        let node_a = || IncrNode::Container {
             id: "node-a".into(),
             tw: "w-[48px] h-[32px] bg-blue-500 rounded flex items-center justify-center".into(),
+            style: None,
             children: vec![],
         };
-        let node_b = || SceneNode::Collection {
+        let node_b = || IncrNode::Container {
             id: "node-b".into(),
             tw: "ml-auto w-[48px] h-[32px] bg-orange-400 rounded flex items-center justify-center"
                 .into(),
+            style: None,
             children: vec![],
         };
-        let node_c = || SceneNode::Collection {
+        let node_c = || IncrNode::Container {
             id: "node-c".into(),
             tw: "ml-auto w-[48px] h-[32px] bg-purple-400 rounded flex items-center justify-center"
                 .into(),
+            style: None,
             children: vec![],
         };
         let suite = TestSuite {
