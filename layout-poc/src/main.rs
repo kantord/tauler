@@ -1203,10 +1203,12 @@ const TILE_CACHE_MB: usize = 10; // LRU tile cache budget; entry count derived f
 // Overlap condition: distance < 1 + 2*SHADOW_BUF/TILE_SIZE  →  distance ≤ MERGE_THRESHOLD.
 const MERGE_THRESHOLD: u32 = 2 * SHADOW_BUF / TILE_SIZE;
 
-// Default cost-model coefficients (overridden at runtime by self-calibration).
-const O_FIXED_MS: f64 = 1.0;
-const K_AREA: f64 = 4e-5;
-const K_NODES: f64 = 0.3;
+// Cost-model coefficients — OLS-calibrated on 260 samples at TILE_SIZE=24 (R²=0.733).
+// O_FIXED sensitivity sweep showed 0% merge-decision change across ×0.5/×2.0 range;
+// any value in the right order of magnitude is fine.
+const O_FIXED_MS: f64 = 1.0;    // ms per render call (insensitive, rounded)
+const K_AREA: f64 = 8.75e-5;    // ms per px² of candidate canvas
+const K_NODES: f64 = 0.88;      // ms per node in candidate whitelist
 
 #[derive(Clone)]
 struct CostModel {
@@ -1223,12 +1225,6 @@ impl Default for CostModel {
             k_nodes: K_NODES,
         }
     }
-}
-
-struct CalibrationResult {
-    model: CostModel,
-    r_squared: f64,
-    n_samples: usize,
 }
 
 // ---------------------------------------------------------------------------
@@ -1455,155 +1451,7 @@ fn greedy_merge_candidates(mut cs: Vec<RenderCandidate>, cm: &CostModel) -> Vec<
     cs
 }
 
-// ---------------------------------------------------------------------------
-// OLS self-calibration
-// ---------------------------------------------------------------------------
-
-/// 2-param OLS: time_ms = o_fixed + k_area × canvas_area  (k_nodes dropped).
-/// Returns (o_fixed, k_area, r_squared).
-fn fit_2param(samples: &[(f64, f64, f64)]) -> Option<(f64, f64, f64)> {
-    let n = samples.len() as f64;
-    if samples.len() < 3 {
-        return None;
-    }
-    let sum_a: f64 = samples.iter().map(|&(a, _, _)| a).sum();
-    let sum_t: f64 = samples.iter().map(|&(_, _, t)| t).sum();
-    let sum_a2: f64 = samples.iter().map(|&(a, _, _)| a * a).sum();
-    let sum_at: f64 = samples.iter().map(|&(a, _, t)| a * t).sum();
-    let det = n * sum_a2 - sum_a * sum_a;
-    if det.abs() < 1e-14 {
-        return None;
-    }
-    let k = (n * sum_at - sum_a * sum_t) / det;
-    let o = (sum_t - k * sum_a) / n;
-    let mean_t = sum_t / n;
-    let ss_tot: f64 = samples.iter().map(|&(_, _, t)| (t - mean_t).powi(2)).sum();
-    let ss_res: f64 = samples.iter().map(|&(a, _, t)| (t - (o + k * a)).powi(2)).sum();
-    let r2 = if ss_tot > 1e-15 { (1.0 - ss_res / ss_tot).max(0.0) } else { 0.0 };
-    Some((o.max(0.05), k.max(1e-7), r2))
-}
-
-/// Bootstrap stability: resample `samples` with replacement 20 times, fit each,
-/// return (std_dev_o_fixed, std_dev_k_area, std_dev_k_nodes).
-fn bootstrap_stability(samples: &[(f64, f64, f64)]) -> (f64, f64, f64) {
-    let mut o_vals: Vec<f64> = Vec::new();
-    let mut ka_vals: Vec<f64> = Vec::new();
-    let mut kn_vals: Vec<f64> = Vec::new();
-    // Cheap LCG for deterministic resampling without pulling in rand.
-    let mut rng: u64 = 0xdeadbeef_cafebabe;
-    for _ in 0..20 {
-        let resample: Vec<(f64, f64, f64)> = (0..samples.len())
-            .map(|_| {
-                rng ^= rng << 13;
-                rng ^= rng >> 7;
-                rng ^= rng << 17;
-                samples[rng as usize % samples.len()]
-            })
-            .collect();
-        if let Some(c) = fit_cost_model(&resample) {
-            o_vals.push(c.model.o_fixed);
-            ka_vals.push(c.model.k_area);
-            kn_vals.push(c.model.k_nodes);
-        }
-    }
-    fn sd(v: &[f64]) -> f64 {
-        if v.len() < 2 {
-            return 0.0;
-        }
-        let m = v.iter().sum::<f64>() / v.len() as f64;
-        (v.iter().map(|x| (x - m).powi(2)).sum::<f64>() / v.len() as f64).sqrt()
-    }
-    (sd(&o_vals), sd(&ka_vals), sd(&kn_vals))
-}
-
-/// Fit  time_ms = o_fixed + k_area × canvas_area + k_nodes × n_nodes
-/// from observed render samples using ordinary least squares.
-///
-/// area is scaled by 1e4 internally to improve numerical conditioning.
-/// Returns None if fewer than 4 samples or the system is degenerate.
-fn fit_cost_model(samples: &[(f64, f64, f64)]) -> Option<CalibrationResult> {
-    let n = samples.len();
-    if n < 4 {
-        return None;
-    }
-
-    const SCALE: f64 = 1e4; // area normalisation: avoids large XtX diagonal entries
-    let mut xtx = [[0.0f64; 3]; 3];
-    let mut xty = [0.0f64; 3];
-    for &(area, nodes, time) in samples {
-        let x = [1.0, area / SCALE, nodes];
-        for i in 0..3 {
-            xty[i] += x[i] * time;
-            for j in 0..3 {
-                xtx[i][j] += x[i] * x[j];
-            }
-        }
-    }
-
-    // Gaussian elimination with partial pivoting on the 3×3 normal equations.
-    let mut a = xtx;
-    let mut b = xty;
-    for col in 0..3 {
-        let mut pivot = col;
-        for r in (col + 1)..3 {
-            if a[r][col].abs() > a[pivot][col].abs() {
-                pivot = r;
-            }
-        }
-        a.swap(col, pivot);
-        b.swap(col, pivot);
-        let p = a[col][col];
-        if p.abs() < 1e-14 {
-            return None;
-        }
-        for row in (col + 1)..3 {
-            let f = a[row][col] / p;
-            for k in col..3 {
-                a[row][k] -= f * a[col][k];
-            }
-            b[row] -= f * b[col];
-        }
-    }
-    let mut sol = [0.0f64; 3];
-    for i in (0..3).rev() {
-        sol[i] = b[i];
-        for j in (i + 1)..3 {
-            sol[i] -= a[i][j] * sol[j];
-        }
-        sol[i] /= a[i][i];
-    }
-    let (o_raw, k_area_raw, k_nodes_raw) = (sol[0], sol[1] / SCALE, sol[2]);
-
-    // R² over the raw samples using the fitted (un-clamped) coefficients.
-    let mean_t = samples.iter().map(|&(_, _, t)| t).sum::<f64>() / n as f64;
-    let ss_tot: f64 = samples.iter().map(|&(_, _, t)| (t - mean_t).powi(2)).sum();
-    let ss_res: f64 = samples
-        .iter()
-        .map(|&(area, nd, t)| (t - (o_raw + k_area_raw * area + k_nodes_raw * nd)).powi(2))
-        .sum();
-    let r_squared = if ss_tot > 1e-15 {
-        (1.0 - ss_res / ss_tot).max(0.0)
-    } else {
-        0.0
-    };
-
-    // Clamp to physically meaningful positive values.
-    Some(CalibrationResult {
-        model: CostModel {
-            o_fixed: o_raw.max(0.05),
-            k_area: k_area_raw.max(1e-7),
-            k_nodes: k_nodes_raw.max(0.001),
-        },
-        r_squared,
-        n_samples: n,
-    })
-}
-
-fn run_suite(
-    suite: &TestSuite,
-    cm: &CostModel,
-    cal_samples: &mut Vec<(f64, f64, f64)>,
-) -> SuiteResult {
+fn run_suite(suite: &TestSuite, cm: &CostModel) -> SuiteResult {
     let mut incr_ctx = Ctx::fresh();
     let mut incr_set: ManagedSet<FakeNode> = ManagedSet::new();
     let mut frame_buf: Vec<u8> = Vec::new();
@@ -1898,7 +1746,6 @@ fn run_suite(
                     "children": nodes
                 });
                 let node = parse_layout(&scene).unwrap_or_else(|_| Node::container(vec![]));
-                let t_render = Instant::now();
                 let cand_px = takumi_render(
                     RenderOptions::builder()
                         .global(&incr_ctx.global)
@@ -1908,11 +1755,7 @@ fn run_suite(
                 )
                 .expect("candidate render")
                 .into_raw();
-                cal_samples.push((
-                    canvas_w as f64 * canvas_h as f64,
-                    nodes.len() as f64,
-                    t_render.elapsed().as_secs_f64() * 1000.0,
-                ));
+
 
                 for &(tx, ty) in &cand.tiles {
                     let px_x = tx * TILE_SIZE;
@@ -1965,7 +1808,7 @@ fn run_suite(
 /// catching any clearly-wrong pixel (diff > 50) involving more than ~30 pixels.
 const PERFECT_THRESHOLD: f64 = 0.05;
 
-fn html_report(suites: &[TestSuite], results: &[SuiteResult], cal_note: &str) -> String {
+fn html_report(suites: &[TestSuite], results: &[SuiteResult]) -> String {
     // ── Timing totals ────────────────────────────────────────────────────────
     let mut all_full = Duration::ZERO;
     let mut all_incr = Duration::ZERO;
@@ -2183,7 +2026,6 @@ fn html_report(suites: &[TestSuite], results: &[SuiteResult], cal_note: &str) ->
         <div><div class="l">Full render total</div><div class="v">{ft:.0}ms</div></div>
         <div><div class="l">Incremental total</div><div class="v">{it:.0}ms</div></div>
       </div>
-      <div class="cal-box">{cal}</div>
       <table class="suite-tbl">
         <thead><tr><th>Suite</th><th>Speedup</th><th>Pixel-perfect</th></tr></thead>
         <tbody>{rows}</tbody>
@@ -2196,7 +2038,6 @@ fn html_report(suites: &[TestSuite], results: &[SuiteResult], cal_note: &str) ->
         it = all_incr.as_secs_f64() * 1000.0,
         rows = table_rows,
         worst = worst_html,
-        cal = cal_note,
     );
 
     format!(
@@ -3672,117 +3513,8 @@ fn main() {
         suite_kanban(),
     ];
 
-    // ── Pass 1: calibration run ───────────────────────────────────────────────
-    // Run all suites with default cost-model constants to collect
-    // (canvas_area, n_nodes, render_time_ms) samples for OLS regression.
-    eprintln!("Pass 1/2 — collecting calibration samples (default cost model)...");
-    let mut cal_samples: Vec<(f64, f64, f64)> = Vec::new();
-    let default_cm = CostModel::default();
-    for suite in &suites_defs {
-        run_suite(suite, &default_cm, &mut cal_samples);
-    }
-
-    // ── OLS fit (3-param) ─────────────────────────────────────────────────────
-    let cal = fit_cost_model(&cal_samples);
-    let cm = cal.as_ref().map(|c| c.model.clone()).unwrap_or_default();
-
-    let cal_note = match &cal {
-        Some(c) => {
-            let msg = format!(
-                "Cost model calibrated from {} samples  R²={:.3}\n  O_FIXED = {:.4} ms   K_AREA = {:.3e} ms/px   K_NODES = {:.4} ms/node",
-                c.n_samples, c.r_squared, c.model.o_fixed, c.model.k_area, c.model.k_nodes
-            );
-            eprintln!("{msg}");
-            msg
-        }
-        None => {
-            let msg =
-                "Calibration skipped (insufficient samples) — using default constants.".into();
-            eprintln!("{}", msg);
-            msg
-        }
-    };
-
-    // ── Model selection: 2-param vs 3-param ──────────────────────────────────
-    eprintln!("\n── Model selection ──────────────────────────────────────────");
-    if let Some((o2, ka2, r2_2)) = fit_2param(&cal_samples) {
-        let r2_3 = cal.as_ref().map(|c| c.r_squared).unwrap_or(0.0);
-        eprintln!("  3-param (O+area+nodes): R²={r2_3:.3}");
-        eprintln!("  2-param (O+area only):  R²={r2_2:.3}  O={o2:.4} ms  K_AREA={ka2:.3e}");
-        let delta = r2_3 - r2_2;
-        if delta < 0.02 {
-            eprintln!("  → R² drop = {delta:.3} < 0.02  ✓  k_nodes is noise — DROP IT");
-        } else {
-            eprintln!("  → R² drop = {delta:.3} ≥ 0.02  ✗  k_nodes carries signal — KEEP IT");
-        }
-    }
-
-    // ── Bootstrap stability (20 resamples) ────────────────────────────────────
-    eprintln!("\n── Bootstrap stability (20 resamples) ───────────────────────");
-    let (sd_o, sd_ka, sd_kn) = bootstrap_stability(&cal_samples);
-    let o_fixed = cm.o_fixed;
-    let k_area  = cm.k_area;
-    let k_nodes = cm.k_nodes;
-    eprintln!(
-        "  O_FIXED:  {o_fixed:.4} ± {sd_o:.4} ms  ({:.0}% CV)",
-        sd_o / o_fixed * 100.0
-    );
-    eprintln!(
-        "  K_AREA:   {k_area:.3e} ± {sd_ka:.3e}  ({:.0}% CV)",
-        sd_ka / k_area * 100.0
-    );
-    eprintln!(
-        "  K_NODES:  {k_nodes:.4} ± {sd_kn:.4} ms/node  ({:.0}% CV)",
-        sd_kn / k_nodes * 100.0
-    );
-    if sd_o / o_fixed < 0.15 && sd_ka / k_area < 0.15 {
-        eprintln!("  → All CV < 15%  ✓  constants are stable enough to hardcode");
-    } else {
-        eprintln!("  → High variance — constants are noise-sensitive, default safer");
-    }
-
-    // ── Sensitivity: vary O_FIXED ±50%, count changed merge decisions ─────────
-    eprintln!("\n── O_FIXED sensitivity (×0.5 / ×1.0 / ×2.0) ────────────────");
-    let mut discard = Vec::new();
-    let factors = [0.5f64, 1.0, 2.0];
-    let mut total_calls = [0u32; 3];
-    for (i, &f) in factors.iter().enumerate() {
-        let test_cm = CostModel { o_fixed: cm.o_fixed * f, ..cm.clone() };
-        total_calls[i] = suites_defs
-            .iter()
-            .map(|s| {
-                run_suite(s, &test_cm, &mut discard)
-                    .frames
-                    .iter()
-                    .map(|fr| fr.render_calls)
-                    .sum::<u32>()
-            })
-            .sum();
-    }
-    for (i, &f) in factors.iter().enumerate() {
-        let diff_pct = (total_calls[i] as i32 - total_calls[1] as i32).unsigned_abs() as f64
-            / total_calls[1] as f64
-            * 100.0;
-        eprintln!(
-            "  ×{f:.1}: {} render calls  (Δ {diff_pct:.1}% from baseline)",
-            total_calls[i]
-        );
-    }
-    let max_dev = (total_calls[0].abs_diff(total_calls[1]))
-        .max(total_calls[2].abs_diff(total_calls[1])) as f64
-        / total_calls[1] as f64
-        * 100.0;
-    if max_dev < 5.0 {
-        eprintln!("  → Max deviation {max_dev:.1}% < 5%  ✓  O_FIXED is robust — any value in right order works");
-    } else {
-        eprintln!("  → Max deviation {max_dev:.1}% ≥ 5%  ✗  O_FIXED materially affects merge decisions");
-    }
-    eprintln!();
-
-    // ── Pass 2: benchmark with calibrated constants ───────────────────────────
-    eprintln!("Pass 2/2 — benchmark with calibrated cost model...");
+    let cm = CostModel::default();
     let mut results = Vec::new();
-    let mut _discard: Vec<(f64, f64, f64)> = Vec::new();
     for suite in &suites_defs {
         eprintln!(
             "Running suite: {} ({} frames, tile={}px)...",
@@ -3790,13 +3522,13 @@ fn main() {
             suite.frames.len(),
             TILE_SIZE
         );
-        let result = run_suite(suite, &cm, &mut _discard);
+        let result = run_suite(suite, &cm);
         print_suite_results(&result);
         results.push(result);
     }
 
     let path = "/tmp/poc_report.html";
-    std::fs::write(path, html_report(&suites_defs, &results, &cal_note)).expect("write report");
+    std::fs::write(path, html_report(&suites_defs, &results)).expect("write report");
     eprintln!("Report: file://{path}");
 
     // Dump PNG frames for visual inspection
@@ -3867,8 +3599,7 @@ mod visual_regression {
     /// Run `suite`, extract frame `frame_idx`, and snapshot both renders.
     fn assert_render_snapshots(suite: &TestSuite, frame_idx: usize, name: &str) {
         let cm = CostModel::default();
-        let mut discard = Vec::new();
-        let result = run_suite(suite, &cm, &mut discard);
+        let result = run_suite(suite, &cm);
         let f = &result.frames[frame_idx];
         insta::with_settings!({ snapshot_path => snapshot_dir(), prepend_module_to_snapshot => false }, {
             assert_snapshot(&format!("{name}__full_f{frame_idx}"),  &f.full_px, f.w, f.h);
@@ -3879,8 +3610,7 @@ mod visual_regression {
     /// Run `suite` once, snapshot full and incr pixels for multiple frame indices.
     fn run_and_snapshot(suite: &TestSuite, frame_indices: &[usize], name: &str) {
         let cm = CostModel::default();
-        let mut discard = Vec::new();
-        let result = run_suite(suite, &cm, &mut discard);
+        let result = run_suite(suite, &cm);
         insta::with_settings!({ snapshot_path => snapshot_dir(), prepend_module_to_snapshot => false }, {
             for &fi in frame_indices {
                 let f = &result.frames[fi];
