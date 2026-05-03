@@ -12,6 +12,11 @@
     {
       "matchManagers": ["cargo"],
       "rangeStrategy": "bump"
+    },
+    {
+      "matchManagers": ["cargo"],
+      "matchPackagePatterns": ["^oxc"],
+      "groupName": "oxc crates"
     }
   ]
 }
