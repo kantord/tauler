@@ -48,5 +48,5 @@ parley = "0.9"
 [dev-dependencies]
 image = "0.25.10"
 tracing-test = "0.2.6"
-rstest = "0.23"
+rstest = "0.26.1"
 tempfile = "3.27.0"
