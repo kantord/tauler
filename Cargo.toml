@@ -41,7 +41,7 @@ costae-lifecycle-derive = { path = "costae-lifecycle-derive" }
 costae-ui-macro = { path = "costae-ui-macro" }
 notify = "6.1.1"
 smithay-client-toolkit = "0.19"
-wayland-client = "0.31"
+wayland-client = "0.31.14"
 cached = { version = "0.59.0", features = ["proc_macro"] }
 parley = "0.9"
 
