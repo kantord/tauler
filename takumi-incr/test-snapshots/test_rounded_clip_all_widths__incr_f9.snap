@@ -2,4 +2,4 @@
 source: takumi-incr/src/main.rs
 expression: pixel_hash(pixels)
 ---
-b8597ebcbb7a0ba5  (21600 px)
+a40fad97e7c0f60c  (21600 px)

@@ -30,9 +30,14 @@ fn new_ctx() -> GlobalContext {
         .join("../assets/fonts/inter/InterVariable.ttf");
     ctx.font_context.collection.load_fonts_from_paths(std::iter::once(&font_path));
     if let Some(info) = ctx.font_context.collection.family_by_name("Inter Variable") {
+        let id = info.id();
         ctx.font_context.collection.set_generic_families(
             GenericFamily::SansSerif,
-            std::iter::once(info.id()),
+            std::iter::once(id),
+        );
+        ctx.font_context.collection.set_generic_families(
+            GenericFamily::Monospace,
+            std::iter::once(id),
         );
     }
     let assets_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("test-assets");
@@ -92,12 +97,12 @@ impl IncrNode {
     fn to_json(&self) -> serde_json::Value {
         match self {
             Self::Text { text, tw, style, .. } => {
-                let mut v = serde_json::json!({"type":"text","text":text,"tw":tw,"id":self.id()});
+                let mut v = serde_json::json!({"type":"text","text":text,"tw":tw});
                 if let Some(s) = style { v["style"] = s.clone(); }
                 v
             }
             Self::Image { src, width, height, tw, style, .. } => {
-                let mut v = serde_json::json!({"type":"image","src":src,"id":self.id()});
+                let mut v = serde_json::json!({"type":"image","src":src});
                 if let Some(w) = width { v["width"] = serde_json::json!(w); }
                 if let Some(h) = height { v["height"] = serde_json::json!(h); }
                 if !tw.is_empty() { v["tw"] = serde_json::json!(tw); }
@@ -106,7 +111,7 @@ impl IncrNode {
             }
             Self::Container { tw, style, children, .. } => {
                 let ch: Vec<_> = children.iter().map(|c| c.to_json()).collect();
-                let mut v = serde_json::json!({"type":"container","tw":tw,"children":ch,"id":self.id()});
+                let mut v = serde_json::json!({"type":"container","tw":tw,"children":ch});
                 if let Some(s) = style { v["style"] = s.clone(); }
                 v
             }
