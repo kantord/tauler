@@ -3,6 +3,7 @@ use std::num::NonZeroUsize;
 use std::time::{Duration, Instant};
 
 use lru::LruCache;
+use parley::fontique::GenericFamily;
 
 use anyhow::Result;
 use image::{ImageBuffer, Rgba};
@@ -26,6 +27,20 @@ use costae::managed_set::{Lifecycle, ManagedSet};
 fn new_ctx() -> GlobalContext {
     let mut ctx = GlobalContext::default();
     ctx.font_context.collection.load_system_fonts();
+    let font_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../assets/fonts/inter/InterVariable.ttf");
+    ctx.font_context
+        .collection
+        .load_fonts_from_paths(std::iter::once(&font_path));
+    if let Some(info) = ctx.font_context.collection.family_by_name("Inter Variable") {
+        let id = info.id();
+        ctx.font_context
+            .collection
+            .set_generic_families(GenericFamily::SansSerif, std::iter::once(id));
+        ctx.font_context
+            .collection
+            .set_generic_families(GenericFamily::Monospace, std::iter::once(id));
+    }
     let assets_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("test-assets");
     if let Ok(entries) = std::fs::read_dir(&assets_dir) {
         for entry in entries.flatten() {
@@ -82,23 +97,49 @@ impl IncrNode {
 
     fn to_json(&self) -> serde_json::Value {
         match self {
-            Self::Text { text, tw, style, .. } => {
-                let mut v = serde_json::json!({"type":"text","text":text,"tw":tw,"id":self.id()});
-                if let Some(s) = style { v["style"] = s.clone(); }
+            Self::Text {
+                text, tw, style, ..
+            } => {
+                let mut v = serde_json::json!({"type":"text","text":text,"tw":tw});
+                if let Some(s) = style {
+                    v["style"] = s.clone();
+                }
                 v
             }
-            Self::Image { src, width, height, tw, style, .. } => {
-                let mut v = serde_json::json!({"type":"image","src":src,"id":self.id()});
-                if let Some(w) = width { v["width"] = serde_json::json!(w); }
-                if let Some(h) = height { v["height"] = serde_json::json!(h); }
-                if !tw.is_empty() { v["tw"] = serde_json::json!(tw); }
-                if let Some(s) = style { v["style"] = s.clone(); }
+            Self::Image {
+                src,
+                width,
+                height,
+                tw,
+                style,
+                ..
+            } => {
+                let mut v = serde_json::json!({"type":"image","src":src});
+                if let Some(w) = width {
+                    v["width"] = serde_json::json!(w);
+                }
+                if let Some(h) = height {
+                    v["height"] = serde_json::json!(h);
+                }
+                if !tw.is_empty() {
+                    v["tw"] = serde_json::json!(tw);
+                }
+                if let Some(s) = style {
+                    v["style"] = s.clone();
+                }
                 v
             }
-            Self::Container { tw, style, children, .. } => {
+            Self::Container {
+                tw,
+                style,
+                children,
+                ..
+            } => {
                 let ch: Vec<_> = children.iter().map(|c| c.to_json()).collect();
-                let mut v = serde_json::json!({"type":"container","tw":tw,"children":ch,"id":self.id()});
-                if let Some(s) = style { v["style"] = s.clone(); }
+                let mut v = serde_json::json!({"type":"container","tw":tw,"children":ch});
+                if let Some(s) = style {
+                    v["style"] = s.clone();
+                }
                 v
             }
         }
@@ -107,24 +148,43 @@ impl IncrNode {
     fn leaf_hash(&self) -> u64 {
         let mut h: u64 = 14695981039346656037;
         match self {
-            Self::Text { text, tw, style, .. } => {
+            Self::Text {
+                text, tw, style, ..
+            } => {
                 h = fnv_mix(h, b"text");
                 h = fnv_mix(h, tw.as_bytes());
                 h = fnv_mix(h, text.as_bytes());
-                if let Some(s) = style { h = fnv_mix(h, s.to_string().as_bytes()); }
+                if let Some(s) = style {
+                    h = fnv_mix(h, s.to_string().as_bytes());
+                }
             }
-            Self::Image { src, width, height, tw, style, .. } => {
+            Self::Image {
+                src,
+                width,
+                height,
+                tw,
+                style,
+                ..
+            } => {
                 h = fnv_mix(h, b"image");
                 h = fnv_mix(h, tw.as_bytes());
                 h = fnv_mix(h, src.as_bytes());
-                if let Some(w) = width { h = fnv_mix(h, &w.to_bits().to_le_bytes()); }
-                if let Some(ht) = height { h = fnv_mix(h, &ht.to_bits().to_le_bytes()); }
-                if let Some(s) = style { h = fnv_mix(h, s.to_string().as_bytes()); }
+                if let Some(w) = width {
+                    h = fnv_mix(h, &w.to_bits().to_le_bytes());
+                }
+                if let Some(ht) = height {
+                    h = fnv_mix(h, &ht.to_bits().to_le_bytes());
+                }
+                if let Some(s) = style {
+                    h = fnv_mix(h, s.to_string().as_bytes());
+                }
             }
             Self::Container { tw, style, .. } => {
                 h = fnv_mix(h, b"container");
                 h = fnv_mix(h, tw.as_bytes());
-                if let Some(s) = style { h = fnv_mix(h, s.to_string().as_bytes()); }
+                if let Some(s) = style {
+                    h = fnv_mix(h, s.to_string().as_bytes());
+                }
             }
         }
         h
@@ -187,7 +247,9 @@ impl Lifecycle for IncrNode {
     type Output = ();
     type Error = anyhow::Error;
 
-    fn key(&self) -> String { self.id().to_string() }
+    fn key(&self) -> String {
+        self.id().to_string()
+    }
 
     fn enter(self, ctx: &mut Ctx, _: &mut ()) -> Result<IncrNodeState> {
         ctx.changed_ids.push(self.id().to_string());
@@ -199,7 +261,11 @@ impl Lifecycle for IncrNode {
         };
         let mut children: ManagedSet<IncrNode> = ManagedSet::new();
         children.reconcile(child_list, ctx, &mut ());
-        Ok(IncrNodeState { id, leaf_hash: hash, children })
+        Ok(IncrNodeState {
+            id,
+            leaf_hash: hash,
+            children,
+        })
     }
 
     fn reconcile_self(self, state: &mut IncrNodeState, ctx: &mut Ctx, _: &mut ()) -> Result<()> {
@@ -252,7 +318,9 @@ fn collect_bboxes(measured: &MeasuredNode, node: &IncrNode, bboxes: &mut HashMap
         // relying on a zero-height heuristic that only works for block layout.
         let is_absolute = |c: &IncrNode| -> bool {
             let tw = match c {
-                IncrNode::Text { tw, .. } | IncrNode::Image { tw, .. } | IncrNode::Container { tw, .. } => tw.as_str(),
+                IncrNode::Text { tw, .. }
+                | IncrNode::Image { tw, .. }
+                | IncrNode::Container { tw, .. } => tw.as_str(),
             };
             tw.split_whitespace().any(|t| t == "absolute")
         };
@@ -265,21 +333,31 @@ fn collect_bboxes(measured: &MeasuredNode, node: &IncrNode, bboxes: &mut HashMap
         } else {
             let n_if = in_flow_f.len();
             let n_ab = abs_f.len();
-            let n_m  = measured.children.len();
+            let n_m = measured.children.len();
             // Block-with-placeholder: n_measured == n_in_flow + 1 (one placeholder)
             // Flex/inline:            n_measured == n_in_flow + n_abs
             let (in_flow_m, abs_m): (Vec<&MeasuredNode>, Vec<&MeasuredNode>) =
                 if n_m == n_if + 1 && !measured.children[n_if].children.is_empty() {
                     let ph = &measured.children[n_if];
-                    (measured.children[..n_if].iter().collect(),
-                     ph.children.iter().collect())
+                    (
+                        measured.children[..n_if].iter().collect(),
+                        ph.children.iter().collect(),
+                    )
                 } else {
                     let split = n_if.min(n_m);
-                    (measured.children[..split].iter().collect(),
-                     measured.children[split..split + n_ab.min(n_m - split)].iter().collect())
+                    (
+                        measured.children[..split].iter().collect(),
+                        measured.children[split..split + n_ab.min(n_m - split)]
+                            .iter()
+                            .collect(),
+                    )
                 };
-            for (m, f) in in_flow_m.iter().zip(in_flow_f.iter()) { collect_bboxes(m, f, bboxes); }
-            for (m, f) in abs_m.iter().zip(abs_f.iter())         { collect_bboxes(m, f, bboxes); }
+            for (m, f) in in_flow_m.iter().zip(in_flow_f.iter()) {
+                collect_bboxes(m, f, bboxes);
+            }
+            for (m, f) in abs_m.iter().zip(abs_f.iter()) {
+                collect_bboxes(m, f, bboxes);
+            }
         }
     }
 }
@@ -426,7 +504,9 @@ fn collect_nested_whitelist(
                     "style":{"position":"absolute","left":lx,"top":ly,"width":r.w}}));
             }
         }
-        IncrNode::Image { src, width, height, .. } => {
+        IncrNode::Image {
+            src, width, height, ..
+        } => {
             if in_set {
                 let w = width.unwrap_or(0.0);
                 let h = height.unwrap_or(0.0);
@@ -435,7 +515,12 @@ fn collect_nested_whitelist(
                              "width":w,"height":h}}));
             }
         }
-        IncrNode::Container { tw, style, children, .. } => {
+        IncrNode::Container {
+            tw,
+            style,
+            children,
+            ..
+        } => {
             if has_overflow_clip(tw) {
                 let mut ch = Vec::new();
                 for child in children {
@@ -456,10 +541,12 @@ fn collect_nested_whitelist(
                     // Leaf containers (Image variant: no children, display:inline-block)
                     // need to be emitted as plain colored blocks.
                     if children.is_empty()
-                        && style.as_ref().and_then(|s| s["display"].as_str()) == Some("inline-block")
+                        && style.as_ref().and_then(|s| s["display"].as_str())
+                            == Some("inline-block")
                     {
                         // Image variant: extract background color from tw
-                        let bg_tw = tw.split_whitespace()
+                        let bg_tw = tw
+                            .split_whitespace()
                             .find(|t| t.starts_with("bg-"))
                             .unwrap_or("");
                         out.push(serde_json::json!({"type":"container","tw":bg_tw,
@@ -516,7 +603,9 @@ fn collect_flat_whitelist(
                     "style":{"position":"absolute","left":lx,"top":ly,"width":r.w}}));
             }
         }
-        IncrNode::Image { src, width, height, .. } => {
+        IncrNode::Image {
+            src, width, height, ..
+        } => {
             if in_set {
                 let w = width.unwrap_or(0.0);
                 let h = height.unwrap_or(0.0);
@@ -525,7 +614,12 @@ fn collect_flat_whitelist(
                              "width":w,"height":h}}));
             }
         }
-        IncrNode::Container { tw, style, children, .. } => {
+        IncrNode::Container {
+            tw,
+            style,
+            children,
+            ..
+        } => {
             if has_overflow_clip(tw) {
                 let mut ch = Vec::new();
                 for child in children {
@@ -544,10 +638,12 @@ fn collect_flat_whitelist(
                     // Leaf containers (Image variant: no children, display:inline-block)
                     // need to be emitted as plain colored blocks.
                     if children.is_empty()
-                        && style.as_ref().and_then(|s| s["display"].as_str()) == Some("inline-block")
+                        && style.as_ref().and_then(|s| s["display"].as_str())
+                            == Some("inline-block")
                     {
                         // Image variant: extract background color from tw
-                        let bg_tw = tw.split_whitespace()
+                        let bg_tw = tw
+                            .split_whitespace()
                             .find(|t| t.starts_with("bg-"))
                             .unwrap_or("");
                         out.push(serde_json::json!({"type":"container","tw":bg_tw,
@@ -721,29 +817,48 @@ fn tile_fingerprint(
         }
         if let Some(&node) = node_map.get(id.as_str()) {
             match node {
-                IncrNode::Text { text, tw, style, .. } => {
+                IncrNode::Text {
+                    text, tw, style, ..
+                } => {
                     h = fnv_mix(h, b"text|");
                     h = fnv_mix(h, tw.as_bytes());
                     h = fnv_mix(h, b"|");
                     h = fnv_mix(h, text.as_bytes());
                     h = fnv_mix(h, b"|");
-                    if let Some(s) = style { h = fnv_mix(h, s.to_string().as_bytes()); }
+                    if let Some(s) = style {
+                        h = fnv_mix(h, s.to_string().as_bytes());
+                    }
                 }
-                IncrNode::Image { src, width, height, tw, style, .. } => {
+                IncrNode::Image {
+                    src,
+                    width,
+                    height,
+                    tw,
+                    style,
+                    ..
+                } => {
                     h = fnv_mix(h, b"image|");
                     h = fnv_mix(h, tw.as_bytes());
                     h = fnv_mix(h, b"|");
                     h = fnv_mix(h, src.as_bytes());
                     h = fnv_mix(h, b"|");
-                    if let Some(w) = width { h = fnv_mix(h, &w.to_bits().to_le_bytes()); }
-                    if let Some(ht) = height { h = fnv_mix(h, &ht.to_bits().to_le_bytes()); }
-                    if let Some(s) = style { h = fnv_mix(h, s.to_string().as_bytes()); }
+                    if let Some(w) = width {
+                        h = fnv_mix(h, &w.to_bits().to_le_bytes());
+                    }
+                    if let Some(ht) = height {
+                        h = fnv_mix(h, &ht.to_bits().to_le_bytes());
+                    }
+                    if let Some(s) = style {
+                        h = fnv_mix(h, s.to_string().as_bytes());
+                    }
                 }
                 IncrNode::Container { tw, style, .. } => {
                     h = fnv_mix(h, b"container|");
                     h = fnv_mix(h, tw.as_bytes());
                     h = fnv_mix(h, b"|");
-                    if let Some(s) = style { h = fnv_mix(h, s.to_string().as_bytes()); }
+                    if let Some(s) = style {
+                        h = fnv_mix(h, s.to_string().as_bytes());
+                    }
                 }
             }
         }
@@ -898,13 +1013,13 @@ fn suite_simple_bar() -> TestSuite {
                             },
                             IncrNode::Text {
                                 id: "ws".into(),
-                                text:"1: term".into(),
+                                text: "1: term".into(),
                                 tw: "text-white text-xs whitespace-nowrap".into(),
                                 style: None,
                             },
                             IncrNode::Text {
                                 id: "title".into(),
-                                text:"nvim main.rs".into(),
+                                text: "nvim main.rs".into(),
                                 tw: "text-gray-400 text-xs whitespace-nowrap".into(),
                                 style: None,
                             },
@@ -916,7 +1031,7 @@ fn suite_simple_bar() -> TestSuite {
                         style: None,
                         children: vec![IncrNode::Text {
                             id: "clock".into(),
-                            text:clock.clone(),
+                            text: clock.clone(),
                             tw: "text-white text-xs font-mono whitespace-nowrap".into(),
                             style: None,
                         }],
@@ -928,19 +1043,19 @@ fn suite_simple_bar() -> TestSuite {
                         children: vec![
                             IncrNode::Text {
                                 id: "cpu".into(),
-                                text:cpu.clone(),
+                                text: cpu.clone(),
                                 tw: "text-white text-xs whitespace-nowrap".into(),
                                 style: None,
                             },
                             IncrNode::Text {
                                 id: "mem".into(),
-                                text:"MEM 4G".into(),
+                                text: "MEM 4G".into(),
                                 tw: "text-white text-xs whitespace-nowrap".into(),
                                 style: None,
                             },
                             IncrNode::Text {
                                 id: "bat".into(),
-                                text:"87%".into(),
+                                text: "87%".into(),
                                 tw: "text-white text-xs whitespace-nowrap".into(),
                                 style: None,
                             },
@@ -1042,13 +1157,13 @@ fn suite_dense_metrics() -> TestSuite {
                     children: vec![
                         IncrNode::Text {
                             id: format!("lbl-{name}"),
-                            text:name.to_string(),
+                            text: name.to_string(),
                             tw: "text-gray-400 text-[10px] whitespace-nowrap".into(),
                             style: None,
                         },
                         IncrNode::Text {
                             id: format!("val-{name}"),
-                            text:val.clone(),
+                            text: val.clone(),
                             tw: "text-white text-xs font-mono font-bold whitespace-nowrap".into(),
                             style: None,
                         },
@@ -1107,9 +1222,9 @@ const MERGE_THRESHOLD: u32 = 2 * SHADOW_BUF / TILE_SIZE;
 // Cost-model coefficients — OLS-calibrated on 260 samples at TILE_SIZE=24 (R²=0.733).
 // O_FIXED sensitivity sweep showed 0% merge-decision change across ×0.5/×2.0 range;
 // any value in the right order of magnitude is fine.
-const O_FIXED_MS: f64 = 1.0;    // ms per render call (insensitive, rounded)
-const K_AREA: f64 = 8.75e-5;    // ms per px² of candidate canvas
-const K_NODES: f64 = 0.88;      // ms per node in candidate whitelist
+const O_FIXED_MS: f64 = 1.0; // ms per render call (insensitive, rounded)
+const K_AREA: f64 = 8.75e-5; // ms per px² of candidate canvas
+const K_NODES: f64 = 0.88; // ms per node in candidate whitelist
 
 #[derive(Clone)]
 struct CostModel {
@@ -1381,8 +1496,7 @@ fn run_suite(suite: &TestSuite, cm: &CostModel) -> SuiteResult {
             let t = Instant::now();
             let (full_px, w, h) = {
                 let root_json = root_incr.to_json();
-                let node =
-                    parse_layout(&root_json).unwrap_or_else(|_| Node::container(vec![]));
+                let node = parse_layout(&root_json).unwrap_or_else(|_| Node::container(vec![]));
                 let img = takumi_render(
                     RenderOptions::builder()
                         .global(&full_ctx.global)
@@ -1660,7 +1774,6 @@ fn run_suite(suite: &TestSuite, cm: &CostModel) -> SuiteResult {
                 )
                 .expect("candidate render")
                 .into_raw();
-
 
                 for &(tx, ty) in &cand.tiles {
                     let px_x = tx * TILE_SIZE;
@@ -2260,7 +2373,7 @@ fn suite_shrink_bug() -> TestSuite {
             style: None,
             children: vec![IncrNode::Text {
                 id: "label".into(),
-                text:text.into(),
+                text: text.into(),
                 tw: "text-white text-xs font-mono whitespace-nowrap".into(),
                 style: None,
             }],
@@ -2540,7 +2653,7 @@ fn suite_progress_fill() -> TestSuite {
                         children: vec![
                             IncrNode::Text {
                                 id: "label".into(),
-                                text:if complete {
+                                text: if complete {
                                     "Complete!"
                                 } else {
                                     "Downloading…"
@@ -2551,7 +2664,7 @@ fn suite_progress_fill() -> TestSuite {
                             },
                             IncrNode::Text {
                                 id: "pct".into(),
-                                text:format!("{pct}%"),
+                                text: format!("{pct}%"),
                                 tw: "text-[11px] text-white font-mono whitespace-nowrap".into(),
                                 style: None,
                             },
@@ -2563,7 +2676,10 @@ fn suite_progress_fill() -> TestSuite {
                         style: None,
                         children: vec![IncrNode::Container {
                             id: "bar-fill".into(),
-                            tw: format!("w-[{fill_w}px] h-[8px] bg-{}", if complete { "green-400" } else { "blue-500" }),
+                            tw: format!(
+                                "w-[{fill_w}px] h-[8px] bg-{}",
+                                if complete { "green-400" } else { "blue-500" }
+                            ),
                             style: Some(serde_json::json!({"display":"inline-block"})),
                             children: vec![],
                         }],
@@ -2932,26 +3048,26 @@ fn suite_two_region() -> TestSuite {
                         children: vec![
                             IncrNode::Text {
                                 id: "time".into(),
-                                text:time.clone(),
+                                text: time.clone(),
                                 tw: "text-white text-sm font-mono font-bold whitespace-nowrap"
                                     .into(),
                                 style: None,
                             },
                             IncrNode::Text {
                                 id: "cpu".into(),
-                                text:cpu,
+                                text: cpu,
                                 tw: "text-green-400 text-xs font-mono whitespace-nowrap".into(),
                                 style: None,
                             },
                             IncrNode::Text {
                                 id: "mem".into(),
-                                text:mem,
+                                text: mem,
                                 tw: "text-blue-400 text-xs font-mono whitespace-nowrap".into(),
                                 style: None,
                             },
                             IncrNode::Text {
                                 id: "net".into(),
-                                text:net,
+                                text: net,
                                 tw: "text-yellow-400 text-xs font-mono whitespace-nowrap".into(),
                                 style: None,
                             },
@@ -2967,19 +3083,19 @@ fn suite_two_region() -> TestSuite {
                         children: vec![
                             IncrNode::Text {
                                 id: "log-hdr".into(),
-                                text:"System Log".into(),
+                                text: "System Log".into(),
                                 tw: "text-gray-400 text-[10px] font-bold whitespace-nowrap".into(),
                                 style: None,
                             },
                             IncrNode::Text {
                                 id: "log-entry".into(),
-                                text:log.into(),
+                                text: log.into(),
                                 tw: "text-green-300 text-[9px] font-mono whitespace-nowrap".into(),
                                 style: None,
                             },
                             IncrNode::Text {
                                 id: "log-age".into(),
-                                text:age,
+                                text: age,
                                 tw: "text-gray-600 text-[9px] font-mono whitespace-nowrap".into(),
                                 style: None,
                             },
@@ -3036,13 +3152,13 @@ fn suite_kanban() -> TestSuite {
             children: vec![
                 IncrNode::Text {
                     id: format!("card-{id}-t"),
-                    text:title.into(),
+                    text: title.into(),
                     tw: "text-white text-[10px] font-bold whitespace-nowrap".into(),
                     style: None,
                 },
                 IncrNode::Text {
                     id: format!("card-{id}-i"),
-                    text:format!("#{id}"),
+                    text: format!("#{id}"),
                     tw: "text-gray-500 text-[9px] font-mono whitespace-nowrap".into(),
                     style: None,
                 },
@@ -3059,13 +3175,13 @@ fn suite_kanban() -> TestSuite {
             children: vec![
                 IncrNode::Text {
                     id: format!("{col_id}-title"),
-                    text:title.into(),
+                    text: title.into(),
                     tw: "text-gray-300 text-[10px] font-bold whitespace-nowrap".into(),
                     style: None,
                 },
                 IncrNode::Text {
                     id: format!("{col_id}-n"),
-                    text:n.to_string(),
+                    text: n.to_string(),
                     tw: "text-gray-500 text-[10px] font-mono whitespace-nowrap".into(),
                     style: None,
                 },
@@ -3084,13 +3200,13 @@ fn suite_kanban() -> TestSuite {
 
     // Column assignment keyframes: (start_frame, todo, wip, done)
     let phases: &[(usize, &[&str], &[&str], &[&str])] = &[
-        (0,  &["A", "B", "C"], &["D"],      &[]),
-        (8,  &["B", "C"],      &["A", "D"], &[]),
-        (14, &["C"],           &["A", "B"], &["D"]),
-        (20, &["C"],           &["B"],      &["A", "D"]),
-        (25, &["C", "E"],      &["B"],      &["A", "D"]),
-        (30, &["E"],           &["B", "C"], &["A", "D"]),
-        (35, &["E"],           &["C"],      &["A", "B", "D"]),
+        (0, &["A", "B", "C"], &["D"], &[]),
+        (8, &["B", "C"], &["A", "D"], &[]),
+        (14, &["C"], &["A", "B"], &["D"]),
+        (20, &["C"], &["B"], &["A", "D"]),
+        (25, &["C", "E"], &["B"], &["A", "D"]),
+        (30, &["E"], &["B", "C"], &["A", "D"]),
+        (35, &["E"], &["C"], &["A", "B", "D"]),
     ];
 
     let frames = (0..40)
@@ -3206,13 +3322,13 @@ fn suite_compositing_overlay() -> TestSuite {
                     children: vec![
                         IncrNode::Text {
                             id: format!("card-{name}-lbl"),
-                            text:name.to_string(),
+                            text: name.to_string(),
                             tw: "text-gray-400 text-[10px] whitespace-nowrap".into(),
                             style: None,
                         },
                         IncrNode::Text {
                             id: format!("card-{name}-val"),
-                            text:val.clone(),
+                            text: val.clone(),
                             tw: "text-white text-sm font-mono font-bold whitespace-nowrap".into(),
                             style: None,
                         },
@@ -3247,13 +3363,13 @@ fn suite_compositing_overlay() -> TestSuite {
                         children: vec![
                             IncrNode::Text {
                                 id: "glass-lbl".into(),
-                                text:"Overlay (static)".into(),
+                                text: "Overlay (static)".into(),
                                 tw: "text-white text-xs font-bold whitespace-nowrap".into(),
                                 style: None,
                             },
                             IncrNode::Text {
                                 id: "glass-hint".into(),
-                                text:"opacity-70".into(),
+                                text: "opacity-70".into(),
                                 tw: "text-white text-[10px] whitespace-nowrap".into(),
                                 style: None,
                             },
@@ -3271,13 +3387,13 @@ fn suite_compositing_overlay() -> TestSuite {
                         children: vec![
                             IncrNode::Text {
                                 id: "spin".into(),
-                                text:spinner.into(),
+                                text: spinner.into(),
                                 tw: "text-black text-[10px] font-mono".into(),
                                 style: None,
                             },
                             IncrNode::Text {
                                 id: "badge-lbl".into(),
-                                text:"LIVE".into(),
+                                text: "LIVE".into(),
                                 tw: "text-black text-[10px] font-bold".into(),
                                 style: None,
                             },
@@ -3376,7 +3492,7 @@ fn suite_scroll_list() -> TestSuite {
                         children: vec![
                             IncrNode::Text {
                                 id: format!("item-{idx}-app"),
-                                text:app.to_string(),
+                                text: app.to_string(),
                                 tw: format!(
                                     "text-[11px] font-bold text-{color}-300 whitespace-nowrap"
                                 ),
@@ -3384,7 +3500,7 @@ fn suite_scroll_list() -> TestSuite {
                             },
                             IncrNode::Text {
                                 id: format!("item-{idx}-msg"),
-                                text:msg.to_string(),
+                                text: msg.to_string(),
                                 tw: "text-[10px] text-gray-400 whitespace-nowrap".into(),
                                 style: None,
                             },
@@ -3422,13 +3538,13 @@ fn suite_scroll_list() -> TestSuite {
                         children: vec![
                             IncrNode::Text {
                                 id: "hdr-title".into(),
-                                text:"NOTIFICATIONS".into(),
+                                text: "NOTIFICATIONS".into(),
                                 tw: "text-[10px] text-gray-400 font-bold whitespace-nowrap".into(),
                                 style: None,
                             },
                             IncrNode::Text {
                                 id: "hdr-pos".into(),
-                                text:format!("↕ {scroll_y}px"),
+                                text: format!("↕ {scroll_y}px"),
                                 tw: "ml-auto text-[10px] text-gray-600 font-mono whitespace-nowrap"
                                     .into(),
                                 style: None,

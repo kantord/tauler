@@ -411,7 +411,7 @@ fn main() {
     }
     let screenshots: Vec<Option<PathBuf>> = all_components
         .iter()
-        .map(|c| render_screenshot(c, &all_components, &assets_dir))
+        .map(|c| render_screenshot(c, &all_components, assets_dir))
         .collect();
 
     let markdown = render_markdown(&all_components, &screenshots);

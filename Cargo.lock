@@ -3789,6 +3789,7 @@ dependencies = [
  "image",
  "insta",
  "lru",
+ "parley",
  "serde",
  "serde_json",
  "takumi",

@@ -1,5 +1,5 @@
 ---
-source: layout-poc/src/main.rs
+source: takumi-incr/src/main.rs
 expression: pixel_hash(pixels)
 ---
-ad2b00c4450dbb30  (9600 px)
+5defe5a91845757f  (9600 px)
