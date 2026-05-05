@@ -17,9 +17,9 @@ use takumi::{
     GlobalContext,
 };
 
-use costae::layout::parse_layout;
-use costae::managed_set::reconcile::Reconcile;
-use costae::managed_set::{Lifecycle, ManagedSet};
+use tauler::layout::parse_layout;
+use tauler::managed_set::reconcile::Reconcile;
+use tauler::managed_set::{Lifecycle, ManagedSet};
 // ---------------------------------------------------------------------------
 // GlobalContext factory
 // ---------------------------------------------------------------------------
@@ -570,6 +570,7 @@ fn collect_nested_whitelist(
 /// not in the set are still recursed (children may be in the set).
 /// Spatial cull still applied for early-exit on branches far from the region.
 /// Containers with overflow-hidden have their children nested to preserve clip.
+#[allow(clippy::too_many_arguments)]
 fn collect_flat_whitelist(
     node: &IncrNode,
     bboxes: &HashMap<String, Rect>,
@@ -663,7 +664,7 @@ fn collect_flat_whitelist(
     }
 }
 
-/// Render a tile at scene pixel (px_x, px_y) using pre-computed bboxes.
+// Render a tile at scene pixel (px_x, px_y) using pre-computed bboxes.
 
 // ---------------------------------------------------------------------------
 // Dirty tile marking
@@ -676,8 +677,8 @@ fn mark_dirty(r: &Rect, tile: u32, scene_w: u32, scene_h: u32, dirty: &mut HashS
     let row0 = ((r.y - buf) / t).floor() as i32;
     let col1 = ((r.x + r.w + buf) / t).ceil() as i32;
     let row1 = ((r.y + r.h + buf) / t).ceil() as i32;
-    let max_col = ((scene_w + tile - 1) / tile) as i32;
-    let max_row = ((scene_h + tile - 1) / tile) as i32;
+    let max_col = scene_w.div_ceil(tile) as i32;
+    let max_row = scene_h.div_ceil(tile) as i32;
     for row in row0.max(0)..row1.min(max_row) {
         for col in col0.max(0)..col1.min(max_col) {
             dirty.insert((col as u32, row as u32));
@@ -690,7 +691,7 @@ fn mark_dirty(r: &Rect, tile: u32, scene_w: u32, scene_h: u32, dirty: &mut HashS
 // ---------------------------------------------------------------------------
 
 fn stitch(
-    frame: &mut Vec<u8>,
+    frame: &mut [u8],
     frame_w: u32,
     frame_h: u32,
     tile_px: &[u8],
@@ -731,7 +732,7 @@ fn encode_png(pixels: &[u8], w: u32, h: u32) -> Vec<u8> {
 
 fn b64(data: &[u8]) -> String {
     const C: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    let mut out = String::with_capacity((data.len() + 2) / 3 * 4);
+    let mut out = String::with_capacity(data.len().div_ceil(3) * 4);
     for chunk in data.chunks(3) {
         let (b0, b1, b2) = (
             chunk[0] as u32,
@@ -781,7 +782,7 @@ fn fnv_mix(mut h: u64, bytes: &[u8]) -> u64 {
 /// Collision risk: FNV-64 has a ~10⁻¹⁸ false-hit probability per tile per
 /// frame — negligible for a UI renderer.
 /// Flat id→node map built once per frame; avoids repeated O(N) tree walks.
-fn build_node_map<'a>(root: &'a IncrNode) -> HashMap<&'a str, &'a IncrNode> {
+fn build_node_map(root: &IncrNode) -> HashMap<&str, &IncrNode> {
     let mut map = HashMap::new();
     let mut stack = vec![root];
     while let Some(node) = stack.pop() {
@@ -1478,8 +1479,7 @@ fn run_suite(suite: &TestSuite, cm: &CostModel) -> SuiteResult {
     // LRU tile render cache: metadata_fp → TILE_SIZE×TILE_SIZE×4 bytes.
     // Capacity is derived from TILE_CACHE_MB so it auto-adjusts when TILE_SIZE changes.
     let tile_bytes = (TILE_SIZE * TILE_SIZE * 4) as usize;
-    let cache_cap =
-        NonZeroUsize::new((TILE_CACHE_MB * 1024 * 1024 + tile_bytes - 1) / tile_bytes).unwrap();
+    let cache_cap = NonZeroUsize::new((TILE_CACHE_MB * 1024 * 1024).div_ceil(tile_bytes)).unwrap();
     let mut tile_cache: LruCache<u64, Vec<u8>> = LruCache::new(cache_cap);
     // Persistent tile→node map: for each tile the set of nodes whose shadow-
     // expanded bbox overlaps it.  Rebuilt each frame from current bboxes.
@@ -1517,8 +1517,8 @@ fn run_suite(suite: &TestSuite, cm: &CostModel) -> SuiteResult {
             // 1. Reconcile — populates changed_ids
             incr_set.reconcile(vec![root_incr.clone()], &mut incr_ctx, &mut ());
 
-            let cols = (w + TILE_SIZE - 1) / TILE_SIZE;
-            let rows = (h + TILE_SIZE - 1) / TILE_SIZE;
+            let cols = w.div_ceil(TILE_SIZE);
+            let rows = h.div_ceil(TILE_SIZE);
 
             // No-op short-circuit: if nothing changed and frame_buf is already
             // populated, every tile is identical to last frame — skip all remaining
@@ -1698,7 +1698,7 @@ fn run_suite(suite: &TestSuite, cm: &CostModel) -> SuiteResult {
                 .map(|&(tx, ty)| {
                     (
                         (tx, ty),
-                        tile_fingerprint(tx, ty, &tile_node_map, &bboxes, &node_map),
+                        tile_fingerprint(tx, ty, &tile_node_map, bboxes, &node_map),
                     )
                 })
                 .collect();
@@ -1748,7 +1748,7 @@ fn run_suite(suite: &TestSuite, cm: &CostModel) -> SuiteResult {
                 let mut nodes: Vec<serde_json::Value> = Vec::new();
                 collect_flat_whitelist(
                     &root_incr,
-                    &bboxes,
+                    bboxes,
                     &cand.node_set,
                     qx,
                     qy,
@@ -1874,8 +1874,8 @@ fn html_report(suites: &[TestSuite], results: &[SuiteResult]) -> String {
             let full_uri = data_uri(&f.full_px, f.w, f.h);
             let speedup_f = f.full_time.as_secs_f64() / f.incr_time.as_secs_f64().max(1e-9);
             // Display size: 3× pixel-art scaling, capped so huge canvases stay scrollable
-            let pw = (f.w * 3).min(900).max(120);
-            let ph = (f.h * 3).min(600).max(36);
+            let pw = (f.w * 3).clamp(120, 900);
+            let ph = (f.h * 3).clamp(36, 600);
 
             // Restrict correctness measurement to dirty tiles only.
             let mask = dirty_mask(&f.dirty_tiles, f.w, f.h);
@@ -1968,7 +1968,7 @@ fn html_report(suites: &[TestSuite], results: &[SuiteResult]) -> String {
             if d.is_some() && !perfect {
                 {
                     let tw = f.w.min(240);
-                    let th = (f.h * tw / f.w.max(1)).min(320).max(20);
+                    let th = (f.h * tw / f.w.max(1)).clamp(20, 320);
                     let snippet = format!(
                         r#"
                     <div class="frame imperfect">
@@ -2109,7 +2109,7 @@ function showTab(id,btn){{
 }
 
 // ---------------------------------------------------------------------------
-// Realistic sidebar suite — mirrors actual costae layout
+// Realistic sidebar suite — mirrors actual tauler layout
 // ---------------------------------------------------------------------------
 
 fn suite_realistic_sidebar() -> TestSuite {
@@ -2995,17 +2995,17 @@ fn suite_notification_panel() -> TestSuite {
 // Compositing overlay — backdrop-blur, opacity, semi-transparent backgrounds
 // ---------------------------------------------------------------------------
 
-/// Compositing correctness test with genuine content behind the glass.
-///
-/// Layout: the canvas is `relative`.  Eight metric cards fill the full area in
-/// normal flow (left half + right half).  A frosted-glass panel (`absolute`,
-/// `backdrop-blur-md`, `bg-white/10`) is positioned over the RIGHT HALF only.
-///
-/// Left half:  cards visible directly — values change every frame (dirty tiles).
-/// Right half: same cards visible THROUGH the static glass panel — the blur
-///             must sample the freshly-rendered card pixels each frame.
-///
-/// If the glass-panel tiles are served from a stale cache entry, the blurred
+// Compositing correctness test with genuine content behind the glass.
+//
+// Layout: the canvas is `relative`.  Eight metric cards fill the full area in
+// normal flow (left half + right half).  A frosted-glass panel (`absolute`,
+// `backdrop-blur-md`, `bg-white/10`) is positioned over the RIGHT HALF only.
+//
+// Left half:  cards visible directly — values change every frame (dirty tiles).
+// Right half: same cards visible THROUGH the static glass panel — the blur
+//             must sample the freshly-rendered card pixels each frame.
+//
+// If the glass-panel tiles are served from a stale cache entry, the blurred
 // ---------------------------------------------------------------------------
 // Two-region — greedy merge exercise
 // ---------------------------------------------------------------------------
@@ -3199,6 +3199,7 @@ fn suite_kanban() -> TestSuite {
     };
 
     // Column assignment keyframes: (start_frame, todo, wip, done)
+    #[allow(clippy::type_complexity)]
     let phases: &[(usize, &[&str], &[&str], &[&str])] = &[
         (0, &["A", "B", "C"], &["D"], &[]),
         (8, &["B", "C"], &["A", "D"], &[]),

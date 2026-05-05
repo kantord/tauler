@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use costae::spawn_module;
+use tauler::spawn_module;
 
 /// Verify that dropping a `SpawnedModule` kills the child process.
 ///

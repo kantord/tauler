@@ -676,109 +676,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "costae"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "cached",
- "costae-lifecycle-derive",
- "costae-ui-macro",
- "image",
- "json-canon",
- "libc",
- "notify",
- "oxc_allocator",
- "oxc_ast",
- "oxc_codegen",
- "oxc_parser",
- "oxc_resolver",
- "oxc_semantic",
- "oxc_span",
- "oxc_transformer",
- "parley",
- "rquickjs",
- "rquickjs-serde",
- "rstest",
- "serde",
- "serde_json",
- "serde_yaml",
- "smithay-client-toolkit",
- "takumi",
- "tempfile",
- "thiserror",
- "tiny-skia",
- "tracing",
- "tracing-subscriber",
- "tracing-test",
- "wayland-client",
- "x11rb",
-]
-
-[[package]]
-name = "costae-docgen"
-version = "0.1.0"
-dependencies = [
- "image",
- "insta",
- "tempfile",
-]
-
-[[package]]
-name = "costae-i3"
-version = "0.1.0"
-dependencies = [
- "serde_json",
- "tracing",
- "tracing-subscriber",
-]
-
-[[package]]
-name = "costae-lifecycle-derive"
-version = "0.1.0"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn",
-]
-
-[[package]]
-name = "costae-luax"
-version = "0.1.0"
-dependencies = [
- "regex",
-]
-
-[[package]]
-name = "costae-notify"
-version = "0.1.0"
-dependencies = [
- "serde",
- "serde_json",
- "tokio",
- "zbus",
-]
-
-[[package]]
-name = "costae-screenshot"
-version = "0.1.0"
-dependencies = [
- "clap",
- "costae",
- "image",
- "serde_json",
-]
-
-[[package]]
-name = "costae-ui-macro"
-version = "0.1.0"
-dependencies = [
- "proc-macro2",
- "quote",
- "rstml",
- "syn",
-]
-
-[[package]]
 name = "cow-utils"
 version = "0.1.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3785,7 +3682,6 @@ name = "takumi-incr"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "costae",
  "image",
  "insta",
  "lru",
@@ -3793,6 +3689,110 @@ dependencies = [
  "serde",
  "serde_json",
  "takumi",
+ "tauler",
+]
+
+[[package]]
+name = "tauler"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "cached",
+ "image",
+ "json-canon",
+ "libc",
+ "notify",
+ "oxc_allocator",
+ "oxc_ast",
+ "oxc_codegen",
+ "oxc_parser",
+ "oxc_resolver",
+ "oxc_semantic",
+ "oxc_span",
+ "oxc_transformer",
+ "parley",
+ "rquickjs",
+ "rquickjs-serde",
+ "rstest",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "smithay-client-toolkit",
+ "takumi",
+ "tauler-lifecycle-derive",
+ "tauler-ui-macro",
+ "tempfile",
+ "thiserror",
+ "tiny-skia",
+ "tracing",
+ "tracing-subscriber",
+ "tracing-test",
+ "wayland-client",
+ "x11rb",
+]
+
+[[package]]
+name = "tauler-docgen"
+version = "0.1.0"
+dependencies = [
+ "image",
+ "insta",
+ "tempfile",
+]
+
+[[package]]
+name = "tauler-i3"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
+name = "tauler-lifecycle-derive"
+version = "0.1.0"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
+]
+
+[[package]]
+name = "tauler-luax"
+version = "0.1.0"
+dependencies = [
+ "regex",
+]
+
+[[package]]
+name = "tauler-notify"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "tokio",
+ "zbus",
+]
+
+[[package]]
+name = "tauler-screenshot"
+version = "0.1.0"
+dependencies = [
+ "clap",
+ "image",
+ "serde_json",
+ "tauler",
+]
+
+[[package]]
+name = "tauler-ui-macro"
+version = "0.1.0"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "rstml",
+ "syn",
 ]
 
 [[package]]

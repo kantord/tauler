@@ -114,7 +114,7 @@ fn gen_component(path: Option<LitStr>, func: ItemFn) -> TokenStream2 {
 type ParsedNode = Node<Infallible>;
 type ParsedElement = NodeElement<Infallible>;
 
-/// JSX-like macro for building `costae::ui::Node` trees.
+/// JSX-like macro for building `tauler::ui::Node` trees.
 ///
 /// Supports `<container>`, `<text>`, and `<image>` tags with a `tw` attribute.
 /// Block expressions `{expr}` in children accept either a single `Node` or a

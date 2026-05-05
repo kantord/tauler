@@ -1,4 +1,4 @@
-use costae::ui::cva::Cva;
+use tauler::ui::cva::Cva;
 
 mod base_only {
     use super::*;

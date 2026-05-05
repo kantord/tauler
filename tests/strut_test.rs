@@ -1,4 +1,4 @@
-use costae::{strut_partial_values_for_anchor, PanelAnchor};
+use tauler::{strut_partial_values_for_anchor, PanelAnchor};
 
 #[test]
 fn left_bar_primary_monitor() {

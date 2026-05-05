@@ -1,6 +1,6 @@
-pub use costae_ui_macro::component;
-pub use costae_ui_macro::rsx;
 use serde::{Deserialize, Serialize};
+pub use tauler_ui_macro::component;
+pub use tauler_ui_macro::rsx;
 
 pub mod components;
 pub mod cva;

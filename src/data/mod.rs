@@ -47,7 +47,7 @@ pub fn spawn_module(bin: &str, script: Option<&str>) -> SpawnedModule {
     // If a script is provided, write it to a memfd and pass the path as argument
     #[allow(clippy::option_if_let_else)]
     let _memfd_file = if let Some(content) = script {
-        let fd = unsafe { libc::memfd_create(c"costae-script".as_ptr(), 0) };
+        let fd = unsafe { libc::memfd_create(c"tauler-script".as_ptr(), 0) };
         let mut file = unsafe { std::fs::File::from_raw_fd(fd) };
         let _ = file.write_all(content.as_bytes());
         let _ = file.seek(SeekFrom::Start(0));

@@ -2,7 +2,7 @@
 
 ## Core idea
 
-A `takumi_modules/` directory in the costae git repository serves as a shared,
+A `takumi_modules/` directory in the tauler git repository serves as a shared,
 community-accessible module registry for layout components. The import resolver
 recognises imports from this namespace and fetches the file via a public git API
 (e.g. GitHub raw content API), caching it locally so the network request only
@@ -20,7 +20,7 @@ files in a git repo with a stable, addressable URL.
 
 2. The resolver recognises the `takumi_modules/` prefix as a remote namespace.
 
-3. It checks the local cache (`~/.cache/costae/modules/`). On a cache hit, it
+3. It checks the local cache (`~/.cache/tauler/modules/`). On a cache hit, it
    loads from disk. On a miss, it fetches the file via the GitHub raw content API
    (or equivalent), writes it to the cache, then loads it.
 

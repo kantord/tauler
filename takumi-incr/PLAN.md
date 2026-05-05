@@ -156,7 +156,7 @@ impl PartialRenderScene {
 ```
 
 `render_frame` takes `&mut ctx` so the tile cache (in ctx) is mutated during
-the call without needing `Arc<Mutex<>>` — costae is single-threaded.
+the call without needing `Arc<Mutex<>>` — tauler is single-threaded.
 
 `create_scene` needs no parameters; canvas dimensions are determined on the
 first call to `render_frame` from the scene's first full render.

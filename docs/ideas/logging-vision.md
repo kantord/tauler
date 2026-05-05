@@ -231,7 +231,7 @@ lifecycle model which may conflict with the reconciler lifecycle model.
 - What is the right in-memory buffer size for the ring buffer backend? Should it be
   configurable per `LogStore` instance?
 
-- Should `KeyPath` be part of the core `managed_set` crate or a separate `costae-path`
+- Should `KeyPath` be part of the core `managed_set` crate or a separate `tauler-path`
   crate? The path type is useful independently of the reconciler.
 
 - Should log entries be emitted as a `Stream<Item = LogEntry>` rather than via trait

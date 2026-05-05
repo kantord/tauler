@@ -33,7 +33,7 @@ graphs. But it fits a surprisingly large class of real problems:
 
 - Process / thread pools
 - Connection pools
-- UI panels and windows (current costae use-case)
+- UI panels and windows (current tauler use-case)
 - Background task runners
 - Cache entry sets
 - Subscription / event-listener sets
@@ -74,4 +74,4 @@ deterministic timing, zero overhead, and no cycles possible.
 - Is there a composable way to express hierarchical desired state (a set of
   sets) so that child resources are automatically freed when their parent exits?
 - Could this pattern be extracted into a standalone crate with a richer trait
-  surface, making it useful beyond costae?
+  surface, making it useful beyond tauler?

@@ -1,9 +1,9 @@
-use costae::config::FontConfig;
-use costae::{init_global_ctx, parse_layout, render_frame, with_global_ctx};
 use takumi::{
     layout::Viewport,
     rendering::{measure_layout, RenderOptions},
 };
+use tauler::config::FontConfig;
+use tauler::{init_global_ctx, parse_layout, render_frame, with_global_ctx};
 
 fn measure_node(node: &serde_json::Value, width: u32, dpr: f32) -> takumi::rendering::MeasuredNode {
     init_global_ctx(FontConfig::default());

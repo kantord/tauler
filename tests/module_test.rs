@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use costae::spawn_module;
+use tauler::spawn_module;
 
 #[test]
 fn spawn_module_receives_stdout_line_from_script() {

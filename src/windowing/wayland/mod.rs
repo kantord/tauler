@@ -251,7 +251,7 @@ impl WaylandDisplayServer {
             &qh,
             wl_surface,
             layer,
-            Some("costae"),
+            Some("tauler"),
             None,
         );
 

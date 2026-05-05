@@ -41,6 +41,6 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libwayland-dev libxkbcommon-dev libfontconfig-dev libxcb1-dev pkg-config
       - name: Build screenshot binary
-        run: cargo build -p costae-screenshot
+        run: cargo build -p tauler-screenshot
       - name: Test
         run: cargo test --workspace

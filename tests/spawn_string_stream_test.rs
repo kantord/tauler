@@ -1,8 +1,8 @@
 use std::sync::mpsc;
 use std::time::Duration;
 
-use costae::spawn_bi_stream;
-use costae::spawn_string_stream;
+use tauler::spawn_bi_stream;
+use tauler::spawn_string_stream;
 
 #[test]
 fn spawn_string_stream_delivers_line_as_triple() {

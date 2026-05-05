@@ -1,6 +1,6 @@
-use costae::presentation::PanelCommand;
 use std::sync::mpsc;
 use std::time::Duration;
+use tauler::presentation::PanelCommand;
 
 pub(crate) mod wayland;
 pub(crate) mod x11;

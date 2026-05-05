@@ -1,8 +1,8 @@
-use costae::windowing::wayland::{
+use tauler::windowing::wayland::{
     build_dispatch_result, WaylandConnectError, WaylandDisplayServer,
 };
-use costae::windowing::DisplayServer;
-use costae::windowing::{DispatchError, WindowEvent};
+use tauler::windowing::DisplayServer;
+use tauler::windowing::{DispatchError, WindowEvent};
 
 // ---------------------------------------------------------------------------
 // Test 1: connect() fails gracefully when WAYLAND_DISPLAY is unset.

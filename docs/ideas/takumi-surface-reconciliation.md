@@ -11,7 +11,7 @@ that are expensive to duplicate (font data, shaping tables, image stores).
 
 ## Why
 
-Right now costae manages surfaces externally: `ManagedSet<PanelSpec>` tracks
+Right now tauler manages surfaces externally: `ManagedSet<PanelSpec>` tracks
 panel lifecycles, `RenderCache` lives on each `Panel` struct, and font/image
 state lives in a global context. This works but the boundaries are ad-hoc —
 the reconciliation logic, the cache invalidation, and the render pipeline are
@@ -36,7 +36,7 @@ takumi would figure out the rest.
 - Holds shared resources: font data, shaping tables, persistent image store
 - Surfaces within the group can borrow shared resources without cloning
 - The group's reconcile loop maps directly onto `ManagedSet::reconcile` — the
-  same enter/update/exit semantics, just owned by takumi rather than costae
+  same enter/update/exit semantics, just owned by takumi rather than tauler
 
 ## Why this replaces the need for a garbage collector
 
@@ -56,7 +56,7 @@ explicit enter/exit gives you deterministic resource cleanup without tracing.
 - `RenderCache` on `Panel` → owned by `TakumiSurface`
 - `GlobalContext` (font store, image store) → owned by `TakumiGroup`, borrowed
   by surfaces
-- costae's render pipeline → calls `group.update(surface_id, new_layout_value)`
+- tauler's render pipeline → calls `group.update(surface_id, new_layout_value)`
   and gets back a framebuffer or a diff
 
 ## Open questions
@@ -65,4 +65,4 @@ explicit enter/exit gives you deterministic resource cleanup without tracing.
   opaque with string keys?
 - Can the shared font/image store use Rust's borrow checker to enforce that
   surfaces don't outlive the group, or does that require `Arc`?
-- Does this belong in upstream takumi or in a costae-specific wrapper?
+- Does this belong in upstream takumi or in a tauler-specific wrapper?

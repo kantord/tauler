@@ -581,7 +581,7 @@ return <text tw="text-white">{String(globals.count)}</text>;
     #[test]
     fn jsx_evaluator_resolves_sibling_import_from_disk() {
         let tmp_dir =
-            std::env::temp_dir().join(format!("costae_sibling_import_{}", std::process::id()));
+            std::env::temp_dir().join(format!("tauler_sibling_import_{}", std::process::id()));
         std::fs::create_dir_all(&tmp_dir).expect("failed to create temp dir");
         std::fs::write(
             tmp_dir.join("Foo.jsx"),
@@ -614,7 +614,7 @@ export default function render() { return <text tw="text-white">{String(Foo())}<
     #[test]
     fn loaded_paths_includes_imported_sibling() {
         let tmp_dir =
-            std::env::temp_dir().join(format!("costae_loaded_paths_{}", std::process::id()));
+            std::env::temp_dir().join(format!("tauler_loaded_paths_{}", std::process::id()));
         std::fs::create_dir_all(&tmp_dir).expect("failed to create temp dir");
         std::fs::write(
             tmp_dir.join("Comp.jsx"),

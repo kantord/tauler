@@ -3,20 +3,20 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{mpsc, Arc};
 use std::thread;
 
-use costae::config::CostaeConfig;
-use costae::data::data_loop::{
+use notify::Watcher;
+use tauler::config::TaulerConfig;
+use tauler::data::data_loop::{
     BuiltInSource, DataLoopHandle, ProcessIdentity, ProcessSource, StreamSource,
 };
-use costae::layout::OutputInfo;
-use costae::managed_set::{Lifecycle, ManagedSet, Reconcile};
-use costae::panel::PanelSpec;
-use costae::presentation::{PanelCommand, PresentationThread, PresenterEvent};
-use costae::theme::resolver::resolve_tw_in_json;
-use costae::theme::{Theme, ThemeMode};
-use costae::windowing::wayland::WaylandDisplayServer;
-use costae::x11::click::do_hit_test;
-use costae::x11::panel::PanelContext;
-use notify::Watcher;
+use tauler::layout::OutputInfo;
+use tauler::managed_set::{Lifecycle, ManagedSet, Reconcile};
+use tauler::panel::PanelSpec;
+use tauler::presentation::{PanelCommand, PresentationThread, PresenterEvent};
+use tauler::theme::resolver::resolve_tw_in_json;
+use tauler::theme::{Theme, ThemeMode};
+use tauler::windowing::wayland::WaylandDisplayServer;
+use tauler::x11::click::do_hit_test;
+use tauler::x11::panel::PanelContext;
 
 use crate::presenter::wayland::run_wayland_presenter_thread;
 use crate::presenter::x11::run_x11_presenter_thread;
@@ -74,7 +74,7 @@ impl Lifecycle for WatchedPath {
 }
 
 fn log_lifecycle_errors<K: std::fmt::Debug, E: std::fmt::Debug>(
-    errors: costae::managed_set::ReconcileErrors<K, E>,
+    errors: tauler::managed_set::ReconcileErrors<K, E>,
 ) {
     for (key, err) in errors {
         tracing::error!(key = ?key, error = ?err, "lifecycle error");
@@ -89,9 +89,9 @@ fn theme_file_watch_desired(path: Option<std::path::PathBuf>) -> Vec<WatchedPath
 }
 
 fn make_builtin(key: &str) -> Option<BuiltInSource> {
-    use costae::x11::outputs::outputs_thread;
+    use tauler::x11::outputs::outputs_thread;
     match key {
-        "costae:outputs" => Some(BuiltInSource {
+        "tauler:outputs" => Some(BuiltInSource {
             key: key.to_string(),
             func: outputs_thread,
         }),
@@ -123,16 +123,16 @@ pub(crate) fn stream_calls_to_specs(calls: &[(String, Option<String>)]) -> Vec<S
 
 #[allow(clippy::too_many_arguments)]
 fn apply_eval_result(
-    out: &costae::jsx::EvalOutput,
+    out: &tauler::jsx::EvalOutput,
     dpr: f32,
     primary_output_name: &str,
     output_map: &HashMap<String, OutputInfo>,
     handle: &DataLoopHandle,
     panel_set: &mut ManagedSet<PanelSpec>,
     command_tx: &mut mpsc::Sender<PanelCommand>,
-    mod_init_fn: &dyn Fn(&[costae::PanelSpecData]) -> serde_json::Value,
+    mod_init_fn: &dyn Fn(&[tauler::PanelSpecData]) -> serde_json::Value,
 ) -> bool {
-    let mut specs = match costae::parse_root_node(&out.layout) {
+    let mut specs = match tauler::parse_root_node(&out.layout) {
         Ok(s) => s,
         Err(e) => {
             tracing::error!(error = %e, "root node parse error");
@@ -186,7 +186,7 @@ fn apply_eval_result(
 }
 
 fn make_mod_init_value(
-    specs: &[costae::PanelSpecData],
+    specs: &[tauler::PanelSpecData],
     dpr: f32,
     output_name: &str,
     dpi: f32,
@@ -195,7 +195,7 @@ fn make_mod_init_value(
 ) -> serde_json::Value {
     let spec = specs
         .iter()
-        .find(|p| p.anchor == Some(costae::PanelAnchor::Left))
+        .find(|p| p.anchor == Some(tauler::PanelAnchor::Left))
         .or_else(|| specs.first());
     let (bar_w, og) = spec
         .map(|p| {
@@ -245,7 +245,7 @@ pub(crate) struct App {
     theme_file_watch: ManagedSet<WatchedPath>,
     watcher: SharedWatcher,
     stream_values: HashMap<(String, Option<String>), String>,
-    jsx_evaluator: Option<costae::jsx::JsxEvaluator>,
+    jsx_evaluator: Option<tauler::jsx::JsxEvaluator>,
     handle: DataLoopHandle,
     jsx_ctx: serde_json::Value,
     item_rx: mpsc::Receiver<((String, Option<String>), String)>,
@@ -269,10 +269,10 @@ fn expand_tilde(path: &str) -> std::path::PathBuf {
     }
 }
 
-fn parse_config(config_path: &std::path::Path) -> CostaeConfig {
+fn parse_config(config_path: &std::path::Path) -> TaulerConfig {
     std::fs::read_to_string(config_path)
         .ok()
-        .and_then(|s| CostaeConfig::from_yaml(&s).ok())
+        .and_then(|s| TaulerConfig::from_yaml(&s).ok())
         .unwrap_or_default()
 }
 
@@ -422,10 +422,10 @@ impl App {
         state
     }
 
-    fn apply_eval_result_dispatch(&mut self, out: &costae::jsx::EvalOutput) -> bool {
+    fn apply_eval_result_dispatch(&mut self, out: &tauler::jsx::EvalOutput) -> bool {
         let mut layout = out.layout.clone();
         resolve_tw_in_json(&mut layout, &self.theme, self.theme_mode);
-        let resolved_out = costae::jsx::EvalOutput {
+        let resolved_out = tauler::jsx::EvalOutput {
             layout,
             stream_calls: out.stream_calls.clone(),
             module_calls: out.module_calls.clone(),
@@ -490,7 +490,7 @@ impl App {
             .parent()
             .unwrap_or(&self.layout_jsx_path);
         let evaluator =
-            match costae::jsx::JsxEvaluator::new(&source, self.jsx_ctx.clone(), Some(base_dir)) {
+            match tauler::jsx::JsxEvaluator::new(&source, self.jsx_ctx.clone(), Some(base_dir)) {
                 Ok(e) => e,
                 Err(e) => {
                     tracing::error!(error = %e, "JSX compile error");
@@ -515,7 +515,7 @@ impl App {
             return false;
         }
         let config = parse_config(&self.config_path);
-        costae::reload_font_config(config.fonts);
+        tauler::reload_font_config(config.fonts);
         let (theme, mode, theme_file_path) = load_theme_from_config(&self.config_path);
         self.theme = theme;
         self.theme_mode = mode;
@@ -531,7 +531,7 @@ impl App {
                         .layout_jsx_path
                         .parent()
                         .unwrap_or(&self.layout_jsx_path);
-                    match costae::jsx::JsxEvaluator::new(
+                    match tauler::jsx::JsxEvaluator::new(
                         &source,
                         self.jsx_ctx.clone(),
                         Some(base_dir),
@@ -678,24 +678,24 @@ mod tests {
         apply_eval_result, load_theme_from_config, make_mod_init_value, stream_calls_to_specs,
         theme_file_watch_desired,
     };
-    use costae::data::data_loop::{DataLoop, StreamSource};
-    use costae::layout::OutputInfo;
-    use costae::managed_set::ManagedSet;
-    use costae::panel::PanelSpec;
-    use costae::presentation::PanelCommand;
     use std::collections::HashMap;
     use std::path::PathBuf;
     use std::sync::mpsc;
+    use tauler::data::data_loop::{DataLoop, StreamSource};
+    use tauler::layout::OutputInfo;
+    use tauler::managed_set::ManagedSet;
+    use tauler::panel::PanelSpec;
+    use tauler::presentation::PanelCommand;
 
-    fn make_eval_output(layout: serde_json::Value) -> costae::jsx::EvalOutput {
-        costae::jsx::EvalOutput {
+    fn make_eval_output(layout: serde_json::Value) -> tauler::jsx::EvalOutput {
+        tauler::jsx::EvalOutput {
             layout,
             stream_calls: vec![],
             module_calls: vec![],
         }
     }
 
-    fn noop_mod_init(_specs: &[costae::PanelSpecData]) -> serde_json::Value {
+    fn noop_mod_init(_specs: &[tauler::PanelSpecData]) -> serde_json::Value {
         serde_json::Value::Null
     }
 
@@ -795,8 +795,8 @@ mod tests {
         );
     }
 
-    fn left_spec(width: u32) -> costae::PanelSpecData {
-        costae::PanelSpecData {
+    fn left_spec(width: u32) -> tauler::PanelSpecData {
+        tauler::PanelSpecData {
             id: "p".into(),
             width,
             height: 30,
@@ -805,18 +805,18 @@ mod tests {
             outer_gap: 0,
             above: false,
             output: None,
-            anchor: Some(costae::PanelAnchor::Left),
+            anchor: Some(tauler::PanelAnchor::Left),
             content: serde_json::Value::Null,
             dpr: 1.0,
         }
     }
 
-    fn wayland_mod_init(specs: &[costae::PanelSpecData]) -> serde_json::Value {
+    fn wayland_mod_init(specs: &[tauler::PanelSpecData]) -> serde_json::Value {
         make_mod_init_value(specs, 1.0, "", 96.0, 0, 0)
     }
 
     /// Claim: output field must be "" (empty string), NOT "wayland" or any compositor name.
-    /// fetch_workspaces in costae-i3 filters all workspaces when output is non-empty.
+    /// fetch_workspaces in tauler-i3 filters all workspaces when output is non-empty.
     #[test]
     fn mod_init_wayland_output_is_empty_string() {
         let result = wayland_mod_init(&[left_spec(250)]);
@@ -865,13 +865,13 @@ mod tests {
     }
 
     #[test]
-    fn stream_calls_to_specs_routes_costae_prefix_to_builtin() {
-        let calls = vec![("costae:outputs".to_string(), None)];
+    fn stream_calls_to_specs_routes_tauler_prefix_to_builtin() {
+        let calls = vec![("tauler:outputs".to_string(), None)];
         let specs = stream_calls_to_specs(&calls);
         assert_eq!(specs.len(), 1);
         assert!(
             matches!(specs[0], StreamSource::BuiltIn(_)),
-            "costae: prefix must map to BuiltIn"
+            "tauler: prefix must map to BuiltIn"
         );
     }
 
@@ -922,7 +922,7 @@ mod tests {
             1,
             "Some(path) must produce exactly one desired watch entry"
         );
-        use costae::managed_set::Lifecycle;
+        use tauler::managed_set::Lifecycle;
         assert_eq!(
             desired[0].key(),
             path,
