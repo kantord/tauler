@@ -3,6 +3,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{mpsc, Arc};
 use std::thread;
 
+use notify::Watcher;
 use tauler::config::TaulerConfig;
 use tauler::data::data_loop::{
     BuiltInSource, DataLoopHandle, ProcessIdentity, ProcessSource, StreamSource,
@@ -16,7 +17,6 @@ use tauler::theme::{Theme, ThemeMode};
 use tauler::windowing::wayland::WaylandDisplayServer;
 use tauler::x11::click::do_hit_test;
 use tauler::x11::panel::PanelContext;
-use notify::Watcher;
 
 use crate::presenter::wayland::run_wayland_presenter_thread;
 use crate::presenter::x11::run_x11_presenter_thread;
@@ -678,14 +678,14 @@ mod tests {
         apply_eval_result, load_theme_from_config, make_mod_init_value, stream_calls_to_specs,
         theme_file_watch_desired,
     };
+    use std::collections::HashMap;
+    use std::path::PathBuf;
+    use std::sync::mpsc;
     use tauler::data::data_loop::{DataLoop, StreamSource};
     use tauler::layout::OutputInfo;
     use tauler::managed_set::ManagedSet;
     use tauler::panel::PanelSpec;
     use tauler::presentation::PanelCommand;
-    use std::collections::HashMap;
-    use std::path::PathBuf;
-    use std::sync::mpsc;
 
     fn make_eval_output(layout: serde_json::Value) -> tauler::jsx::EvalOutput {
         tauler::jsx::EvalOutput {

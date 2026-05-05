@@ -13,10 +13,10 @@
 use std::collections::HashMap;
 
 use clap::Parser;
+use image::RgbaImage;
 use tauler::jsx::{EvalOutput, JsxEvaluator};
 use tauler::theme::resolver::resolve_tw_in_json;
 use tauler::theme::ThemeMode;
-use image::RgbaImage;
 
 fn parse_theme_mode(s: &str) -> Result<ThemeMode, String> {
     match s {

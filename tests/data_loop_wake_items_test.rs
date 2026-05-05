@@ -1,12 +1,12 @@
-/// Tests that DataLoop still calls on_item even when it is in "awake" mode
-/// (i.e. after extra_rx fires).  The bug: when `awake == true` the loop does
-/// `continue` before calling `recv_timeout`, so `on_item` is never invoked.
-use tauler::data::data_loop::{DataLoop, ProcessIdentity, ProcessSource, StreamItem, StreamSource};
 use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{mpsc, Arc, Mutex};
 use std::thread;
 use std::time::Duration;
+/// Tests that DataLoop still calls on_item even when it is in "awake" mode
+/// (i.e. after extra_rx fires).  The bug: when `awake == true` the loop does
+/// `continue` before calling `recv_timeout`, so `on_item` is never invoked.
+use tauler::data::data_loop::{DataLoop, ProcessIdentity, ProcessSource, StreamItem, StreamSource};
 
 fn echo_spec(msg: &str) -> ProcessSource {
     ProcessSource {

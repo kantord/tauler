@@ -3,7 +3,7 @@ use std::sync::{mpsc, Arc};
 use std::thread;
 use std::time::Duration;
 
-use tauler::config::{TaulerConfig, FontConfig};
+use tauler::config::{FontConfig, TaulerConfig};
 use tauler::data::data_loop::{DataLoop, StreamItem};
 use tauler::init_global_ctx;
 use tauler::windowing::wayland::WaylandDisplayServer;
