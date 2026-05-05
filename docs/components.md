@@ -172,4 +172,3 @@ For a data-driven table, use `DataTable` from `@ui/datatable` instead.
 ## TableRow
 
 **Module:** `@ui/table`
-
