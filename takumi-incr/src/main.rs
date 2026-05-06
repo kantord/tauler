@@ -18,8 +18,8 @@ use takumi::{
 };
 
 use tauler::layout::parse_layout;
-use tauler::managed_set::reconcile::Reconcile;
-use tauler::managed_set::{Lifecycle, ManagedSet};
+use optative::reconcile::Reconcile;
+use optative::{Lifecycle, ManagedSet};
 // ---------------------------------------------------------------------------
 // GlobalContext factory
 // ---------------------------------------------------------------------------
