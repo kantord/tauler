@@ -26,7 +26,7 @@ use optative::{Lifecycle, ManagedSet};
 
 fn new_ctx() -> GlobalContext {
     let mut ctx = GlobalContext::default();
-    ctx.font_context.collection.load_system_fonts();
+    tauler::render::load_targeted_fonts(&mut ctx);
     let font_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../assets/fonts/inter/InterVariable.ttf");
     ctx.font_context

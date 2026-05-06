@@ -173,7 +173,7 @@ pub(crate) fn apply_font_config(ctx: &mut GlobalContext, config: &FontConfig) {
     }
 }
 
-pub(crate) fn load_targeted_fonts(ctx: &mut GlobalContext) {
+pub fn load_targeted_fonts(ctx: &mut GlobalContext) {
     use parley::fontique::{Collection, CollectionOptions, SourceKind};
 
     // Build a temporary full collection so fontique+fontconfig can resolve
