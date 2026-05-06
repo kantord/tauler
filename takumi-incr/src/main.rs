@@ -981,6 +981,7 @@ struct TestSuite {
     name: &'static str,
     description: &'static str,
     frames: Vec<SuiteFrame>,
+    perf_focused: bool,
 }
 
 fn suite_simple_bar() -> TestSuite {
@@ -1071,6 +1072,7 @@ fn suite_simple_bar() -> TestSuite {
         name: "Simple Status Bar",
         description: "Baseline — no effects. Clock ticks each frame, CPU every 3rd.",
         frames,
+        perf_focused: true,
     }
 }
 
@@ -1099,6 +1101,7 @@ fn suite_shadow_cards() -> TestSuite {
         name: "Shadow Cards",
         description: "Two rounded+shadow cards. Left changes each frame, right is fully static.",
         frames,
+        perf_focused: false,
     }
 }
 
@@ -1126,6 +1129,7 @@ fn suite_blurred_overlay() -> TestSuite {
         name: "GPU Temp Monitor",
         description: "Rounded status pill. Temperature changes every frame; alert fires every 4th.",
         frames,
+        perf_focused: false,
     }
 }
 
@@ -1187,6 +1191,7 @@ fn suite_dense_metrics() -> TestSuite {
         description:
             "6 shadow+rounded columns. CPU and GPU change each frame; the other 4 stay static.",
         frames,
+        perf_focused: false,
     }
 }
 
@@ -1210,6 +1215,7 @@ struct FrameResult {
 }
 struct SuiteResult {
     frames: Vec<FrameResult>,
+    dpr: f32,
 }
 
 const TILE_SIZE: u32 = 24;
@@ -1468,7 +1474,7 @@ fn greedy_merge_candidates(mut cs: Vec<RenderCandidate>, cm: &CostModel) -> Vec<
     cs
 }
 
-fn run_suite(suite: &TestSuite, cm: &CostModel) -> SuiteResult {
+fn run_suite(suite: &TestSuite, cm: &CostModel, dpr: f32) -> SuiteResult {
     let mut incr_ctx = Ctx::fresh();
     let mut incr_set: ManagedSet<IncrNode> = ManagedSet::new();
     let mut frame_buf: Vec<u8> = Vec::new();
@@ -1500,7 +1506,7 @@ fn run_suite(suite: &TestSuite, cm: &CostModel) -> SuiteResult {
                 let img = takumi_render(
                     RenderOptions::builder()
                         .global(&full_ctx.global)
-                        .viewport(Viewport::new((None, None)))
+                        .viewport(Viewport::new((None, None)).with_device_pixel_ratio(dpr))
                         .node(node)
                         .build(),
                 )
@@ -1609,7 +1615,7 @@ fn run_suite(suite: &TestSuite, cm: &CostModel) -> SuiteResult {
                 let measured = takumi_measure_layout(
                     RenderOptions::builder()
                         .global(&incr_ctx.global)
-                        .viewport(Viewport::new((None, None)))
+                        .viewport(Viewport::new((None, None)).with_device_pixel_ratio(dpr))
                         .node(node)
                         .build(),
                 )
@@ -1768,7 +1774,7 @@ fn run_suite(suite: &TestSuite, cm: &CostModel) -> SuiteResult {
                 let cand_px = takumi_render(
                     RenderOptions::builder()
                         .global(&incr_ctx.global)
-                        .viewport(Viewport::new((None, None)))
+                        .viewport(Viewport::new((None, None)).with_device_pixel_ratio(dpr))
                         .node(node)
                         .build(),
                 )
@@ -1812,7 +1818,7 @@ fn run_suite(suite: &TestSuite, cm: &CostModel) -> SuiteResult {
         })
         .collect();
 
-    SuiteResult { frames }
+    SuiteResult { frames, dpr }
 }
 
 // ---------------------------------------------------------------------------
@@ -1826,19 +1832,26 @@ fn run_suite(suite: &TestSuite, cm: &CostModel) -> SuiteResult {
 /// catching any clearly-wrong pixel (diff > 50) involving more than ~30 pixels.
 const PERFECT_THRESHOLD: f64 = 0.05;
 
-fn html_report(suites: &[TestSuite], results: &[SuiteResult]) -> String {
+fn html_report(suites: &[&TestSuite], results: &[SuiteResult]) -> String {
     // ── Timing totals ────────────────────────────────────────────────────────
     let mut all_full = Duration::ZERO;
     let mut all_incr = Duration::ZERO;
-    for s in results {
+    let mut perf_full = Duration::ZERO;
+    let mut perf_incr = Duration::ZERO;
+    for (suite, s) in suites.iter().zip(results.iter()) {
         for (i, f) in s.frames.iter().enumerate() {
             if i > 0 {
                 all_full += f.full_time;
                 all_incr += f.incr_time;
+                if suite.perf_focused {
+                    perf_full += f.full_time;
+                    perf_incr += f.incr_time;
+                }
             }
         }
     }
     let overall_speedup = all_full.as_secs_f64() / all_incr.as_secs_f64().max(1e-9);
+    let perf_speedup = perf_full.as_secs_f64() / perf_incr.as_secs_f64().max(1e-9);
 
     // ── Per-suite passes ─────────────────────────────────────────────────────
     // Collect worst imperfect frames across all suites for the summary page.
@@ -1854,8 +1867,8 @@ fn html_report(suites: &[TestSuite], results: &[SuiteResult]) -> String {
     for (si, (suite, result)) in suites.iter().zip(results.iter()).enumerate() {
         let tab_id = format!("tab-suite-{si}");
         tab_btns.push_str(&format!(
-            r#"<button class="tab-btn" onclick="showTab('{tab_id}',this)">{}</button>"#,
-            suite.name
+            r#"<button class="tab-btn" onclick="showTab('{tab_id}',this)">{} ({}×)</button>"#,
+            suite.name, result.dpr
         ));
 
         let mut frames_html = String::new();
@@ -2040,7 +2053,8 @@ fn html_report(suites: &[TestSuite], results: &[SuiteResult]) -> String {
         r#"
     <div id="tab-summary" class="tab-content">
       <div class="hero">
-        <div><div class="l">Overall speedup (frames 1+)</div><div class="v">{sp:.1}×</div></div>
+        <div><div class="l">Overall speedup (1× DPR, all suites)</div><div class="v">{sp:.1}×</div></div>
+        <div><div class="l">Perf-focused speedup (1× + 2× DPR)</div><div class="v">{ps:.1}×</div></div>
         <div><div class="l">Full render total</div><div class="v">{ft:.0}ms</div></div>
         <div><div class="l">Incremental total</div><div class="v">{it:.0}ms</div></div>
       </div>
@@ -2052,6 +2066,7 @@ fn html_report(suites: &[TestSuite], results: &[SuiteResult]) -> String {
       {worst}
     </div>"#,
         sp = overall_speedup,
+        ps = perf_speedup,
         ft = all_full.as_secs_f64() * 1000.0,
         it = all_incr.as_secs_f64() * 1000.0,
         rows = table_rows,
@@ -2347,6 +2362,7 @@ fn suite_realistic_sidebar() -> TestSuite {
         name: "Realistic Sidebar",
         description: "300×2500 px sidebar: workspace list (focus cycles), GitHub WIP, weather, Claude usage, datetime. Most tiles static.",
         frames,
+        perf_focused: true,
     }
 }
 
@@ -2388,6 +2404,7 @@ fn suite_shrink_bug() -> TestSuite {
         name: "Shrink Bug",
         description: "Single text node, no siblings. Wide→narrow transition should erase the right portion — stale pixels here prove the old-bbox bug.",
         frames,
+        perf_focused: false,
     }
 }
 
@@ -2443,6 +2460,7 @@ fn suite_moving_ball() -> TestSuite {
         name: "Moving Ball",
         description: "400×80 px. Ball slides L→R; size pulses simultaneously. Tests relocating + resizing node in the same frame.",
         frames,
+        perf_focused: false,
     }
 }
 
@@ -2479,6 +2497,7 @@ fn suite_tile_crossing() -> TestSuite {
         name: "Tile Crossing",
         description: "320×64 px. Block advances exactly one tile (32px) per frame. Stresses dirty-tile marking at exact tile boundaries.",
         frames,
+        perf_focused: false,
     }
 }
 
@@ -2520,6 +2539,7 @@ fn suite_panel_focus() -> TestSuite {
         name: "Panel Focus Cycle",
         description: "460×120 px. Active panel highlight cycles L→M→R. Counter increments each frame. Tests simultaneous bg-color + content changes.",
         frames,
+        perf_focused: false,
     }
 }
 
@@ -2565,6 +2585,7 @@ fn suite_diagonal_scatter() -> TestSuite {
         name: "Diagonal Scatter",
         description: "248×248 px. 3×3 grid; one 'hot' cell cycles through all 9 positions per frame. Tests spatially scattered single-cell updates.",
         frames,
+        perf_focused: false,
     }
 }
 
@@ -2627,6 +2648,7 @@ fn suite_notification_badge() -> TestSuite {
         description:
             "240×72 px. Badge counter 1→12; container widens at 2 digits. App icon is fully static.",
         frames,
+        perf_focused: false,
     }
 }
 
@@ -2696,6 +2718,7 @@ fn suite_progress_fill() -> TestSuite {
         name: "Progress Fill",
         description: "360×60 px. Image bar grows 0→100%; color flips to green at completion; frames 8-9 reset. Tests Image node resize + color change.",
         frames,
+        perf_focused: false,
     }
 }
 
@@ -2833,6 +2856,7 @@ fn suite_keyframe_animation() -> TestSuite {
         name: "Keyframe Animation",
         description: "500×260 px. 20 frames: bouncing ball, sliding thumb, pulsing colored box, 4-phase indicator. Each element follows an independent curve.",
         frames,
+        perf_focused: false,
     }
 }
 
@@ -2988,6 +3012,7 @@ fn suite_notification_panel() -> TestSuite {
         name: "Notification Panel",
         description: "400×200 px. Spinner every frame; active notification rotates every 2; badge count every 4; slide thumb bounces L↔R. Most content static.",
         frames,
+        perf_focused: true,
     }
 }
 
@@ -3115,6 +3140,7 @@ fn suite_two_region() -> TestSuite {
                       (system log) dirty every 4th frame. 80 px gap forces two separate \
                       candidates when both are active — primary exercise for the greedy merge.",
         frames,
+        perf_focused: false,
     }
 }
 
@@ -3281,6 +3307,7 @@ fn suite_kanban() -> TestSuite {
                       A backdrop-blur-md semi-transparent ball with shadow-2xl bounces across \
                       the board every frame — compositing + absolute-position stress test.",
         frames,
+        perf_focused: true,
     }
 }
 
@@ -3420,6 +3447,7 @@ fn suite_compositing_overlay() -> TestSuite {
                        the dark overlay. Opacity badge pulses bottom-left. Tests that the static \
                        overlay composites correctly over freshly re-rendered card tiles.",
         frames,
+        perf_focused: false,
     }
 }
 
@@ -3578,6 +3606,7 @@ fn suite_scroll_list() -> TestSuite {
         name: "Scroll List",
         description: "400×200 px. 6 items scroll 2px/frame via negative margin-top inside overflow-hidden. Every item moves every frame → all viewport tiles dirty → no incremental savings expected.",
         frames,
+        perf_focused: false,
     }
 }
 
@@ -3660,26 +3689,35 @@ fn main() {
     ];
 
     let cm = CostModel::default();
-    let mut results = Vec::new();
+    let mut suite_refs: Vec<&TestSuite> = Vec::new();
+    let mut results: Vec<SuiteResult> = Vec::new();
+
     for suite in &suites_defs {
-        eprintln!(
-            "Running suite: {} ({} frames, tile={}px)...",
-            suite.name,
-            suite.frames.len(),
-            TILE_SIZE
-        );
-        let result = run_suite(suite, &cm);
-        print_suite_results(&result);
-        results.push(result);
+        let dprs: &[f32] = if suite.perf_focused { &[1.0, 2.0] } else { &[1.0] };
+        for &dpr in dprs {
+            let dpr_label = if suite.perf_focused {
+                format!(" ({}×)", dpr)
+            } else {
+                String::new()
+            };
+            eprintln!(
+                "Running suite: {}{} ({} frames, tile={}px)...",
+                suite.name, dpr_label, suite.frames.len(), TILE_SIZE
+            );
+            let result = run_suite(suite, &cm, dpr);
+            print_suite_results(&result);
+            suite_refs.push(suite);
+            results.push(result);
+        }
     }
 
     let path = "/tmp/poc_report.html";
-    std::fs::write(path, html_report(&suites_defs, &results)).expect("write report");
+    std::fs::write(path, html_report(&suite_refs, &results)).expect("write report");
     eprintln!("Report: file://{path}");
 
-    // Dump PNG frames for visual inspection
+    // Dump PNG frames for visual inspection (1× DPR only to keep output manageable)
     std::fs::create_dir_all("/tmp/poc_frames").unwrap();
-    for (suite, sr) in suites_defs.iter().zip(results.iter()) {
+    for (suite, sr) in suite_refs.iter().zip(results.iter()).filter(|(_, r)| r.dpr == 1.0) {
         let sname = suite.name.replace(' ', "_").to_lowercase();
         for (fi, f) in sr.frames.iter().enumerate() {
             if f.full_px.is_empty() {
@@ -3745,7 +3783,7 @@ mod visual_regression {
     /// Run `suite`, extract frame `frame_idx`, and snapshot both renders.
     fn assert_render_snapshots(suite: &TestSuite, frame_idx: usize, name: &str) {
         let cm = CostModel::default();
-        let result = run_suite(suite, &cm);
+        let result = run_suite(suite, &cm, 1.0);
         let f = &result.frames[frame_idx];
         insta::with_settings!({ snapshot_path => snapshot_dir(), prepend_module_to_snapshot => false }, {
             assert_snapshot(&format!("{name}__full_f{frame_idx}"),  &f.full_px, f.w, f.h);
@@ -3756,7 +3794,7 @@ mod visual_regression {
     /// Run `suite` once, snapshot full and incr pixels for multiple frame indices.
     fn run_and_snapshot(suite: &TestSuite, frame_indices: &[usize], name: &str) {
         let cm = CostModel::default();
-        let result = run_suite(suite, &cm);
+        let result = run_suite(suite, &cm, 1.0);
         insta::with_settings!({ snapshot_path => snapshot_dir(), prepend_module_to_snapshot => false }, {
             for &fi in frame_indices {
                 let f = &result.frames[fi];
@@ -3883,6 +3921,7 @@ mod visual_regression {
                 mk_frame("remove b", vec![node_a()]),
                 mk_frame("add c", vec![node_a(), node_c()]),
             ],
+            perf_focused: false,
         };
         run_and_snapshot(&suite, &[0, 1, 2], "reg_structure_change_no_ghost");
     }
