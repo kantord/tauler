@@ -580,12 +580,13 @@ fn collect_flat_whitelist(
     qw: f32,
     qh: f32,
     out: &mut Vec<serde_json::Value>,
+    tc: &TileConfig,
 ) {
     let id = node.id();
     let Some(r) = bboxes.get(id) else {
         return;
     };
-    let buf = SHADOW_BUF as f32;
+    let buf = tc.shadow_buf as f32;
     if r.x + r.w + buf <= qx
         || r.x - buf >= qx + qw
         || r.y + r.h + buf <= qy
@@ -657,7 +658,7 @@ fn collect_flat_whitelist(
                 }
                 // Always recurse — children may be in the set even if this container isn't.
                 for child in children {
-                    collect_flat_whitelist(child, bboxes, node_set, qx, qy, qw, qh, out);
+                    collect_flat_whitelist(child, bboxes, node_set, qx, qy, qw, qh, out, tc);
                 }
             }
         }
@@ -670,9 +671,9 @@ fn collect_flat_whitelist(
 // Dirty tile marking
 // ---------------------------------------------------------------------------
 
-fn mark_dirty(r: &Rect, tile: u32, scene_w: u32, scene_h: u32, dirty: &mut HashSet<(u32, u32)>) {
+fn mark_dirty(r: &Rect, tile: u32, scene_w: u32, scene_h: u32, dirty: &mut HashSet<(u32, u32)>, tc: &TileConfig) {
     let t = tile as f32;
-    let buf = SHADOW_BUF as f32;
+    let buf = tc.shadow_buf as f32;
     let col0 = ((r.x - buf) / t).floor() as i32;
     let row0 = ((r.y - buf) / t).floor() as i32;
     let col1 = ((r.x + r.w + buf) / t).ceil() as i32;
@@ -918,13 +919,13 @@ fn diff(a: &[u8], b: &[u8], _w: u32, _h: u32) -> DiffResult {
 /// Build a pixel-mask (same layout as a full RGBA buffer) that is opaque only
 /// within dirty tiles.  Used to restrict diff comparisons to the re-rendered
 /// region so that skipped tiles don't contribute false positives.
-fn dirty_mask(dirty: &HashSet<(u32, u32)>, w: u32, h: u32) -> Vec<bool> {
+fn dirty_mask(dirty: &HashSet<(u32, u32)>, w: u32, h: u32, tc: &TileConfig) -> Vec<bool> {
     let mut mask = vec![false; (w * h) as usize];
     for &(tx, ty) in dirty {
-        let px = tx * TILE_SIZE;
-        let py = ty * TILE_SIZE;
-        let pw = TILE_SIZE.min(w.saturating_sub(px));
-        let ph = TILE_SIZE.min(h.saturating_sub(py));
+        let px = tx * tc.tile_size;
+        let py = ty * tc.tile_size;
+        let pw = tc.tile_size.min(w.saturating_sub(px));
+        let ph = tc.tile_size.min(h.saturating_sub(py));
         for row in 0..ph {
             let base = ((py + row) * w + px) as usize;
             for col in 0..pw as usize {
@@ -1224,7 +1225,32 @@ const TILE_CACHE_MB: usize = 10; // LRU tile cache budget; entry count derived f
 
 // Two tiles whose shadow-expanded intervals overlap are merged into one band.
 // Overlap condition: distance < 1 + 2*SHADOW_BUF/TILE_SIZE  →  distance ≤ MERGE_THRESHOLD.
+// Kept as documentation of the formula; runtime value computed per-TileConfig.
+#[allow(dead_code)]
 const MERGE_THRESHOLD: u32 = 2 * SHADOW_BUF / TILE_SIZE;
+
+struct TileConfig {
+    tile_size: u32,
+    shadow_buf: u32,
+    merge_threshold: u32,
+    cache_cap: NonZeroUsize,
+}
+
+impl TileConfig {
+    fn new(tile_size: u32) -> Self {
+        let shadow_buf = SHADOW_BUF;
+        let tile_bytes = (tile_size * tile_size * 4) as usize;
+        let cache_cap = NonZeroUsize::new(
+            (TILE_CACHE_MB * 1024 * 1024).div_ceil(tile_bytes)
+        ).unwrap();
+        Self {
+            tile_size,
+            shadow_buf,
+            merge_threshold: 2 * shadow_buf / tile_size,
+            cache_cap,
+        }
+    }
+}
 
 // Cost-model coefficients — OLS-calibrated on perf-focused suites (see fit_cost_model).
 // O_FIXED sensitivity sweep showed <3% merge-decision change across ×0.5/×2.0 range;
@@ -1348,13 +1374,13 @@ struct RenderBand {
 }
 
 /// Group dirty tiles into bands along the Y axis (primary key = row).
-fn compute_bands_y(dirty: &HashSet<(u32, u32)>) -> Vec<RenderBand> {
+fn compute_bands_y(dirty: &HashSet<(u32, u32)>, tc: &TileConfig) -> Vec<RenderBand> {
     let mut tiles: Vec<(u32, u32)> = dirty.iter().copied().collect();
     tiles.sort_by_key(|&(_, ty)| ty);
     let mut bands: Vec<RenderBand> = Vec::new();
     for (tx, ty) in tiles {
         if let Some(b) = bands.last_mut() {
-            if ty - b.max_ty <= MERGE_THRESHOLD {
+            if ty - b.max_ty <= tc.merge_threshold {
                 b.max_ty = b.max_ty.max(ty);
                 b.min_tx = b.min_tx.min(tx);
                 b.max_tx = b.max_tx.max(tx);
@@ -1374,13 +1400,13 @@ fn compute_bands_y(dirty: &HashSet<(u32, u32)>) -> Vec<RenderBand> {
 }
 
 /// Group dirty tiles into bands along the X axis (primary key = column).
-fn compute_bands_x(dirty: &HashSet<(u32, u32)>) -> Vec<RenderBand> {
+fn compute_bands_x(dirty: &HashSet<(u32, u32)>, tc: &TileConfig) -> Vec<RenderBand> {
     let mut tiles: Vec<(u32, u32)> = dirty.iter().copied().collect();
     tiles.sort_by_key(|&(tx, _)| tx);
     let mut bands: Vec<RenderBand> = Vec::new();
     for (tx, ty) in tiles {
         if let Some(b) = bands.last_mut() {
-            if tx - b.max_tx <= MERGE_THRESHOLD {
+            if tx - b.max_tx <= tc.merge_threshold {
                 b.max_tx = b.max_tx.max(tx);
                 b.min_ty = b.min_ty.min(ty);
                 b.max_ty = b.max_ty.max(ty);
@@ -1400,12 +1426,12 @@ fn compute_bands_x(dirty: &HashSet<(u32, u32)>) -> Vec<RenderBand> {
 }
 
 /// Estimated total render area across all bands (proxy for render cost).
-fn estimated_area(bands: &[RenderBand]) -> u64 {
+fn estimated_area(bands: &[RenderBand], tc: &TileConfig) -> u64 {
     bands
         .iter()
         .map(|b| {
-            let w = ((b.max_tx - b.min_tx + 1) * TILE_SIZE + 2 * SHADOW_BUF) as u64;
-            let h = ((b.max_ty - b.min_ty + 1) * TILE_SIZE + 2 * SHADOW_BUF) as u64;
+            let w = ((b.max_tx - b.min_tx + 1) * tc.tile_size + 2 * tc.shadow_buf) as u64;
+            let h = ((b.max_ty - b.min_ty + 1) * tc.tile_size + 2 * tc.shadow_buf) as u64;
             w * h
         })
         .sum()
@@ -1416,14 +1442,14 @@ fn estimated_area(bands: &[RenderBand]) -> u64 {
 // ---------------------------------------------------------------------------
 
 /// All tiles (tx, ty) whose shadow-expanded region overlaps a bbox.
-fn tiles_for_bbox(r: &Rect, cols: u32, rows: u32) -> Vec<(u32, u32)> {
-    let buf = SHADOW_BUF as f32;
-    let c0 = ((r.x - buf) / TILE_SIZE as f32).floor().max(0.0) as u32;
-    let r0 = ((r.y - buf) / TILE_SIZE as f32).floor().max(0.0) as u32;
-    let c1 = ((r.x + r.w + buf) / TILE_SIZE as f32)
+fn tiles_for_bbox(r: &Rect, cols: u32, rows: u32, tc: &TileConfig) -> Vec<(u32, u32)> {
+    let buf = tc.shadow_buf as f32;
+    let c0 = ((r.x - buf) / tc.tile_size as f32).floor().max(0.0) as u32;
+    let r0 = ((r.y - buf) / tc.tile_size as f32).floor().max(0.0) as u32;
+    let c1 = ((r.x + r.w + buf) / tc.tile_size as f32)
         .ceil()
         .min(cols as f32) as u32;
-    let r1 = ((r.y + r.h + buf) / TILE_SIZE as f32)
+    let r1 = ((r.y + r.h + buf) / tc.tile_size as f32)
         .ceil()
         .min(rows as f32) as u32;
     let mut out = Vec::new();
@@ -1441,10 +1467,11 @@ fn build_tile_node_map(
     bboxes: &HashMap<String, Rect>,
     cols: u32,
     rows: u32,
+    tc: &TileConfig,
 ) -> HashMap<(u32, u32), BTreeSet<String>> {
     let mut map: HashMap<(u32, u32), BTreeSet<String>> = HashMap::new();
     for (id, r) in bboxes {
-        for tile in tiles_for_bbox(r, cols, rows) {
+        for tile in tiles_for_bbox(r, cols, rows, tc) {
             map.entry(tile).or_default().insert(id.clone());
         }
     }
@@ -1462,9 +1489,9 @@ struct RenderCandidate {
     node_set: BTreeSet<String>,
 }
 
-fn candidate_cost(c: &RenderCandidate, cm: &CostModel) -> f64 {
-    let w = ((c.max_tx - c.min_tx + 1) * TILE_SIZE + 2 * SHADOW_BUF) as f64;
-    let h = ((c.max_ty - c.min_ty + 1) * TILE_SIZE + 2 * SHADOW_BUF) as f64;
+fn candidate_cost(c: &RenderCandidate, cm: &CostModel, tc: &TileConfig) -> f64 {
+    let w = ((c.max_tx - c.min_tx + 1) * tc.tile_size + 2 * tc.shadow_buf) as f64;
+    let h = ((c.max_ty - c.min_ty + 1) * tc.tile_size + 2 * tc.shadow_buf) as f64;
     cm.o_fixed + cm.k_area * w * h + cm.k_nodes * c.node_set.len() as f64
 }
 
@@ -1491,6 +1518,7 @@ fn merge_candidates(a: &RenderCandidate, b: &RenderCandidate) -> RenderCandidate
 fn compute_candidates(
     dirty: &HashSet<(u32, u32)>,
     tile_node_map: &HashMap<(u32, u32), BTreeSet<String>>,
+    tc: &TileConfig,
 ) -> Vec<RenderCandidate> {
     // Categorical grouping: key = sorted node-id vec (hashable proxy for BTreeSet).
     let mut groups: HashMap<Vec<String>, HashSet<(u32, u32)>> = HashMap::new();
@@ -1505,9 +1533,9 @@ fn compute_candidates(
     let mut candidates = Vec::new();
     for (node_vec, tiles) in groups {
         let node_set: BTreeSet<String> = node_vec.into_iter().collect();
-        let by = compute_bands_y(&tiles);
-        let bx = compute_bands_x(&tiles);
-        let bands = if estimated_area(&by) <= estimated_area(&bx) {
+        let by = compute_bands_y(&tiles, tc);
+        let bx = compute_bands_x(&tiles, tc);
+        let bands = if estimated_area(&by, tc) <= estimated_area(&bx, tc) {
             by
         } else {
             bx
@@ -1528,7 +1556,7 @@ fn compute_candidates(
 
 /// Greedily merge candidate pairs while doing so reduces total estimated cost.
 /// Stops when no beneficial merge exists (O(n² × |node_set|) per pass; n is small).
-fn greedy_merge_candidates(mut cs: Vec<RenderCandidate>, cm: &CostModel) -> Vec<RenderCandidate> {
+fn greedy_merge_candidates(mut cs: Vec<RenderCandidate>, cm: &CostModel, tc: &TileConfig) -> Vec<RenderCandidate> {
     loop {
         if cs.len() < 2 {
             break;
@@ -1538,8 +1566,8 @@ fn greedy_merge_candidates(mut cs: Vec<RenderCandidate>, cm: &CostModel) -> Vec<
         for i in 0..cs.len() {
             for j in i + 1..cs.len() {
                 let merged = merge_candidates(&cs[i], &cs[j]);
-                let gain = candidate_cost(&cs[i], cm) + candidate_cost(&cs[j], cm)
-                    - candidate_cost(&merged, cm);
+                let gain = candidate_cost(&cs[i], cm, tc) + candidate_cost(&cs[j], cm, tc)
+                    - candidate_cost(&merged, cm, tc);
                 if gain > best_gain {
                     best_gain = gain;
                     best = (i, j);
@@ -1563,6 +1591,7 @@ fn run_suite(
     cm: &CostModel,
     dpr: f32,
     cal_samples: &mut Vec<(f64, f64, f64)>,
+    tc: &TileConfig,
 ) -> SuiteResult {
     let mut incr_ctx = Ctx::fresh();
     let mut incr_set: ManagedSet<IncrNode> = ManagedSet::new();
@@ -1571,11 +1600,9 @@ fn run_suite(
     // Bboxes from the PREVIOUS frame's stub layout, used for moved-node detection
     // so we always compare stub vs stub and avoid false positives.
     let mut prev_stub_bboxes: HashMap<String, Rect> = HashMap::new();
-    // LRU tile render cache: metadata_fp → TILE_SIZE×TILE_SIZE×4 bytes.
-    // Capacity is derived from TILE_CACHE_MB so it auto-adjusts when TILE_SIZE changes.
-    let tile_bytes = (TILE_SIZE * TILE_SIZE * 4) as usize;
-    let cache_cap = NonZeroUsize::new((TILE_CACHE_MB * 1024 * 1024).div_ceil(tile_bytes)).unwrap();
-    let mut tile_cache: LruCache<u64, Vec<u8>> = LruCache::new(cache_cap);
+    // LRU tile render cache: metadata_fp → tile_size×tile_size×4 bytes.
+    // Capacity is derived from TILE_CACHE_MB so it auto-adjusts when tile_size changes.
+    let mut tile_cache: LruCache<u64, Vec<u8>> = LruCache::new(tc.cache_cap);
     // Persistent tile→node map: for each tile the set of nodes whose shadow-
     // expanded bbox overlaps it.  Rebuilt each frame from current bboxes.
     // (Incremental update is a future optimisation — rebuild is fast enough.)
@@ -1613,8 +1640,8 @@ fn run_suite(
             // 1. Reconcile — populates changed_ids
             incr_set.reconcile(vec![root_incr.clone()], &mut incr_ctx, &mut ());
 
-            let cols = w.div_ceil(TILE_SIZE);
-            let rows = h.div_ceil(TILE_SIZE);
+            let cols = w.div_ceil(tc.tile_size);
+            let rows = h.div_ceil(tc.tile_size);
 
             // No-op short-circuit: if nothing changed and frame_buf is already
             // populated, every tile is identical to last frame — skip all remaining
@@ -1724,7 +1751,7 @@ fn run_suite(
             if frame_buf.len() != (w * h * 4) as usize {
                 // First frame: full build of tile_node_map + all tiles dirty.
                 frame_buf = vec![0u8; (w * h * 4) as usize];
-                tile_node_map = build_tile_node_map(bboxes, cols, rows);
+                tile_node_map = build_tile_node_map(bboxes, cols, rows, tc);
                 for ty in 0..rows {
                     for tx in 0..cols {
                         dirty.insert((tx, ty));
@@ -1737,21 +1764,21 @@ fn run_suite(
                 // Step 1: update entries for nodes whose content changed.
                 for id in &incr_ctx.changed_ids {
                     if let Some(old_r) = prev_stub_bboxes.get(id.as_str()) {
-                        for (tx, ty) in tiles_for_bbox(old_r, cols, rows) {
+                        for (tx, ty) in tiles_for_bbox(old_r, cols, rows, tc) {
                             if let Some(s) = tile_node_map.get_mut(&(tx, ty)) {
                                 s.remove(id.as_str());
                             }
                         }
-                        mark_dirty(old_r, TILE_SIZE, w, h, &mut dirty);
+                        mark_dirty(old_r, tc.tile_size, w, h, &mut dirty, tc);
                     }
                     if let Some(new_r) = bboxes.get(id.as_str()) {
-                        for (tx, ty) in tiles_for_bbox(new_r, cols, rows) {
+                        for (tx, ty) in tiles_for_bbox(new_r, cols, rows, tc) {
                             tile_node_map
                                 .entry((tx, ty))
                                 .or_default()
                                 .insert(id.clone());
                         }
-                        mark_dirty(new_r, TILE_SIZE, w, h, &mut dirty);
+                        mark_dirty(new_r, tc.tile_size, w, h, &mut dirty, tc);
                     }
                 }
                 // Step 2: update entries for nodes that moved due to layout reflow
@@ -1767,19 +1794,19 @@ fn run_suite(
                         }
                         if let Some(old_r) = prev_stub_bboxes.get(id.as_str()) {
                             if (new_r.x - old_r.x).abs() > 0.5 || (new_r.y - old_r.y).abs() > 0.5 {
-                                for (tx, ty) in tiles_for_bbox(old_r, cols, rows) {
+                                for (tx, ty) in tiles_for_bbox(old_r, cols, rows, tc) {
                                     if let Some(s) = tile_node_map.get_mut(&(tx, ty)) {
                                         s.remove(id.as_str());
                                     }
                                 }
-                                for (tx, ty) in tiles_for_bbox(new_r, cols, rows) {
+                                for (tx, ty) in tiles_for_bbox(new_r, cols, rows, tc) {
                                     tile_node_map
                                         .entry((tx, ty))
                                         .or_default()
                                         .insert(id.clone());
                                 }
-                                mark_dirty(new_r, TILE_SIZE, w, h, &mut dirty);
-                                mark_dirty(old_r, TILE_SIZE, w, h, &mut dirty);
+                                mark_dirty(new_r, tc.tile_size, w, h, &mut dirty, tc);
+                                mark_dirty(old_r, tc.tile_size, w, h, &mut dirty, tc);
                             }
                         }
                     }
@@ -1806,9 +1833,9 @@ fn run_suite(
                         w,
                         h,
                         &px,
-                        TILE_SIZE,
-                        tx * TILE_SIZE,
-                        ty * TILE_SIZE,
+                        tc.tile_size,
+                        tx * tc.tile_size,
+                        ty * tc.tile_size,
                     );
                     cache_hits += 1;
                     false
@@ -1822,24 +1849,24 @@ fn run_suite(
             let candidates: Vec<RenderCandidate> = if dirty.is_empty() {
                 vec![]
             } else {
-                let raw = compute_candidates(&dirty, &tile_node_map);
-                greedy_merge_candidates(raw, cm)
+                let raw = compute_candidates(&dirty, &tile_node_map, tc);
+                greedy_merge_candidates(raw, cm, tc)
             };
             let render_calls = candidates.len() as u32;
 
             for cand in &candidates {
-                let batch_px_x = cand.min_tx * TILE_SIZE;
-                let batch_px_y = cand.min_ty * TILE_SIZE;
-                let batch_w = (cand.max_tx - cand.min_tx + 1) * TILE_SIZE;
-                let batch_h = (cand.max_ty - cand.min_ty + 1) * TILE_SIZE;
+                let batch_px_x = cand.min_tx * tc.tile_size;
+                let batch_px_y = cand.min_ty * tc.tile_size;
+                let batch_w = (cand.max_tx - cand.min_tx + 1) * tc.tile_size;
+                let batch_h = (cand.max_ty - cand.min_ty + 1) * tc.tile_size;
 
-                let buf = SHADOW_BUF as f32;
+                let buf = tc.shadow_buf as f32;
                 let qx = batch_px_x as f32 - buf;
                 let qy = batch_px_y as f32 - buf;
                 let qw = batch_w as f32 + 2.0 * buf;
                 let qh = batch_h as f32 + 2.0 * buf;
-                let canvas_w = batch_w + 2 * SHADOW_BUF;
-                let canvas_h = batch_h + 2 * SHADOW_BUF;
+                let canvas_w = batch_w + 2 * tc.shadow_buf;
+                let canvas_h = batch_h + 2 * tc.shadow_buf;
 
                 let mut nodes: Vec<serde_json::Value> = Vec::new();
                 collect_flat_whitelist(
@@ -1851,6 +1878,7 @@ fn run_suite(
                     qw,
                     qh,
                     &mut nodes,
+                    tc,
                 );
 
                 let scene = serde_json::json!({
@@ -1880,13 +1908,13 @@ fn run_suite(
                 }
 
                 for &(tx, ty) in &cand.tiles {
-                    let px_x = tx * TILE_SIZE;
-                    let px_y = ty * TILE_SIZE;
-                    let off_x = SHADOW_BUF + (tx - cand.min_tx) * TILE_SIZE;
-                    let off_y = SHADOW_BUF + (ty - cand.min_ty) * TILE_SIZE;
+                    let px_x = tx * tc.tile_size;
+                    let px_y = ty * tc.tile_size;
+                    let off_x = tc.shadow_buf + (tx - cand.min_tx) * tc.tile_size;
+                    let off_y = tc.shadow_buf + (ty - cand.min_ty) * tc.tile_size;
                     let tile_px =
-                        crop_pixels(&cand_px, canvas_w, off_x, off_y, TILE_SIZE, TILE_SIZE);
-                    stitch(&mut frame_buf, w, h, &tile_px, TILE_SIZE, px_x, px_y);
+                        crop_pixels(&cand_px, canvas_w, off_x, off_y, tc.tile_size, tc.tile_size);
+                    stitch(&mut frame_buf, w, h, &tile_px, tc.tile_size, px_x, px_y);
                     tile_cache.put(fps[&(tx, ty)], tile_px);
                 }
             }
@@ -1930,7 +1958,7 @@ fn run_suite(
 /// catching any clearly-wrong pixel (diff > 50) involving more than ~30 pixels.
 const PERFECT_THRESHOLD: f64 = 0.05;
 
-fn html_report(suites: &[&TestSuite], results: &[SuiteResult]) -> String {
+fn html_report(suites: &[&TestSuite], results: &[SuiteResult], tc: &TileConfig) -> String {
     // ── Timing totals ────────────────────────────────────────────────────────
     let mut all_full = Duration::ZERO;
     let mut all_incr = Duration::ZERO;
@@ -1989,11 +2017,11 @@ fn html_report(suites: &[&TestSuite], results: &[SuiteResult]) -> String {
             let ph = (f.h * 3).clamp(36, 600);
 
             // Restrict correctness measurement to dirty tiles only.
-            let mask = dirty_mask(&f.dirty_tiles, f.w, f.h);
+            let mask = dirty_mask(&f.dirty_tiles, f.w, f.h, tc);
             let chg_w = if f.prev_full_px.len() == f.full_px.len() {
                 diff_masked(&f.prev_full_px, &f.full_px, &mask, f.w, f.h).weighted
             } else {
-                (f.dirty_tiles.len() * (TILE_SIZE * TILE_SIZE) as usize) as f64
+                (f.dirty_tiles.len() * (tc.tile_size * tc.tile_size) as usize) as f64
             };
             // Full-frame change image (for the Δ column) uses unmasked diff so
             // the viewer can see what actually changed regardless of dirty tiles.
@@ -3712,7 +3740,7 @@ fn suite_scroll_list() -> TestSuite {
 // Main
 // ---------------------------------------------------------------------------
 
-fn print_suite_results(result: &SuiteResult) {
+fn print_suite_results(result: &SuiteResult, tc: &TileConfig) {
     let mut s_full = Duration::ZERO;
     let mut s_incr = Duration::ZERO;
     for (i, f) in result.frames.iter().enumerate() {
@@ -3720,11 +3748,11 @@ fn print_suite_results(result: &SuiteResult) {
             // Restrict both error and changed-area to dirty tiles only.
             // Skipped tiles are untouched by the incremental renderer and must
             // not contribute false positives from layout-reflow-induced AA drift.
-            let mask = dirty_mask(&f.dirty_tiles, f.w, f.h);
+            let mask = dirty_mask(&f.dirty_tiles, f.w, f.h, tc);
             let chg_w = if f.prev_full_px.len() == f.full_px.len() {
                 diff_masked(&f.prev_full_px, &f.full_px, &mask, f.w, f.h).weighted
             } else {
-                (f.dirty_tiles.len() * (TILE_SIZE * TILE_SIZE) as usize) as f64
+                (f.dirty_tiles.len() * (tc.tile_size * tc.tile_size) as usize) as f64
             };
             let err = diff_masked(&f.full_px, &f.incr_px, &mask, f.w, f.h);
             let ratio = err.weighted / chg_w.max(1.0);
@@ -3786,6 +3814,7 @@ fn main() {
         suite_kanban(),
     ];
 
+    let tc = TileConfig::new(TILE_SIZE);
     let mut cal_samples: Vec<(f64, f64, f64)> = Vec::new();
     let cm = CostModel::default();
     let mut suite_refs: Vec<&TestSuite> = Vec::new();
@@ -3801,17 +3830,18 @@ fn main() {
             };
             eprintln!(
                 "Running suite: {}{} ({} frames, tile={}px)...",
-                suite.name, dpr_label, suite.frames.len(), TILE_SIZE
+                suite.name, dpr_label, suite.frames.len(), tc.tile_size
             );
-            let result = run_suite(suite, &cm, dpr, &mut cal_samples);
-            print_suite_results(&result);
+            let result = run_suite(suite, &cm, dpr, &mut cal_samples, &tc);
+            print_suite_results(&result, &tc);
             suite_refs.push(suite);
             results.push(result);
         }
     }
 
     // ── OLS recalibration ────────────────────────────────────────────────────
-    match fit_cost_model(&cal_samples) {
+    let cal_result = fit_cost_model(&cal_samples);
+    match &cal_result {
         Some(c) => eprintln!(
             "\nOLS calibration ({} samples, R²={:.3}):\n  \
              O_FIXED_MS = {:.4}  K_AREA = {:.3e}  K_NODES = {:.4}\n  \
@@ -3823,8 +3853,64 @@ fn main() {
     }
 
     let path = "/tmp/poc_report.html";
-    std::fs::write(path, html_report(&suite_refs, &results)).expect("write report");
+    std::fs::write(path, html_report(&suite_refs, &results, &tc)).expect("write report");
     eprintln!("Report: file://{path}");
+
+    // ── Tile size sweep ──────────────────────────────────────────────────────
+    // Run only perf-focused suites at both DPRs for each tile size.
+    let perf_suites: Vec<&TestSuite> = suites_defs.iter().filter(|s| s.perf_focused).collect();
+    let sweep_cm = cal_result.map(|c| c.model).unwrap_or_default();
+
+    struct SweepRow {
+        tile_size: u32,
+        overall_speedup: f64,
+        perf_speedup: f64,
+        n_samples: usize,
+        r_squared: f64,
+    }
+    let mut sweep_rows: Vec<SweepRow> = Vec::new();
+
+    eprintln!("\nTILE SIZE SWEEP (perf-focused suites, 1× + 2× DPR)");
+    for &tile_size in &[24u32, 32, 48, 64] {
+        let sweep_tc = TileConfig::new(tile_size);
+        let mut sweep_cal: Vec<(f64, f64, f64)> = Vec::new();
+        let mut all_full = std::time::Duration::ZERO;
+        let mut all_incr = std::time::Duration::ZERO;
+
+        for suite in &perf_suites {
+            for &dpr in &[1.0f32, 2.0] {
+                eprintln!(
+                    "  sweep tile={} suite={} dpr={}×...",
+                    tile_size, suite.name, dpr
+                );
+                let result = run_suite(suite, &sweep_cm, dpr, &mut sweep_cal, &sweep_tc);
+                for (i, f) in result.frames.iter().enumerate() {
+                    if i > 0 {
+                        all_full += f.full_time;
+                        all_incr += f.incr_time;
+                    }
+                }
+            }
+        }
+
+        let overall_speedup = all_full.as_secs_f64() / all_incr.as_secs_f64().max(1e-9);
+        // perf_speedup == overall_speedup here since we only ran perf suites
+        let perf_speedup = overall_speedup;
+        let (n_samples, r_squared) = fit_cost_model(&sweep_cal)
+            .map(|c| (c.n_samples, c.r_squared))
+            .unwrap_or((sweep_cal.len(), 0.0));
+        sweep_rows.push(SweepRow { tile_size, overall_speedup, perf_speedup, n_samples, r_squared });
+    }
+
+    println!("\nTILE SIZE SWEEP (perf-focused suites, 1× + 2× DPR)");
+    println!("{:>9} | {:>15} | {:>12} | {:>22}", "tile_size", "overall_speedup", "perf_speedup", "n_samples (OLS R²)");
+    println!("{}", "-".repeat(65));
+    for row in &sweep_rows {
+        println!(
+            "{:>9} | {:>14.1}× | {:>11.1}× | {:>9} (R²={:.3})",
+            row.tile_size, row.overall_speedup, row.perf_speedup, row.n_samples, row.r_squared
+        );
+    }
 
     // Dump PNG frames for visual inspection (1× DPR only to keep output manageable)
     std::fs::create_dir_all("/tmp/poc_frames").unwrap();
@@ -3894,7 +3980,7 @@ mod visual_regression {
     /// Run `suite`, extract frame `frame_idx`, and snapshot both renders.
     fn assert_render_snapshots(suite: &TestSuite, frame_idx: usize, name: &str) {
         let cm = CostModel::default();
-        let result = run_suite(suite, &cm, 1.0, &mut vec![]);
+        let result = run_suite(suite, &cm, 1.0, &mut vec![], &TileConfig::new(TILE_SIZE));
         let f = &result.frames[frame_idx];
         insta::with_settings!({ snapshot_path => snapshot_dir(), prepend_module_to_snapshot => false }, {
             assert_snapshot(&format!("{name}__full_f{frame_idx}"),  &f.full_px, f.w, f.h);
@@ -3905,7 +3991,7 @@ mod visual_regression {
     /// Run `suite` once, snapshot full and incr pixels for multiple frame indices.
     fn run_and_snapshot(suite: &TestSuite, frame_indices: &[usize], name: &str) {
         let cm = CostModel::default();
-        let result = run_suite(suite, &cm, 1.0, &mut vec![]);
+        let result = run_suite(suite, &cm, 1.0, &mut vec![], &TileConfig::new(TILE_SIZE));
         insta::with_settings!({ snapshot_path => snapshot_dir(), prepend_module_to_snapshot => false }, {
             for &fi in frame_indices {
                 let f = &result.frames[fi];
