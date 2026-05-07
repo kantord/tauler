@@ -21,9 +21,62 @@ use optative::ManagedSet;
 // GlobalContext factory
 // ---------------------------------------------------------------------------
 
+fn family_name_for_path(
+    collection: &mut parley::fontique::Collection,
+    path: &std::path::Path,
+) -> Option<String> {
+    use parley::fontique::SourceKind;
+    let names: Vec<String> = collection.family_names().map(|s| s.to_string()).collect();
+    for name in &names {
+        if let Some(info) = collection.family_by_name(name) {
+            for font in info.fonts() {
+                if let SourceKind::Path(p) = &font.source().kind {
+                    if p.as_ref() == path {
+                        return Some(name.clone());
+                    }
+                }
+            }
+        }
+    }
+    None
+}
+
+fn load_targeted_fonts(ctx: &mut GlobalContext) {
+    use parley::fontique::{Collection, CollectionOptions, SourceKind};
+    let mut temp = Collection::new(CollectionOptions { shared: false, system_fonts: false });
+    temp.load_system_fonts();
+    let targeted = [GenericFamily::SansSerif, GenericFamily::Monospace, GenericFamily::Emoji];
+    let mut paths: Vec<(GenericFamily, std::path::PathBuf)> = Vec::new();
+    for &generic in &targeted {
+        let Some(id) = temp.generic_families(generic).next() else { continue };
+        let names: Vec<String> = temp.family_names().map(|s| s.to_string()).collect();
+        let Some(name) = names.iter().find(|n| temp.family_by_name(n).map(|i| i.id()) == Some(id)) else { continue };
+        let Some(family) = temp.family_by_name(name) else { continue };
+        let Some(path) = family.fonts().iter().find_map(|font| match &font.source().kind {
+            SourceKind::Path(p) => Some(p.as_ref().to_path_buf()),
+            _ => None,
+        }) else { continue };
+        paths.push((generic, path));
+    }
+    if paths.is_empty() {
+        ctx.font_context.collection.load_system_fonts();
+        return;
+    }
+    for (_, path) in &paths {
+        ctx.font_context.collection.load_fonts_from_paths(std::iter::once(path));
+    }
+    for (generic, path) in &paths {
+        if let Some(name) = family_name_for_path(&mut ctx.font_context.collection, path) {
+            if let Some(info) = ctx.font_context.collection.family_by_name(&name) {
+                ctx.font_context.collection.set_generic_families(*generic, std::iter::once(info.id()));
+            }
+        }
+    }
+}
+
 fn new_ctx() -> GlobalContext {
     let mut ctx = GlobalContext::default();
-    tauler::render::load_targeted_fonts(&mut ctx);
+    load_targeted_fonts(&mut ctx);
     let font_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../assets/fonts/inter/InterVariable.ttf");
     ctx.font_context

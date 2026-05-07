@@ -3692,7 +3692,6 @@ dependencies = [
  "serde",
  "serde_json",
  "takumi",
- "tauler",
 ]
 
 [[package]]
