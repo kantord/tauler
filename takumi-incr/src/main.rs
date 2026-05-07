@@ -3870,20 +3870,34 @@ fn main() {
     }
     let mut sweep_rows: Vec<SweepRow> = Vec::new();
 
-    eprintln!("\nTILE SIZE SWEEP (perf-focused suites, 1× + 2× DPR)");
+    eprintln!("\nTILE SIZE SWEEP (perf-focused suites, 1× + 2× DPR, per-tile-size OLS calibration)");
     for &tile_size in &[24u32, 32, 48, 64] {
         let sweep_tc = TileConfig::new(tile_size);
+
+        // Pass 1: collect calibration samples with default model.
         let mut sweep_cal: Vec<(f64, f64, f64)> = Vec::new();
+        for suite in &perf_suites {
+            for &dpr in &[1.0f32, 2.0] {
+                run_suite(suite, &CostModel::default(), dpr, &mut sweep_cal, &sweep_tc);
+            }
+        }
+        let calibrated_cm = fit_cost_model(&sweep_cal)
+            .map(|c| c.model)
+            .unwrap_or_default();
+        let (n_samples, r_squared) = fit_cost_model(&sweep_cal)
+            .map(|c| (c.n_samples, c.r_squared))
+            .unwrap_or((sweep_cal.len(), 0.0));
+
+        // Pass 2: benchmark with the tile-size-specific calibrated model.
         let mut all_full = std::time::Duration::ZERO;
         let mut all_incr = std::time::Duration::ZERO;
-
         for suite in &perf_suites {
             for &dpr in &[1.0f32, 2.0] {
                 eprintln!(
                     "  sweep tile={} suite={} dpr={}×...",
                     tile_size, suite.name, dpr
                 );
-                let result = run_suite(suite, &sweep_cm, dpr, &mut sweep_cal, &sweep_tc);
+                let result = run_suite(suite, &calibrated_cm, dpr, &mut vec![], &sweep_tc);
                 for (i, f) in result.frames.iter().enumerate() {
                     if i > 0 {
                         all_full += f.full_time;
@@ -3894,11 +3908,7 @@ fn main() {
         }
 
         let overall_speedup = all_full.as_secs_f64() / all_incr.as_secs_f64().max(1e-9);
-        // perf_speedup == overall_speedup here since we only ran perf suites
         let perf_speedup = overall_speedup;
-        let (n_samples, r_squared) = fit_cost_model(&sweep_cal)
-            .map(|c| (c.n_samples, c.r_squared))
-            .unwrap_or((sweep_cal.len(), 0.0));
         sweep_rows.push(SweepRow { tile_size, overall_speedup, perf_speedup, n_samples, r_squared });
     }
 
