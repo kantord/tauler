@@ -648,10 +648,10 @@ impl App {
                     dpr,
                 } => {
                     if let Some(spec) = self.panels.get(&panel_id) {
-                        let raw_layout = if spec.content.is_null() {
+                        let raw_layout = if spec.spec.content.is_null() {
                             None
                         } else {
-                            Some(spec.content.clone())
+                            Some(spec.spec.content.clone())
                         };
                         let txs = self.module_event_txs.lock().unwrap();
                         do_hit_test(&raw_layout, &txs, phys_width, phys_height, dpr, x, y);

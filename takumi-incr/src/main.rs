@@ -116,7 +116,6 @@ fn new_ctx() -> GlobalContext {
 
 fn new_bench_ctx() -> Ctx {
     Ctx {
-        global: new_ctx(),
         changed_ids: Vec::new(),
         node_dims: HashMap::new(),
     }
@@ -615,6 +614,7 @@ fn run_suite(
     allow_bailout: bool,
 ) -> SuiteResult {
     let mut incr_ctx = new_bench_ctx();
+    let incr_global = new_ctx();
     let mut incr_set: ManagedSet<IncrNode> = ManagedSet::new();
     let mut frame_buf: Vec<u8> = Vec::new();
     let mut prev_full: Vec<u8> = Vec::new();
@@ -636,14 +636,14 @@ fn run_suite(
         .map(|(frame_idx, f)| {
             // ── Full render (fresh context, no caching) ──────────────────────────
             let root_incr = f.root.clone();
-            let full_ctx = new_bench_ctx();
+            let full_global = new_ctx();
             let t = Instant::now();
             let (full_px, w, h) = {
                 let root_json = root_incr.to_json();
                 let node = parse_layout(&root_json).unwrap_or_else(|_| Node::container(vec![]));
                 let img = takumi_render(
                     RenderOptions::builder()
-                        .global(&full_ctx.global)
+                        .global(&full_global)
                         .viewport(Viewport::new((None, None)).with_device_pixel_ratio(dpr))
                         .node(node)
                         .build(),
@@ -734,14 +734,14 @@ fn run_suite(
                 if let Some(&node) = node_map.get(id.as_str()) {
                     match node {
                         IncrNode::Text { .. } => {
-                            let new_dims = measure_natural(node, &incr_ctx.global);
+                            let new_dims = measure_natural(node, &incr_global);
                             if incr_ctx.node_dims.get(id.as_str()).copied() != Some(new_dims) {
                                 dims_changed = true;
                             }
                             incr_ctx.node_dims.insert(id.clone(), new_dims);
                         }
                         IncrNode::Image { .. } => {
-                            let new_dims = measure_natural(node, &incr_ctx.global);
+                            let new_dims = measure_natural(node, &incr_global);
                             if incr_ctx.node_dims.get(id.as_str()).copied() != Some(new_dims) {
                                 dims_changed = true;
                             }
@@ -750,7 +750,7 @@ fn run_suite(
                         IncrNode::Container { children, .. } => {
                             if children.is_empty() {
                                 // Leaf container (Image variant) — measure it
-                                let new_dims = measure_natural(node, &incr_ctx.global);
+                                let new_dims = measure_natural(node, &incr_global);
                                 if incr_ctx.node_dims.get(id.as_str()).copied() != Some(new_dims) {
                                     dims_changed = true;
                                 }
@@ -774,7 +774,7 @@ fn run_suite(
                 let node = parse_layout(&stub_json).unwrap_or_else(|_| Node::container(vec![]));
                 let measured = takumi_measure_layout(
                     RenderOptions::builder()
-                        .global(&incr_ctx.global)
+                        .global(&incr_global)
                         .viewport(Viewport::new((None, None)).with_device_pixel_ratio(dpr))
                         .node(node)
                         .build(),
@@ -870,7 +870,7 @@ fn run_suite(
                 };
                 let _ = takumi_render(
                     RenderOptions::builder()
-                        .global(&incr_ctx.global)
+                        .global(&incr_global)
                         .viewport(Viewport::new((None, None)).with_device_pixel_ratio(dpr))
                         .node(fresh_node)
                         .build(),
@@ -978,7 +978,7 @@ fn run_suite(
                 let t_cand = Instant::now();
                 let cand_px = takumi_render(
                     RenderOptions::builder()
-                        .global(&incr_ctx.global)
+                        .global(&incr_global)
                         .viewport(Viewport::new((None, None)).with_device_pixel_ratio(dpr))
                         .node(node)
                         .build(),

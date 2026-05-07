@@ -1,5 +1,7 @@
 use std::sync::{Arc, Mutex, OnceLock};
 
+use takumi_incr::{PartialRenderCtx, PartialRenderScene};
+
 use cached::proc_macro::cached;
 use cached::Cached;
 use parley::fontique::GenericFamily;
@@ -14,6 +16,7 @@ use crate::config::FontConfig;
 use crate::layout::parse_layout;
 
 static GLOBAL_CTX: OnceLock<Mutex<GlobalContext>> = OnceLock::new();
+static PARTIAL_CTX: OnceLock<Mutex<PartialRenderCtx>> = OnceLock::new();
 
 /// Initialize the global rendering context. Must be called once at startup.
 /// Loads fonts into the context before storing it.
@@ -22,6 +25,7 @@ pub fn init_global_ctx(font_config: FontConfig) {
     load_targeted_fonts(&mut ctx);
     apply_font_config(&mut ctx, &font_config);
     GLOBAL_CTX.set(Mutex::new(ctx)).ok();
+    PARTIAL_CTX.set(Mutex::new(PartialRenderCtx::new())).ok();
 }
 
 pub fn with_global_ctx<F, R>(f: F) -> R
@@ -86,6 +90,31 @@ fn render_frame_cached(canonical: String, width: u32, height: u32, dpr_bits: u32
         }
         Arc::new(bgrx)
     })
+}
+
+/// Incrementally render `content` using per-panel `scene` state.
+/// Falls back to a full render if the scene is not yet warm.
+/// Returns pixels in BGRX format (same as `render_frame`).
+pub fn render_frame_partial(
+    scene: &mut PartialRenderScene,
+    content: &serde_json::Value,
+    width: u32,
+    height: u32,
+    dpr: f32,
+) -> Arc<Vec<u8>> {
+    let mut pctx = PARTIAL_CTX
+        .get()
+        .expect("render_frame_partial called before init_global_ctx")
+        .lock()
+        .expect("PARTIAL_CTX poisoned");
+    let pixels = with_global_ctx(|global| {
+        scene.render_frame(&mut pctx, global, content, width, height, dpr).to_vec()
+    });
+    let mut bgrx = Vec::with_capacity(pixels.len());
+    for px in pixels.chunks_exact(4) {
+        bgrx.extend_from_slice(&[px[2], px[1], px[0], 0x00]);
+    }
+    Arc::new(bgrx)
 }
 
 /// Render `content` into a raw RGBA framebuffer (no channel swap, alpha preserved).

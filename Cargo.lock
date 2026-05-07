@@ -3722,6 +3722,7 @@ dependencies = [
  "serde_yaml",
  "smithay-client-toolkit",
  "takumi",
+ "takumi-incr",
  "tauler-lifecycle-derive",
  "tauler-ui-macro",
  "tempfile",

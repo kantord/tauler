@@ -11,7 +11,6 @@ use takumi::{
         measure_layout as takumi_measure_layout, render as takumi_render, MeasuredNode,
         RenderOptions,
     },
-    GlobalContext,
 };
 
 use optative::reconcile::Reconcile;
@@ -242,7 +241,6 @@ pub struct IncrNodeState {
 // ---------------------------------------------------------------------------
 
 pub struct Ctx {
-    pub global: GlobalContext,
     pub changed_ids: Vec<String>,
     pub node_dims: HashMap<String, (f32, f32)>,
 }
@@ -471,7 +469,7 @@ pub fn stub_scene_json(node: &IncrNode, dims: &HashMap<String, (f32, f32)>) -> s
     }
 }
 
-pub fn measure_natural(node: &IncrNode, global: &GlobalContext) -> (f32, f32) {
+pub fn measure_natural(node: &IncrNode, global: &takumi::GlobalContext) -> (f32, f32) {
     let json = node.to_json();
     let n = parse_layout(&json).unwrap_or_else(|_| Node::container(vec![]));
     let m = takumi_measure_layout(
@@ -1027,20 +1025,18 @@ pub fn crop_pixels(pixels: &[u8], src_w: u32, x: u32, y: u32, w: u32, h: u32) ->
 // ---------------------------------------------------------------------------
 
 pub struct PartialRenderCtx {
-    pub global: GlobalContext,
     tile_cache: LruCache<u64, Vec<u8>>,
     pub cost_model: CostModel,
     pub tc: TileConfig,
 }
 
 impl PartialRenderCtx {
-    pub fn new(global: GlobalContext) -> Self {
+    pub fn new() -> Self {
         let tile_bytes = (TILE_SIZE * TILE_SIZE * 4) as usize;
         let cache_cap = NonZeroUsize::new(
             (TILE_CACHE_MB * 1024 * 1024).div_ceil(tile_bytes)
         ).unwrap();
         Self {
-            global,
             tile_cache: LruCache::new(cache_cap),
             cost_model: CostModel::default(),
             tc: TileConfig::new(TILE_SIZE),
@@ -1061,14 +1057,13 @@ pub struct PartialRenderScene {
 }
 
 impl PartialRenderScene {
-    pub fn new(global: GlobalContext) -> Self {
+    pub fn new() -> Self {
         Self {
             frame_buf: Vec::new(),
             prev_stub_bboxes: HashMap::new(),
             tile_node_map: HashMap::new(),
             incr_set: ManagedSet::new(),
             ctx: Ctx {
-                global,
                 changed_ids: Vec::new(),
                 node_dims: HashMap::new(),
             },
@@ -1080,6 +1075,7 @@ impl PartialRenderScene {
     pub fn render_frame(
         &mut self,
         pctx: &mut PartialRenderCtx,
+        global: &takumi::GlobalContext,
         root: &serde_json::Value,
         w: u32,
         h: u32,
@@ -1111,14 +1107,14 @@ impl PartialRenderScene {
             if let Some(&node) = node_map.get(id.as_str()) {
                 match node {
                     IncrNode::Text { .. } => {
-                        let new_dims = measure_natural(node, &pctx.global);
+                        let new_dims = measure_natural(node, global);
                         if self.ctx.node_dims.get(id.as_str()).copied() != Some(new_dims) {
                             dims_changed = true;
                         }
                         self.ctx.node_dims.insert(id.clone(), new_dims);
                     }
                     IncrNode::Image { .. } => {
-                        let new_dims = measure_natural(node, &pctx.global);
+                        let new_dims = measure_natural(node, global);
                         if self.ctx.node_dims.get(id.as_str()).copied() != Some(new_dims) {
                             dims_changed = true;
                         }
@@ -1126,7 +1122,7 @@ impl PartialRenderScene {
                     }
                     IncrNode::Container { children, .. } => {
                         if children.is_empty() {
-                            let new_dims = measure_natural(node, &pctx.global);
+                            let new_dims = measure_natural(node, global);
                             if self.ctx.node_dims.get(id.as_str()).copied() != Some(new_dims) {
                                 dims_changed = true;
                             }
@@ -1145,7 +1141,7 @@ impl PartialRenderScene {
             let node = parse_layout(&stub_json).unwrap_or_else(|_| Node::container(vec![]));
             let measured = takumi_measure_layout(
                 RenderOptions::builder()
-                    .global(&pctx.global)
+                    .global(global)
                     .viewport(Viewport::new((None, None)).with_device_pixel_ratio(dpr))
                     .node(node)
                     .build(),
@@ -1293,7 +1289,7 @@ impl PartialRenderScene {
             let node = parse_layout(&scene).unwrap_or_else(|_| Node::container(vec![]));
             let cand_px = takumi_render(
                 RenderOptions::builder()
-                    .global(&pctx.global)
+                    .global(global)
                     .viewport(Viewport::new((None, None)).with_device_pixel_ratio(dpr))
                     .node(node)
                     .build(),
