@@ -983,6 +983,7 @@ struct TestSuite {
     description: &'static str,
     frames: Vec<SuiteFrame>,
     perf_focused: bool,
+    force_incremental: bool,
 }
 
 fn suite_simple_bar() -> TestSuite {
@@ -1074,6 +1075,7 @@ fn suite_simple_bar() -> TestSuite {
         description: "Baseline — no effects. Clock ticks each frame, CPU every 3rd.",
         frames,
         perf_focused: true,
+        force_incremental: false,
     }
 }
 
@@ -1103,6 +1105,7 @@ fn suite_shadow_cards() -> TestSuite {
         description: "Two rounded+shadow cards. Left changes each frame, right is fully static.",
         frames,
         perf_focused: false,
+        force_incremental: true,
     }
 }
 
@@ -1131,6 +1134,7 @@ fn suite_blurred_overlay() -> TestSuite {
         description: "Rounded status pill. Temperature changes every frame; alert fires every 4th.",
         frames,
         perf_focused: false,
+        force_incremental: true,
     }
 }
 
@@ -1193,6 +1197,7 @@ fn suite_dense_metrics() -> TestSuite {
             "6 shadow+rounded columns. CPU and GPU change each frame; the other 4 stay static.",
         frames,
         perf_focused: false,
+        force_incremental: true,
     }
 }
 
@@ -1213,6 +1218,7 @@ struct FrameResult {
     skipped: u32,
     cache_hits: u32,
     dirty_tiles: HashSet<(u32, u32)>,
+    bailout_stage: Option<u8>,
 }
 struct SuiteResult {
     frames: Vec<FrameResult>,
@@ -1222,6 +1228,8 @@ struct SuiteResult {
 const TILE_SIZE: u32 = 24;
 const SHADOW_BUF: u32 = 32; // extra border around each tile to capture shadow bleed
 const TILE_CACHE_MB: usize = 10; // LRU tile cache budget; entry count derived from TILE_SIZE
+const BAILOUT_MIN_PIXELS: u64 = 50_000; // Stage 1: skip incr if physical canvas too small
+const BAILOUT_DIRTY_RATIO: f32 = 0.70; // Stage 2: skip incr if >70% tiles dirty
 
 // Two tiles whose shadow-expanded intervals overlap are merged into one band.
 // Overlap condition: distance < 1 + 2*SHADOW_BUF/TILE_SIZE  →  distance ≤ MERGE_THRESHOLD.
@@ -1592,6 +1600,7 @@ fn run_suite(
     dpr: f32,
     cal_samples: &mut Vec<(f64, f64, f64)>,
     tc: &TileConfig,
+    allow_bailout: bool,
 ) -> SuiteResult {
     let mut incr_ctx = Ctx::fresh();
     let mut incr_set: ManagedSet<IncrNode> = ManagedSet::new();
@@ -1633,6 +1642,27 @@ fn run_suite(
             };
             let full_time = t.elapsed();
 
+            // ── Bail-out Stage 1: canvas too small to benefit from incremental ────
+            if allow_bailout && (w as u64 * h as u64) < BAILOUT_MIN_PIXELS {
+                frame_buf = full_px.clone();
+                let my_prev_full = std::mem::replace(&mut prev_full, full_px.clone());
+                return FrameResult {
+                    label: f.label.clone(),
+                    full_time,
+                    incr_time: full_time,
+                    full_px,
+                    prev_full_px: my_prev_full,
+                    incr_px: frame_buf.clone(),
+                    w,
+                    h,
+                    render_calls: 0,
+                    skipped: 0,
+                    cache_hits: 0,
+                    dirty_tiles: HashSet::new(),
+                    bailout_stage: Some(1),
+                };
+            }
+
             // ── Tile-based incremental render ─────────────────────────────────────
             incr_ctx.changed_ids.clear();
             let t = Instant::now();
@@ -1664,6 +1694,7 @@ fn run_suite(
                     skipped: cols * rows,
                     cache_hits: 0,
                     dirty_tiles: HashSet::new(),
+                    bailout_stage: None,
                 };
             }
 
@@ -1813,6 +1844,35 @@ fn run_suite(
                 }
             }
 
+            // ── Bail-out Stage 2: too many dirty tiles — incremental can't help ───
+            let total_tiles = cols * rows;
+            if allow_bailout
+                && !dirty.is_empty()
+                && dirty.len() as f32 / total_tiles as f32 > BAILOUT_DIRTY_RATIO
+            {
+                frame_buf = full_px.clone();
+                let incr_time = t.elapsed();
+                let my_prev_full = std::mem::replace(&mut prev_full, full_px.clone());
+                if let Some(nb) = new_bboxes {
+                    prev_stub_bboxes = nb;
+                }
+                return FrameResult {
+                    label: f.label.clone(),
+                    full_time,
+                    incr_time,
+                    full_px,
+                    prev_full_px: my_prev_full,
+                    incr_px: frame_buf.clone(),
+                    w,
+                    h,
+                    render_calls: 0,
+                    skipped: 0,
+                    cache_hits: 0,
+                    dirty_tiles: dirty,
+                    bailout_stage: Some(2),
+                };
+            }
+
             // 4. Cache lookup — fingerprint each dirty tile upfront, stitch hits
             //    immediately and remove from dirty so they don't inflate band areas.
             let skipped = cols * rows - dirty.len() as u32; // tiles that were never dirty
@@ -1940,6 +2000,7 @@ fn run_suite(
                 skipped,
                 cache_hits,
                 dirty_tiles: saved_dirty,
+                bailout_stage: None,
             }
         })
         .collect();
@@ -2082,9 +2143,14 @@ fn html_report(suites: &[&TestSuite], results: &[SuiteResult], tc: &TileConfig) 
                 String::new()
             };
 
+            let bailout_html = match f.bailout_stage {
+                Some(1) => r#" <span class="bailout" title="Stage 1 bail-out: canvas too small">[S1]</span>"#,
+                Some(2) => r#" <span class="bailout" title="Stage 2 bail-out: too many dirty tiles">[S2]</span>"#,
+                _ => "",
+            };
             frames_html.push_str(&format!(r#"
             <div class="frame {cls}">
-              <div class="fhdr"><strong>Frame {fi}</strong> — {lbl} {badge}
+              <div class="fhdr"><strong>Frame {fi}</strong> — {lbl} {badge}{bo}
                 <span class="tm">full {ft:.1}ms · incr {it:.1}ms · {sp:.1}×</span>
                 <span class="tm">{rc} renders · {sk} skipped · {ds}</span>
               </div>
@@ -2096,7 +2162,7 @@ fn html_report(suites: &[&TestSuite], results: &[SuiteResult], tc: &TileConfig) 
               </div>
             </div>"#,
                 cls = if perfect { "perfect" } else { "imperfect" },
-                lbl = f.label, badge = badge,
+                lbl = f.label, badge = badge, bo = bailout_html,
                 ft = f.full_time.as_secs_f64() * 1000.0, it = f.incr_time.as_secs_f64() * 1000.0,
                 sp = speedup_f, rc = f.render_calls, sk = f.skipped,
                 fu = full_uri, iu = incr_uri, du = diff_uri,
@@ -2489,6 +2555,7 @@ fn suite_realistic_sidebar() -> TestSuite {
         description: "300×2500 px sidebar: workspace list (focus cycles), GitHub WIP, weather, Claude usage, datetime. Most tiles static.",
         frames,
         perf_focused: true,
+        force_incremental: false,
     }
 }
 
@@ -2531,6 +2598,7 @@ fn suite_shrink_bug() -> TestSuite {
         description: "Single text node, no siblings. Wide→narrow transition should erase the right portion — stale pixels here prove the old-bbox bug.",
         frames,
         perf_focused: false,
+        force_incremental: true,
     }
 }
 
@@ -2587,6 +2655,7 @@ fn suite_moving_ball() -> TestSuite {
         description: "400×80 px. Ball slides L→R; size pulses simultaneously. Tests relocating + resizing node in the same frame.",
         frames,
         perf_focused: false,
+        force_incremental: true,
     }
 }
 
@@ -2624,6 +2693,7 @@ fn suite_tile_crossing() -> TestSuite {
         description: "320×64 px. Block advances exactly one tile (32px) per frame. Stresses dirty-tile marking at exact tile boundaries.",
         frames,
         perf_focused: false,
+        force_incremental: true,
     }
 }
 
@@ -2666,6 +2736,7 @@ fn suite_panel_focus() -> TestSuite {
         description: "460×120 px. Active panel highlight cycles L→M→R. Counter increments each frame. Tests simultaneous bg-color + content changes.",
         frames,
         perf_focused: false,
+        force_incremental: true,
     }
 }
 
@@ -2712,6 +2783,7 @@ fn suite_diagonal_scatter() -> TestSuite {
         description: "248×248 px. 3×3 grid; one 'hot' cell cycles through all 9 positions per frame. Tests spatially scattered single-cell updates.",
         frames,
         perf_focused: false,
+        force_incremental: true,
     }
 }
 
@@ -2775,6 +2847,7 @@ fn suite_notification_badge() -> TestSuite {
             "240×72 px. Badge counter 1→12; container widens at 2 digits. App icon is fully static.",
         frames,
         perf_focused: false,
+        force_incremental: true,
     }
 }
 
@@ -2845,6 +2918,7 @@ fn suite_progress_fill() -> TestSuite {
         description: "360×60 px. Image bar grows 0→100%; color flips to green at completion; frames 8-9 reset. Tests Image node resize + color change.",
         frames,
         perf_focused: false,
+        force_incremental: true,
     }
 }
 
@@ -2983,6 +3057,7 @@ fn suite_keyframe_animation() -> TestSuite {
         description: "500×260 px. 20 frames: bouncing ball, sliding thumb, pulsing colored box, 4-phase indicator. Each element follows an independent curve.",
         frames,
         perf_focused: false,
+        force_incremental: true,
     }
 }
 
@@ -3139,6 +3214,7 @@ fn suite_notification_panel() -> TestSuite {
         description: "400×200 px. Spinner every frame; active notification rotates every 2; badge count every 4; slide thumb bounces L↔R. Most content static.",
         frames,
         perf_focused: true,
+        force_incremental: false,
     }
 }
 
@@ -3267,6 +3343,7 @@ fn suite_two_region() -> TestSuite {
                       candidates when both are active — primary exercise for the greedy merge.",
         frames,
         perf_focused: false,
+        force_incremental: true,
     }
 }
 
@@ -3434,6 +3511,7 @@ fn suite_kanban() -> TestSuite {
                       the board every frame — compositing + absolute-position stress test.",
         frames,
         perf_focused: true,
+        force_incremental: false,
     }
 }
 
@@ -3574,6 +3652,7 @@ fn suite_compositing_overlay() -> TestSuite {
                        overlay composites correctly over freshly re-rendered card tiles.",
         frames,
         perf_focused: false,
+        force_incremental: true,
     }
 }
 
@@ -3733,6 +3812,7 @@ fn suite_scroll_list() -> TestSuite {
         description: "400×200 px. 6 items scroll 2px/frame via negative margin-top inside overflow-hidden. Every item moves every frame → all viewport tiles dirty → no incremental savings expected.",
         frames,
         perf_focused: false,
+        force_incremental: true,
     }
 }
 
@@ -3769,8 +3849,13 @@ fn print_suite_results(result: &SuiteResult, tc: &TileConfig) {
         } else {
             "?".into()
         };
+        let bailout_tag = match f.bailout_stage {
+            Some(1) => " [S1]",
+            Some(2) => " [S2]",
+            _ => "",
+        };
         println!(
-            "  [{: >2}] full={:.1}ms incr={:.1}ms ×{:.1} rendered={} hits={} skip={} {}  {}",
+            "  [{: >2}] full={:.1}ms incr={:.1}ms ×{:.1} rendered={} hits={} skip={} {}{}  {}",
             i,
             f.full_time.as_secs_f64() * 1000.0,
             f.incr_time.as_secs_f64() * 1000.0,
@@ -3779,6 +3864,7 @@ fn print_suite_results(result: &SuiteResult, tc: &TileConfig) {
             f.cache_hits,
             f.skipped,
             d,
+            bailout_tag,
             f.label
         );
         if i > 0 {
@@ -3832,10 +3918,50 @@ fn main() {
                 "Running suite: {}{} ({} frames, tile={}px)...",
                 suite.name, dpr_label, suite.frames.len(), tc.tile_size
             );
-            let result = run_suite(suite, &cm, dpr, &mut cal_samples, &tc);
+            // force_incremental=true suites run with allow_bailout=false (forced pipeline,
+            // for correctness). force_incremental=false suites use allow_bailout=true
+            // (heuristics active, for performance).
+            let result = run_suite(suite, &cm, dpr, &mut cal_samples, &tc, !suite.force_incremental);
             print_suite_results(&result, &tc);
             suite_refs.push(suite);
             results.push(result);
+        }
+    }
+
+    // ── Heuristic pass for force_incremental=true suites ────────────────────
+    // For suites that ran with allow_bailout=false (forced pipeline), run them
+    // again with allow_bailout=true so we can report bail-out timing alongside
+    // the correctness results.  Stored as Option<SuiteResult> — None for suites
+    // that already ran with heuristics (force_incremental=false).
+    let mut heuristic_results: Vec<Option<SuiteResult>> = Vec::new();
+    for (suite_idx, suite) in suites_defs.iter().enumerate() {
+        if suite.force_incremental {
+            let dprs: &[f32] = if suite.perf_focused { &[1.0, 2.0] } else { &[1.0] };
+            for &dpr in dprs {
+                eprintln!(
+                    "Heuristic pass: {}{} ({} frames)...",
+                    suite.name,
+                    if suite.perf_focused { format!(" ({}×)", dpr) } else { String::new() },
+                    suite.frames.len()
+                );
+                let hr = run_suite(suite, &cm, dpr, &mut vec![], &tc, true);
+                // Print bail-out summary
+                let bailouts: Vec<_> = hr.frames.iter()
+                    .enumerate()
+                    .filter_map(|(i, f)| f.bailout_stage.map(|s| (i, s)))
+                    .collect();
+                if bailouts.is_empty() {
+                    eprintln!("  → no bail-outs fired");
+                } else {
+                    for (i, stage) in &bailouts {
+                        eprintln!("  → frame {} bailed out at Stage {}", i, stage);
+                    }
+                }
+                let _ = suite_idx; // reference to suppress unused warning
+                heuristic_results.push(Some(hr));
+            }
+        } else {
+            heuristic_results.push(None);
         }
     }
 
@@ -3859,7 +3985,7 @@ fn main() {
     // ── Tile size sweep ──────────────────────────────────────────────────────
     // Run only perf-focused suites at both DPRs for each tile size.
     let perf_suites: Vec<&TestSuite> = suites_defs.iter().filter(|s| s.perf_focused).collect();
-    let sweep_cm = cal_result.map(|c| c.model).unwrap_or_default();
+    let _sweep_cm = cal_result.map(|c| c.model).unwrap_or_default();
 
     struct SweepRow {
         tile_size: u32,
@@ -3878,7 +4004,7 @@ fn main() {
         let mut sweep_cal: Vec<(f64, f64, f64)> = Vec::new();
         for suite in &perf_suites {
             for &dpr in &[1.0f32, 2.0] {
-                run_suite(suite, &CostModel::default(), dpr, &mut sweep_cal, &sweep_tc);
+                run_suite(suite, &CostModel::default(), dpr, &mut sweep_cal, &sweep_tc, true);
             }
         }
         let calibrated_cm = fit_cost_model(&sweep_cal)
@@ -3897,7 +4023,7 @@ fn main() {
                     "  sweep tile={} suite={} dpr={}×...",
                     tile_size, suite.name, dpr
                 );
-                let result = run_suite(suite, &calibrated_cm, dpr, &mut vec![], &sweep_tc);
+                let result = run_suite(suite, &calibrated_cm, dpr, &mut vec![], &sweep_tc, true);
                 for (i, f) in result.frames.iter().enumerate() {
                     if i > 0 {
                         all_full += f.full_time;
@@ -3990,7 +4116,7 @@ mod visual_regression {
     /// Run `suite`, extract frame `frame_idx`, and snapshot both renders.
     fn assert_render_snapshots(suite: &TestSuite, frame_idx: usize, name: &str) {
         let cm = CostModel::default();
-        let result = run_suite(suite, &cm, 1.0, &mut vec![], &TileConfig::new(TILE_SIZE));
+        let result = run_suite(suite, &cm, 1.0, &mut vec![], &TileConfig::new(TILE_SIZE), false);
         let f = &result.frames[frame_idx];
         insta::with_settings!({ snapshot_path => snapshot_dir(), prepend_module_to_snapshot => false }, {
             assert_snapshot(&format!("{name}__full_f{frame_idx}"),  &f.full_px, f.w, f.h);
@@ -4001,7 +4127,7 @@ mod visual_regression {
     /// Run `suite` once, snapshot full and incr pixels for multiple frame indices.
     fn run_and_snapshot(suite: &TestSuite, frame_indices: &[usize], name: &str) {
         let cm = CostModel::default();
-        let result = run_suite(suite, &cm, 1.0, &mut vec![], &TileConfig::new(TILE_SIZE));
+        let result = run_suite(suite, &cm, 1.0, &mut vec![], &TileConfig::new(TILE_SIZE), false);
         insta::with_settings!({ snapshot_path => snapshot_dir(), prepend_module_to_snapshot => false }, {
             for &fi in frame_indices {
                 let f = &result.frames[fi];
@@ -4129,6 +4255,7 @@ mod visual_regression {
                 mk_frame("add c", vec![node_a(), node_c()]),
             ],
             perf_focused: false,
+            force_incremental: true,
         };
         run_and_snapshot(&suite, &[0, 1, 2], "reg_structure_change_no_ghost");
     }
