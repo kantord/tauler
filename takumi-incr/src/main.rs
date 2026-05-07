@@ -1850,8 +1850,22 @@ fn run_suite(
                 && !dirty.is_empty()
                 && dirty.len() as f32 / total_tiles as f32 > BAILOUT_DIRTY_RATIO
             {
+                // In production a Stage 2 bail-out does a fresh full render.
+                // Time it now so incr_time reflects the true production cost.
+                let fresh_node = {
+                    let j = root_incr.to_json();
+                    parse_layout(&j).unwrap_or_else(|_| Node::container(vec![]))
+                };
+                let _ = takumi_render(
+                    RenderOptions::builder()
+                        .global(&incr_ctx.global)
+                        .viewport(Viewport::new((None, None)).with_device_pixel_ratio(dpr))
+                        .node(fresh_node)
+                        .build(),
+                )
+                .expect("stage-2 bail-out render");
+                let incr_time = t.elapsed(); // pipeline overhead + fresh render
                 frame_buf = full_px.clone();
-                let incr_time = t.elapsed();
                 let my_prev_full = std::mem::replace(&mut prev_full, full_px.clone());
                 if let Some(nb) = new_bboxes {
                     prev_stub_bboxes = nb;
