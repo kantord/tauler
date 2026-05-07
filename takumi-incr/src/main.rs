@@ -1226,12 +1226,12 @@ const TILE_CACHE_MB: usize = 10; // LRU tile cache budget; entry count derived f
 // Overlap condition: distance < 1 + 2*SHADOW_BUF/TILE_SIZE  →  distance ≤ MERGE_THRESHOLD.
 const MERGE_THRESHOLD: u32 = 2 * SHADOW_BUF / TILE_SIZE;
 
-// Cost-model coefficients — OLS-calibrated on 260 samples at TILE_SIZE=24 (R²=0.733).
-// O_FIXED sensitivity sweep showed 0% merge-decision change across ×0.5/×2.0 range;
+// Cost-model coefficients — OLS-calibrated on perf-focused suites (see fit_cost_model).
+// O_FIXED sensitivity sweep showed <3% merge-decision change across ×0.5/×2.0 range;
 // any value in the right order of magnitude is fine.
-const O_FIXED_MS: f64 = 1.0; // ms per render call (insensitive, rounded)
-const K_AREA: f64 = 8.75e-5; // ms per px² of candidate canvas
-const K_NODES: f64 = 0.88; // ms per node in candidate whitelist
+const O_FIXED_MS: f64 = 3.48; // ms per render call — OLS-recalibrated after targeted font loading
+const K_AREA: f64 = 1.39e-4; // ms per px² of candidate canvas
+const K_NODES: f64 = 0.001; // ms per node — near-zero after font-scan overhead removed
 
 #[derive(Clone)]
 struct CostModel {
@@ -1248,6 +1248,90 @@ impl Default for CostModel {
             k_nodes: K_NODES,
         }
     }
+}
+
+// ---------------------------------------------------------------------------
+// OLS self-calibration
+// ---------------------------------------------------------------------------
+
+struct CalibrationResult {
+    model: CostModel,
+    r_squared: f64,
+    n_samples: usize,
+}
+
+/// Fit cost model coefficients from (canvas_area_px², n_nodes, render_ms) samples via OLS.
+/// Area is scaled by 1e4 internally to improve numerical conditioning.
+/// Returns None if fewer than 4 samples or the normal equations are degenerate.
+fn fit_cost_model(samples: &[(f64, f64, f64)]) -> Option<CalibrationResult> {
+    let n = samples.len();
+    if n < 4 {
+        return None;
+    }
+    const SCALE: f64 = 1e4;
+    let mut xtx = [[0.0f64; 3]; 3];
+    let mut xty = [0.0f64; 3];
+    for &(area, nodes, time) in samples {
+        let x = [1.0, area / SCALE, nodes];
+        for i in 0..3 {
+            xty[i] += x[i] * time;
+            for j in 0..3 {
+                xtx[i][j] += x[i] * x[j];
+            }
+        }
+    }
+    let mut a = xtx;
+    let mut b = xty;
+    for col in 0..3 {
+        let mut pivot = col;
+        for r in (col + 1)..3 {
+            if a[r][col].abs() > a[pivot][col].abs() {
+                pivot = r;
+            }
+        }
+        a.swap(col, pivot);
+        b.swap(col, pivot);
+        let p = a[col][col];
+        if p.abs() < 1e-14 {
+            return None;
+        }
+        for row in (col + 1)..3 {
+            let f = a[row][col] / p;
+            for k in col..3 {
+                a[row][k] -= f * a[col][k];
+            }
+            b[row] -= f * b[col];
+        }
+    }
+    let mut sol = [0.0f64; 3];
+    for i in (0..3).rev() {
+        sol[i] = b[i];
+        for j in (i + 1)..3 {
+            sol[i] -= a[i][j] * sol[j];
+        }
+        sol[i] /= a[i][i];
+    }
+    let (o_raw, k_area_raw, k_nodes_raw) = (sol[0], sol[1] / SCALE, sol[2]);
+    let mean_t = samples.iter().map(|&(_, _, t)| t).sum::<f64>() / n as f64;
+    let ss_tot: f64 = samples.iter().map(|&(_, _, t)| (t - mean_t).powi(2)).sum();
+    let ss_res: f64 = samples
+        .iter()
+        .map(|&(area, nd, t)| (t - (o_raw + k_area_raw * area + k_nodes_raw * nd)).powi(2))
+        .sum();
+    let r_squared = if ss_tot > 1e-15 {
+        (1.0 - ss_res / ss_tot).max(0.0)
+    } else {
+        0.0
+    };
+    Some(CalibrationResult {
+        model: CostModel {
+            o_fixed: o_raw.max(0.05),
+            k_area: k_area_raw.max(1e-7),
+            k_nodes: k_nodes_raw.max(0.001),
+        },
+        r_squared,
+        n_samples: n,
+    })
 }
 
 // ---------------------------------------------------------------------------
@@ -1474,7 +1558,12 @@ fn greedy_merge_candidates(mut cs: Vec<RenderCandidate>, cm: &CostModel) -> Vec<
     cs
 }
 
-fn run_suite(suite: &TestSuite, cm: &CostModel, dpr: f32) -> SuiteResult {
+fn run_suite(
+    suite: &TestSuite,
+    cm: &CostModel,
+    dpr: f32,
+    cal_samples: &mut Vec<(f64, f64, f64)>,
+) -> SuiteResult {
     let mut incr_ctx = Ctx::fresh();
     let mut incr_set: ManagedSet<IncrNode> = ManagedSet::new();
     let mut frame_buf: Vec<u8> = Vec::new();
@@ -1495,7 +1584,8 @@ fn run_suite(suite: &TestSuite, cm: &CostModel, dpr: f32) -> SuiteResult {
     let frames: Vec<FrameResult> = suite
         .frames
         .iter()
-        .map(|f| {
+        .enumerate()
+        .map(|(frame_idx, f)| {
             // ── Full render (fresh context, no caching) ──────────────────────────
             let root_incr = f.root.clone();
             let full_ctx = Ctx::fresh();
@@ -1771,6 +1861,7 @@ fn run_suite(suite: &TestSuite, cm: &CostModel, dpr: f32) -> SuiteResult {
                     "children": nodes
                 });
                 let node = parse_layout(&scene).unwrap_or_else(|_| Node::container(vec![]));
+                let t_cand = Instant::now();
                 let cand_px = takumi_render(
                     RenderOptions::builder()
                         .global(&incr_ctx.global)
@@ -1780,6 +1871,13 @@ fn run_suite(suite: &TestSuite, cm: &CostModel, dpr: f32) -> SuiteResult {
                 )
                 .expect("candidate render")
                 .into_raw();
+                if suite.perf_focused && frame_idx > 0 {
+                    cal_samples.push((
+                        canvas_w as f64 * canvas_h as f64,
+                        nodes.len() as f64,
+                        t_cand.elapsed().as_secs_f64() * 1000.0,
+                    ));
+                }
 
                 for &(tx, ty) in &cand.tiles {
                     let px_x = tx * TILE_SIZE;
@@ -3688,6 +3786,7 @@ fn main() {
         suite_kanban(),
     ];
 
+    let mut cal_samples: Vec<(f64, f64, f64)> = Vec::new();
     let cm = CostModel::default();
     let mut suite_refs: Vec<&TestSuite> = Vec::new();
     let mut results: Vec<SuiteResult> = Vec::new();
@@ -3704,11 +3803,23 @@ fn main() {
                 "Running suite: {}{} ({} frames, tile={}px)...",
                 suite.name, dpr_label, suite.frames.len(), TILE_SIZE
             );
-            let result = run_suite(suite, &cm, dpr);
+            let result = run_suite(suite, &cm, dpr, &mut cal_samples);
             print_suite_results(&result);
             suite_refs.push(suite);
             results.push(result);
         }
+    }
+
+    // ── OLS recalibration ────────────────────────────────────────────────────
+    match fit_cost_model(&cal_samples) {
+        Some(c) => eprintln!(
+            "\nOLS calibration ({} samples, R²={:.3}):\n  \
+             O_FIXED_MS = {:.4}  K_AREA = {:.3e}  K_NODES = {:.4}\n  \
+             Update the three const lines near the top of main.rs if these differ significantly.",
+            c.n_samples, c.r_squared,
+            c.model.o_fixed, c.model.k_area, c.model.k_nodes
+        ),
+        None => eprintln!("\nOLS calibration: insufficient samples ({}).", cal_samples.len()),
     }
 
     let path = "/tmp/poc_report.html";
@@ -3783,7 +3894,7 @@ mod visual_regression {
     /// Run `suite`, extract frame `frame_idx`, and snapshot both renders.
     fn assert_render_snapshots(suite: &TestSuite, frame_idx: usize, name: &str) {
         let cm = CostModel::default();
-        let result = run_suite(suite, &cm, 1.0);
+        let result = run_suite(suite, &cm, 1.0, &mut vec![]);
         let f = &result.frames[frame_idx];
         insta::with_settings!({ snapshot_path => snapshot_dir(), prepend_module_to_snapshot => false }, {
             assert_snapshot(&format!("{name}__full_f{frame_idx}"),  &f.full_px, f.w, f.h);
@@ -3794,7 +3905,7 @@ mod visual_regression {
     /// Run `suite` once, snapshot full and incr pixels for multiple frame indices.
     fn run_and_snapshot(suite: &TestSuite, frame_indices: &[usize], name: &str) {
         let cm = CostModel::default();
-        let result = run_suite(suite, &cm, 1.0);
+        let result = run_suite(suite, &cm, 1.0, &mut vec![]);
         insta::with_settings!({ snapshot_path => snapshot_dir(), prepend_module_to_snapshot => false }, {
             for &fi in frame_indices {
                 let f = &result.frames[fi];
