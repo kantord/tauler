@@ -1,4 +1,5 @@
 use std::collections::{BTreeSet, HashMap, HashSet};
+use tracing::debug;
 use std::num::NonZeroUsize;
 
 use lru::LruCache;
@@ -1102,6 +1103,8 @@ impl PartialRenderScene {
         let cols = w.div_ceil(tc.tile_size);
         let rows = h.div_ceil(tc.tile_size);
 
+        debug!(changed = self.ctx.changed_ids.len(), "incr reconcile");
+
         // No-op short-circuit: nothing changed and buffer is populated
         if self.ctx.changed_ids.is_empty() && !self.frame_buf.is_empty() {
             return &self.frame_buf;
@@ -1224,6 +1227,8 @@ impl PartialRenderScene {
                 }
             }
         }
+
+        debug!(dirty = dirty.len(), total = (cols * rows), "incr dirty tiles");
 
         // 4. Cache lookup — stitch hits, remove from dirty
         let fps: HashMap<(u32, u32), u64> = dirty
