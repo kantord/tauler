@@ -1213,6 +1213,7 @@ impl PartialRenderScene {
         let node_map = build_node_map(&root_incr);
 
         let layout_node = parse_layout(root).unwrap_or_else(|_| Node::container(vec![]));
+        let t_layout = std::time::Instant::now();
         let measured = takumi_measure_layout(
             RenderOptions::builder()
                 .global(global)
@@ -1221,6 +1222,7 @@ impl PartialRenderScene {
                 .build(),
         )
         .expect("layout measure");
+        debug!(layout_us = t_layout.elapsed().as_micros(), "incr layout");
         let mut new_bboxes = HashMap::new();
         collect_bboxes(&measured, &root_incr, &mut new_bboxes);
         let bboxes: &HashMap<String, Rect> = &new_bboxes;
@@ -1285,7 +1287,8 @@ impl PartialRenderScene {
             }
         }
 
-        debug!(dirty = dirty.len(), total = (cols * rows), "incr dirty tiles");
+        let dirty_before_cache = dirty.len();
+        debug!(dirty = dirty_before_cache, total = (cols * rows), "incr dirty tiles");
 
         // 4. Cache lookup — stitch hits, remove from dirty
         let fps: HashMap<(u32, u32), u64> = dirty
@@ -1315,6 +1318,9 @@ impl PartialRenderScene {
             }
         });
 
+        let cache_hits = dirty_before_cache - dirty.len();
+        debug!(cache_hits, rendered = dirty.len(), "incr cache");
+
         // 5. Candidate grouping + greedy merge + render
         let candidates: Vec<RenderCandidate> = if dirty.is_empty() {
             vec![]
@@ -1323,6 +1329,7 @@ impl PartialRenderScene {
             greedy_merge_candidates(raw, &pctx.cost_model, tc)
         };
 
+        let t_render = std::time::Instant::now();
         for cand in &candidates {
             let batch_px_x = cand.min_tx * tc.tile_size;
             let batch_px_y = cand.min_ty * tc.tile_size;
@@ -1398,6 +1405,8 @@ impl PartialRenderScene {
                 pctx.tile_cache.put(fps[&(tx, ty)], tile_px);
             }
         }
+
+        debug!(render_us = t_render.elapsed().as_micros(), batches = candidates.len(), "incr render");
 
         self.prev_stub_bboxes = new_bboxes;
 

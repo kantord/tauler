@@ -17,6 +17,12 @@ use crate::layout::parse_layout;
 
 static GLOBAL_CTX: OnceLock<Mutex<GlobalContext>> = OnceLock::new();
 static PARTIAL_CTX: OnceLock<Mutex<PartialRenderCtx>> = OnceLock::new();
+static INCREMENTAL_RENDERING: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(true);
+
+pub fn set_incremental_rendering(enabled: bool) {
+    INCREMENTAL_RENDERING.store(enabled, std::sync::atomic::Ordering::Relaxed);
+}
 
 /// Initialize the global rendering context. Must be called once at startup.
 /// Loads fonts into the context before storing it.
@@ -83,7 +89,9 @@ fn render_frame_cached(canonical: String, width: u32, height: u32, dpr_bits: u32
             .viewport(Viewport::new((Some(width), Some(height))).with_device_pixel_ratio(dpr))
             .node(node)
             .build();
+        let t = std::time::Instant::now();
         let rgba = render(options).expect("render").into_raw();
+        tracing::info!(full_render_us = t.elapsed().as_micros(), "full render");
         let mut bgrx = Vec::with_capacity(rgba.len());
         for px in rgba.chunks_exact(4) {
             bgrx.extend_from_slice(&[px[2], px[1], px[0], 0x00]);
@@ -102,6 +110,9 @@ pub fn render_frame_partial(
     height: u32,
     dpr: f32,
 ) -> Arc<Vec<u8>> {
+    if !INCREMENTAL_RENDERING.load(std::sync::atomic::Ordering::Relaxed) {
+        return render_frame(content, width, height, dpr);
+    }
     let mut pctx = PARTIAL_CTX
         .get()
         .expect("render_frame_partial called before init_global_ctx")

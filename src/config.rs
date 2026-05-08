@@ -29,12 +29,30 @@ pub struct FontConfig {
     pub emoji: Option<String>,
 }
 
+fn default_true() -> bool {
+    true
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct RenderingConfig {
+    #[serde(default = "default_true")]
+    pub incremental: bool,
+}
+
+impl Default for RenderingConfig {
+    fn default() -> Self {
+        Self { incremental: true }
+    }
+}
+
 #[derive(Debug, Clone, Default, Deserialize)]
 pub struct TaulerConfig {
     #[serde(default)]
     pub theme: ThemeConfig,
     #[serde(default)]
     pub fonts: FontConfig,
+    #[serde(default)]
+    pub rendering: RenderingConfig,
 }
 
 impl TaulerConfig {

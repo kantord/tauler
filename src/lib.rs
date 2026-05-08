@@ -31,7 +31,7 @@ pub use panel::X11PanelContext;
 // render
 pub use render::{
     init_global_ctx, measure_layout_frame, preload_layout_images, reload_font_config, render_frame,
-    render_frame_rgba, with_global_ctx,
+    render_frame_rgba, set_incremental_rendering, with_global_ctx,
 };
 
 // modules

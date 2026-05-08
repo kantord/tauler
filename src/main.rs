@@ -6,6 +6,7 @@ use std::time::Duration;
 use tauler::config::{FontConfig, TaulerConfig};
 use tauler::data::data_loop::{DataLoop, StreamItem};
 use tauler::init_global_ctx;
+use tauler::render::set_incremental_rendering;
 use tauler::windowing::wayland::WaylandDisplayServer;
 use tauler::x11::panel::{i3_dpi, PanelContext};
 use x11rb::{
@@ -228,7 +229,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let layout_jsx_path = std::path::PathBuf::from(&home).join(".config/tauler/layout.jsx");
     let config_yaml_path = std::path::PathBuf::from(&home).join(".config/tauler/config.yaml");
 
+    let tauler_config = TaulerConfig::from_yaml(
+        &std::fs::read_to_string(&config_yaml_path).unwrap_or_default()
+    ).unwrap_or_default();
     let font_config = load_font_config(&config_yaml_path);
+    set_incremental_rendering(tauler_config.rendering.incremental);
 
     let last_tick = Arc::new(std::sync::atomic::AtomicU64::new(0));
     spawn_freeze_watchdog(Arc::clone(&last_tick), log_path);
