@@ -91,7 +91,7 @@ fn render_frame_cached(canonical: String, width: u32, height: u32, dpr_bits: u32
             .build();
         let t = std::time::Instant::now();
         let rgba = render(options).expect("render").into_raw();
-        tracing::info!(full_render_us = t.elapsed().as_micros(), "full render");
+        tracing::debug!(full_render_us = t.elapsed().as_micros(), "full render");
         let mut bgrx = Vec::with_capacity(rgba.len());
         for px in rgba.chunks_exact(4) {
             bgrx.extend_from_slice(&[px[2], px[1], px[0], 0x00]);
