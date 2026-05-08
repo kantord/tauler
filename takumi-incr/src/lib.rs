@@ -127,16 +127,17 @@ impl IncrNode {
     }
 
     pub fn from_json(v: &serde_json::Value) -> Option<Self> {
+        Self::from_json_at(v, "r")
+    }
+
+    fn from_json_at(v: &serde_json::Value, path: &str) -> Option<Self> {
         let obj = v.as_object()?;
         let ty = obj.get("type").and_then(|t| t.as_str()).unwrap_or("container");
         let id = obj
             .get("id")
             .and_then(|v| v.as_str())
             .map(|s| s.to_string())
-            .unwrap_or_else(|| {
-                let tw = obj.get("tw").and_then(|v| v.as_str()).unwrap_or("");
-                format!("{ty}_{tw}")
-            });
+            .unwrap_or_else(|| path.to_string());
         let tw = obj
             .get("tw")
             .and_then(|v| v.as_str())
@@ -167,7 +168,15 @@ impl IncrNode {
                 let children = obj
                     .get("children")
                     .and_then(|v| v.as_array())
-                    .map(|arr| arr.iter().filter_map(Self::from_json).collect())
+                    .map(|arr| {
+                        arr.iter()
+                            .enumerate()
+                            .filter_map(|(i, child)| {
+                                let child_path = format!("{path}/{i}");
+                                Self::from_json_at(child, &child_path)
+                            })
+                            .collect()
+                    })
                     .unwrap_or_default();
                 Some(Self::Container { id, tw, style, children })
             }
