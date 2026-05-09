@@ -229,9 +229,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let layout_jsx_path = std::path::PathBuf::from(&home).join(".config/tauler/layout.jsx");
     let config_yaml_path = std::path::PathBuf::from(&home).join(".config/tauler/config.yaml");
 
-    let tauler_config = TaulerConfig::from_yaml(
-        &std::fs::read_to_string(&config_yaml_path).unwrap_or_default()
-    ).unwrap_or_default();
+    let tauler_config =
+        TaulerConfig::from_yaml(&std::fs::read_to_string(&config_yaml_path).unwrap_or_default())
+            .unwrap_or_default();
     let font_config = load_font_config(&config_yaml_path);
     set_incremental_rendering(tauler_config.rendering.incremental);
 

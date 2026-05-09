@@ -4,8 +4,8 @@ use crate::layout::PanelSpecData;
 use crate::managed_set::Lifecycle;
 use crate::presentation::{PanelCommand, PanelFrame};
 use crate::render::render_frame_partial;
-use takumi_incr::PartialRenderScene;
 pub use crate::x11::panel::X11PanelContext;
+use takumi_incr::PartialRenderScene;
 
 pub struct PanelState {
     pub spec: PanelSpecData,
@@ -58,7 +58,10 @@ impl Lifecycle for PanelSpec {
             spec: self.0.clone(),
             frame,
         })?;
-        Ok(PanelState { spec: self.0, scene })
+        Ok(PanelState {
+            spec: self.0,
+            scene,
+        })
     }
 
     fn reconcile_self(
@@ -82,7 +85,13 @@ impl Lifecycle for PanelSpec {
 
         if phys_dims_changed {
             let frame = PanelFrame {
-                pixels: render_frame_partial(&mut state.scene, &new.content, phys_w, phys_h, new.dpr),
+                pixels: render_frame_partial(
+                    &mut state.scene,
+                    &new.content,
+                    phys_w,
+                    phys_h,
+                    new.dpr,
+                ),
                 width: phys_w,
                 height: phys_h,
             };
@@ -97,7 +106,13 @@ impl Lifecycle for PanelSpec {
             }
             if render_changed {
                 let frame = PanelFrame {
-                    pixels: render_frame_partial(&mut state.scene, &new.content, phys_w, phys_h, new.dpr),
+                    pixels: render_frame_partial(
+                        &mut state.scene,
+                        &new.content,
+                        phys_w,
+                        phys_h,
+                        new.dpr,
+                    ),
                     width: phys_w,
                     height: phys_h,
                 };
@@ -168,7 +183,10 @@ mod tests {
     #[test]
     fn panel_spec_reconcile_self_emits_nothing_when_unchanged() {
         let (mut tx, rx) = std::sync::mpsc::channel::<PanelCommand>();
-        let mut state = super::PanelState { spec: make_spec_data("p1"), scene: takumi_incr::PartialRenderScene::new() };
+        let mut state = super::PanelState {
+            spec: make_spec_data("p1"),
+            scene: takumi_incr::PartialRenderScene::new(),
+        };
         let spec = PanelSpec(make_spec_data("p1"));
         <PanelSpec as Lifecycle>::reconcile_self(spec, &mut state, &mut (), &mut tx).unwrap();
         let cmds: Vec<PanelCommand> = rx.try_iter().collect();
@@ -183,7 +201,10 @@ mod tests {
     fn panel_spec_reconcile_self_emits_resize_when_dimensions_change() {
         init_ctx();
         let (mut tx, rx) = std::sync::mpsc::channel::<PanelCommand>();
-        let mut state = super::PanelState { spec: make_spec_data("p1"), scene: takumi_incr::PartialRenderScene::new() };
+        let mut state = super::PanelState {
+            spec: make_spec_data("p1"),
+            scene: takumi_incr::PartialRenderScene::new(),
+        };
         let mut next = make_spec_data("p1");
         next.width = 200;
         let spec = PanelSpec(next);
@@ -205,7 +226,10 @@ mod tests {
     #[test]
     fn panel_spec_reconcile_self_emits_move_when_position_changes() {
         let (mut tx, rx) = std::sync::mpsc::channel::<PanelCommand>();
-        let mut state = super::PanelState { spec: make_spec_data("p1"), scene: takumi_incr::PartialRenderScene::new() };
+        let mut state = super::PanelState {
+            spec: make_spec_data("p1"),
+            scene: takumi_incr::PartialRenderScene::new(),
+        };
         let mut next = make_spec_data("p1");
         next.x = 50;
         let spec = PanelSpec(next);
@@ -228,7 +252,10 @@ mod tests {
     fn panel_spec_reconcile_self_emits_update_picture_when_only_content_changes() {
         init_ctx();
         let (mut tx, rx) = std::sync::mpsc::channel::<PanelCommand>();
-        let mut state = super::PanelState { spec: make_spec_data("p1"), scene: takumi_incr::PartialRenderScene::new() };
+        let mut state = super::PanelState {
+            spec: make_spec_data("p1"),
+            scene: takumi_incr::PartialRenderScene::new(),
+        };
         let mut next = make_spec_data("p1");
         next.content = serde_json::json!({"type": "text", "text": "hello"});
         let spec = PanelSpec(next);
@@ -250,7 +277,10 @@ mod tests {
         // Physical dims changed, so reconcile_self must emit Resize (not UpdatePicture)
         // and a Move so the presenter can reposition anchored panels.
         let (mut tx, rx) = std::sync::mpsc::channel::<PanelCommand>();
-        let mut state = super::PanelState { spec: make_spec_data("p1"), scene: takumi_incr::PartialRenderScene::new() };
+        let mut state = super::PanelState {
+            spec: make_spec_data("p1"),
+            scene: takumi_incr::PartialRenderScene::new(),
+        };
         // state starts with dpr=1.0 (default from make_spec_data)
         assert_eq!(state.spec.dpr, 1.0);
         let mut next = make_spec_data("p1");
@@ -309,7 +339,10 @@ mod tests {
     #[test]
     fn panel_spec_exit_emits_delete_with_id() {
         let (mut tx, rx) = std::sync::mpsc::channel::<PanelCommand>();
-        let state = super::PanelState { spec: make_spec_data("p1"), scene: takumi_incr::PartialRenderScene::new() };
+        let state = super::PanelState {
+            spec: make_spec_data("p1"),
+            scene: takumi_incr::PartialRenderScene::new(),
+        };
         <PanelSpec as Lifecycle>::exit(state, &mut (), &mut tx).unwrap();
         let cmds: Vec<PanelCommand> = rx.try_iter().collect();
         assert!(

@@ -1,6 +1,6 @@
 use std::collections::{BTreeSet, HashMap, HashSet};
-use tracing::debug;
 use std::num::NonZeroUsize;
+use tracing::debug;
 
 use lru::LruCache;
 use serde::Deserialize;
@@ -133,7 +133,10 @@ impl IncrNode {
 
     fn from_json_at(v: &serde_json::Value, path: &str) -> Option<Self> {
         let obj = v.as_object()?;
-        let ty = obj.get("type").and_then(|t| t.as_str()).unwrap_or("container");
+        let ty = obj
+            .get("type")
+            .and_then(|t| t.as_str())
+            .unwrap_or("container");
         let id = obj
             .get("id")
             .and_then(|v| v.as_str())
@@ -153,7 +156,12 @@ impl IncrNode {
                     .and_then(|v| v.as_str())
                     .unwrap_or("")
                     .to_string();
-                Some(Self::Text { id, text, tw, style })
+                Some(Self::Text {
+                    id,
+                    text,
+                    tw,
+                    style,
+                })
             }
             "image" => {
                 let src = obj
@@ -163,7 +171,14 @@ impl IncrNode {
                     .to_string();
                 let width = obj.get("width").and_then(|v| v.as_f64()).map(|f| f as f32);
                 let height = obj.get("height").and_then(|v| v.as_f64()).map(|f| f as f32);
-                Some(Self::Image { id, src, width, height, tw, style })
+                Some(Self::Image {
+                    id,
+                    src,
+                    width,
+                    height,
+                    tw,
+                    style,
+                })
             }
             _ => {
                 let children = obj
@@ -179,7 +194,12 @@ impl IncrNode {
                             .collect()
                     })
                     .unwrap_or_default();
-                Some(Self::Container { id, tw, style, children })
+                Some(Self::Container {
+                    id,
+                    tw,
+                    style,
+                    children,
+                })
             }
         }
     }
@@ -335,9 +355,8 @@ impl TileConfig {
     pub fn new(tile_size: u32) -> Self {
         let shadow_buf = SHADOW_BUF;
         let tile_bytes = (tile_size * tile_size * 4) as usize;
-        let cache_cap = NonZeroUsize::new(
-            (TILE_CACHE_MB * 1024 * 1024).div_ceil(tile_bytes)
-        ).unwrap();
+        let cache_cap =
+            NonZeroUsize::new((TILE_CACHE_MB * 1024 * 1024).div_ceil(tile_bytes)).unwrap();
         Self {
             tile_size,
             shadow_buf,
@@ -493,7 +512,11 @@ pub fn measure_natural(node: &IncrNode, global: &takumi::GlobalContext) -> (f32,
     (m.width, m.height)
 }
 
-pub fn collect_bboxes(measured: &MeasuredNode, node: &IncrNode, bboxes: &mut HashMap<String, Rect>) {
+pub fn collect_bboxes(
+    measured: &MeasuredNode,
+    node: &IncrNode,
+    bboxes: &mut HashMap<String, Rect>,
+) {
     bboxes.insert(
         node.id().to_string(),
         Rect {
@@ -593,8 +616,14 @@ pub fn collect_nested_whitelist(
                     collect_nested_whitelist(child, bboxes, node_set, r.x, r.y, &mut ch);
                 }
                 if in_set {
-                    let s = container_tile_style(style, lx, ly, r.w, r.h,
-                        Some(("overflow", serde_json::json!("hidden"))));
+                    let s = container_tile_style(
+                        style,
+                        lx,
+                        ly,
+                        r.w,
+                        r.h,
+                        Some(("overflow", serde_json::json!("hidden"))),
+                    );
                     out.push(serde_json::json!({"type":"container","tw":visual_tw(tw),
                         "style":s,"children":ch}));
                 } else {
@@ -615,12 +644,35 @@ pub fn collect_nested_whitelist(
 
 /// Layout properties that we always override with bbox-computed values.
 const LAYOUT_KEYS: &[&str] = &[
-    "position", "left", "right", "top", "bottom",
-    "width", "height", "display", "flex", "flexDirection", "flexWrap",
-    "flexGrow", "flexShrink", "flexBasis", "alignSelf", "justifySelf",
-    "margin", "marginTop", "marginBottom", "marginLeft", "marginRight",
-    "padding", "paddingTop", "paddingBottom", "paddingLeft", "paddingRight",
-    "overflow", "overflowX", "overflowY",
+    "position",
+    "left",
+    "right",
+    "top",
+    "bottom",
+    "width",
+    "height",
+    "display",
+    "flex",
+    "flexDirection",
+    "flexWrap",
+    "flexGrow",
+    "flexShrink",
+    "flexBasis",
+    "alignSelf",
+    "justifySelf",
+    "margin",
+    "marginTop",
+    "marginBottom",
+    "marginLeft",
+    "marginRight",
+    "padding",
+    "paddingTop",
+    "paddingBottom",
+    "paddingLeft",
+    "paddingRight",
+    "overflow",
+    "overflowX",
+    "overflowY",
 ];
 
 /// Build a style object for a tile-scene container: visual inline styles from the
@@ -654,11 +706,23 @@ fn container_tile_style(
 
 #[allow(clippy::too_many_arguments)]
 fn is_text_color_class(c: &str) -> bool {
-    let Some(suffix) = c.strip_prefix("text-") else { return false };
+    let Some(suffix) = c.strip_prefix("text-") else {
+        return false;
+    };
     if matches!(
         suffix,
-        "xs" | "sm" | "base" | "lg" | "xl" | "2xl" | "3xl" | "4xl"
-        | "5xl" | "6xl" | "7xl" | "8xl" | "9xl"
+        "xs" | "sm"
+            | "base"
+            | "lg"
+            | "xl"
+            | "2xl"
+            | "3xl"
+            | "4xl"
+            | "5xl"
+            | "6xl"
+            | "7xl"
+            | "8xl"
+            | "9xl"
     ) {
         return false;
     }
@@ -735,8 +799,10 @@ fn collect_flat_whitelist_inner(
                 } else {
                     tw.clone()
                 };
-                out.push(serde_json::json!({"type":"text","text":text,"tw":effective_tw,
-                    "style":{"position":"absolute","left":lx,"top":ly,"width":r.w}}));
+                out.push(
+                    serde_json::json!({"type":"text","text":text,"tw":effective_tw,
+                    "style":{"position":"absolute","left":lx,"top":ly,"width":r.w}}),
+                );
             }
         }
         IncrNode::Image {
@@ -772,8 +838,14 @@ fn collect_flat_whitelist_inner(
                     collect_nested_whitelist(child, bboxes, node_set, r.x, r.y, &mut ch);
                 }
                 if in_set {
-                    let s = container_tile_style(style, lx, ly, r.w, r.h,
-                        Some(("overflow", serde_json::json!("hidden"))));
+                    let s = container_tile_style(
+                        style,
+                        lx,
+                        ly,
+                        r.w,
+                        r.h,
+                        Some(("overflow", serde_json::json!("hidden"))),
+                    );
                     out.push(serde_json::json!({"type":"container","tw":visual_tw(tw),
                         "style":s,"children":ch}));
                 } else {
@@ -789,23 +861,49 @@ fn collect_flat_whitelist_inner(
                             .split_whitespace()
                             .find(|t| t.starts_with("bg-"))
                             .unwrap_or("");
-                        let s = container_tile_style(style, lx, ly, r.w, r.h,
-                            Some(("display", serde_json::json!("block"))));
+                        let s = container_tile_style(
+                            style,
+                            lx,
+                            ly,
+                            r.w,
+                            r.h,
+                            Some(("display", serde_json::json!("block"))),
+                        );
                         out.push(serde_json::json!({"type":"container","tw":bg_tw,"style":s}));
                     } else {
                         let s = container_tile_style(style, lx, ly, r.w, r.h, None);
-                        out.push(serde_json::json!({"type":"container","tw":visual_tw(tw),"style":s}));
+                        out.push(
+                            serde_json::json!({"type":"container","tw":visual_tw(tw),"style":s}),
+                        );
                     }
                 }
                 for child in children {
-                    collect_flat_whitelist_inner(child, bboxes, node_set, qx, qy, qw, qh, out, tc, &child_inherited);
+                    collect_flat_whitelist_inner(
+                        child,
+                        bboxes,
+                        node_set,
+                        qx,
+                        qy,
+                        qw,
+                        qh,
+                        out,
+                        tc,
+                        &child_inherited,
+                    );
                 }
             }
         }
     }
 }
 
-pub fn mark_dirty(r: &Rect, tile: u32, scene_w: u32, scene_h: u32, dirty: &mut HashSet<(u32, u32)>, tc: &TileConfig) {
+pub fn mark_dirty(
+    r: &Rect,
+    tile: u32,
+    scene_w: u32,
+    scene_h: u32,
+    dirty: &mut HashSet<(u32, u32)>,
+    tc: &TileConfig,
+) {
     let t = tile as f32;
     let buf = tc.shadow_buf as f32;
     let col0 = ((r.x - buf) / t).floor() as i32;
@@ -862,9 +960,11 @@ pub fn stitch(
                 frame[d..d + 4].copy_from_slice(&tile_px[s..s + 4]);
             } else if a > 0 {
                 let inv_a = 255 - a;
-                frame[d]     = ((tile_px[s]     as u32 * a + frame[d]     as u32 * inv_a + 127) / 255) as u8;
-                frame[d + 1] = ((tile_px[s + 1] as u32 * a + frame[d + 1] as u32 * inv_a + 127) / 255) as u8;
-                frame[d + 2] = ((tile_px[s + 2] as u32 * a + frame[d + 2] as u32 * inv_a + 127) / 255) as u8;
+                frame[d] = ((tile_px[s] as u32 * a + frame[d] as u32 * inv_a + 127) / 255) as u8;
+                frame[d + 1] =
+                    ((tile_px[s + 1] as u32 * a + frame[d + 1] as u32 * inv_a + 127) / 255) as u8;
+                frame[d + 2] =
+                    ((tile_px[s + 2] as u32 * a + frame[d + 2] as u32 * inv_a + 127) / 255) as u8;
                 frame[d + 3] = 255;
             }
             // a == 0: no-op — transparent tile pixels preserve existing frame content
@@ -1092,7 +1192,11 @@ pub fn compute_candidates(
     candidates
 }
 
-pub fn greedy_merge_candidates(mut cs: Vec<RenderCandidate>, cm: &CostModel, tc: &TileConfig) -> Vec<RenderCandidate> {
+pub fn greedy_merge_candidates(
+    mut cs: Vec<RenderCandidate>,
+    cm: &CostModel,
+    tc: &TileConfig,
+) -> Vec<RenderCandidate> {
     loop {
         if cs.len() < 2 {
             break;
@@ -1144,9 +1248,8 @@ pub struct PartialRenderCtx {
 impl PartialRenderCtx {
     pub fn new() -> Self {
         let tile_bytes = (TILE_SIZE * TILE_SIZE * 4) as usize;
-        let cache_cap = NonZeroUsize::new(
-            (TILE_CACHE_MB * 1024 * 1024).div_ceil(tile_bytes)
-        ).unwrap();
+        let cache_cap =
+            NonZeroUsize::new((TILE_CACHE_MB * 1024 * 1024).div_ceil(tile_bytes)).unwrap();
         Self {
             tile_cache: LruCache::new(cache_cap),
             cost_model: CostModel::default(),
@@ -1186,7 +1289,6 @@ impl PartialRenderScene {
             },
         }
     }
-
 }
 
 impl Default for PartialRenderScene {
@@ -1213,7 +1315,8 @@ impl PartialRenderScene {
 
         // 1. Reconcile — populates changed_ids
         self.ctx.changed_ids.clear();
-        self.incr_set.reconcile(vec![root_incr.clone()], &mut self.ctx, &mut ());
+        self.incr_set
+            .reconcile(vec![root_incr.clone()], &mut self.ctx, &mut ());
 
         let tc = &pctx.tc;
         let cols = w.div_ceil(tc.tile_size);
@@ -1305,7 +1408,11 @@ impl PartialRenderScene {
         }
 
         let dirty_before_cache = dirty.len();
-        debug!(dirty = dirty_before_cache, total = (cols * rows), "incr dirty tiles");
+        debug!(
+            dirty = dirty_before_cache,
+            total = (cols * rows),
+            "incr dirty tiles"
+        );
 
         // 4. Cache lookup — stitch hits, remove from dirty
         let fps: HashMap<(u32, u32), u64> = dirty
@@ -1317,8 +1424,8 @@ impl PartialRenderScene {
                 )
             })
             .collect();
-        dirty.retain(|&(tx, ty)| {
-            match pctx.tile_cache.get(&fps[&(tx, ty)]).cloned() {
+        dirty.retain(
+            |&(tx, ty)| match pctx.tile_cache.get(&fps[&(tx, ty)]).cloned() {
                 Some(px) => {
                     stitch(
                         &mut self.frame_buf,
@@ -1332,8 +1439,8 @@ impl PartialRenderScene {
                     false
                 }
                 None => true,
-            }
-        });
+            },
+        );
 
         let cache_hits = dirty_before_cache - dirty.len();
         debug!(cache_hits, rendered = dirty.len(), "incr cache");
@@ -1416,14 +1523,32 @@ impl PartialRenderScene {
                 let px_y = ty * tc.tile_size;
                 let off_x = tc.shadow_buf + (tx - cand.min_tx) * tc.tile_size;
                 let off_y = tc.shadow_buf + (ty - cand.min_ty) * tc.tile_size;
-                let tile_px =
-                    crop_pixels(&cand_px, cand_actual_w, off_x, off_y, tc.tile_size, tc.tile_size);
-                stitch(&mut self.frame_buf, w, h, &tile_px, tc.tile_size, px_x, px_y);
+                let tile_px = crop_pixels(
+                    &cand_px,
+                    cand_actual_w,
+                    off_x,
+                    off_y,
+                    tc.tile_size,
+                    tc.tile_size,
+                );
+                stitch(
+                    &mut self.frame_buf,
+                    w,
+                    h,
+                    &tile_px,
+                    tc.tile_size,
+                    px_x,
+                    px_y,
+                );
                 pctx.tile_cache.put(fps[&(tx, ty)], tile_px);
             }
         }
 
-        debug!(render_us = t_render.elapsed().as_micros(), batches = candidates.len(), "incr render");
+        debug!(
+            render_us = t_render.elapsed().as_micros(),
+            batches = candidates.len(),
+            "incr render"
+        );
 
         self.prev_stub_bboxes = new_bboxes;
 

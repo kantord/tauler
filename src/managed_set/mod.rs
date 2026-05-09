@@ -40,11 +40,7 @@ mod lifecycle_trace_tests {
             Ok(())
         }
 
-        fn exit(
-            _state: (),
-            _ctx: &mut (),
-            _output: &mut Self::Output,
-        ) -> Result<(), Self::Error> {
+        fn exit(_state: (), _ctx: &mut (), _output: &mut Self::Output) -> Result<(), Self::Error> {
             Ok(())
         }
     }

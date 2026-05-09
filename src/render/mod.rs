@@ -119,7 +119,9 @@ pub fn render_frame_partial(
         .lock()
         .expect("PARTIAL_CTX poisoned");
     let pixels = with_global_ctx(|global| {
-        scene.render_frame(&mut pctx, global, content, width, height, dpr).to_vec()
+        scene
+            .render_frame(&mut pctx, global, content, width, height, dpr)
+            .to_vec()
     });
     let mut bgrx = Vec::with_capacity(pixels.len());
     for px in pixels.chunks_exact(4) {
