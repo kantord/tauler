@@ -29,20 +29,10 @@ pub struct FontConfig {
     pub emoji: Option<String>,
 }
 
-fn default_true() -> bool {
-    true
-}
-
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Default, Deserialize)]
 pub struct RenderingConfig {
-    #[serde(default = "default_true")]
+    #[serde(default)]
     pub incremental: bool,
-}
-
-impl Default for RenderingConfig {
-    fn default() -> Self {
-        Self { incremental: true }
-    }
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
