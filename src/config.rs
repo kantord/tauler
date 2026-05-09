@@ -30,11 +30,19 @@ pub struct FontConfig {
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
+pub struct RenderingConfig {
+    #[serde(default)]
+    pub incremental: bool,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
 pub struct TaulerConfig {
     #[serde(default)]
     pub theme: ThemeConfig,
     #[serde(default)]
     pub fonts: FontConfig,
+    #[serde(default)]
+    pub rendering: RenderingConfig,
 }
 
 impl TaulerConfig {

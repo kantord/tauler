@@ -2115,6 +2115,14 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "384b8ab6d37215f3c5301a95a4accb5d64aa607f1fcb26a11b5303878451b4fe"
 
 [[package]]
+name = "optative"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "ordered-stream"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3679,11 +3687,12 @@ dependencies = [
  "image",
  "insta",
  "lru",
+ "optative",
  "parley",
  "serde",
  "serde_json",
  "takumi",
- "tauler",
+ "tracing",
 ]
 
 [[package]]
@@ -3696,6 +3705,7 @@ dependencies = [
  "json-canon",
  "libc",
  "notify",
+ "optative",
  "oxc_allocator",
  "oxc_ast",
  "oxc_codegen",
@@ -3713,6 +3723,7 @@ dependencies = [
  "serde_yaml",
  "smithay-client-toolkit",
  "takumi",
+ "takumi-incr",
  "tauler-lifecycle-derive",
  "tauler-ui-macro",
  "tempfile",
