@@ -669,9 +669,9 @@ fn is_text_color_class(c: &str) -> bool {
             && !inner.ends_with("rem")
             && !inner.ends_with("em")
             && !inner.ends_with('%')
-            && !inner.chars().next().map_or(false, |ch| ch.is_ascii_digit());
+            && !inner.chars().next().is_some_and(|ch| ch.is_ascii_digit());
     }
-    !suffix.chars().next().map_or(false, |ch| ch.is_ascii_digit())
+    !suffix.chars().next().is_some_and(|ch| ch.is_ascii_digit())
 }
 
 fn inheritable_tw(tw: &str) -> String {
@@ -681,6 +681,7 @@ fn inheritable_tw(tw: &str) -> String {
         .join(" ")
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn collect_flat_whitelist(
     node: &IncrNode,
     bboxes: &HashMap<String, Rect>,
@@ -695,6 +696,7 @@ pub fn collect_flat_whitelist(
     collect_flat_whitelist_inner(node, bboxes, node_set, qx, qy, qw, qh, out, tc, "");
 }
 
+#[allow(clippy::too_many_arguments)]
 fn collect_flat_whitelist_inner(
     node: &IncrNode,
     bboxes: &HashMap<String, Rect>,
@@ -1153,6 +1155,12 @@ impl PartialRenderCtx {
     }
 }
 
+impl Default for PartialRenderCtx {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 // ---------------------------------------------------------------------------
 // PartialRenderScene — per-panel incremental render state
 // ---------------------------------------------------------------------------
@@ -1179,6 +1187,15 @@ impl PartialRenderScene {
         }
     }
 
+}
+
+impl Default for PartialRenderScene {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl PartialRenderScene {
     /// Render one frame. `root` is the panel content as serde_json::Value.
     /// `w` and `h` are physical pixel dimensions. Returns the RGBA pixel buffer.
     pub fn render_frame(

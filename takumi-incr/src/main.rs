@@ -566,6 +566,7 @@ fn fit_cost_model(samples: &[(f64, f64, f64)]) -> Option<CalibrationResult> {
         }
         for row in (col + 1)..3 {
             let f = a[row][col] / p;
+            #[allow(clippy::needless_range_loop)]
             for k in col..3 {
                 a[row][k] -= f * a[col][k];
             }
@@ -3245,7 +3246,7 @@ mod visual_regression {
                 id: "canvas".into(),
                 tw: "flex flex-row items-center w-[320px] h-[48px] bg-gray-900".into(),
                 style: None,
-                children: children,
+                children,
             };
             SuiteFrame {
                 label: label.into(),

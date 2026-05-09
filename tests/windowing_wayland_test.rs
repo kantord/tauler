@@ -60,6 +60,7 @@ fn wayland_connect_error_implements_std_error() {
 fn _needs_display_server(_: &dyn DisplayServer) {}
 
 #[test]
+#[allow(clippy::assertions_on_constants)]
 fn wayland_display_server_implements_display_server() {
     // We cannot actually obtain a WaylandDisplayServer without a compositor,
     // so we prove the impl exists via compile-time coercion: a function that
