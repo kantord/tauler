@@ -7,7 +7,7 @@ publish = false
 [dependencies]
 optative = { path = "../optative" }
 takumi = "1.2.1"
-serde_json = "1.0.149"
+serde_json = "1.0.150"
 anyhow = "1.0.102"
 image = "0.25.10"
 lru = "0.18.0"
