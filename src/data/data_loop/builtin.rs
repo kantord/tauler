@@ -36,6 +36,10 @@ impl Lifecycle for BuiltInSource {
         self.key.clone()
     }
 
+    fn display_name(&self) -> String {
+        self.key.clone()
+    }
+
     fn enter(self, _ctx: &mut (), output: &mut Self::Output) -> Result<Self::State, Self::Error> {
         let stop = Arc::new(AtomicBool::new(false));
         let stop_clone = Arc::clone(&stop);

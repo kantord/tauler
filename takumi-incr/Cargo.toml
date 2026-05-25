@@ -5,7 +5,7 @@ edition = "2021"
 publish = false
 
 [dependencies]
-optative = { path = "../optative" }
+optative = { workspace = true }
 takumi = "1.2.1"
 serde_json = "1.0.150"
 anyhow = "1.0.102"

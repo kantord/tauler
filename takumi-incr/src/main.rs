@@ -13,7 +13,7 @@ use takumi::{
 };
 
 use optative::reconcile::Reconcile;
-use optative::ManagedSet;
+use optative::OptativeSet;
 use takumi_incr::*;
 // ---------------------------------------------------------------------------
 // GlobalContext factory
@@ -638,7 +638,7 @@ fn run_suite(
 ) -> SuiteResult {
     let mut incr_ctx = new_bench_ctx();
     let incr_global = new_ctx();
-    let mut incr_set: ManagedSet<IncrNode> = ManagedSet::new();
+    let mut incr_set: OptativeSet<IncrNode> = OptativeSet::new();
     let mut frame_buf: Vec<u8> = Vec::new();
     let mut prev_full: Vec<u8> = Vec::new();
     // Bboxes from the PREVIOUS frame's stub layout, used for moved-node detection
@@ -2405,7 +2405,7 @@ fn suite_two_region() -> TestSuite {
 // ---------------------------------------------------------------------------
 
 /// 440×300 px kanban with three columns.  Cards appear, disappear, and move
-/// between columns at keyframe boundaries (ManagedSet structural changes).
+/// between columns at keyframe boundaries (OptativeSet structural changes).
 /// A semi-transparent ball with `backdrop-blur-md` and `shadow-2xl` bounces
 /// over the board every frame — its absolute position changes each frame,
 /// exercising compositing + moved-node detection simultaneously.
@@ -2559,7 +2559,7 @@ fn suite_kanban() -> TestSuite {
     TestSuite {
         name: "Kanban Board",
         description: "440×300 px. Three columns; cards appear, disappear, and move between \
-                      columns at keyframes (ManagedSet structural changes + moved-node detection). \
+                      columns at keyframes (OptativeSet structural changes + moved-node detection). \
                       A backdrop-blur-md semi-transparent ball with shadow-2xl bounces across \
                       the board every frame — compositing + absolute-position stress test.",
         frames,

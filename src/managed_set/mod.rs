@@ -2,7 +2,7 @@ pub use optative::*;
 
 #[cfg(test)]
 mod lifecycle_trace_tests {
-    use optative::{Lifecycle, ManagedSet, Reconcile};
+    use optative::{Lifecycle, OptativeSet, Reconcile};
     use tauler_lifecycle_derive::lifecycle_trace;
 
     struct TraceSpec {
@@ -43,12 +43,16 @@ mod lifecycle_trace_tests {
         fn exit(_state: (), _ctx: &mut (), _output: &mut Self::Output) -> Result<(), Self::Error> {
             Ok(())
         }
+
+        fn display_name(&self) -> String {
+            self.id.clone()
+        }
     }
 
     #[test]
     #[tracing_test::traced_test]
     fn lifecycle_trace_entering_emits_info_event_with_key_name_metadata() {
-        let mut ms: ManagedSet<TraceSpec> = ManagedSet::new();
+        let mut ms: OptativeSet<TraceSpec> = OptativeSet::new();
         ms.reconcile(
             vec![TraceSpec {
                 id: "trace-panel".to_string(),

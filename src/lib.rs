@@ -23,7 +23,7 @@ pub use layout::{parse_layout, parse_root_node, OutputInfo, PanelAnchor, PanelSp
 pub use panel::PanelSpec;
 
 // managed_set
-pub use managed_set::ManagedSet;
+pub use managed_set::OptativeSet;
 
 // panel module — unified context and lifecycle
 pub use panel::X11PanelContext;

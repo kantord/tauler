@@ -1,6 +1,9 @@
 [workspace]
-members = [".", "tauler-i3", "tauler-luax", "tauler-notify", "tauler-lifecycle-derive", "tauler-ui-macro", "takumi-incr", "tauler-docgen", "tauler-screenshot", "optative"]
+members = [".", "tauler-i3", "tauler-luax", "tauler-notify", "tauler-lifecycle-derive", "tauler-ui-macro", "takumi-incr", "tauler-docgen", "tauler-screenshot"]
 resolver = "2"
+
+[workspace.dependencies]
+optative = "0.1.1"
 
 [package]
 name = "tauler"
@@ -39,7 +42,7 @@ anyhow = "1.0.102"
 serde_yaml = "0.9.34"
 tauler-lifecycle-derive = { path = "tauler-lifecycle-derive" }
 tauler-ui-macro = { path = "tauler-ui-macro" }
-optative = { path = "optative" }
+optative = "0.1.1"
 takumi-incr = { path = "takumi-incr" }
 notify = "8.2.0"
 smithay-client-toolkit = "0.20.0"

@@ -15,7 +15,7 @@ use takumi::{
 };
 
 use optative::reconcile::Reconcile;
-use optative::{Lifecycle, ManagedSet};
+use optative::{Lifecycle, OptativeSet};
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -263,7 +263,7 @@ impl std::fmt::Display for IncrNode {
 pub struct IncrNodeState {
     pub id: String,
     pub leaf_hash: u64,
-    pub children: ManagedSet<IncrNode>,
+    pub children: OptativeSet<IncrNode>,
 }
 
 // ---------------------------------------------------------------------------
@@ -290,6 +290,10 @@ impl Lifecycle for IncrNode {
         self.id().to_string()
     }
 
+    fn display_name(&self) -> String {
+        self.id().to_string()
+    }
+
     fn enter(self, ctx: &mut Ctx, _: &mut ()) -> Result<IncrNodeState> {
         ctx.changed_ids.push(self.id().to_string());
         let id = self.id().to_string();
@@ -298,7 +302,7 @@ impl Lifecycle for IncrNode {
             IncrNode::Container { children, .. } => children.clone(),
             _ => vec![],
         };
-        let mut children: ManagedSet<IncrNode> = ManagedSet::new();
+        let mut children: OptativeSet<IncrNode> = OptativeSet::new();
         children.reconcile(child_list, ctx, &mut ());
         Ok(IncrNodeState {
             id,
@@ -1272,7 +1276,7 @@ pub struct PartialRenderScene {
     frame_buf: Vec<u8>,
     prev_stub_bboxes: HashMap<String, Rect>,
     tile_node_map: HashMap<(u32, u32), BTreeSet<String>>,
-    incr_set: ManagedSet<IncrNode>,
+    incr_set: OptativeSet<IncrNode>,
     ctx: Ctx,
 }
 
@@ -1282,7 +1286,7 @@ impl PartialRenderScene {
             frame_buf: Vec::new(),
             prev_stub_bboxes: HashMap::new(),
             tile_node_map: HashMap::new(),
-            incr_set: ManagedSet::new(),
+            incr_set: OptativeSet::new(),
             ctx: Ctx {
                 changed_ids: Vec::new(),
                 node_dims: HashMap::new(),

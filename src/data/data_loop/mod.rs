@@ -11,7 +11,7 @@ use std::sync::{mpsc, Arc, Mutex};
 use std::time::Duration;
 
 use crate::managed_set::reconcile::ReconcileErrors;
-use crate::managed_set::{ManagedSet, Reconcile};
+use crate::managed_set::{OptativeSet, Reconcile};
 use tauler_lifecycle_derive::Ephemeral;
 
 #[derive(Debug, PartialEq, Eq)]
@@ -51,14 +51,14 @@ impl DataLoopHandle {
 #[derive(Ephemeral)]
 struct ProcessPool {
     #[reconciler(output = stream_tx)]
-    inner: ManagedSet<ProcessSource>,
+    inner: OptativeSet<ProcessSource>,
     stream_tx: mpsc::Sender<StreamItem>,
 }
 
 impl ProcessPool {
     fn new(stream_tx: mpsc::Sender<StreamItem>) -> Self {
         Self {
-            inner: ManagedSet::new(),
+            inner: OptativeSet::new(),
             stream_tx,
         }
     }
@@ -79,14 +79,14 @@ impl ProcessPool {
 #[derive(Ephemeral)]
 struct BuiltInPool {
     #[reconciler(output = stream_tx)]
-    inner: ManagedSet<BuiltInSource>,
+    inner: OptativeSet<BuiltInSource>,
     stream_tx: mpsc::Sender<StreamItem>,
 }
 
 impl BuiltInPool {
     fn new(stream_tx: mpsc::Sender<StreamItem>) -> Self {
         Self {
-            inner: ManagedSet::new(),
+            inner: OptativeSet::new(),
             stream_tx,
         }
     }

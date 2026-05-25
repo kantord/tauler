@@ -1,20 +1,4 @@
-use super::Lifecycle;
-
-pub type ReconcileErrors<K, E> = Vec<(K, E)>;
-
-/// A reconciler that can apply a desired state to a managed store, producing
-/// a list of per-key errors for items that failed to enter or update.
-///
-/// This trait makes the reconciliation algorithm swappable: callers can
-/// program against `impl Reconcile<T>` rather than `ManagedSet<T>` directly.
-pub trait Reconcile<T: Lifecycle> {
-    fn reconcile(
-        &mut self,
-        desired: impl IntoIterator<Item = T>,
-        ctx: &mut T::Context,
-        output: &mut T::Output,
-    ) -> ReconcileErrors<T::Key, T::Error>;
-}
+pub use optative::reconcile::{Reconcile, ReconcileErrors};
 
 #[cfg(test)]
 mod tests {
@@ -114,15 +98,15 @@ mod tests {
     }
 
     // Claim 1: any type implementing Reconcile<T> can be used where
-    // impl Reconcile<Item> is expected - ManagedSet or a hand-written mock.
+    // impl Reconcile<Item> is expected - OptativeSet or a hand-written mock.
     mod trait_usability {
         use super::fixtures::{drive, make_ctx, Item, RecordingReconciler};
-        use crate::managed_set::ManagedSet;
+        use crate::managed_set::OptativeSet;
 
         #[test]
         fn accepts_managed_set() {
             let mut ctx = make_ctx();
-            let mut ms: ManagedSet<Item> = ManagedSet::new();
+            let mut ms: OptativeSet<Item> = OptativeSet::new();
             assert!(drive(&mut ms, vec![Item { id: "a", value: 1 }], &mut ctx).is_empty());
         }
 
@@ -135,11 +119,11 @@ mod tests {
         }
     }
 
-    // Claim 2: ManagedSet fires the correct Lifecycle callback for each scenario
+    // Claim 2: OptativeSet fires the correct Lifecycle callback for each scenario
     // when called through the Reconcile trait.
     mod managed_set_via_trait {
         use super::fixtures::{log, make_ctx, Item};
-        use crate::managed_set::{ManagedSet, Reconcile};
+        use crate::managed_set::{OptativeSet, Reconcile};
 
         fn check<R: Reconcile<Item>>(
             reconciler: &mut R,
@@ -161,7 +145,7 @@ mod tests {
         #[test]
         fn calls_enter_for_new_item() {
             check(
-                &mut ManagedSet::new(),
+                &mut OptativeSet::new(),
                 vec![],
                 vec![Item { id: "a", value: 1 }],
                 "enter:a",
@@ -171,7 +155,7 @@ mod tests {
         #[test]
         fn calls_reconcile_self_for_existing_item() {
             check(
-                &mut ManagedSet::new(),
+                &mut OptativeSet::new(),
                 vec![Item { id: "b", value: 1 }],
                 vec![Item { id: "b", value: 2 }],
                 "reconcile_self:b",
@@ -181,7 +165,7 @@ mod tests {
         #[test]
         fn calls_exit_for_removed_item() {
             check(
-                &mut ManagedSet::new(),
+                &mut OptativeSet::new(),
                 vec![Item { id: "c", value: 5 }],
                 vec![],
                 "exit",

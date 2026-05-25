@@ -9,7 +9,7 @@ use tauler::data::data_loop::{
     BuiltInSource, DataLoopHandle, ProcessIdentity, ProcessSource, StreamSource,
 };
 use tauler::layout::OutputInfo;
-use tauler::managed_set::{Lifecycle, ManagedSet, Reconcile};
+use tauler::managed_set::{Lifecycle, OptativeSet, Reconcile};
 use tauler::panel::PanelSpec;
 use tauler::presentation::{PanelCommand, PresentationThread, PresenterEvent};
 use tauler::theme::resolver::resolve_tw_in_json;
@@ -42,6 +42,10 @@ impl Lifecycle for WatchedPath {
 
     fn key(&self) -> std::path::PathBuf {
         self.0.clone()
+    }
+
+    fn display_name(&self) -> String {
+        self.0.display().to_string()
     }
 
     fn enter(
@@ -128,7 +132,7 @@ fn apply_eval_result(
     primary_output_name: &str,
     output_map: &HashMap<String, OutputInfo>,
     handle: &DataLoopHandle,
-    panel_set: &mut ManagedSet<PanelSpec>,
+    panel_set: &mut OptativeSet<PanelSpec>,
     command_tx: &mut mpsc::Sender<PanelCommand>,
     mod_init_fn: &dyn Fn(&[tauler::PanelSpecData]) -> serde_json::Value,
 ) -> bool {
@@ -240,9 +244,9 @@ pub(crate) struct App {
     screen_width_logical: u32,
     screen_height_logical: u32,
     output_map: HashMap<String, OutputInfo>,
-    panels: ManagedSet<PanelSpec>,
-    import_watches: ManagedSet<WatchedPath>,
-    theme_file_watch: ManagedSet<WatchedPath>,
+    panels: OptativeSet<PanelSpec>,
+    import_watches: OptativeSet<WatchedPath>,
+    theme_file_watch: OptativeSet<WatchedPath>,
     watcher: SharedWatcher,
     stream_values: HashMap<(String, Option<String>), String>,
     jsx_evaluator: Option<tauler::jsx::JsxEvaluator>,
@@ -337,9 +341,9 @@ impl App {
             screen_width_logical,
             screen_height_logical,
             output_map,
-            panels: ManagedSet::new(),
-            import_watches: ManagedSet::new(),
-            theme_file_watch: ManagedSet::new(),
+            panels: OptativeSet::new(),
+            import_watches: OptativeSet::new(),
+            theme_file_watch: OptativeSet::new(),
             watcher,
             stream_values: HashMap::new(),
             jsx_evaluator: None,
@@ -398,9 +402,9 @@ impl App {
             screen_width_logical: screen_width,
             screen_height_logical: screen_height,
             output_map: HashMap::new(),
-            panels: ManagedSet::new(),
-            import_watches: ManagedSet::new(),
-            theme_file_watch: ManagedSet::new(),
+            panels: OptativeSet::new(),
+            import_watches: OptativeSet::new(),
+            theme_file_watch: OptativeSet::new(),
             watcher,
             stream_values: HashMap::new(),
             jsx_evaluator: None,
@@ -450,7 +454,7 @@ impl App {
     }
 
     fn reconcile_watch_set(
-        set: &mut ManagedSet<WatchedPath>,
+        set: &mut OptativeSet<WatchedPath>,
         desired: impl IntoIterator<Item = WatchedPath>,
         watcher: &mut SharedWatcher,
     ) {
@@ -683,7 +687,7 @@ mod tests {
     use std::sync::mpsc;
     use tauler::data::data_loop::{DataLoop, StreamSource};
     use tauler::layout::OutputInfo;
-    use tauler::managed_set::ManagedSet;
+    use tauler::managed_set::OptativeSet;
     use tauler::panel::PanelSpec;
     use tauler::presentation::PanelCommand;
 
@@ -720,7 +724,7 @@ mod tests {
         let output_map: HashMap<String, OutputInfo> = HashMap::new();
 
         let (_data_loop, handle) = DataLoop::new();
-        let mut panel_set: ManagedSet<PanelSpec> = ManagedSet::new();
+        let mut panel_set: OptativeSet<PanelSpec> = OptativeSet::new();
         let (mut command_tx, command_rx) = mpsc::channel::<PanelCommand>();
 
         apply_eval_result(
@@ -768,7 +772,7 @@ mod tests {
         let output_map: HashMap<String, OutputInfo> = HashMap::new();
 
         let (_data_loop, handle) = DataLoop::new();
-        let mut panel_set: ManagedSet<PanelSpec> = ManagedSet::new();
+        let mut panel_set: OptativeSet<PanelSpec> = OptativeSet::new();
         let (mut command_tx, command_rx) = mpsc::channel::<PanelCommand>();
 
         // primary output "DP-1" is not in output_map, so the null-output spec must be excluded
@@ -912,7 +916,7 @@ mod tests {
 
     /// Claim: when a theme file path is provided, `theme_file_watch_desired` returns a
     /// single-element Vec whose entry has the given path as its key — so the caller can
-    /// reconcile a ManagedSet<WatchedPath> to watch that file.
+    /// reconcile a OptativeSet<WatchedPath> to watch that file.
     #[test]
     fn theme_file_watch_desired_with_some_path_returns_single_entry_with_that_path() {
         let path = PathBuf::from("/tmp/my-theme.yaml");
@@ -931,7 +935,7 @@ mod tests {
     }
 
     /// Claim: when no theme file path is present, `theme_file_watch_desired` returns an
-    /// empty Vec — so the caller can reconcile a ManagedSet<WatchedPath> to remove any
+    /// empty Vec — so the caller can reconcile a OptativeSet<WatchedPath> to remove any
     /// previously-registered theme watch.
     #[test]
     fn theme_file_watch_desired_with_none_returns_empty_vec() {

@@ -12,7 +12,7 @@ use tauler_lifecycle_derive::lifecycle_trace;
 use super::{StreamItem, StreamKind};
 
 /// Stable identity for a process: uniquely identifies which process to manage.
-/// Used as the key in `Lifecycle` so that `ManagedSet` can track processes by identity.
+/// Used as the key in `Lifecycle` so that `OptativeSet` can track processes by identity.
 #[derive(Hash, Eq, PartialEq, Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct ProcessIdentity {
     pub bin: String,
@@ -188,6 +188,10 @@ impl Lifecycle for ProcessSource {
 
     fn key(&self) -> ProcessIdentity {
         self.identity.clone()
+    }
+
+    fn display_name(&self) -> String {
+        self.identity.bin.clone()
     }
 
     fn enter(self, _ctx: &mut (), output: &mut Self::Output) -> Result<Self::State, Self::Error> {

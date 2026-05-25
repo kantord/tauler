@@ -40,6 +40,10 @@ impl Lifecycle for PanelSpec {
         self.0.id.clone()
     }
 
+    fn display_name(&self) -> String {
+        self.0.id.clone()
+    }
+
     fn enter(
         self,
         _ctx: &mut (),
