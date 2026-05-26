@@ -37,7 +37,7 @@ oxc_allocator = "0.132.0"
 oxc_semantic = "0.132.0"
 oxc_span = "0.132.0"
 oxc_ast = "0.132.0"
-oxc_resolver = "11.19.1"
+oxc_resolver = "11.19.2"
 anyhow = "1.0.102"
 serde_yaml = "0.9.34"
 tauler-lifecycle-derive = { path = "tauler-lifecycle-derive" }
