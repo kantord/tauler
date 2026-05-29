@@ -1,8 +1,6 @@
 pub mod data_loop;
 
-use crate::data::data_loop::{ProcessIdentity, ProcessSource, StreamItem, StreamKind};
-use std::io::{Seek, SeekFrom, Write as IoWrite};
-use std::os::unix::io::FromRawFd;
+use crate::data::data_loop::{StreamItem, StreamKind};
 use std::sync::mpsc;
 use std::thread;
 
@@ -10,6 +8,8 @@ pub struct SpawnedModule {
     pub rx: mpsc::Receiver<String>,
     pub child: std::process::Child,
     pub event_tx: mpsc::Sender<serde_json::Value>,
+    /// Keeps the script temp file alive until the module is dropped.
+    _script_file: Option<tempfile::NamedTempFile>,
 }
 
 impl SpawnedModule {
@@ -29,6 +29,8 @@ impl SpawnedModule {
         let rx = unsafe { std::ptr::read(&md.rx) };
         let child = unsafe { std::ptr::read(&md.child) };
         let event_tx = unsafe { std::ptr::read(&md.event_tx) };
+        // _script_file is intentionally leaked here — the child has already
+        // inherited the path and the caller owns the Child now.
         (rx, child, event_tx)
     }
 }
@@ -41,18 +43,19 @@ impl Drop for SpawnedModule {
 }
 
 pub fn spawn_module(bin: &str, script: Option<&str>) -> SpawnedModule {
+    use std::io::{BufRead, Write as IoWrite};
+
     let (tx, rx) = mpsc::channel();
     let mut cmd = std::process::Command::new(bin);
 
-    // If a script is provided, write it to a memfd and pass the path as argument
-    #[allow(clippy::option_if_let_else)]
-    let _memfd_file = if let Some(content) = script {
-        let fd = unsafe { libc::memfd_create(c"tauler-script".as_ptr(), 0) };
-        let mut file = unsafe { std::fs::File::from_raw_fd(fd) };
-        let _ = file.write_all(content.as_bytes());
-        let _ = file.seek(SeekFrom::Start(0));
-        cmd.arg(format!("/proc/self/fd/{}", fd));
-        Some(file) // keep alive until after spawn so fd is inherited
+    // If a script is provided, write it to a temp file and pass the path as argument.
+    let script_file = if let Some(content) = script {
+        let mut file = tempfile::NamedTempFile::new().expect("failed to create temp file");
+        file.write_all(content.as_bytes())
+            .expect("failed to write script");
+        file.flush().expect("failed to flush script");
+        cmd.arg(file.path().to_string_lossy().as_ref());
+        Some(file) // kept alive in SpawnedModule until process is done
     } else {
         None
     };
@@ -62,12 +65,10 @@ pub fn spawn_module(bin: &str, script: Option<&str>) -> SpawnedModule {
         .stdout(std::process::Stdio::piped())
         .spawn()
         .expect("failed to spawn module");
-    // _memfd_file can now be dropped — child has inherited the fd
 
     let stdout = child.stdout.take().expect("no stdout");
     thread::spawn(move || {
         let reader = std::io::BufReader::new(stdout);
-        use std::io::BufRead;
         for line in reader.lines() {
             match line {
                 Ok(l) => {
@@ -83,6 +84,7 @@ pub fn spawn_module(bin: &str, script: Option<&str>) -> SpawnedModule {
     let mut stdin = child.stdin.take().expect("no stdin");
     let (event_tx, event_rx) = mpsc::channel::<serde_json::Value>();
     thread::spawn(move || {
+        use std::io::Write;
         while let Ok(event) = event_rx.recv() {
             if writeln!(stdin, "{}", event).is_err() {
                 break;
@@ -94,6 +96,7 @@ pub fn spawn_module(bin: &str, script: Option<&str>) -> SpawnedModule {
         rx,
         child,
         event_tx,
+        _script_file: script_file,
     }
 }
 
@@ -106,12 +109,13 @@ fn forward_stdout(
     rx: mpsc::Receiver<String>,
     tx: mpsc::Sender<StreamItem>,
     wake_tx: mpsc::SyncSender<()>,
-    spec: ProcessSource,
+    bin: String,
+    script: Option<String>,
 ) {
     thread::spawn(move || {
         while let Ok(line) = rx.recv() {
             let item = StreamItem {
-                key: (spec.identity.bin.clone(), spec.script.clone()),
+                key: (bin.clone(), script.clone()),
                 stream: StreamKind::Stdout,
                 line,
             };
@@ -120,7 +124,7 @@ fn forward_stdout(
             }
             let _ = wake_tx.try_send(());
         }
-        tracing::warn!(bin = %spec.identity.bin, script = ?spec.script, "stream subprocess exited");
+        tracing::warn!(bin = %bin, script = ?script, "stream subprocess exited");
     });
 }
 
@@ -135,18 +139,7 @@ pub fn spawn_bi_stream(
     let spawned = spawn_module(bin, None);
     spawned.send_event(init_event);
     let (rx, child, event_tx) = spawned.into_parts();
-    let spec = ProcessSource {
-        identity: ProcessIdentity {
-            bin: bin.to_string(),
-            key: bin.to_string(),
-        },
-        script: None,
-        args: vec![],
-        env: std::collections::BTreeMap::new(),
-        current_dir: None,
-        props: None,
-    };
-    forward_stdout(rx, tx, wake_tx, spec);
+    forward_stdout(rx, tx, wake_tx, bin.to_string(), None);
     SpawnedBiStream { child, event_tx }
 }
 
@@ -161,18 +154,7 @@ pub fn spawn_string_stream(
     wake_tx: mpsc::SyncSender<()>,
 ) -> std::process::Child {
     let spawned = spawn_module(bin, script);
-    let spec = ProcessSource {
-        identity: ProcessIdentity {
-            bin: bin.to_string(),
-            key: bin.to_string(),
-        },
-        script: script.map(str::to_string),
-        args: vec![],
-        env: std::collections::BTreeMap::new(),
-        current_dir: None,
-        props: None,
-    };
     let (rx, child, _event_tx) = spawned.into_parts();
-    forward_stdout(rx, tx, wake_tx, spec);
+    forward_stdout(rx, tx, wake_tx, bin.to_string(), script.map(str::to_string));
     child
 }

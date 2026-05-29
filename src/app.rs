@@ -6,7 +6,7 @@ use std::thread;
 use notify::Watcher;
 use tauler::config::TaulerConfig;
 use tauler::data::data_loop::{
-    BuiltInSource, DataLoopHandle, ProcessIdentity, ProcessSource, StreamSource,
+    BuiltInSource, DataLoopHandle, ProcessIdentity, ProcessSpec, Resource, StreamSource,
 };
 use tauler::layout::OutputInfo;
 use tauler::managed_set::{Lifecycle, OptativeSet, Reconcile};
@@ -110,13 +110,18 @@ pub(crate) fn stream_calls_to_specs(calls: &[(String, Option<String>)]) -> Vec<S
             if let Some(builtin) = make_builtin(bin) {
                 return StreamSource::BuiltIn(builtin);
             }
-            StreamSource::Process(ProcessSource {
+            let args = match script {
+                Some(content) => vec![Resource::File {
+                    content: content.clone(),
+                }],
+                None => vec![],
+            };
+            StreamSource::Process(ProcessSpec {
                 identity: ProcessIdentity {
                     bin: bin.clone(),
                     key: format!("{}:{}", bin, script.as_deref().unwrap_or("")),
                 },
-                script: script.clone(),
-                args: vec![],
+                args,
                 env: std::collections::BTreeMap::new(),
                 current_dir: None,
                 props: None,
@@ -168,12 +173,11 @@ fn apply_eval_result(
         .module_calls
         .iter()
         .map(|(bin, _)| {
-            StreamSource::Process(ProcessSource {
+            StreamSource::Process(ProcessSpec {
                 identity: ProcessIdentity {
                     bin: bin.clone(),
                     key: bin.clone(),
                 },
-                script: None,
                 args: vec![],
                 env: std::collections::BTreeMap::new(),
                 current_dir: None,
@@ -849,7 +853,9 @@ mod tests {
     }
 
     #[test]
-    fn stream_calls_to_specs_maps_calls_to_process_sources() {
+    fn stream_calls_to_specs_maps_calls_to_process_specs() {
+        use tauler::data::data_loop::Resource;
+
         let calls = vec![
             ("bash".to_string(), None),
             ("python".to_string(), Some("print('hi')".to_string())),
@@ -860,12 +866,17 @@ mod tests {
             panic!("expected Process")
         };
         assert_eq!(s0.identity.bin, "bash");
-        assert_eq!(s0.script, None);
+        assert!(s0.args.is_empty(), "no-script call should have no args");
         let StreamSource::Process(ref s1) = specs[1] else {
             panic!("expected Process")
         };
         assert_eq!(s1.identity.bin, "python");
-        assert_eq!(s1.script, Some("print('hi')".to_string()));
+        assert_eq!(
+            s1.args,
+            vec![Resource::File {
+                content: "print('hi')".to_string()
+            }]
+        );
     }
 
     #[test]

@@ -1,8 +1,9 @@
 mod builtin;
-mod process;
 
 pub use builtin::{BuiltInSource, BuiltInState};
-pub use process::{ProcessIdentity, ProcessSource, ProcessState, SpawnError};
+pub use optative_process_pool::{
+    ProcessIdentity, ProcessSpec, ProcessState, ProcessSupervisor, Resource, SpawnError,
+};
 
 use std::collections::HashMap;
 use std::fmt::Debug;
@@ -28,7 +29,7 @@ pub struct StreamItem {
 }
 
 pub enum StreamSource {
-    Process(ProcessSource),
+    Process(ProcessSpec),
     BuiltIn(BuiltInSource),
 }
 
@@ -45,34 +46,6 @@ pub struct DataLoopHandle {
 impl DataLoopHandle {
     pub fn set_desired(&self, sources: Vec<StreamSource>) {
         let _ = self.tx.send(sources);
-    }
-}
-
-#[derive(Ephemeral)]
-struct ProcessPool {
-    #[reconciler(output = stream_tx)]
-    inner: OptativeSet<ProcessSource>,
-    stream_tx: mpsc::Sender<StreamItem>,
-}
-
-impl ProcessPool {
-    fn new(stream_tx: mpsc::Sender<StreamItem>) -> Self {
-        Self {
-            inner: OptativeSet::new(),
-            stream_tx,
-        }
-    }
-    fn reconcile(
-        &mut self,
-        desired: Vec<ProcessSource>,
-    ) -> ReconcileErrors<ProcessIdentity, SpawnError> {
-        self.inner.reconcile(desired, &mut (), &mut self.stream_tx)
-    }
-    fn get(&self, identity: &ProcessIdentity) -> Option<&ProcessState> {
-        self.inner.get(identity)
-    }
-    fn iter(&self) -> impl Iterator<Item = (&ProcessIdentity, &ProcessState)> {
-        self.inner.iter()
     }
 }
 
@@ -98,13 +71,30 @@ impl BuiltInPool {
     }
 }
 
+/// Convert the crate's stream key (ProcessIdentity) back to tauler's
+/// (bin, Option<script>) tuple. The convention is that `identity.key`
+/// is formatted as `"bin:script"` (with an empty script when there is none).
+fn identity_to_stream_key(identity: &ProcessIdentity) -> (String, Option<String>) {
+    let bin = identity.bin.clone();
+    let prefix = format!("{}:", bin);
+    let script_part = identity.key.strip_prefix(&prefix).unwrap_or("");
+    if script_part.is_empty() {
+        (bin, None)
+    } else {
+        (bin, Some(script_part.to_string()))
+    }
+}
+
 pub struct DataLoop {
-    process_pool: ProcessPool,
+    process_supervisor: ProcessSupervisor,
     builtin_pool: BuiltInPool,
-    desired_processes: Vec<ProcessSource>,
+    desired_processes: Vec<ProcessSpec>,
     desired_builtins: Vec<BuiltInSource>,
     timeout: Option<Duration>,
-    rx: mpsc::Receiver<StreamItem>,
+    /// Receives tauler-local StreamItems from BuiltIn sources.
+    local_rx: mpsc::Receiver<StreamItem>,
+    /// Receives crate StreamItems from the process supervisor.
+    crate_rx: mpsc::Receiver<optative_process_pool::StreamItem>,
     extra_rx: Option<mpsc::Receiver<()>>,
     desired_rx: mpsc::Receiver<Vec<StreamSource>>,
     /// Shared snapshot of event senders, keyed by bin name.
@@ -114,16 +104,18 @@ pub struct DataLoop {
 
 impl DataLoop {
     pub fn new() -> (Self, DataLoopHandle) {
-        let (stream_tx, rx) = mpsc::channel();
+        let (local_tx, local_rx) = mpsc::channel();
+        let (crate_tx, crate_rx) = mpsc::channel();
         let (desired_tx, desired_rx) = mpsc::channel();
         let event_txs_snapshot = Arc::new(Mutex::new(HashMap::new()));
         let data_loop = Self {
-            process_pool: ProcessPool::new(stream_tx.clone()),
-            builtin_pool: BuiltInPool::new(stream_tx),
+            process_supervisor: ProcessSupervisor::new(crate_tx),
+            builtin_pool: BuiltInPool::new(local_tx),
             desired_processes: Vec::new(),
             desired_builtins: Vec::new(),
             timeout: None,
-            rx,
+            local_rx,
+            crate_rx,
             extra_rx: None,
             desired_rx,
             event_txs_snapshot,
@@ -149,7 +141,7 @@ impl DataLoop {
     }
 
     pub fn collect_event_txs(&self) -> HashMap<ProcessIdentity, mpsc::Sender<serde_json::Value>> {
-        self.process_pool
+        self.process_supervisor
             .iter()
             .map(|(identity, state)| (identity.clone(), state.event_tx.clone()))
             .collect()
@@ -159,9 +151,11 @@ impl DataLoop {
         while let Ok(sources) = self.desired_rx.try_recv() {
             self.set_desired(sources);
         }
-        let errors = self.process_pool.reconcile(self.desired_processes.clone());
+        let errors = self
+            .process_supervisor
+            .reconcile(self.desired_processes.clone());
         log_lifecycle_errors(errors);
-        if let Some(state) = self.process_pool.get(identity) {
+        if let Some(state) = self.process_supervisor.get(identity) {
             let _ = state.event_tx.send(event);
         }
     }
@@ -181,7 +175,9 @@ impl DataLoop {
             .filter(|s| seen.insert(s.identity.clone()))
             .collect();
         self.desired_builtins = builtins;
-        let proc_errors = self.process_pool.reconcile(self.desired_processes.clone());
+        let proc_errors = self
+            .process_supervisor
+            .reconcile(self.desired_processes.clone());
         log_lifecycle_errors(proc_errors);
         let builtin_errors = self.builtin_pool.reconcile(self.desired_builtins.clone());
         log_lifecycle_errors(builtin_errors);
@@ -191,10 +187,79 @@ impl DataLoop {
     fn update_event_txs_snapshot(&self) {
         let mut snapshot = self.event_txs_snapshot.lock().unwrap();
         *snapshot = self
-            .process_pool
+            .process_supervisor
             .iter()
             .map(|(identity, state)| (identity.bin.clone(), state.event_tx.clone()))
             .collect();
+    }
+
+    /// Try to receive one item from either the crate's process pool channel or
+    /// the local builtin channel, converting to tauler's StreamItem.
+    fn try_recv_item(&self) -> Result<StreamItem, mpsc::TryRecvError> {
+        // Try the crate channel first (processes), then local (builtins).
+        match self.crate_rx.try_recv() {
+            Ok(crate_item) => {
+                let key = identity_to_stream_key(&crate_item.key);
+                let stream = match crate_item.stream {
+                    optative_process_pool::StreamKind::Stdout => StreamKind::Stdout,
+                    optative_process_pool::StreamKind::Stderr => StreamKind::Stderr,
+                };
+                Ok(StreamItem {
+                    key,
+                    stream,
+                    line: crate_item.line,
+                })
+            }
+            Err(mpsc::TryRecvError::Empty) => self.local_rx.try_recv(),
+            Err(mpsc::TryRecvError::Disconnected) => {
+                // Crate channel disconnected, try local.
+                match self.local_rx.try_recv() {
+                    Ok(item) => Ok(item),
+                    Err(_) => Err(mpsc::TryRecvError::Disconnected),
+                }
+            }
+        }
+    }
+
+    /// Blocking receive with timeout from either channel.
+    fn recv_timeout_item(&self, timeout: Duration) -> Result<StreamItem, mpsc::RecvTimeoutError> {
+        // Try non-blocking first.
+        match self.try_recv_item() {
+            Ok(item) => return Ok(item),
+            Err(mpsc::TryRecvError::Disconnected) => {
+                return Err(mpsc::RecvTimeoutError::Disconnected)
+            }
+            Err(mpsc::TryRecvError::Empty) => {}
+        }
+        // Block on the crate channel with the given timeout, then check local.
+        match self.crate_rx.recv_timeout(timeout) {
+            Ok(crate_item) => {
+                let key = identity_to_stream_key(&crate_item.key);
+                let stream = match crate_item.stream {
+                    optative_process_pool::StreamKind::Stdout => StreamKind::Stdout,
+                    optative_process_pool::StreamKind::Stderr => StreamKind::Stderr,
+                };
+                Ok(StreamItem {
+                    key,
+                    stream,
+                    line: crate_item.line,
+                })
+            }
+            Err(mpsc::RecvTimeoutError::Timeout) => {
+                // Check local one more time before returning timeout.
+                match self.local_rx.try_recv() {
+                    Ok(item) => Ok(item),
+                    Err(_) => Err(mpsc::RecvTimeoutError::Timeout),
+                }
+            }
+            Err(mpsc::RecvTimeoutError::Disconnected) => {
+                // Try local before giving up.
+                match self.local_rx.try_recv() {
+                    Ok(item) => Ok(item),
+                    Err(_) => Err(mpsc::RecvTimeoutError::Disconnected),
+                }
+            }
+        }
     }
 
     pub fn run(
@@ -228,7 +293,9 @@ impl DataLoop {
             }
 
             // Reconcile: enter new, exit removed, update existing (restarts crashed processes).
-            let proc_errors = self.process_pool.reconcile(self.desired_processes.clone());
+            let proc_errors = self
+                .process_supervisor
+                .reconcile(self.desired_processes.clone());
             log_lifecycle_errors(proc_errors);
             let builtin_errors = self.builtin_pool.reconcile(self.desired_builtins.clone());
             log_lifecycle_errors(builtin_errors);
@@ -238,7 +305,7 @@ impl DataLoop {
 
             if awake {
                 awake = false;
-                match self.rx.try_recv() {
+                match self.try_recv_item() {
                     Ok(item) => on_item(item),
                     Err(mpsc::TryRecvError::Empty) => {}
                     Err(mpsc::TryRecvError::Disconnected) => break,
@@ -246,7 +313,7 @@ impl DataLoop {
                 continue;
             }
 
-            match self.rx.recv_timeout(Duration::from_millis(50)) {
+            match self.recv_timeout_item(Duration::from_millis(50)) {
                 Ok(item) => on_item(item),
                 Err(mpsc::RecvTimeoutError::Timeout) => continue,
                 Err(mpsc::RecvTimeoutError::Disconnected) => break,
@@ -270,16 +337,17 @@ mod tests {
 
     #[test]
     fn script_content_is_executed_and_output_delivered() {
-        let spec = ProcessSource {
+        let spec = ProcessSpec {
             identity: ProcessIdentity {
                 bin: "/bin/sh".to_string(),
-                key: "/bin/sh".to_string(),
+                key: "/bin/sh:echo from_script".to_string(),
             },
-            args: vec![],
+            args: vec![Resource::File {
+                content: "echo from_script".to_string(),
+            }],
             env: BTreeMap::new(),
             current_dir: None,
             props: None,
-            script: Some("echo from_script".to_string()),
         };
 
         let (mut data_loop, handle) = DataLoop::new();
@@ -312,16 +380,15 @@ mod tests {
 
     #[test]
     fn duplicate_specs_without_key_spawn_only_one_process() {
-        let spec = ProcessSource {
+        let spec = ProcessSpec {
             identity: ProcessIdentity {
                 bin: "/bin/sh".to_string(),
-                key: "/bin/sh".to_string(),
+                key: "/bin/sh:".to_string(),
             },
-            args: vec!["-c".to_string(), "echo hello; sleep 10".to_string()],
+            args: vec!["-c".into(), "echo hello; sleep 10".into()],
             env: BTreeMap::new(),
             current_dir: None,
             props: None,
-            script: None,
         };
 
         let (mut data_loop, handle) = DataLoop::new();
@@ -363,16 +430,15 @@ mod tests {
 
     #[test]
     fn stdout_line_is_delivered_to_handler_with_correct_source_and_kind() {
-        let spec = ProcessSource {
+        let spec = ProcessSpec {
             identity: ProcessIdentity {
                 bin: "/bin/sh".to_string(),
-                key: "/bin/sh".to_string(),
+                key: "/bin/sh:".to_string(),
             },
-            args: vec!["-c".to_string(), "echo hello".to_string()],
+            args: vec!["-c".into(), "echo hello".into()],
             env: BTreeMap::new(),
             current_dir: None,
             props: None,
-            script: None,
         };
 
         let (mut data_loop, handle) = DataLoop::new();
@@ -402,16 +468,15 @@ mod tests {
 
     #[test]
     fn crashed_process_is_restarted_and_output_continues() {
-        let spec = ProcessSource {
+        let spec = ProcessSpec {
             identity: ProcessIdentity {
                 bin: "/bin/sh".to_string(),
-                key: "/bin/sh".to_string(),
+                key: "/bin/sh:".to_string(),
             },
-            args: vec!["-c".to_string(), "echo hello".to_string()],
+            args: vec!["-c".into(), "echo hello".into()],
             env: BTreeMap::new(),
             current_dir: None,
             props: None,
-            script: None,
         };
 
         let (mut data_loop, handle) = DataLoop::new();
@@ -459,19 +524,18 @@ mod tests {
 
     #[test]
     fn run_stops_when_cancellation_token_is_set() {
-        let spec = ProcessSource {
+        let spec = ProcessSpec {
             identity: ProcessIdentity {
                 bin: "/bin/sh".to_string(),
-                key: "/bin/sh".to_string(),
+                key: "/bin/sh:".to_string(),
             },
             args: vec![
-                "-c".to_string(),
-                "while true; do echo tick; sleep 0.1; done".to_string(),
+                "-c".into(),
+                "while true; do echo tick; sleep 0.1; done".into(),
             ],
             env: BTreeMap::new(),
             current_dir: None,
             props: None,
-            script: None,
         };
 
         let (mut data_loop, handle) = DataLoop::new();
@@ -574,19 +638,15 @@ mod tests {
     fn props_init_message_is_sent_to_subprocess_stdin() {
         let props_value = serde_json::json!({"color": "red"});
         let expected_payload = serde_json::json!({"color": "red"});
-        let spec = ProcessSource {
+        let spec = ProcessSpec {
             identity: ProcessIdentity {
                 bin: "/bin/sh".to_string(),
                 key: "init-test".to_string(),
             },
-            args: vec![
-                "-c".to_string(),
-                "read line; echo \"got:$line\"".to_string(),
-            ],
+            args: vec!["-c".into(), "read line; echo \"got:$line\"".into()],
             env: BTreeMap::new(),
             current_dir: None,
             props: Some(props_value),
-            script: None,
         };
 
         let (mut data_loop, handle) = DataLoop::new();
@@ -642,16 +702,15 @@ mod tests {
             key: "update-test".to_string(),
         };
 
-        let spec_v1 = ProcessSource {
+        let spec_v1 = ProcessSpec {
             identity: identity.clone(),
             args: vec![
-                "-c".to_string(),
-                "while read line; do echo \"got:$line\"; done".to_string(),
+                "-c".into(),
+                "while read line; do echo \"got:$line\"; done".into(),
             ],
             env: BTreeMap::new(),
             current_dir: None,
             props: Some(initial_props),
-            script: None,
         };
 
         let (mut data_loop, handle) = DataLoop::new();
@@ -684,16 +743,15 @@ mod tests {
             thread::sleep(Duration::from_millis(20));
         }
 
-        let spec_v2 = ProcessSource {
+        let spec_v2 = ProcessSpec {
             identity: identity.clone(),
             args: vec![
-                "-c".to_string(),
-                "while read line; do echo \"got:$line\"; done".to_string(),
+                "-c".into(),
+                "while read line; do echo \"got:$line\"; done".into(),
             ],
             env: BTreeMap::new(),
             current_dir: None,
             props: Some(updated_props),
-            script: None,
         };
         handle.set_desired(vec![StreamSource::Process(spec_v2)]);
 
@@ -730,16 +788,15 @@ mod tests {
             bin: "/bin/sh".to_string(),
             key: "send-event-test".to_string(),
         };
-        let spec = ProcessSource {
+        let spec = ProcessSpec {
             identity: identity.clone(),
             args: vec![
-                "-c".to_string(),
-                "while read line; do echo \"got:$line\"; done".to_string(),
+                "-c".into(),
+                "while read line; do echo \"got:$line\"; done".into(),
             ],
             env: BTreeMap::new(),
             current_dir: None,
             props: None,
-            script: None,
         };
 
         let (mut data_loop, handle) = DataLoop::new();
@@ -795,16 +852,15 @@ mod tests {
             key: "dedup-props-test".to_string(),
         };
 
-        let spec = ProcessSource {
+        let spec = ProcessSpec {
             identity: identity.clone(),
             args: vec![
-                "-c".to_string(),
-                "while read line; do echo \"got:$line\"; done".to_string(),
+                "-c".into(),
+                "while read line; do echo \"got:$line\"; done".into(),
             ],
             env: BTreeMap::new(),
             current_dir: None,
             props: Some(props_value.clone()),
-            script: None,
         };
 
         let (mut data_loop, handle) = DataLoop::new();
@@ -856,16 +912,15 @@ mod tests {
 
     #[test]
     fn handle_set_desired_spawns_process_into_running_loop() {
-        let spec = ProcessSource {
+        let spec = ProcessSpec {
             identity: ProcessIdentity {
                 bin: "/bin/sh".to_string(),
-                key: "/bin/sh".to_string(),
+                key: "/bin/sh:".to_string(),
             },
-            args: vec!["-c".to_string(), "echo handle_output".to_string()],
+            args: vec!["-c".into(), "echo handle_output".into()],
             env: BTreeMap::new(),
             current_dir: None,
             props: None,
-            script: None,
         };
 
         let (mut data_loop, handle) = DataLoop::new();

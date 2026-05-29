@@ -6,19 +6,18 @@ use std::time::Duration;
 /// Tests that DataLoop still calls on_item even when it is in "awake" mode
 /// (i.e. after extra_rx fires).  The bug: when `awake == true` the loop does
 /// `continue` before calling `recv_timeout`, so `on_item` is never invoked.
-use tauler::data::data_loop::{DataLoop, ProcessIdentity, ProcessSource, StreamItem, StreamSource};
+use tauler::data::data_loop::{DataLoop, ProcessIdentity, ProcessSpec, StreamItem, StreamSource};
 
-fn echo_spec(msg: &str) -> ProcessSource {
-    ProcessSource {
+fn echo_spec(msg: &str) -> ProcessSpec {
+    ProcessSpec {
         identity: ProcessIdentity {
             bin: "/bin/sh".to_string(),
-            key: "/bin/sh".to_string(),
+            key: "/bin/sh:".to_string(),
         },
-        args: vec!["-c".to_string(), format!("echo {msg}")],
+        args: vec!["-c".into(), format!("echo {msg}").into()],
         env: BTreeMap::new(),
         current_dir: None,
         props: None,
-        script: None,
     }
 }
 
