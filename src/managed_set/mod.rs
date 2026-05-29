@@ -3,7 +3,7 @@ pub use optative::*;
 #[cfg(test)]
 mod lifecycle_trace_tests {
     use optative::{Lifecycle, OptativeSet, Reconcile};
-    use tauler_lifecycle_derive::lifecycle_trace;
+    use optative_derive::lifecycle_trace;
 
     struct TraceSpec {
         id: String,

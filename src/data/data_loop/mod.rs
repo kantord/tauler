@@ -13,7 +13,7 @@ use std::time::Duration;
 
 use crate::managed_set::reconcile::ReconcileErrors;
 use crate::managed_set::{OptativeSet, Reconcile};
-use tauler_lifecycle_derive::Ephemeral;
+use optative_derive::Ephemeral;
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum StreamKind {
