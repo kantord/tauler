@@ -65,10 +65,7 @@ pub fn collect_window_titles_in_focus_order(node: &serde_json::Value, out: &mut 
 }
 
 /// Recursively collect workspace_name → window titles (focus order) from an i3 tree.
-pub fn collect_workspace_windows(
-    node: &serde_json::Value,
-    map: &mut HashMap<String, Vec<String>>,
-) {
+pub fn collect_workspace_windows(node: &serde_json::Value, map: &mut HashMap<String, Vec<String>>) {
     if node["type"].as_str() == Some("workspace") {
         let name = node["name"].as_str().unwrap_or("").to_string();
         let mut titles = Vec::new();
