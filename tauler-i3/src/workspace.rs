@@ -46,20 +46,19 @@ pub fn collect_window_titles_in_focus_order(node: &serde_json::Value, out: &mut 
     let mut visited = std::collections::HashSet::new();
 
     for id in &focus_ids {
-        if let Some(child) = children.iter().find(|c| c["id"].as_i64() == Some(*id)) {
-            if let Some(child_id) = child["id"].as_i64() {
-                if visited.insert(child_id) {
-                    collect_window_titles_in_focus_order(child, out);
-                }
-            }
+        if let Some(child) = children.iter().find(|c| c["id"].as_i64() == Some(*id))
+            && let Some(child_id) = child["id"].as_i64()
+            && visited.insert(child_id)
+        {
+            collect_window_titles_in_focus_order(child, out);
         }
     }
 
     for child in &children {
-        if let Some(child_id) = child["id"].as_i64() {
-            if visited.insert(child_id) {
-                collect_window_titles_in_focus_order(child, out);
-            }
+        if let Some(child_id) = child["id"].as_i64()
+            && visited.insert(child_id)
+        {
+            collect_window_titles_in_focus_order(child, out);
         }
     }
 }
