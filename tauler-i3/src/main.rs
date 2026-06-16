@@ -76,7 +76,7 @@ fn main() {
                         continue;
                     }
                 };
-                if i3_send(&mut sub, 2, b"[\"workspace\"]").is_err() {
+                if i3_send(&mut sub, 2, b"[\"workspace\", \"window\"]").is_err() {
                     continue;
                 }
                 if i3_recv(&mut sub).is_err() {
@@ -117,6 +117,11 @@ fn main() {
                 {
                     apply_bar_gap(&socket, init.dpi, init.bar_width, init.outer_gap);
                 }
+                if let Ok(ws) = fetch_workspaces(&socket, &init.output) {
+                    println!("{}", build_workspace_data(&ws));
+                }
+            }
+            ModuleEvent::I3(0x80000003, _) => {
                 if let Ok(ws) = fetch_workspaces(&socket, &init.output) {
                     println!("{}", build_workspace_data(&ws));
                 }
