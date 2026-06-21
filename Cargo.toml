@@ -41,7 +41,7 @@ anyhow = "1.0.102"
 serde_yaml = "0.9.34"
 tauler-ui-macro = { path = "tauler-ui-macro" }
 optative = "0.1.1"
-optative-process-pool = "0.0.3"
+optative-process-pool = "0.0.4"
 optative-derive = "0.0.1"
 takumi-incr = { path = "takumi-incr" }
 notify = "8.2.0"
