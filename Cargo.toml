@@ -20,7 +20,7 @@ strip = true
 [dependencies]
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
-rquickjs = { version = "0.11", features = ["loader"] }
+rquickjs = { version = "0.12.0", features = ["loader"] }
 rquickjs-serde = "0.5"
 oxc_transformer = "0.138.0"
 takumi = "1.2.1"
