@@ -12,7 +12,7 @@ anyhow = "1.0.103"
 image = "0.25.10"
 lru = "0.18.0"
 tracing = "0.1.44"
-parley = "0.9"
+parley = "0.11.0"
 serde = { version = "1.0.228", features = ["derive"] }
 
 [dev-dependencies]
