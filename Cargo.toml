@@ -36,7 +36,7 @@ oxc_allocator = "0.138.0"
 oxc_semantic = "0.138.0"
 oxc_span = "0.138.0"
 oxc_ast = "0.138.0"
-oxc_resolver = "11.21.3"
+oxc_resolver = "11.23.0"
 anyhow = "1.0.103"
 serde_yaml = "0.9.34"
 tauler-ui-macro = { path = "tauler-ui-macro" }
