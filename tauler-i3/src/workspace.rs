@@ -1,7 +1,4 @@
-use std::collections::HashMap;
-use std::time::Duration;
-
-use crate::ipc::{I3_IPC_TIMEOUT, connect_with_timeout, i3_recv, i3_send};
+use crate::ipc::I3Query;
 
 pub struct Workspace {
     pub name: String,
@@ -63,17 +60,84 @@ pub fn collect_window_titles_in_focus_order(node: &serde_json::Value, out: &mut 
     }
 }
 
-/// Recursively collect workspace_name → window titles (focus order) from an i3 tree.
-pub fn collect_workspace_windows(node: &serde_json::Value, map: &mut HashMap<String, Vec<String>>) {
+/// Query GET_TREE over the persistent i3 connection and build the workspace
+/// list from the reply alone — one request covers names, focus, urgency and
+/// window titles.
+pub fn fetch_workspaces(query: &mut I3Query, output: &str) -> std::io::Result<Vec<Workspace>> {
+    let (_, payload) = query.request(4, b"")?;
+    let tree: serde_json::Value = serde_json::from_slice(&payload).unwrap_or_default();
+    Ok(workspaces_from_tree(&tree, output))
+}
+
+/// Build the `Workspace` list from a GET_TREE reply alone, without a separate
+/// GET_WORKSPACES query. Workspaces are `"type": "workspace"` nodes found under
+/// `"type": "output"` nodes; internal (`__`-prefixed) workspaces are excluded;
+/// `output_filter` follows `workspace_matches_output` semantics; the focused
+/// workspace is derived from the root focus chain; window titles come in
+/// most-recently-focused order.
+pub fn workspaces_from_tree(tree: &serde_json::Value, output_filter: &str) -> Vec<Workspace> {
+    let focused_id = focused_workspace_id(tree);
+    let mut out = Vec::new();
+    collect_workspaces_from_tree(tree, "", output_filter, focused_id, &mut out);
+    out
+}
+
+/// Follow the root focus chain (`focus[0]` at each level) down to the first
+/// `"type": "workspace"` node and return its id. Returns `None` if the chain
+/// is broken (missing/empty `focus`, dangling id) before reaching a workspace.
+fn focused_workspace_id(tree: &serde_json::Value) -> Option<i64> {
+    let mut node = tree;
+    loop {
+        if node["type"].as_str() == Some("workspace") {
+            return node["id"].as_i64();
+        }
+        let target = node["focus"].as_array()?.first()?.as_i64()?;
+        node = node["nodes"]
+            .as_array()
+            .iter()
+            .flat_map(|a| a.iter())
+            .chain(
+                node["floating_nodes"]
+                    .as_array()
+                    .iter()
+                    .flat_map(|a| a.iter()),
+            )
+            .find(|c| c["id"].as_i64() == Some(target))?;
+    }
+}
+
+/// Recursive helper for `workspaces_from_tree`: walks the tree in document
+/// order, remembering the nearest ancestor output name, and appends matching
+/// non-internal workspace nodes to `out`.
+fn collect_workspaces_from_tree(
+    node: &serde_json::Value,
+    output_name: &str,
+    output_filter: &str,
+    focused_id: Option<i64>,
+    out: &mut Vec<Workspace>,
+) {
     if node["type"].as_str() == Some("workspace") {
         let name = node["name"].as_str().unwrap_or("").to_string();
-        let mut titles = Vec::new();
-        collect_window_titles_in_focus_order(node, &mut titles);
-        if !titles.is_empty() {
-            map.insert(name, titles);
+        if name.starts_with("__") || !workspace_matches_output(output_name, output_filter) {
+            return;
         }
+        let mut focused_windows = Vec::new();
+        collect_window_titles_in_focus_order(node, &mut focused_windows);
+        out.push(Workspace {
+            name,
+            focused: focused_id.is_some() && node["id"].as_i64() == focused_id,
+            urgent: node["urgent"].as_bool().unwrap_or(false),
+            focused_windows,
+        });
         return;
     }
+
+    let output_name = if node["type"].as_str() == Some("output") {
+        node["name"].as_str().unwrap_or("")
+    } else {
+        output_name
+    };
+
     for child in node["nodes"]
         .as_array()
         .iter()
@@ -85,58 +149,8 @@ pub fn collect_workspace_windows(node: &serde_json::Value, map: &mut HashMap<Str
                 .flat_map(|a| a.iter()),
         )
     {
-        collect_workspace_windows(child, map);
+        collect_workspaces_from_tree(child, output_name, output_filter, focused_id, out);
     }
-}
-
-/// Query GET_TREE and return a map of workspace name → window titles in
-/// focus order, giving up with an `Err` if the i3 socket does not reply
-/// within `timeout` instead of blocking forever.
-pub fn fetch_tree_window_titles_with_timeout(
-    socket: &str,
-    timeout: Duration,
-) -> std::io::Result<HashMap<String, Vec<String>>> {
-    let mut s = connect_with_timeout(socket, timeout)?;
-    i3_send(&mut s, 4, b"")?;
-    let (_, payload) = i3_recv(&mut s)?;
-    let tree: serde_json::Value = serde_json::from_slice(&payload).unwrap_or_default();
-    let mut map = HashMap::new();
-    collect_workspace_windows(&tree, &mut map);
-    Ok(map)
-}
-
-pub fn fetch_workspaces(socket: &str, output: &str) -> std::io::Result<Vec<Workspace>> {
-    fetch_workspaces_with_timeout(socket, output, I3_IPC_TIMEOUT)
-}
-
-/// Like `fetch_workspaces`, but gives up with an `Err` if the i3 socket does
-/// not reply within `timeout` instead of blocking forever.
-pub fn fetch_workspaces_with_timeout(
-    socket: &str,
-    output: &str,
-    timeout: Duration,
-) -> std::io::Result<Vec<Workspace>> {
-    let mut s = connect_with_timeout(socket, timeout)?;
-    i3_send(&mut s, 1, b"")?;
-    let (_, payload) = i3_recv(&mut s)?;
-    let arr: Vec<serde_json::Value> = serde_json::from_slice(&payload).unwrap_or_default();
-
-    let window_titles = fetch_tree_window_titles_with_timeout(socket, timeout).unwrap_or_default();
-
-    Ok(arr
-        .iter()
-        .filter(|w| workspace_matches_output(w["output"].as_str().unwrap_or(""), output))
-        .map(|w| {
-            let name = w["name"].as_str().unwrap_or("?").to_string();
-            let focused_windows = window_titles.get(&name).cloned().unwrap_or_default();
-            Workspace {
-                name,
-                focused: w["focused"].as_bool().unwrap_or(false),
-                urgent: w["urgent"].as_bool().unwrap_or(false),
-                focused_windows,
-            }
-        })
-        .collect())
 }
 
 pub fn build_workspace_data(workspaces: &[Workspace]) -> serde_json::Value {
@@ -220,31 +234,6 @@ mod tests {
     }
 
     #[test]
-    fn collect_workspace_windows_extracts_all_titles_in_order() {
-        let tree = json!({
-            "id": 1, "type": "root", "window": null, "focus": [],
-            "nodes": [{
-                "id": 2, "type": "output", "window": null, "focus": [3],
-                "nodes": [{
-                    "id": 3, "type": "workspace", "name": "1: myenv",
-                    "window": null, "focus": [4, 5],
-                    "nodes": [
-                        { "id": 4, "window": 99, "name": "nvim", "nodes": [], "floating_nodes": [], "focus": [] },
-                        { "id": 5, "window": 100, "name": "kitty", "nodes": [], "floating_nodes": [], "focus": [] }
-                    ],
-                    "floating_nodes": []
-                }],
-                "floating_nodes": []
-            }],
-            "floating_nodes": []
-        });
-        let mut map = HashMap::new();
-        collect_workspace_windows(&tree, &mut map);
-        let titles = map.get("1: myenv").unwrap();
-        assert_eq!(titles, &vec!["nvim", "kitty"]);
-    }
-
-    #[test]
     fn build_workspace_data_includes_focused_windows_array() {
         let ws = vec![Workspace {
             name: "1".into(),
@@ -289,14 +278,15 @@ mod tests {
         let (tx, rx) = mpsc::channel();
         let start = Instant::now();
         std::thread::spawn(move || {
-            let res = fetch_workspaces_with_timeout(&socket, "", Duration::from_millis(200));
+            let mut query = I3Query::new(socket, Duration::from_millis(200));
+            let res = fetch_workspaces(&mut query, "");
             let _ = tx.send(res.map(|_| ()));
         });
 
         // Guard: if the implementation blocks forever, fail instead of hanging.
         let result = rx
             .recv_timeout(Duration::from_secs(5))
-            .expect("fetch_workspaces_with_timeout hung: no result within 5s");
+            .expect("fetch_workspaces hung: no result within 5s");
         let elapsed = start.elapsed();
 
         assert!(
@@ -309,6 +299,161 @@ mod tests {
         );
 
         let _ = std::fs::remove_file(&sock_path);
+    }
+
+    /// Minimal but realistic GET_TREE reply:
+    /// root → outputs "DP-1" and "__i3".
+    /// DP-1 → content con → workspaces "1: web" (globally focused via the
+    /// root focus chain, two windows with kitty most recently focused) and
+    /// "2: term" (urgent, no windows).
+    /// __i3 → content con → workspace "__i3_scratch" (internal, must be hidden).
+    fn sample_tree() -> serde_json::Value {
+        json!({
+            "id": 1, "type": "root", "name": "root", "window": null,
+            "focus": [2],
+            "nodes": [
+                {
+                    "id": 2, "type": "output", "name": "DP-1", "window": null,
+                    "focus": [3],
+                    "nodes": [
+                        {
+                            "id": 3, "type": "con", "name": "content", "window": null,
+                            "focus": [4],
+                            "nodes": [
+                                {
+                                    "id": 4, "type": "workspace", "name": "1: web",
+                                    "window": null, "urgent": false,
+                                    "focus": [7, 6],
+                                    "nodes": [
+                                        { "id": 6, "type": "con", "window": 601, "name": "firefox",
+                                          "focus": [], "nodes": [], "floating_nodes": [] },
+                                        { "id": 7, "type": "con", "window": 602, "name": "kitty",
+                                          "focus": [], "nodes": [], "floating_nodes": [] }
+                                    ],
+                                    "floating_nodes": []
+                                },
+                                {
+                                    "id": 5, "type": "workspace", "name": "2: term",
+                                    "window": null, "urgent": true,
+                                    "focus": [], "nodes": [], "floating_nodes": []
+                                }
+                            ],
+                            "floating_nodes": []
+                        }
+                    ],
+                    "floating_nodes": []
+                },
+                {
+                    "id": 100, "type": "output", "name": "__i3", "window": null,
+                    "focus": [101],
+                    "nodes": [
+                        {
+                            "id": 101, "type": "con", "name": "content", "window": null,
+                            "focus": [102],
+                            "nodes": [
+                                {
+                                    "id": 102, "type": "workspace", "name": "__i3_scratch",
+                                    "window": null, "urgent": false,
+                                    "focus": [], "nodes": [], "floating_nodes": []
+                                }
+                            ],
+                            "floating_nodes": []
+                        }
+                    ],
+                    "floating_nodes": []
+                }
+            ],
+            "floating_nodes": []
+        })
+    }
+
+    #[test]
+    fn workspaces_from_tree_returns_names_in_tree_order_with_empty_filter() {
+        let tree = sample_tree();
+        let ws = workspaces_from_tree(&tree, "");
+        let names: Vec<&str> = ws.iter().map(|w| w.name.as_str()).collect();
+        assert_eq!(names, vec!["1: web", "2: term"]);
+    }
+
+    #[test]
+    fn workspaces_from_tree_filters_by_output_name() {
+        let tree = sample_tree();
+
+        let matching = workspaces_from_tree(&tree, "DP-1");
+        let names: Vec<&str> = matching.iter().map(|w| w.name.as_str()).collect();
+        assert_eq!(names, vec!["1: web", "2: term"]);
+
+        let non_matching = workspaces_from_tree(&tree, "HDMI-0");
+        assert!(
+            non_matching.is_empty(),
+            "expected no workspaces for unknown output, got {:?}",
+            non_matching.iter().map(|w| &w.name).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn workspaces_from_tree_marks_only_focus_chain_workspace_focused() {
+        let tree = sample_tree();
+        let ws = workspaces_from_tree(&tree, "");
+        let focused: Vec<&str> = ws
+            .iter()
+            .filter(|w| w.focused)
+            .map(|w| w.name.as_str())
+            .collect();
+        assert_eq!(focused, vec!["1: web"]);
+    }
+
+    #[test]
+    fn workspaces_from_tree_propagates_urgent_flag() {
+        let tree = sample_tree();
+        let ws = workspaces_from_tree(&tree, "");
+        let urgent: Vec<(&str, bool)> = ws
+            .iter()
+            .map(|w| (w.name.as_str(), w.urgent))
+            .collect();
+        assert_eq!(urgent, vec![("1: web", false), ("2: term", true)]);
+    }
+
+    #[test]
+    fn workspaces_from_tree_collects_window_titles_in_focus_order() {
+        let tree = sample_tree();
+        let ws = workspaces_from_tree(&tree, "");
+        let web = ws
+            .iter()
+            .find(|w| w.name == "1: web")
+            .expect("workspace '1: web' missing");
+        // Workspace focus chain is [7, 6] → kitty was focused more recently.
+        assert_eq!(web.focused_windows, vec!["kitty", "firefox"]);
+    }
+
+    #[test]
+    fn workspaces_from_tree_windowless_workspace_has_no_focused_windows() {
+        let tree = sample_tree();
+        let ws = workspaces_from_tree(&tree, "");
+        let term = ws
+            .iter()
+            .find(|w| w.name == "2: term")
+            .expect("workspace '2: term' missing");
+        assert!(term.focused_windows.is_empty());
+    }
+
+    #[test]
+    fn workspaces_from_tree_excludes_internal_workspaces() {
+        let tree = sample_tree();
+
+        // Internal workspaces never appear, even with a matching filter.
+        let scoped = workspaces_from_tree(&tree, "__i3");
+        assert!(
+            scoped.is_empty(),
+            "expected __i3_scratch to be hidden, got {:?}",
+            scoped.iter().map(|w| &w.name).collect::<Vec<_>>()
+        );
+
+        // With an empty filter the regular workspaces are present but no
+        // __-prefixed workspace leaks through.
+        let all = workspaces_from_tree(&tree, "");
+        assert!(!all.is_empty(), "expected non-internal workspaces to appear");
+        assert!(all.iter().all(|w| !w.name.starts_with("__")));
     }
 
     #[test]

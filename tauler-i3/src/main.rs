@@ -35,6 +35,9 @@ fn main() {
     };
 
     let socket = i3_socket_path();
+    // One persistent request/reply connection for all queries and commands;
+    // reconnects transparently on error or timeout.
+    let mut query = ipc::I3Query::new(socket.clone(), ipc::I3_IPC_TIMEOUT);
     let (event_tx, event_rx) = mpsc::channel::<ModuleEvent>();
 
     // Thread: forward stdin lines as Stdin events. When stdin closes the
@@ -57,9 +60,9 @@ fn main() {
     }
 
     // Emit initial workspace state
-    if let Ok(ws) = fetch_workspaces(&socket, &init.output) {
+    if let Ok(ws) = fetch_workspaces(&mut query, &init.output) {
         if should_apply_bar_gap(&init.output) && ws.iter().any(|w| w.focused) {
-            apply_bar_gap(&socket, init.dpi, init.bar_width, init.outer_gap);
+            apply_bar_gap(&mut query, init.dpi, init.bar_width, init.outer_gap);
         }
         println!("{}", build_workspace_data(&ws));
     }
@@ -131,7 +134,7 @@ fn main() {
                         && should_apply_bar_gap(&init.output)
                         && ev["current"]["output"].as_str() == Some(init.output.as_str())
                     {
-                        apply_bar_gap(&socket, init.dpi, init.bar_width, init.outer_gap);
+                        apply_bar_gap(&mut query, init.dpi, init.bar_width, init.outer_gap);
                     }
                     refresh = true;
                 }
@@ -142,13 +145,13 @@ fn main() {
                 ModuleEvent::Stdin(val) => {
                     tracing::debug!(event = %val, "stdin event");
                     if let Some(name) = parse_click_event(&val) {
-                        ipc::switch_workspace(&socket, &name);
+                        ipc::switch_workspace(&mut query, &name);
                     }
                 }
             }
         }
         if refresh {
-            match fetch_workspaces(&socket, &init.output) {
+            match fetch_workspaces(&mut query, &init.output) {
                 Ok(ws) => println!("{}", build_workspace_data(&ws)),
                 Err(e) => tracing::warn!(error = %e, "fetch_workspaces failed, skipping refresh"),
             }
