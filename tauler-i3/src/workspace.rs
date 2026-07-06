@@ -407,10 +407,7 @@ mod tests {
     fn workspaces_from_tree_propagates_urgent_flag() {
         let tree = sample_tree();
         let ws = workspaces_from_tree(&tree, "");
-        let urgent: Vec<(&str, bool)> = ws
-            .iter()
-            .map(|w| (w.name.as_str(), w.urgent))
-            .collect();
+        let urgent: Vec<(&str, bool)> = ws.iter().map(|w| (w.name.as_str(), w.urgent)).collect();
         assert_eq!(urgent, vec![("1: web", false), ("2: term", true)]);
     }
 
@@ -452,7 +449,10 @@ mod tests {
         // With an empty filter the regular workspaces are present but no
         // __-prefixed workspace leaks through.
         let all = workspaces_from_tree(&tree, "");
-        assert!(!all.is_empty(), "expected non-internal workspaces to appear");
+        assert!(
+            !all.is_empty(),
+            "expected non-internal workspaces to appear"
+        );
         assert!(all.iter().all(|w| !w.name.starts_with("__")));
     }
 

@@ -152,7 +152,7 @@ mod tests {
     use super::*;
     use std::os::unix::net::UnixListener;
     use std::sync::atomic::{AtomicUsize, Ordering};
-    use std::sync::{mpsc, Arc};
+    use std::sync::{Arc, mpsc};
     use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
     /// Unique socket path under the system temp dir.
