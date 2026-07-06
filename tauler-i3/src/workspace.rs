@@ -1,7 +1,7 @@
 use std::collections::HashMap;
-use std::os::unix::net::UnixStream;
+use std::time::Duration;
 
-use crate::ipc::{i3_recv, i3_send};
+use crate::ipc::{I3_IPC_TIMEOUT, connect_with_timeout, i3_recv, i3_send};
 
 pub struct Workspace {
     pub name: String,
@@ -89,9 +89,14 @@ pub fn collect_workspace_windows(node: &serde_json::Value, map: &mut HashMap<Str
     }
 }
 
-/// Query GET_TREE and return a map of workspace name → window titles in focus order.
-pub fn fetch_tree_window_titles(socket: &str) -> std::io::Result<HashMap<String, Vec<String>>> {
-    let mut s = UnixStream::connect(socket)?;
+/// Query GET_TREE and return a map of workspace name → window titles in
+/// focus order, giving up with an `Err` if the i3 socket does not reply
+/// within `timeout` instead of blocking forever.
+pub fn fetch_tree_window_titles_with_timeout(
+    socket: &str,
+    timeout: Duration,
+) -> std::io::Result<HashMap<String, Vec<String>>> {
+    let mut s = connect_with_timeout(socket, timeout)?;
     i3_send(&mut s, 4, b"")?;
     let (_, payload) = i3_recv(&mut s)?;
     let tree: serde_json::Value = serde_json::from_slice(&payload).unwrap_or_default();
@@ -101,12 +106,22 @@ pub fn fetch_tree_window_titles(socket: &str) -> std::io::Result<HashMap<String,
 }
 
 pub fn fetch_workspaces(socket: &str, output: &str) -> std::io::Result<Vec<Workspace>> {
-    let mut s = UnixStream::connect(socket)?;
+    fetch_workspaces_with_timeout(socket, output, I3_IPC_TIMEOUT)
+}
+
+/// Like `fetch_workspaces`, but gives up with an `Err` if the i3 socket does
+/// not reply within `timeout` instead of blocking forever.
+pub fn fetch_workspaces_with_timeout(
+    socket: &str,
+    output: &str,
+    timeout: Duration,
+) -> std::io::Result<Vec<Workspace>> {
+    let mut s = connect_with_timeout(socket, timeout)?;
     i3_send(&mut s, 1, b"")?;
     let (_, payload) = i3_recv(&mut s)?;
     let arr: Vec<serde_json::Value> = serde_json::from_slice(&payload).unwrap_or_default();
 
-    let window_titles = fetch_tree_window_titles(socket).unwrap_or_default();
+    let window_titles = fetch_tree_window_titles_with_timeout(socket, timeout).unwrap_or_default();
 
     Ok(arr
         .iter()
@@ -242,6 +257,58 @@ mod tests {
         assert_eq!(wins[0], "nvim");
         assert_eq!(wins[1], "kitty");
         assert_eq!(wins[2], "firefox");
+    }
+
+    #[test]
+    fn fetch_workspaces_with_timeout_errors_when_server_never_replies() {
+        use std::os::unix::net::UnixListener;
+        use std::sync::mpsc;
+        use std::time::{Duration, Instant};
+
+        let sock_path = std::env::temp_dir().join(format!(
+            "tauler-i3-test-noreply-{}.sock",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_file(&sock_path);
+        let listener = UnixListener::bind(&sock_path).unwrap();
+
+        // Server that accepts connections and reads the request, but never replies.
+        std::thread::spawn(move || {
+            for stream in listener.incoming() {
+                let Ok(mut s) = stream else { break };
+                std::thread::spawn(move || {
+                    let mut buf = [0u8; 64];
+                    let _ = std::io::Read::read(&mut s, &mut buf);
+                    // Hold the connection open without ever writing a reply.
+                    std::thread::sleep(Duration::from_secs(60));
+                });
+            }
+        });
+
+        let socket = sock_path.to_str().unwrap().to_string();
+        let (tx, rx) = mpsc::channel();
+        let start = Instant::now();
+        std::thread::spawn(move || {
+            let res = fetch_workspaces_with_timeout(&socket, "", Duration::from_millis(200));
+            let _ = tx.send(res.map(|_| ()));
+        });
+
+        // Guard: if the implementation blocks forever, fail instead of hanging.
+        let result = rx
+            .recv_timeout(Duration::from_secs(5))
+            .expect("fetch_workspaces_with_timeout hung: no result within 5s");
+        let elapsed = start.elapsed();
+
+        assert!(
+            result.is_err(),
+            "expected Err from a server that never replies, got Ok"
+        );
+        assert!(
+            elapsed < Duration::from_secs(3),
+            "expected bounded return, took {elapsed:?}"
+        );
+
+        let _ = std::fs::remove_file(&sock_path);
     }
 
     #[test]

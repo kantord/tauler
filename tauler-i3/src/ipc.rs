@@ -3,6 +3,21 @@ use std::os::unix::net::UnixStream;
 
 pub const I3_MAGIC: &[u8; 6] = b"i3-ipc";
 
+/// Default timeout for request/reply i3 IPC queries.
+pub const I3_IPC_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
+
+/// Connect to the i3 socket with read/write timeouts so a wedged server
+/// cannot block the caller forever.
+pub fn connect_with_timeout(
+    socket: &str,
+    timeout: std::time::Duration,
+) -> std::io::Result<UnixStream> {
+    let s = UnixStream::connect(socket)?;
+    s.set_read_timeout(Some(timeout))?;
+    s.set_write_timeout(Some(timeout))?;
+    Ok(s)
+}
+
 pub fn i3_send(s: &mut UnixStream, msg_type: u32, payload: &[u8]) -> std::io::Result<()> {
     s.write_all(I3_MAGIC)?;
     s.write_all(&(payload.len() as u32).to_le_bytes())?;
@@ -65,7 +80,7 @@ pub fn should_apply_bar_gap(output: &str) -> bool {
 }
 
 pub fn apply_bar_gap(socket: &str, dpi: f32, bar_width: u32, outer_gap: u32) {
-    if let Ok(mut s) = UnixStream::connect(socket) {
+    if let Ok(mut s) = connect_with_timeout(socket, I3_IPC_TIMEOUT) {
         let cmd = bar_gap_command(dpi, bar_width, outer_gap);
         let _ = i3_send(&mut s, 0, cmd.as_bytes());
         let _ = i3_recv(&mut s);
@@ -74,7 +89,7 @@ pub fn apply_bar_gap(socket: &str, dpi: f32, bar_width: u32, outer_gap: u32) {
 
 pub fn switch_workspace(socket: &str, name: &str) {
     tracing::debug!(name, socket, "switch_workspace");
-    match UnixStream::connect(socket) {
+    match connect_with_timeout(socket, I3_IPC_TIMEOUT) {
         Ok(mut s) => {
             let escaped = name.replace('"', "\\\"");
             let cmd = format!("workspace \"{}\"", escaped);
