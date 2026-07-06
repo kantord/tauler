@@ -35,9 +35,14 @@ fn main() {
     };
 
     let socket = i3_socket_path();
+    // One persistent request/reply connection for all queries and commands;
+    // reconnects transparently on error or timeout.
+    let mut query = ipc::I3Query::new(socket.clone(), ipc::I3_IPC_TIMEOUT);
     let (event_tx, event_rx) = mpsc::channel::<ModuleEvent>();
 
-    // Thread: forward stdin lines as Stdin events
+    // Thread: forward stdin lines as Stdin events. When stdin closes the
+    // parent is gone, so exit outright — other threads may be blocked in
+    // reads and would otherwise keep an orphaned process alive forever.
     {
         let event_tx = event_tx.clone();
         thread::spawn(move || {
@@ -50,13 +55,14 @@ fn main() {
                     break;
                 }
             }
+            std::process::exit(0);
         });
     }
 
     // Emit initial workspace state
-    if let Ok(ws) = fetch_workspaces(&socket, &init.output) {
+    if let Ok(ws) = fetch_workspaces(&mut query, &init.output) {
         if should_apply_bar_gap(&init.output) && ws.iter().any(|w| w.focused) {
-            apply_bar_gap(&socket, init.dpi, init.bar_width, init.outer_gap);
+            apply_bar_gap(&mut query, init.dpi, init.bar_width, init.outer_gap);
         }
         println!("{}", build_workspace_data(&ws));
     }
@@ -68,7 +74,9 @@ fn main() {
         let socket_clone = socket.clone();
         thread::spawn(move || {
             loop {
-                let mut sub = match std::os::unix::net::UnixStream::connect(&socket_clone) {
+                // Timeout covers the subscribe handshake; cleared afterwards
+                // because events may legitimately be hours apart.
+                let mut sub = match ipc::connect_with_timeout(&socket_clone, ipc::I3_IPC_TIMEOUT) {
                     Ok(s) => s,
                     Err(e) => {
                         tracing::warn!(error = %e, "failed to connect to i3 socket, retrying in 1s");
@@ -80,6 +88,9 @@ fn main() {
                     continue;
                 }
                 if i3_recv(&mut sub).is_err() {
+                    continue;
+                }
+                if sub.set_read_timeout(None).is_err() {
                     continue;
                 }
                 tracing::info!("i3 subscription connected");
@@ -107,31 +118,42 @@ fn main() {
         });
     }
 
-    // Main event loop
+    // Main event loop. Bursts of i3 events (window title/focus changes fire
+    // constantly) are coalesced into a single workspace fetch per batch to
+    // keep IPC connection churn low.
     while let Ok(event) = event_rx.recv() {
-        match event {
-            ModuleEvent::I3(0x80000000, payload) => {
-                if let Ok(ev) = serde_json::from_slice::<serde_json::Value>(&payload)
-                    && should_apply_bar_gap(&init.output)
-                    && ev["current"]["output"].as_str() == Some(init.output.as_str())
-                {
-                    apply_bar_gap(&socket, init.dpi, init.bar_width, init.outer_gap);
+        let mut batch = vec![event];
+        while let Ok(ev) = event_rx.try_recv() {
+            batch.push(ev);
+        }
+        let mut refresh = false;
+        for event in batch {
+            match event {
+                ModuleEvent::I3(0x80000000, payload) => {
+                    if let Ok(ev) = serde_json::from_slice::<serde_json::Value>(&payload)
+                        && should_apply_bar_gap(&init.output)
+                        && ev["current"]["output"].as_str() == Some(init.output.as_str())
+                    {
+                        apply_bar_gap(&mut query, init.dpi, init.bar_width, init.outer_gap);
+                    }
+                    refresh = true;
                 }
-                if let Ok(ws) = fetch_workspaces(&socket, &init.output) {
-                    println!("{}", build_workspace_data(&ws));
+                ModuleEvent::I3(0x80000003, _) => {
+                    refresh = true;
+                }
+                ModuleEvent::I3(_, _) => {}
+                ModuleEvent::Stdin(val) => {
+                    tracing::debug!(event = %val, "stdin event");
+                    if let Some(name) = parse_click_event(&val) {
+                        ipc::switch_workspace(&mut query, &name);
+                    }
                 }
             }
-            ModuleEvent::I3(0x80000003, _) => {
-                if let Ok(ws) = fetch_workspaces(&socket, &init.output) {
-                    println!("{}", build_workspace_data(&ws));
-                }
-            }
-            ModuleEvent::I3(_, _) => {}
-            ModuleEvent::Stdin(val) => {
-                tracing::debug!(event = %val, "stdin event");
-                if let Some(name) = parse_click_event(&val) {
-                    ipc::switch_workspace(&socket, &name);
-                }
+        }
+        if refresh {
+            match fetch_workspaces(&mut query, &init.output) {
+                Ok(ws) => println!("{}", build_workspace_data(&ws)),
+                Err(e) => tracing::warn!(error = %e, "fetch_workspaces failed, skipping refresh"),
             }
         }
     }
