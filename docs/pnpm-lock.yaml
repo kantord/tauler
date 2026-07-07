@@ -12,14 +12,14 @@ importers:
         specifier: ^3.1.18
         version: 3.1.18
       fumadocs-core:
-        specifier: 16.10.7
-        version: 16.10.7(@mdx-js/mdx@3.1.1)(@types/estree-jsx@1.0.5)(@types/hast@3.0.4)(@types/mdast@4.0.4)(@types/react@19.2.17)(lucide-react@1.23.0(react@19.2.7))(next@16.2.10(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(zod@4.4.3)
+        specifier: 16.11.1
+        version: 16.11.1(@mdx-js/mdx@3.1.1)(@types/estree-jsx@1.0.5)(@types/hast@3.0.4)(@types/mdast@4.0.4)(@types/react@19.2.17)(lucide-react@1.23.0(react@19.2.7))(next@16.2.10(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(zod@4.4.3)
       fumadocs-mdx:
         specifier: 15.0.13
-        version: 15.0.13(@types/mdast@4.0.4)(@types/mdx@2.0.14)(@types/react@19.2.17)(fumadocs-core@16.10.7(@mdx-js/mdx@3.1.1)(@types/estree-jsx@1.0.5)(@types/hast@3.0.4)(@types/mdast@4.0.4)(@types/react@19.2.17)(lucide-react@1.23.0(react@19.2.7))(next@16.2.10(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(zod@4.4.3))(next@16.2.10(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(react@19.2.7)
+        version: 15.0.13(@types/mdast@4.0.4)(@types/mdx@2.0.14)(@types/react@19.2.17)(fumadocs-core@16.11.1(@mdx-js/mdx@3.1.1)(@types/estree-jsx@1.0.5)(@types/hast@3.0.4)(@types/mdast@4.0.4)(@types/react@19.2.17)(lucide-react@1.23.0(react@19.2.7))(next@16.2.10(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(zod@4.4.3))(next@16.2.10(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(react@19.2.7)
       fumadocs-ui:
         specifier: 16.10.7
-        version: 16.10.7(@tailwindcss/oxide@4.3.2)(@types/mdx@2.0.14)(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(fumadocs-core@16.10.7(@mdx-js/mdx@3.1.1)(@types/estree-jsx@1.0.5)(@types/hast@3.0.4)(@types/mdast@4.0.4)(@types/react@19.2.17)(lucide-react@1.23.0(react@19.2.7))(next@16.2.10(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(zod@4.4.3))(next@16.2.10(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(tailwindcss@4.3.2)
+        version: 16.10.7(@tailwindcss/oxide@4.3.2)(@types/mdx@2.0.14)(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(fumadocs-core@16.11.1(@mdx-js/mdx@3.1.1)(@types/estree-jsx@1.0.5)(@types/hast@3.0.4)(@types/mdast@4.0.4)(@types/react@19.2.17)(lucide-react@1.23.0(react@19.2.7))(next@16.2.10(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(zod@4.4.3))(next@16.2.10(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(tailwindcss@4.3.2)
       lucide-react:
         specifier: ^1.14.0
         version: 1.23.0(react@19.2.7)
@@ -916,28 +916,56 @@ packages:
     resolution: {integrity: sha512-Hc87Ab1Ld/vEbZRCbwx344I5v+4RU8CVToUTRkqXL1+TjbuOp9U5Xa0M23V4GEWHxVn+yO5otb+HkQVm3ptWQQ==}
     engines: {node: '>=20'}
 
+  '@shikijs/core@4.3.1':
+    resolution: {integrity: sha512-ANMDxuaPsNMdDC1m4vfvhlDmJweMwkE5XitTwrq2rWHx5jM+dlm4MmHt2PP6t0uejfR77SuhrhJ0zEijIF/uhA==}
+    engines: {node: '>=20'}
+
   '@shikijs/engine-javascript@4.2.0':
     resolution: {integrity: sha512-fjETeq1k5ffyXqRgS6+3hpvqseLalp1kjNfRbXpUgWR8FpZ1CmQfiNHovc5lncYjt/Vg5JK/WJEmLahjwMa0og==}
+    engines: {node: '>=20'}
+
+  '@shikijs/engine-javascript@4.3.1':
+    resolution: {integrity: sha512-JBItcnPuYq7jVJdZo/vMj94r+szT7XEjHFX+mvFDGSEIbVAXAGyHAHzhbWzpGOwYidCZrErJLLgn2PVeiokHnQ==}
     engines: {node: '>=20'}
 
   '@shikijs/engine-oniguruma@4.2.0':
     resolution: {integrity: sha512-hTorK1dffPkpbMUk6Z+828PgRo7d07HbnizoP0hNPFjhxMHctj0Px/qoHeGMYafc6ju+u9iMldN4JbVzNQM++g==}
     engines: {node: '>=20'}
 
+  '@shikijs/engine-oniguruma@4.3.1':
+    resolution: {integrity: sha512-OXyNMzg0pews+msMj4cHeqT4xiYKKvbnn6VbdAXxfoFl3SSx4fJTc8FadECuc5/H9p3BzhNAoAUXKwAu9rWYhg==}
+    engines: {node: '>=20'}
+
   '@shikijs/langs@4.2.0':
     resolution: {integrity: sha512-bwrVRlJ0wUhZxAbVdvBbv2TTC9yLsh4C/IO5Ofz0T8MQntgDvyVnkbjw9vi50r1kx7RCIJdnJnjZAwmAsXFLZQ==}
+    engines: {node: '>=20'}
+
+  '@shikijs/langs@4.3.1':
+    resolution: {integrity: sha512-m0l9nsDqgBHvbZbk7A0/kXz/impK3uB/c6rAn6Gpg/uPtdZRQ+alsN/17MU5thb68XTj/4DxkZAotrM0GGSpDQ==}
     engines: {node: '>=20'}
 
   '@shikijs/primitive@4.2.0':
     resolution: {integrity: sha512-NOq+DtUkVBJtZMVXL5A0vI0Xk8nvDYaXetFHSJFlOqjDZIVhIPRYFdGkSoElDqNuegikcc3A76SNUa8dTqtAYA==}
     engines: {node: '>=20'}
 
+  '@shikijs/primitive@4.3.1':
+    resolution: {integrity: sha512-CXQRQOYy1leqQ8ceTeJdmXv/bsUY++6QyLpXJ94LZAAYj5X2SKRdc5ipguv4NPyGVKItB2PPwUpRNe0Sjh5S1A==}
+    engines: {node: '>=20'}
+
   '@shikijs/themes@4.2.0':
     resolution: {integrity: sha512-RX8IHYeLv8Cu2W6ruc3RxUqWn0IYCqSrMBzi/uRGAmfyDNOnNO5BF/Px7o97n4XTpmFTo5GbRaazuOWj+2ak2w==}
     engines: {node: '>=20'}
 
+  '@shikijs/themes@4.3.1':
+    resolution: {integrity: sha512-dgpoJ4WqNi2yTmizQHBJ5zcX6j2lE6icN/0yt4l1kkf16jrY/pwPLoTb1ETsWMz0OBLf9ZNvwmxft+cH+N9qSA==}
+    engines: {node: '>=20'}
+
   '@shikijs/types@4.2.0':
     resolution: {integrity: sha512-VT/MKtlpOhEPZloSH3Pb9WCZEBDoQVMa9jedp5UAwmJOar1DVc9DRODAxmYPW9M93IK4ryuqRejFfmlvlVDemw==}
+    engines: {node: '>=20'}
+
+  '@shikijs/types@4.3.1':
+    resolution: {integrity: sha512-CHFxE0jztBIZRHH6gxXE7DXUCFXjReEGxZ/j0rfSLGKZuwp2xBYycEP14875DSa9KLL/6700oxIq6oO6ef9K2g==}
     engines: {node: '>=20'}
 
   '@shikijs/vscode-textmate@10.0.2':
@@ -1388,8 +1416,8 @@ packages:
       react-dom:
         optional: true
 
-  fumadocs-core@16.10.7:
-    resolution: {integrity: sha512-lR1hDOtJ8ubsLKYH2VMkp+iVZTDdOiMh4StFaWtuTvy8Wfnngz0YSHeFijmm2K+4lg2DLXLMuCEHQ6my54g2Eg==}
+  fumadocs-core@16.11.1:
+    resolution: {integrity: sha512-tKuh1AKoVTb+f7IoAOM2cfz5djd3YhePeqA95q6mf422gEvDTeJms23OJ+icYRWZ6ryNQ5W/ZsgKEe87M5HVYg==}
     peerDependencies:
       '@mdx-js/mdx': '*'
       '@mixedbread/sdk': 0.x.x
@@ -1602,6 +1630,10 @@ packages:
 
   js-yaml@5.1.0:
     resolution: {integrity: sha512-s8VA5jkR8f22S3NAXmhKPFqGUduqZGlsufabVOgN14iTdw/RXcym7bKkbwjxLK9Yw2lEvvmJjFp119+KPeo8Kg==}
+    hasBin: true
+
+  js-yaml@5.2.1:
+    resolution: {integrity: sha512-zfLtNfQqxVqq3uaTqSkh4x4hZw3KHobGUA0fJUj4wawW8bsQLTVqpHdXSIzidh7o+4lEW36tANuAGdaFx6Zgnw==}
     hasBin: true
 
   json-schema-traverse@1.0.0:
@@ -2136,6 +2168,10 @@ packages:
 
   shiki@4.2.0:
     resolution: {integrity: sha512-hjNax6o/ylDy9lefQEaSDtzaT3iVNtZ3WmpQnbuQNoG4xvnSKf2kSKbihZVO4JRG1TTMejs7CmNRYlWgAL66pQ==}
+    engines: {node: '>=20'}
+
+  shiki@4.3.1:
+    resolution: {integrity: sha512-oR+qDVi2OjX1tmDpyv+3KviX01KzO6Af+0NNnKnsp9491UEGz2YpxTuJboS/6VhYpTdqzmuJBuiTlrAWWJAssw==}
     engines: {node: '>=20'}
 
   signal-exit@3.0.7:
@@ -3004,9 +3040,23 @@ snapshots:
       '@types/hast': 3.0.4
       hast-util-to-html: 9.0.5
 
+  '@shikijs/core@4.3.1':
+    dependencies:
+      '@shikijs/primitive': 4.3.1
+      '@shikijs/types': 4.3.1
+      '@shikijs/vscode-textmate': 10.0.2
+      '@types/hast': 3.0.4
+      hast-util-to-html: 9.0.5
+
   '@shikijs/engine-javascript@4.2.0':
     dependencies:
       '@shikijs/types': 4.2.0
+      '@shikijs/vscode-textmate': 10.0.2
+      oniguruma-to-es: 4.3.6
+
+  '@shikijs/engine-javascript@4.3.1':
+    dependencies:
+      '@shikijs/types': 4.3.1
       '@shikijs/vscode-textmate': 10.0.2
       oniguruma-to-es: 4.3.6
 
@@ -3015,9 +3065,18 @@ snapshots:
       '@shikijs/types': 4.2.0
       '@shikijs/vscode-textmate': 10.0.2
 
+  '@shikijs/engine-oniguruma@4.3.1':
+    dependencies:
+      '@shikijs/types': 4.3.1
+      '@shikijs/vscode-textmate': 10.0.2
+
   '@shikijs/langs@4.2.0':
     dependencies:
       '@shikijs/types': 4.2.0
+
+  '@shikijs/langs@4.3.1':
+    dependencies:
+      '@shikijs/types': 4.3.1
 
   '@shikijs/primitive@4.2.0':
     dependencies:
@@ -3025,11 +3084,26 @@ snapshots:
       '@shikijs/vscode-textmate': 10.0.2
       '@types/hast': 3.0.4
 
+  '@shikijs/primitive@4.3.1':
+    dependencies:
+      '@shikijs/types': 4.3.1
+      '@shikijs/vscode-textmate': 10.0.2
+      '@types/hast': 3.0.4
+
   '@shikijs/themes@4.2.0':
     dependencies:
       '@shikijs/types': 4.2.0
 
+  '@shikijs/themes@4.3.1':
+    dependencies:
+      '@shikijs/types': 4.3.1
+
   '@shikijs/types@4.2.0':
+    dependencies:
+      '@shikijs/vscode-textmate': 10.0.2
+      '@types/hast': 3.0.4
+
+  '@shikijs/types@4.3.1':
     dependencies:
       '@shikijs/vscode-textmate': 10.0.2
       '@types/hast': 3.0.4
@@ -3455,21 +3529,21 @@ snapshots:
       react: 19.2.7
       react-dom: 19.2.7(react@19.2.7)
 
-  fumadocs-core@16.10.7(@mdx-js/mdx@3.1.1)(@types/estree-jsx@1.0.5)(@types/hast@3.0.4)(@types/mdast@4.0.4)(@types/react@19.2.17)(lucide-react@1.23.0(react@19.2.7))(next@16.2.10(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(zod@4.4.3):
+  fumadocs-core@16.11.1(@mdx-js/mdx@3.1.1)(@types/estree-jsx@1.0.5)(@types/hast@3.0.4)(@types/mdast@4.0.4)(@types/react@19.2.17)(lucide-react@1.23.0(react@19.2.7))(next@16.2.10(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(zod@4.4.3):
     dependencies:
       '@orama/orama': 3.1.18
       estree-util-value-to-estree: 3.5.0
       github-slugger: 2.0.0
       hast-util-to-estree: 3.1.3
       hast-util-to-jsx-runtime: 2.3.6
-      js-yaml: 5.1.0
+      js-yaml: 5.2.1
       mdast-util-mdx: 3.0.0
       mdast-util-to-markdown: 2.1.2
       remark: 15.0.1
       remark-gfm: 4.0.1
       remark-rehype: 11.1.2
       scroll-into-view-if-needed: 3.1.0
-      shiki: 4.2.0
+      shiki: 4.3.1
       tinyglobby: 0.2.17
       unified: 11.0.5
       unist-util-visit: 5.1.0
@@ -3488,14 +3562,14 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  fumadocs-mdx@15.0.13(@types/mdast@4.0.4)(@types/mdx@2.0.14)(@types/react@19.2.17)(fumadocs-core@16.10.7(@mdx-js/mdx@3.1.1)(@types/estree-jsx@1.0.5)(@types/hast@3.0.4)(@types/mdast@4.0.4)(@types/react@19.2.17)(lucide-react@1.23.0(react@19.2.7))(next@16.2.10(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(zod@4.4.3))(next@16.2.10(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(react@19.2.7):
+  fumadocs-mdx@15.0.13(@types/mdast@4.0.4)(@types/mdx@2.0.14)(@types/react@19.2.17)(fumadocs-core@16.11.1(@mdx-js/mdx@3.1.1)(@types/estree-jsx@1.0.5)(@types/hast@3.0.4)(@types/mdast@4.0.4)(@types/react@19.2.17)(lucide-react@1.23.0(react@19.2.7))(next@16.2.10(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(zod@4.4.3))(next@16.2.10(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(react@19.2.7):
     dependencies:
       '@mdx-js/mdx': 3.1.1
       '@standard-schema/spec': 1.1.0
       chokidar: 5.0.0
       esbuild: 0.28.1
       estree-util-value-to-estree: 3.5.0
-      fumadocs-core: 16.10.7(@mdx-js/mdx@3.1.1)(@types/estree-jsx@1.0.5)(@types/hast@3.0.4)(@types/mdast@4.0.4)(@types/react@19.2.17)(lucide-react@1.23.0(react@19.2.7))(next@16.2.10(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(zod@4.4.3)
+      fumadocs-core: 16.11.1(@mdx-js/mdx@3.1.1)(@types/estree-jsx@1.0.5)(@types/hast@3.0.4)(@types/mdast@4.0.4)(@types/react@19.2.17)(lucide-react@1.23.0(react@19.2.7))(next@16.2.10(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(zod@4.4.3)
       js-yaml: 5.1.0
       mdast-util-mdx: 3.0.0
       picocolors: 1.1.1
@@ -3516,7 +3590,7 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  fumadocs-ui@16.10.7(@tailwindcss/oxide@4.3.2)(@types/mdx@2.0.14)(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(fumadocs-core@16.10.7(@mdx-js/mdx@3.1.1)(@types/estree-jsx@1.0.5)(@types/hast@3.0.4)(@types/mdast@4.0.4)(@types/react@19.2.17)(lucide-react@1.23.0(react@19.2.7))(next@16.2.10(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(zod@4.4.3))(next@16.2.10(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(tailwindcss@4.3.2):
+  fumadocs-ui@16.10.7(@tailwindcss/oxide@4.3.2)(@types/mdx@2.0.14)(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(fumadocs-core@16.11.1(@mdx-js/mdx@3.1.1)(@types/estree-jsx@1.0.5)(@types/hast@3.0.4)(@types/mdast@4.0.4)(@types/react@19.2.17)(lucide-react@1.23.0(react@19.2.7))(next@16.2.10(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(zod@4.4.3))(next@16.2.10(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(tailwindcss@4.3.2):
     dependencies:
       '@fuma-translate/react': 1.0.2(@types/react@19.2.17)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
       '@fumadocs/tailwind': 0.0.5(@tailwindcss/oxide@4.3.2)(tailwindcss@4.3.2)
@@ -3532,7 +3606,7 @@ snapshots:
       '@radix-ui/react-tabs': 1.1.15(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
       class-variance-authority: 0.7.1
       cnfast: 0.0.8
-      fumadocs-core: 16.10.7(@mdx-js/mdx@3.1.1)(@types/estree-jsx@1.0.5)(@types/hast@3.0.4)(@types/mdast@4.0.4)(@types/react@19.2.17)(lucide-react@1.23.0(react@19.2.7))(next@16.2.10(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(zod@4.4.3)
+      fumadocs-core: 16.11.1(@mdx-js/mdx@3.1.1)(@types/estree-jsx@1.0.5)(@types/hast@3.0.4)(@types/mdast@4.0.4)(@types/react@19.2.17)(lucide-react@1.23.0(react@19.2.7))(next@16.2.10(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(zod@4.4.3)
       lucide-react: 1.23.0(react@19.2.7)
       motion: 12.42.2(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
       next-themes: 0.4.6(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
@@ -3709,6 +3783,10 @@ snapshots:
   jiti@2.7.0: {}
 
   js-yaml@5.1.0:
+    dependencies:
+      argparse: 2.0.1
+
+  js-yaml@5.2.1:
     dependencies:
       argparse: 2.0.1
 
@@ -4571,6 +4649,17 @@ snapshots:
       '@shikijs/langs': 4.2.0
       '@shikijs/themes': 4.2.0
       '@shikijs/types': 4.2.0
+      '@shikijs/vscode-textmate': 10.0.2
+      '@types/hast': 3.0.4
+
+  shiki@4.3.1:
+    dependencies:
+      '@shikijs/core': 4.3.1
+      '@shikijs/engine-javascript': 4.3.1
+      '@shikijs/engine-oniguruma': 4.3.1
+      '@shikijs/langs': 4.3.1
+      '@shikijs/themes': 4.3.1
+      '@shikijs/types': 4.3.1
       '@shikijs/vscode-textmate': 10.0.2
       '@types/hast': 3.0.4
 
