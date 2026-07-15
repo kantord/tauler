@@ -190,7 +190,7 @@ impl JsxEvaluator {
         // multi-export module (a second `.with_module` call would overwrite the first).
         let mut module_groups: std::collections::HashMap<
             &'static str,
-            Vec<&crate::ui::registry::UiEntry>,
+            Vec<&optative_script::EsEntry>,
         > = std::collections::HashMap::new();
         for e in crate::ui::registry::UI_COMPONENTS.iter() {
             module_groups.entry(e.module_path).or_default().push(e);
@@ -205,7 +205,7 @@ impl JsxEvaluator {
                 .fold(BuiltinLoader::default(), |l, (path, entries)| {
                     l.with_module(
                         *path,
-                        crate::ui::registry::synthetic_module_source_for_entries(entries),
+                        optative_script::synthetic_module_source_for_entries(entries),
                     )
                 });
         if let Some(dir) = base_dir {
