@@ -16,7 +16,7 @@ pub struct EvalOutput {
 type EvalResult = rquickjs::Result<EvalOutput>;
 
 use rquickjs::function::Function;
-use rquickjs::loader::{BuiltinLoader, BuiltinResolver, Loader, Resolver};
+use rquickjs::loader::{BuiltinLoader, BuiltinResolver};
 use rquickjs::{CatchResultExt, Persistent};
 
 use std::path::PathBuf;
@@ -40,96 +40,6 @@ const JSX_GLOBALS_JS: &str = r#"
         return { "bin@": bin, ...rest };
     };
 "#;
-
-/// Resolves relative import specifiers (starting with `./` or `../`) against
-/// a fixed `base_dir`. Paths outside `allowed_root` are rejected.
-struct CostaeResolver {
-    allowed_root: PathBuf,
-    base_dir: PathBuf,
-    resolver: oxc_resolver::Resolver,
-}
-
-impl CostaeResolver {
-    fn new(base_dir: PathBuf) -> Self {
-        let canonical_root = base_dir.canonicalize().unwrap_or_else(|_| base_dir.clone());
-        let resolver = oxc_resolver::Resolver::new(oxc_resolver::ResolveOptions {
-            modules: vec![],
-            extensions: vec![".js".into(), ".jsx".into(), ".ts".into(), ".tsx".into()],
-            ..oxc_resolver::ResolveOptions::default()
-        });
-        Self {
-            allowed_root: canonical_root.clone(),
-            base_dir: canonical_root,
-            resolver,
-        }
-    }
-}
-
-impl Resolver for CostaeResolver {
-    fn resolve(
-        &mut self,
-        _ctx: &rquickjs::Ctx,
-        base: &str,
-        name: &str,
-    ) -> rquickjs::Result<String> {
-        if !name.starts_with("./") && !name.starts_with("../") {
-            return Err(rquickjs::Error::new_resolving(base, name));
-        }
-
-        let resolve_dir = if Path::new(base).is_absolute() {
-            Path::new(base)
-                .parent()
-                .map(|p| p.to_path_buf())
-                .unwrap_or_else(|| self.base_dir.clone())
-        } else {
-            self.base_dir.clone()
-        };
-
-        let resolution = self
-            .resolver
-            .resolve(&resolve_dir, name)
-            .map_err(|_| rquickjs::Error::new_resolving(base, name))?;
-
-        let resolved = resolution.full_path().to_path_buf();
-        let canonical = resolved.canonicalize().unwrap_or_else(|_| resolved.clone());
-
-        if !canonical.starts_with(&self.allowed_root) {
-            return Err(rquickjs::Error::new_resolving(base, name));
-        }
-
-        canonical
-            .to_str()
-            .map(|s| s.to_string())
-            .ok_or_else(|| rquickjs::Error::new_resolving(base, name))
-    }
-}
-
-/// Loads JS/JSX modules from disk, running `optative_script::jsx::transform_source` on
-/// each file before handing the source to QuickJS. Records each successfully-loaded path
-/// into the shared `loaded_paths` vec.
-struct CostaeLoader {
-    loaded_paths: Arc<Mutex<Vec<PathBuf>>>,
-}
-
-impl CostaeLoader {
-    fn new(loaded_paths: Arc<Mutex<Vec<PathBuf>>>) -> Self {
-        Self { loaded_paths }
-    }
-}
-
-impl Loader for CostaeLoader {
-    fn load<'js>(
-        &mut self,
-        ctx: &rquickjs::Ctx<'js>,
-        name: &str,
-    ) -> rquickjs::Result<rquickjs::Module<'js>> {
-        let source =
-            std::fs::read_to_string(name).map_err(|_| rquickjs::Error::new_loading(name))?;
-        self.loaded_paths.lock().unwrap().push(PathBuf::from(name));
-        let transformed = optative_script::jsx::transform_source(&source, name);
-        rquickjs::Module::declare(ctx.clone(), name, transformed)
-    }
-}
 
 /// A persistent JSX evaluator that compiles the layout source once and re-evaluates
 /// cheaply on each tick by calling the pre-compiled render function.
@@ -190,8 +100,14 @@ impl JsxEvaluator {
                 });
         if let Some(dir) = base_dir {
             runtime.set_loader(
-                (builtin_resolver, CostaeResolver::new(dir.to_path_buf())),
-                (builtin_loader, CostaeLoader::new(Arc::clone(&loaded_paths))),
+                (
+                    builtin_resolver,
+                    optative_script::loader::ConfinedFsResolver::new(dir.to_path_buf()),
+                ),
+                (
+                    builtin_loader,
+                    optative_script::loader::ConfinedFsLoader::new(Arc::clone(&loaded_paths)),
+                ),
             );
         } else {
             runtime.set_loader(builtin_resolver, builtin_loader);
