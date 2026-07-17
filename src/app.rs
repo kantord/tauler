@@ -589,7 +589,10 @@ impl App {
                 let t = std::time::Instant::now();
                 let r = e.eval(&self.stream_values);
                 let elapsed = t.elapsed();
-                tracing::info!(elapsed_us = elapsed.as_micros(), "[DEBUG-hang01] jsx re-eval");
+                tracing::info!(
+                    elapsed_us = elapsed.as_micros(),
+                    "[DEBUG-hang01] jsx re-eval"
+                );
                 if elapsed.as_millis() > 100 {
                     tracing::warn!(
                         elapsed_ms = elapsed.as_millis(),
