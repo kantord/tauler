@@ -84,7 +84,7 @@ fn gen_component(path: Option<LitStr>, func: ItemFn) -> TokenStream2 {
                 use crate::ui::UiComponent as _;
                 ctx.globals().set(#global_name_str, rquickjs::Function::new(ctx.clone(), #component_name::js_fn)?)
             }
-            #vis const #entry_const: crate::ui::registry::UiEntry = crate::ui::registry::UiEntry {
+            #vis const #entry_const: crate::ui::registry::EsEntry = crate::ui::registry::EsEntry {
                 module_path: #module_path_str,
                 export_name: #export_name_str,
                 global_name: #global_name_str,

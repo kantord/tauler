@@ -16,32 +16,12 @@ pub struct EvalOutput {
 type EvalResult = rquickjs::Result<EvalOutput>;
 
 use rquickjs::function::Function;
-use rquickjs::loader::{BuiltinLoader, BuiltinResolver, Loader, Resolver};
+use rquickjs::loader::{BuiltinLoader, BuiltinResolver};
 use rquickjs::{CatchResultExt, Persistent};
 
 use std::path::PathBuf;
 
-use oxc_allocator::Allocator;
-use oxc_codegen::Codegen;
-use oxc_parser::Parser;
-use oxc_semantic::SemanticBuilder;
-use oxc_span::SourceType;
-use oxc_transformer::{JsxOptions, JsxRuntime, TransformOptions, Transformer};
-
 const JSX_GLOBALS_JS: &str = r#"
-    globalThis._jsx = (tag, props, ...children) => {
-        const flat = children.flat().filter(c => c !== null && c !== undefined && c !== false);
-        if (typeof tag === 'function') {
-            return tag({ ...props, children: flat });
-        }
-        if (tag === 'text') {
-            const text = flat.length === 1 && typeof flat[0] === 'object'
-                ? flat[0]
-                : flat.join('');
-            return { type: tag, ...props, text };
-        }
-        return { type: tag, ...props, children: flat };
-    };
     globalThis.useJSONStream = (bin, script) => {
         const str = useStringStream(bin, script);
         if (!str) return null;
@@ -60,96 +40,6 @@ const JSX_GLOBALS_JS: &str = r#"
         return { "bin@": bin, ...rest };
     };
 "#;
-
-/// Resolves relative import specifiers (starting with `./` or `../`) against
-/// a fixed `base_dir`. Paths outside `allowed_root` are rejected.
-struct CostaeResolver {
-    allowed_root: PathBuf,
-    base_dir: PathBuf,
-    resolver: oxc_resolver::Resolver,
-}
-
-impl CostaeResolver {
-    fn new(base_dir: PathBuf) -> Self {
-        let canonical_root = base_dir.canonicalize().unwrap_or_else(|_| base_dir.clone());
-        let resolver = oxc_resolver::Resolver::new(oxc_resolver::ResolveOptions {
-            modules: vec![],
-            extensions: vec![".js".into(), ".jsx".into(), ".ts".into(), ".tsx".into()],
-            ..oxc_resolver::ResolveOptions::default()
-        });
-        Self {
-            allowed_root: canonical_root.clone(),
-            base_dir: canonical_root,
-            resolver,
-        }
-    }
-}
-
-impl Resolver for CostaeResolver {
-    fn resolve(
-        &mut self,
-        _ctx: &rquickjs::Ctx,
-        base: &str,
-        name: &str,
-    ) -> rquickjs::Result<String> {
-        if !name.starts_with("./") && !name.starts_with("../") {
-            return Err(rquickjs::Error::new_resolving(base, name));
-        }
-
-        let resolve_dir = if Path::new(base).is_absolute() {
-            Path::new(base)
-                .parent()
-                .map(|p| p.to_path_buf())
-                .unwrap_or_else(|| self.base_dir.clone())
-        } else {
-            self.base_dir.clone()
-        };
-
-        let resolution = self
-            .resolver
-            .resolve(&resolve_dir, name)
-            .map_err(|_| rquickjs::Error::new_resolving(base, name))?;
-
-        let resolved = resolution.full_path().to_path_buf();
-        let canonical = resolved.canonicalize().unwrap_or_else(|_| resolved.clone());
-
-        if !canonical.starts_with(&self.allowed_root) {
-            return Err(rquickjs::Error::new_resolving(base, name));
-        }
-
-        canonical
-            .to_str()
-            .map(|s| s.to_string())
-            .ok_or_else(|| rquickjs::Error::new_resolving(base, name))
-    }
-}
-
-/// Loads JS/JSX modules from disk, running `transform_jsx` on each file before
-/// handing the source to QuickJS. Records each successfully-loaded path into
-/// the shared `loaded_paths` vec.
-struct CostaeLoader {
-    loaded_paths: Arc<Mutex<Vec<PathBuf>>>,
-}
-
-impl CostaeLoader {
-    fn new(loaded_paths: Arc<Mutex<Vec<PathBuf>>>) -> Self {
-        Self { loaded_paths }
-    }
-}
-
-impl Loader for CostaeLoader {
-    fn load<'js>(
-        &mut self,
-        ctx: &rquickjs::Ctx<'js>,
-        name: &str,
-    ) -> rquickjs::Result<rquickjs::Module<'js>> {
-        let source =
-            std::fs::read_to_string(name).map_err(|_| rquickjs::Error::new_loading(name))?;
-        self.loaded_paths.lock().unwrap().push(PathBuf::from(name));
-        let transformed = transform_jsx(&source);
-        rquickjs::Module::declare(ctx.clone(), name, transformed)
-    }
-}
 
 /// A persistent JSX evaluator that compiles the layout source once and re-evaluates
 /// cheaply on each tick by calling the pre-compiled render function.
@@ -190,7 +80,7 @@ impl JsxEvaluator {
         // multi-export module (a second `.with_module` call would overwrite the first).
         let mut module_groups: std::collections::HashMap<
             &'static str,
-            Vec<&crate::ui::registry::UiEntry>,
+            Vec<&optative_script::EsEntry>,
         > = std::collections::HashMap::new();
         for e in crate::ui::registry::UI_COMPONENTS.iter() {
             module_groups.entry(e.module_path).or_default().push(e);
@@ -205,13 +95,19 @@ impl JsxEvaluator {
                 .fold(BuiltinLoader::default(), |l, (path, entries)| {
                     l.with_module(
                         *path,
-                        crate::ui::registry::synthetic_module_source_for_entries(entries),
+                        optative_script::synthetic_module_source_for_entries(entries),
                     )
                 });
         if let Some(dir) = base_dir {
             runtime.set_loader(
-                (builtin_resolver, CostaeResolver::new(dir.to_path_buf())),
-                (builtin_loader, CostaeLoader::new(Arc::clone(&loaded_paths))),
+                (
+                    builtin_resolver,
+                    optative_script::loader::ConfinedFsResolver::new(dir.to_path_buf()),
+                ),
+                (
+                    builtin_loader,
+                    optative_script::loader::ConfinedFsLoader::new(Arc::clone(&loaded_paths)),
+                ),
             );
         } else {
             runtime.set_loader(builtin_resolver, builtin_loader);
@@ -231,6 +127,20 @@ impl JsxEvaluator {
             let module_calls_inner = Arc::clone(&module_calls);
             context.with(|qjs_ctx| {
                 qjs_ctx.eval::<(), _>(JSX_GLOBALS_JS)?;
+                optative_script::register_h(&qjs_ctx)?;
+                let flatten_node_fn =
+                    rquickjs::Function::new(qjs_ctx.clone(), tauler_flatten_node)?;
+                qjs_ctx.globals().set("__tauler_flatten_node", flatten_node_fn)?;
+                // `h` isn't aliased directly to `__esto_h`: its generic-tag output nests
+                // props under a `props` key (`{type, props, children}`), but Rust-backed UI
+                // components (e.g. `@ui/card`) deserialize their `children: Vec<Node>` prop
+                // eagerly, mid-render, expecting the flat shape — so each node must be
+                // reshaped as soon as it's produced, not just once at the very end.
+                qjs_ctx.eval::<(), _>(format!(
+                    "globalThis.h = (type, props, ...children) => __tauler_flatten_node(__esto_h(type, props, ...children));
+                    globalThis.Fragment = {{ {}: true }};",
+                    optative_script::tags::ESTO_FRAGMENT
+                ))?;
                 let func = rquickjs::Function::new(
                     qjs_ctx.clone(),
                     move |bin: String, script: Option<String>| {
@@ -265,7 +175,7 @@ impl JsxEvaluator {
                     qjs_ctx.globals().set("ctx", js_ctx)?;
                 }
 
-                let js_source = transform_jsx(source);
+                let js_source = optative_script::jsx::transform_source(source, "layout.jsx");
                 let module = rquickjs::Module::declare(qjs_ctx.clone(), "layout.jsx", js_source)?;
                 let (module, promise) = module.eval()?;
                 promise.finish::<()>()?;
@@ -327,7 +237,9 @@ impl JsxEvaluator {
                 .json_stringify(value)?
                 .ok_or(rquickjs::Error::Unknown)?
                 .to_string()?;
-            let layout = serde_json::from_str(&json_str).map_err(|_| rquickjs::Error::Unknown)?;
+            let layout: serde_json::Value =
+                serde_json::from_str(&json_str).map_err(|_| rquickjs::Error::Unknown)?;
+            let layout = flatten_passthrough(layout);
             Ok(EvalOutput {
                 layout,
                 stream_calls: self.calls.lock().unwrap().clone(),
@@ -343,33 +255,100 @@ impl JsxEvaluator {
     }
 }
 
-pub fn transform_jsx(source: &str) -> String {
-    let allocator = Allocator::default();
-    let source_type = SourceType::jsx();
-
-    let ret = Parser::new(&allocator, source, source_type).parse();
-    let mut program = ret.program;
-
-    let scoping = SemanticBuilder::new()
-        .with_excess_capacity(2.0)
-        .build(&program)
-        .semantic
-        .into_scoping();
-
-    let options = TransformOptions {
-        jsx: JsxOptions {
-            runtime: JsxRuntime::Classic,
-            pragma: Some("_jsx".to_string()),
-            pragma_frag: Some("_jsxFrag".to_string()),
-            ..JsxOptions::enable()
-        },
-        ..TransformOptions::default()
+/// The `h` shim's per-call hook (see `JsxEvaluator::new`): reshapes `__esto_h`'s result
+/// via [`flatten_passthrough`] immediately after each `h()` call, not just once at the
+/// end of `eval()`. This matters because Rust-backed UI components (e.g. `@ui/card`)
+/// deserialize their `children` prop *during* render, synchronously, expecting the flat
+/// shape already — by the time the whole tree is done and `eval()`'s own
+/// `flatten_passthrough` pass runs, it would be too late for those components.
+/// Non-passthrough results (arrays from `Fragment`, primitives, already-flat
+/// Rust-component output) are returned untouched.
+fn tauler_flatten_node<'js>(
+    ctx: rquickjs::Ctx<'js>,
+    value: rquickjs::Value<'js>,
+) -> rquickjs::Result<rquickjs::Value<'js>> {
+    let is_passthrough_node = match value.as_object() {
+        Some(obj) => obj.contains_key("type")? && obj.contains_key("props")?,
+        None => false,
     };
+    if !is_passthrough_node {
+        return Ok(value);
+    }
+    let as_json: serde_json::Value =
+        rquickjs_serde::from_value(value).map_err(|_| rquickjs::Error::Unknown)?;
+    let flattened = flatten_passthrough(as_json);
+    rquickjs_serde::to_value(ctx, &flattened).map_err(|_| rquickjs::Error::Unknown)
+}
 
-    Transformer::new(&allocator, Path::new("input.jsx"), &options)
-        .build_with_scoping(scoping, &mut program);
+/// Converts a single (already recursively-processed) child value of a `text` node into
+/// its natural string representation, matching JS's old `flat.join('')` semantics for
+/// the primitive children `text` nodes actually receive (strings/numbers/booleans).
+fn text_child_to_string(value: &serde_json::Value) -> String {
+    match value {
+        serde_json::Value::String(s) => s.clone(),
+        serde_json::Value::Number(n) => n.to_string(),
+        serde_json::Value::Bool(b) => b.to_string(),
+        other => other.to_string(),
+    }
+}
 
-    Codegen::new().build(&program).code
+/// Bridges `optative_script::register_h`'s generic passthrough shape
+/// (`{ type, props: {...}, children }`) to the flat shape tauler's own downstream
+/// consumers expect (`{ type, ...props, children }`), recursively.
+///
+/// Also reproduces tauler's old `_jsx`-level special case for `type === "text"`
+/// nodes: their children are joined into a single `text: String` field (required,
+/// non-optional, by `takumi`'s `TextData`) rather than left as a `children` array.
+///
+/// Applied twice: once per node via [`tauler_flatten_node`] (the `h` shim's hook, so
+/// each node is already flat by the time any Rust-backed component consumes it as a
+/// `children` prop), and once more here over the whole tree in `eval()` as a final,
+/// now-idempotent safety net.
+fn flatten_passthrough(value: serde_json::Value) -> serde_json::Value {
+    match value {
+        serde_json::Value::Array(items) => {
+            serde_json::Value::Array(items.into_iter().map(flatten_passthrough).collect())
+        }
+        serde_json::Value::Object(mut map) => {
+            let is_passthrough_node = map.contains_key("type") && map.contains_key("props");
+            if !is_passthrough_node {
+                for (_, v) in map.iter_mut() {
+                    *v = flatten_passthrough(std::mem::take(v));
+                }
+                return serde_json::Value::Object(map);
+            }
+
+            let node_type = map.remove("type").unwrap_or(serde_json::Value::Null);
+            let props = map.remove("props").unwrap_or(serde_json::Value::Null);
+            let children = map
+                .remove("children")
+                .map(flatten_passthrough)
+                .unwrap_or(serde_json::Value::Array(Vec::new()));
+
+            let mut flat = serde_json::Map::new();
+            flat.insert("type".to_string(), node_type.clone());
+            if let serde_json::Value::Object(props_map) = props {
+                for (k, v) in props_map {
+                    flat.insert(k, v);
+                }
+            }
+
+            if node_type.as_str() == Some("text") {
+                let text = match &children {
+                    serde_json::Value::Array(items) => {
+                        items.iter().map(text_child_to_string).collect::<String>()
+                    }
+                    other => text_child_to_string(other),
+                };
+                flat.insert("text".to_string(), serde_json::Value::String(text));
+            } else {
+                flat.insert("children".to_string(), children);
+            }
+
+            serde_json::Value::Object(flat)
+        }
+        other => other,
+    }
 }
 
 #[cfg(test)]
@@ -394,12 +373,17 @@ mod tests {
         assert_eq!(result["text"], "hello");
     }
 
+    // Was `transform_jsx_self_closing_element_with_tw_prop`, exercising tauler's own
+    // (now-deleted) `transform_jsx`. The transform itself moved to
+    // `optative_script::jsx::transform_source` (see that crate's own
+    // `pragma_is_h_not_jsx`/`self_closing_element` tests); this keeps a smoke test at
+    // tauler's call site confirming it's wired up with the `h` pragma tauler now relies on.
     #[test]
-    fn transform_jsx_self_closing_element_with_tw_prop() {
-        let result = transform_jsx(r#"<text tw="flex" />"#);
+    fn transform_source_self_closing_element_with_tw_prop() {
+        let result = optative_script::jsx::transform_source(r#"<text tw="flex" />"#, "test.jsx");
         assert!(
-            result.contains("_jsx"),
-            "expected '_jsx' in output, got: {result}"
+            result.contains("h("),
+            "expected 'h(' in output, got: {result}"
         );
         assert!(
             result.contains("\"text\""),
@@ -680,5 +664,32 @@ return <container tw="flex">
         let children = result["children"].as_array().unwrap();
         assert_eq!(children.len(), 1, "expected 1 child, got: {:?}", children);
         assert_eq!(children[0]["text"], "visible");
+    }
+
+    /// Bonus: JSX fragment shorthand (`<>...</>`) now actually works and flattens its
+    /// children into the parent's `children` array with no wrapper — tauler could never
+    /// do this before, since the old JS runtime's `_jsx` never defined `_jsxFrag`.
+    #[test]
+    fn jsx_fragment_shorthand_flattens_into_parent_children() {
+        let result = eval(
+            r#"export default function render() {
+return <container tw="flex">
+  <>
+    <text tw="a">{"first"}</text>
+    <text tw="b">{"second"}</text>
+  </>
+</container>;
+}"#,
+        )
+        .layout;
+        let children = result["children"].as_array().unwrap();
+        assert_eq!(
+            children.len(),
+            2,
+            "expected 2 children, got: {:?}",
+            children
+        );
+        assert_eq!(children[0]["text"], "first");
+        assert_eq!(children[1]["text"], "second");
     }
 }
