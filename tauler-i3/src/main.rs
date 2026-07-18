@@ -1,15 +1,25 @@
+mod command_worker;
 mod events;
 mod ipc;
+mod refresh_worker;
+mod scheduler;
+mod subscribe;
+mod tree_cache;
 mod workspace;
 
 use std::io::BufRead;
 use std::sync::mpsc;
 use std::thread;
 
-use events::{ModuleEvent, parse_click_event, parse_init_event};
-use ipc::{apply_bar_gap, i3_recv, i3_send, i3_socket_path, should_apply_bar_gap};
-use workspace::{build_workspace_data, fetch_workspaces};
+use command_worker::CommandRequest;
+use events::{parse_click_event, parse_init_event};
+use ipc::{I3Query, i3_socket_path, should_apply_bar_gap};
+use tree_cache::TreeCache;
 
+/// Wires together the four worker threads (command-worker, refresh-worker,
+/// subscribe, stdin) and blocks until the stdin thread exits. Each thread's
+/// actual behavior lives in its own module — see `command_worker`,
+/// `refresh_worker`, and `subscribe`.
 fn main() {
     tracing_subscriber::fmt()
         .with_env_filter(
@@ -18,7 +28,7 @@ fn main() {
         )
         .init();
 
-    // Read init event then release the stdin lock before spawning threads
+    // Read init event then release the stdin lock before spawning threads.
     let init = {
         let stdin = std::io::stdin();
         let mut lines = stdin.lock().lines();
@@ -34,127 +44,75 @@ fn main() {
         }
     };
 
-    let socket = i3_socket_path();
-    // One persistent request/reply connection for all queries and commands;
-    // reconnects transparently on error or timeout.
-    let mut query = ipc::I3Query::new(socket.clone(), ipc::I3_IPC_TIMEOUT);
-    let (event_tx, event_rx) = mpsc::channel::<ModuleEvent>();
+    let socket = match i3_socket_path() {
+        Ok(path) => path,
+        Err(e) => {
+            tracing::error!(error = %e, "cannot start tauler-i3");
+            std::process::exit(1);
+        }
+    };
 
-    // Thread: forward stdin lines as Stdin events. When stdin closes the
-    // parent is gone, so exit outright — other threads may be blocked in
-    // reads and would otherwise keep an orphaned process alive forever.
+    // command-worker's channel: fed directly by both the stdin thread and
+    // the subscribe thread (no central hub).
+    let (cmd_tx, cmd_rx) = mpsc::channel::<CommandRequest>();
+    // refresh-worker's hint channel: fed by the subscribe thread.
+    let (refresh_tx, refresh_rx) = mpsc::channel::<()>();
+
+    // Command-worker: owns one dedicated RUN_COMMAND connection.
     {
-        let event_tx = event_tx.clone();
-        thread::spawn(move || {
-            let stdin = std::io::stdin();
-            let mut lines = stdin.lock().lines();
-            while let Some(Ok(line)) = lines.next() {
-                if let Ok(val) = serde_json::from_str::<serde_json::Value>(&line)
-                    && event_tx.send(ModuleEvent::Stdin(val)).is_err()
+        let query = I3Query::new(socket.clone(), ipc::I3_IPC_TIMEOUT);
+        let dpi = init.dpi;
+        let bar_width = init.bar_width;
+        let outer_gap = init.outer_gap;
+        thread::spawn(move || command_worker::run(cmd_rx, query, dpi, bar_width, outer_gap));
+    }
+
+    // Apply the bar gap once at startup (mirrors the effect a workspace-focus
+    // event would otherwise trigger) — needed because i3 may have just
+    // (re)started and forgotten any previously-applied runtime gap, and
+    // startup itself doesn't produce a workspace-focus event to react to.
+    if should_apply_bar_gap(&init.output) {
+        let _ = cmd_tx.send(CommandRequest::ApplyBarGap);
+    }
+
+    // Refresh-worker: owns one dedicated GET_TREE connection and runs the
+    // debounce-with-max-wait scheduler.
+    {
+        let query = I3Query::new(socket.clone(), ipc::I3_IPC_TIMEOUT);
+        let output = init.output.clone();
+        let cache = TreeCache::new(Vec::new());
+        thread::spawn(move || refresh_worker::run(query, output, refresh_rx, cache));
+    }
+
+    // Subscribe thread: persistent subscribe connection to workspace/window
+    // events.
+    {
+        let socket = socket.clone();
+        let output = init.output.clone();
+        let cmd_tx = cmd_tx.clone();
+        let refresh_tx = refresh_tx.clone();
+        thread::spawn(move || subscribe::run(socket, output, cmd_tx, refresh_tx));
+    }
+
+    // Stdin thread: forward click events directly to the command-worker.
+    // When stdin closes the parent is gone, so exit outright — other
+    // threads may be blocked in reads and would otherwise keep an orphaned
+    // process alive forever.
+    let stdin_handle = thread::spawn(move || {
+        let stdin = std::io::stdin();
+        let mut lines = stdin.lock().lines();
+        while let Some(Ok(line)) = lines.next() {
+            if let Ok(val) = serde_json::from_str::<serde_json::Value>(&line) {
+                tracing::debug!(event = %val, "stdin event");
+                if let Some(name) = parse_click_event(&val)
+                    && cmd_tx.send(CommandRequest::SwitchWorkspace(name)).is_err()
                 {
                     break;
                 }
             }
-            std::process::exit(0);
-        });
-    }
+        }
+        std::process::exit(0);
+    });
 
-    // Emit initial workspace state
-    if let Ok(ws) = fetch_workspaces(&mut query, &init.output) {
-        if should_apply_bar_gap(&init.output) && ws.iter().any(|w| w.focused) {
-            apply_bar_gap(&mut query, init.dpi, init.bar_width, init.outer_gap);
-        }
-        println!("{}", build_workspace_data(&ws));
-    }
-
-    // Thread: subscribe to i3 workspace events and forward as I3 events.
-    // Reconnects automatically if the socket drops (e.g. i3 restart).
-    {
-        let event_tx = event_tx.clone();
-        let socket_clone = socket.clone();
-        thread::spawn(move || {
-            loop {
-                // Timeout covers the subscribe handshake; cleared afterwards
-                // because events may legitimately be hours apart.
-                let mut sub = match ipc::connect_with_timeout(&socket_clone, ipc::I3_IPC_TIMEOUT) {
-                    Ok(s) => s,
-                    Err(e) => {
-                        tracing::warn!(error = %e, "failed to connect to i3 socket, retrying in 1s");
-                        std::thread::sleep(std::time::Duration::from_secs(1));
-                        continue;
-                    }
-                };
-                if i3_send(&mut sub, 2, b"[\"workspace\", \"window\"]").is_err() {
-                    continue;
-                }
-                if i3_recv(&mut sub).is_err() {
-                    continue;
-                }
-                if sub.set_read_timeout(None).is_err() {
-                    continue;
-                }
-                tracing::info!("i3 subscription connected");
-                // Trigger an immediate workspace refresh after (re)connect
-                if event_tx
-                    .send(ModuleEvent::I3(0x80000000, b"{}".to_vec()))
-                    .is_err()
-                {
-                    return;
-                }
-                loop {
-                    match i3_recv(&mut sub) {
-                        Ok((typ, payload)) => {
-                            if event_tx.send(ModuleEvent::I3(typ, payload)).is_err() {
-                                return;
-                            }
-                        }
-                        Err(e) => {
-                            tracing::warn!(error = %e, "i3 subscription dropped, reconnecting");
-                            break;
-                        }
-                    }
-                }
-            }
-        });
-    }
-
-    // Main event loop. Bursts of i3 events (window title/focus changes fire
-    // constantly) are coalesced into a single workspace fetch per batch to
-    // keep IPC connection churn low.
-    while let Ok(event) = event_rx.recv() {
-        let mut batch = vec![event];
-        while let Ok(ev) = event_rx.try_recv() {
-            batch.push(ev);
-        }
-        let mut refresh = false;
-        for event in batch {
-            match event {
-                ModuleEvent::I3(0x80000000, payload) => {
-                    if let Ok(ev) = serde_json::from_slice::<serde_json::Value>(&payload)
-                        && should_apply_bar_gap(&init.output)
-                        && ev["current"]["output"].as_str() == Some(init.output.as_str())
-                    {
-                        apply_bar_gap(&mut query, init.dpi, init.bar_width, init.outer_gap);
-                    }
-                    refresh = true;
-                }
-                ModuleEvent::I3(0x80000003, _) => {
-                    refresh = true;
-                }
-                ModuleEvent::I3(_, _) => {}
-                ModuleEvent::Stdin(val) => {
-                    tracing::debug!(event = %val, "stdin event");
-                    if let Some(name) = parse_click_event(&val) {
-                        ipc::switch_workspace(&mut query, &name);
-                    }
-                }
-            }
-        }
-        if refresh {
-            match fetch_workspaces(&mut query, &init.output) {
-                Ok(ws) => println!("{}", build_workspace_data(&ws)),
-                Err(e) => tracing::warn!(error = %e, "fetch_workspaces failed, skipping refresh"),
-            }
-        }
-    }
+    let _ = stdin_handle.join();
 }

@@ -26,11 +26,6 @@ pub fn parse_click_event(val: &serde_json::Value) -> Option<String> {
     val["data"]["workspace"].as_str().map(str::to_string)
 }
 
-pub enum ModuleEvent {
-    I3(u32, Vec<u8>),
-    Stdin(serde_json::Value),
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

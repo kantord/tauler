@@ -1,13 +1,16 @@
-use std::io::{Read, Write};
 use std::os::unix::net::UnixStream;
 
-pub const I3_MAGIC: &[u8; 6] = b"i3-ipc";
+use swayipc::{Connection, Fallible, Node};
 
 /// Default timeout for request/reply i3 IPC queries.
 pub const I3_IPC_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
 
 /// Connect to the i3 socket with read/write timeouts so a wedged server
 /// cannot block the caller forever.
+///
+/// `swayipc::Connection::new()` sets no timeout of its own (plain
+/// `UnixStream::connect`), so we construct the stream ourselves and wrap it
+/// via `Connection::from(..)` to keep full timeout control.
 pub fn connect_with_timeout(
     socket: &str,
     timeout: std::time::Duration,
@@ -18,31 +21,14 @@ pub fn connect_with_timeout(
     Ok(s)
 }
 
-pub fn i3_send(s: &mut UnixStream, msg_type: u32, payload: &[u8]) -> std::io::Result<()> {
-    s.write_all(I3_MAGIC)?;
-    s.write_all(&(payload.len() as u32).to_le_bytes())?;
-    s.write_all(&msg_type.to_le_bytes())?;
-    s.write_all(payload)
-}
-
-pub fn i3_recv(s: &mut UnixStream) -> std::io::Result<(u32, Vec<u8>)> {
-    let mut hdr = [0u8; 14];
-    s.read_exact(&mut hdr)?;
-    let len = u32::from_le_bytes(hdr[6..10].try_into().unwrap()) as usize;
-    let typ = u32::from_le_bytes(hdr[10..14].try_into().unwrap());
-    let mut buf = vec![0u8; len];
-    s.read_exact(&mut buf)?;
-    Ok((typ, buf))
-}
-
-/// Persistent request/reply connection to i3.
+/// Persistent request/reply connection to i3/sway.
 ///
-/// Reuses one cached connection across requests and transparently
-/// reconnects (and retries the request once) on any I/O error.
+/// Reuses one cached `swayipc::Connection` across requests and transparently
+/// reconnects (and retries the request once) on any error.
 pub struct I3Query {
     socket: String,
     timeout: std::time::Duration,
-    conn: Option<UnixStream>,
+    conn: Option<Connection>,
 }
 
 impl I3Query {
@@ -54,18 +40,32 @@ impl I3Query {
         }
     }
 
-    /// Send one request and read its reply, reusing the cached connection.
-    /// On any I/O error (including timeout): drop the cached connection,
-    /// reconnect once, retry the request once; if that also fails, return
-    /// Err with no cached connection left (so the next call starts fresh).
-    pub fn request(&mut self, msg_type: u32, payload: &[u8]) -> std::io::Result<(u32, Vec<u8>)> {
+    /// GET_TREE: fetch the full node layout tree.
+    pub fn get_tree(&mut self) -> Fallible<Node> {
+        self.with_retry(|conn| conn.get_tree())
+    }
+
+    /// RUN_COMMAND: run one or more sway/i3 commands.
+    pub fn run_command(&mut self, cmd: &str) -> Fallible<Vec<Fallible<()>>> {
+        self.with_retry(|conn| conn.run_command(cmd))
+    }
+
+    /// Run `f` against the cached connection, reusing it across calls. On
+    /// any error: drop the cached connection, reconnect once, retry `f`
+    /// once; if that also fails, return Err with no cached connection left
+    /// (so the next call starts fresh).
+    fn with_retry<T>(&mut self, mut f: impl FnMut(&mut Connection) -> Fallible<T>) -> Fallible<T> {
         // Two attempts: the second gets a fresh connection after any error.
         for attempt in 0..2 {
-            match self.try_request(msg_type, payload) {
-                Ok(reply) => return Ok(reply),
+            let result = self.ensure_connected().and_then(|()| {
+                // A connection was just ensured above (or already present).
+                f(self.conn.as_mut().expect("connection just ensured"))
+            });
+            match result {
+                Ok(v) => return Ok(v),
                 Err(e) => {
-                    // A stream that errored (e.g. timed out mid-reply) is in
-                    // an undefined state and must never be reused.
+                    // A connection that errored (e.g. timed out mid-reply)
+                    // is in an undefined state and must never be reused.
                     self.conn = None;
                     if attempt == 1 {
                         return Err(e);
@@ -76,28 +76,39 @@ impl I3Query {
         unreachable!()
     }
 
-    fn try_request(&mut self, msg_type: u32, payload: &[u8]) -> std::io::Result<(u32, Vec<u8>)> {
+    fn ensure_connected(&mut self) -> Fallible<()> {
         if self.conn.is_none() {
-            self.conn = Some(connect_with_timeout(&self.socket, self.timeout)?);
+            let stream = connect_with_timeout(&self.socket, self.timeout)?;
+            self.conn = Some(Connection::from(stream));
         }
-        let s = self.conn.as_mut().unwrap();
-        i3_send(s, msg_type, payload)?;
-        i3_recv(s)
+        Ok(())
     }
 }
 
-pub fn i3_socket_path() -> String {
+/// Resolve the i3/sway IPC socket path: `I3SOCK`, then `SWAYSOCK`, then
+/// `i3 --get-socketpath`, then `sway --get-socketpath`. Returns `Err` with a
+/// clear message (rather than silently falling back to an empty path, which
+/// would surface downstream as a confusing raw OS connect error) if none of
+/// these resolve.
+pub fn i3_socket_path() -> Result<String, String> {
     if let Ok(path) = std::env::var("I3SOCK") {
-        return path;
+        return Ok(path);
     }
     if let Ok(path) = std::env::var("SWAYSOCK") {
-        return path;
+        return Ok(path);
     }
-    std::process::Command::new("i3")
-        .arg("--get-socketpath")
-        .output()
-        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
-        .unwrap_or_default()
+    for wm in ["i3", "sway"] {
+        if let Ok(output) = std::process::Command::new(wm)
+            .arg("--get-socketpath")
+            .output()
+        {
+            let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            if !path.is_empty() {
+                return Ok(path);
+            }
+        }
+    }
+    Err("could not determine i3/sway IPC socket path: I3SOCK and SWAYSOCK are unset, and neither `i3 --get-socketpath` nor `sway --get-socketpath` succeeded".to_string())
 }
 
 const I3_DPI_SCALE_THRESHOLD: f32 = 1.25;
@@ -132,7 +143,7 @@ pub fn should_apply_bar_gap(output: &str) -> bool {
 
 pub fn apply_bar_gap(query: &mut I3Query, dpi: f32, bar_width: u32, outer_gap: u32) {
     let cmd = bar_gap_command(dpi, bar_width, outer_gap);
-    if let Err(e) = query.request(0, cmd.as_bytes()) {
+    if let Err(e) = query.run_command(&cmd) {
         tracing::warn!(error = %e, "apply_bar_gap failed");
     }
 }
@@ -141,7 +152,7 @@ pub fn switch_workspace(query: &mut I3Query, name: &str) {
     tracing::debug!(name, "switch_workspace");
     let escaped = name.replace('"', "\\\"");
     let cmd = format!("workspace \"{}\"", escaped);
-    match query.request(0, cmd.as_bytes()) {
+    match query.run_command(&cmd) {
         Ok(_) => tracing::debug!("switch_workspace done"),
         Err(e) => tracing::warn!(error = %e, "switch_workspace failed"),
     }
@@ -150,6 +161,7 @@ pub fn switch_workspace(query: &mut I3Query, name: &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::io::{Read, Write};
     use std::os::unix::net::UnixListener;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::{Arc, mpsc};
@@ -170,11 +182,34 @@ mod tests {
             .into_owned()
     }
 
+    /// Read one framed i3-ipc request off the wire: magic bytes, native-endian
+    /// u32 length, native-endian u32 type, then the JSON payload. This mirrors
+    /// `swayipc`'s own (private) `receive_from_stream`, since the crate offers
+    /// no test-server utility of its own.
+    fn read_i3_frame(s: &mut UnixStream) -> std::io::Result<(u32, Vec<u8>)> {
+        let mut hdr = [0u8; 14];
+        s.read_exact(&mut hdr)?;
+        let len = u32::from_ne_bytes(hdr[6..10].try_into().unwrap()) as usize;
+        let typ = u32::from_ne_bytes(hdr[10..14].try_into().unwrap());
+        let mut buf = vec![0u8; len];
+        s.read_exact(&mut buf)?;
+        Ok((typ, buf))
+    }
+
+    /// Write one framed i3-ipc reply, matching the same wire format.
+    fn write_i3_frame(s: &mut UnixStream, typ: u32, payload: &[u8]) -> std::io::Result<()> {
+        s.write_all(&swayipc::MAGIC)?;
+        s.write_all(&(payload.len() as u32).to_ne_bytes())?;
+        s.write_all(&typ.to_ne_bytes())?;
+        s.write_all(payload)
+    }
+
     /// Serve framed request/reply cycles on one connection until EOF/error.
-    /// Echoes the request type back with payload `{}`.
+    /// Every request is treated as RUN_COMMAND (the only op these tests
+    /// exercise) and answered with a single successful command outcome.
     fn serve_connection(s: &mut UnixStream) {
-        while let Ok((typ, _payload)) = i3_recv(s) {
-            if i3_send(s, typ, b"{}").is_err() {
+        while let Ok((typ, _payload)) = read_i3_frame(s) {
+            if write_i3_frame(s, typ, b"[{\"success\":true}]").is_err() {
                 break;
             }
         }
@@ -198,12 +233,14 @@ mod tests {
         });
 
         let mut q = I3Query::new(path, Duration::from_secs(2));
-        let (typ1, payload1) = q.request(1, b"").expect("first request should succeed");
-        assert_eq!(typ1, 1);
-        assert_eq!(payload1, b"{}");
-        let (typ2, payload2) = q.request(4, b"").expect("second request should succeed");
-        assert_eq!(typ2, 4);
-        assert_eq!(payload2, b"{}");
+        let outcomes1 = q
+            .run_command("nop first")
+            .expect("first request should succeed");
+        assert!(outcomes1.into_iter().all(|o| o.is_ok()));
+        let outcomes2 = q
+            .run_command("nop second")
+            .expect("second request should succeed");
+        assert!(outcomes2.into_iter().all(|o| o.is_ok()));
 
         assert_eq!(
             accepts.load(Ordering::SeqCst),
@@ -223,8 +260,8 @@ mod tests {
             // First connection: serve exactly one request, then close it.
             if let Ok((mut s, _)) = listener.accept() {
                 a.fetch_add(1, Ordering::SeqCst);
-                if let Ok((typ, _)) = i3_recv(&mut s) {
-                    let _ = i3_send(&mut s, typ, b"{}");
+                if let Ok((typ, _)) = read_i3_frame(&mut s) {
+                    let _ = write_i3_frame(&mut s, typ, b"[{\"success\":true}]");
                 }
                 drop(s);
             }
@@ -237,15 +274,16 @@ mod tests {
         });
 
         let mut q = I3Query::new(path, Duration::from_secs(2));
-        let (typ1, _) = q.request(1, b"").expect("first request should succeed");
-        assert_eq!(typ1, 1);
+        let outcomes1 = q
+            .run_command("nop first")
+            .expect("first request should succeed");
+        assert!(outcomes1.into_iter().all(|o| o.is_ok()));
         // Server dropped the connection; this must transparently
         // reconnect and retry.
-        let (typ2, payload2) = q
-            .request(4, b"")
+        let outcomes2 = q
+            .run_command("nop second")
             .expect("second request should succeed via reconnect");
-        assert_eq!(typ2, 4);
-        assert_eq!(payload2, b"{}");
+        assert!(outcomes2.into_iter().all(|o| o.is_ok()));
 
         assert_eq!(
             accepts.load(Ordering::SeqCst),
@@ -283,7 +321,7 @@ mod tests {
         std::thread::spawn(move || {
             let mut q = I3Query::new(client_path, Duration::from_millis(200));
             let start = Instant::now();
-            let res = q.request(1, b"");
+            let res = q.run_command("nop");
             let _ = tx.send((res, start.elapsed()));
         });
 
