@@ -3708,6 +3708,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "swayipc"
+version = "4.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7fd6ee13016b1ae2fbf741ddb2133d983a3fecdc34686eec6202e2a80612d82f"
+dependencies = [
+ "serde",
+ "serde_json",
+ "swayipc-types",
+]
+
+[[package]]
+name = "swayipc-types"
+version = "2.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a29165dc67819a052bd67962b6c9de7c5d4461f0e8d224eb0f7cdd26cf05a650"
+dependencies = [
+ "serde",
+ "serde_json",
+ "thiserror",
+]
+
+[[package]]
 name = "syn"
 version = "2.0.118"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3855,6 +3877,7 @@ name = "tauler-i3"
 version = "0.1.0"
 dependencies = [
  "serde_json",
+ "swayipc",
  "tracing",
  "tracing-subscriber",
 ]

@@ -1,3 +1,5 @@
+use swayipc::{Node, NodeType};
+
 use crate::ipc::I3Query;
 
 pub struct Workspace {
@@ -18,43 +20,33 @@ pub fn workspace_matches_output(workspace_output: &str, filter: &str) -> bool {
 
 /// Walk an i3 tree node following `focus` order, collecting leaf window titles
 /// into `out` in most-recently-focused order.
-pub fn collect_window_titles_in_focus_order(node: &serde_json::Value, out: &mut Vec<String>) {
+pub fn collect_window_titles_in_focus_order(node: &Node, out: &mut Vec<String>) {
     // Leaf: actual X11/XCB window
-    if node["window"].is_i64() || node["window"].is_u64() {
-        if let Some(title) = node["name"].as_str() {
-            out.push(title.to_string());
+    if node.window.is_some() {
+        if let Some(title) = &node.name {
+            out.push(title.clone());
         }
         return;
     }
 
-    let focus_ids: Vec<i64> = node["focus"]
-        .as_array()
-        .map(|arr| arr.iter().filter_map(|v| v.as_i64()).collect())
-        .unwrap_or_default();
-
-    let nodes_arr = node["nodes"].as_array();
-    let floating_arr = node["floating_nodes"].as_array();
-    let children: Vec<&serde_json::Value> = nodes_arr
+    let children: Vec<&Node> = node
+        .nodes
         .iter()
-        .flat_map(|a| a.iter())
-        .chain(floating_arr.iter().flat_map(|a| a.iter()))
+        .chain(node.floating_nodes.iter())
         .collect();
 
     let mut visited = std::collections::HashSet::new();
 
-    for id in &focus_ids {
-        if let Some(child) = children.iter().find(|c| c["id"].as_i64() == Some(*id))
-            && let Some(child_id) = child["id"].as_i64()
-            && visited.insert(child_id)
+    for id in &node.focus {
+        if let Some(child) = children.iter().find(|c| c.id == *id)
+            && visited.insert(child.id)
         {
             collect_window_titles_in_focus_order(child, out);
         }
     }
 
     for child in &children {
-        if let Some(child_id) = child["id"].as_i64()
-            && visited.insert(child_id)
-        {
+        if visited.insert(child.id) {
             collect_window_titles_in_focus_order(child, out);
         }
     }
@@ -63,9 +55,8 @@ pub fn collect_window_titles_in_focus_order(node: &serde_json::Value, out: &mut 
 /// Query GET_TREE over the persistent i3 connection and build the workspace
 /// list from the reply alone — one request covers names, focus, urgency and
 /// window titles.
-pub fn fetch_workspaces(query: &mut I3Query, output: &str) -> std::io::Result<Vec<Workspace>> {
-    let (_, payload) = query.request(4, b"")?;
-    let tree: serde_json::Value = serde_json::from_slice(&payload).unwrap_or_default();
+pub fn fetch_workspaces(query: &mut I3Query, output: &str) -> swayipc::Fallible<Vec<Workspace>> {
+    let tree = query.get_tree()?;
     Ok(workspaces_from_tree(&tree, output))
 }
 
@@ -75,7 +66,7 @@ pub fn fetch_workspaces(query: &mut I3Query, output: &str) -> std::io::Result<Ve
 /// `output_filter` follows `workspace_matches_output` semantics; the focused
 /// workspace is derived from the root focus chain; window titles come in
 /// most-recently-focused order.
-pub fn workspaces_from_tree(tree: &serde_json::Value, output_filter: &str) -> Vec<Workspace> {
+pub fn workspaces_from_tree(tree: &Node, output_filter: &str) -> Vec<Workspace> {
     let focused_id = focused_workspace_id(tree);
     let mut out = Vec::new();
     collect_workspaces_from_tree(tree, "", output_filter, focused_id, &mut out);
@@ -85,24 +76,18 @@ pub fn workspaces_from_tree(tree: &serde_json::Value, output_filter: &str) -> Ve
 /// Follow the root focus chain (`focus[0]` at each level) down to the first
 /// `"type": "workspace"` node and return its id. Returns `None` if the chain
 /// is broken (missing/empty `focus`, dangling id) before reaching a workspace.
-fn focused_workspace_id(tree: &serde_json::Value) -> Option<i64> {
+fn focused_workspace_id(tree: &Node) -> Option<i64> {
     let mut node = tree;
     loop {
-        if node["type"].as_str() == Some("workspace") {
-            return node["id"].as_i64();
+        if node.node_type == NodeType::Workspace {
+            return Some(node.id);
         }
-        let target = node["focus"].as_array()?.first()?.as_i64()?;
-        node = node["nodes"]
-            .as_array()
+        let target = *node.focus.first()?;
+        node = node
+            .nodes
             .iter()
-            .flat_map(|a| a.iter())
-            .chain(
-                node["floating_nodes"]
-                    .as_array()
-                    .iter()
-                    .flat_map(|a| a.iter()),
-            )
-            .find(|c| c["id"].as_i64() == Some(target))?;
+            .chain(node.floating_nodes.iter())
+            .find(|c| c.id == target)?;
     }
 }
 
@@ -110,14 +95,14 @@ fn focused_workspace_id(tree: &serde_json::Value) -> Option<i64> {
 /// order, remembering the nearest ancestor output name, and appends matching
 /// non-internal workspace nodes to `out`.
 fn collect_workspaces_from_tree(
-    node: &serde_json::Value,
+    node: &Node,
     output_name: &str,
     output_filter: &str,
     focused_id: Option<i64>,
     out: &mut Vec<Workspace>,
 ) {
-    if node["type"].as_str() == Some("workspace") {
-        let name = node["name"].as_str().unwrap_or("").to_string();
+    if node.node_type == NodeType::Workspace {
+        let name = node.name.clone().unwrap_or_default();
         if name.starts_with("__") || !workspace_matches_output(output_name, output_filter) {
             return;
         }
@@ -125,30 +110,20 @@ fn collect_workspaces_from_tree(
         collect_window_titles_in_focus_order(node, &mut focused_windows);
         out.push(Workspace {
             name,
-            focused: focused_id.is_some() && node["id"].as_i64() == focused_id,
-            urgent: node["urgent"].as_bool().unwrap_or(false),
+            focused: focused_id == Some(node.id),
+            urgent: node.urgent,
             focused_windows,
         });
         return;
     }
 
-    let output_name = if node["type"].as_str() == Some("output") {
-        node["name"].as_str().unwrap_or("")
+    let output_name = if node.node_type == NodeType::Output {
+        node.name.as_deref().unwrap_or("")
     } else {
         output_name
     };
 
-    for child in node["nodes"]
-        .as_array()
-        .iter()
-        .flat_map(|a| a.iter())
-        .chain(
-            node["floating_nodes"]
-                .as_array()
-                .iter()
-                .flat_map(|a| a.iter()),
-        )
-    {
+    for child in node.nodes.iter().chain(node.floating_nodes.iter()) {
         collect_workspaces_from_tree(child, output_name, output_filter, focused_id, out);
     }
 }
@@ -168,6 +143,65 @@ pub fn build_workspace_data(workspaces: &[Workspace]) -> serde_json::Value {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    /// Build a fully-valid `swayipc::Node` fixture, filling every field the
+    /// tests don't care about with a reasonable placeholder. `Node` is
+    /// `#[non_exhaustive]`, so struct-literal construction is impossible from
+    /// this crate — deserializing from JSON is the only way in.
+    fn node(
+        id: i64,
+        name: Option<&str>,
+        node_type: &str,
+        window: Option<i64>,
+        urgent: bool,
+        focus: &[i64],
+        nodes: Vec<Node>,
+    ) -> Node {
+        // No test fixture needs non-empty floating_nodes; hardcoded below.
+        let floating_nodes: Vec<Node> = vec![];
+        let rect = json!({"x": 0, "y": 0, "width": 0, "height": 0});
+        serde_json::from_value(json!({
+            "id": id,
+            "name": name,
+            "type": node_type,
+            "border": "normal",
+            "current_border_width": 0,
+            "layout": "none",
+            "orientation": "none",
+            "percent": null,
+            "rect": rect,
+            "window_rect": rect,
+            "deco_rect": rect,
+            "geometry": rect,
+            "urgent": urgent,
+            "focused": false,
+            "focus": focus,
+            "floating": null,
+            "nodes": nodes,
+            "floating_nodes": floating_nodes,
+            "sticky": false,
+            "representation": null,
+            "fullscreen_mode": null,
+            "scratchpad_state": null,
+            "app_id": null,
+            "pid": null,
+            "window": window,
+            "num": null,
+            "window_properties": null,
+            "marks": [],
+            "inhibit_idle": null,
+            "idle_inhibitors": null,
+            "sandbox_engine": null,
+            "sandbox_app_id": null,
+            "sandbox_instance_id": null,
+            "tag": null,
+            "shell": null,
+            "foreign_toplevel_identifier": null,
+            "visible": null,
+            "output": null,
+        }))
+        .expect("valid Node fixture")
+    }
 
     #[test]
     fn workspace_matches_output_empty_filter_passes_all() {
@@ -193,43 +227,30 @@ mod tests {
 
     #[test]
     fn collect_titles_returns_leaf_window() {
-        let node = json!({
-            "id": 1, "window": 99, "name": "nvim",
-            "nodes": [], "floating_nodes": [], "focus": []
-        });
+        let n = node(1, Some("nvim"), "con", Some(99), false, &[], vec![]);
         let mut out = vec![];
-        collect_window_titles_in_focus_order(&node, &mut out);
+        collect_window_titles_in_focus_order(&n, &mut out);
         assert_eq!(out, vec!["nvim"]);
     }
 
     #[test]
     fn collect_titles_follows_focus_order() {
-        let node = json!({
-            "id": 10, "window": null, "focus": [20, 30],
-            "nodes": [
-                { "id": 20, "window": 1, "name": "first", "nodes": [], "floating_nodes": [], "focus": [] },
-                { "id": 30, "window": 2, "name": "second", "nodes": [], "floating_nodes": [], "focus": [] }
-            ],
-            "floating_nodes": []
-        });
+        let first = node(20, Some("first"), "con", Some(1), false, &[], vec![]);
+        let second = node(30, Some("second"), "con", Some(2), false, &[], vec![]);
+        let n = node(10, None, "con", None, false, &[20, 30], vec![first, second]);
         let mut out = vec![];
-        collect_window_titles_in_focus_order(&node, &mut out);
+        collect_window_titles_in_focus_order(&n, &mut out);
         assert_eq!(out, vec!["first", "second"]);
     }
 
     #[test]
     fn collect_titles_collects_all_windows() {
-        let node = json!({
-            "id": 10, "window": null, "focus": [20, 30, 40],
-            "nodes": [
-                { "id": 20, "window": 1, "name": "a", "nodes": [], "floating_nodes": [], "focus": [] },
-                { "id": 30, "window": 2, "name": "b", "nodes": [], "floating_nodes": [], "focus": [] },
-                { "id": 40, "window": 3, "name": "c", "nodes": [], "floating_nodes": [], "focus": [] }
-            ],
-            "floating_nodes": []
-        });
+        let a = node(20, Some("a"), "con", Some(1), false, &[], vec![]);
+        let b = node(30, Some("b"), "con", Some(2), false, &[], vec![]);
+        let c = node(40, Some("c"), "con", Some(3), false, &[], vec![]);
+        let n = node(10, None, "con", None, false, &[20, 30, 40], vec![a, b, c]);
         let mut out = vec![];
-        collect_window_titles_in_focus_order(&node, &mut out);
+        collect_window_titles_in_focus_order(&n, &mut out);
         assert_eq!(out, vec!["a", "b", "c"]);
     }
 
@@ -307,64 +328,75 @@ mod tests {
     /// root focus chain, two windows with kitty most recently focused) and
     /// "2: term" (urgent, no windows).
     /// __i3 → content con → workspace "__i3_scratch" (internal, must be hidden).
-    fn sample_tree() -> serde_json::Value {
-        json!({
-            "id": 1, "type": "root", "name": "root", "window": null,
-            "focus": [2],
-            "nodes": [
-                {
-                    "id": 2, "type": "output", "name": "DP-1", "window": null,
-                    "focus": [3],
-                    "nodes": [
-                        {
-                            "id": 3, "type": "con", "name": "content", "window": null,
-                            "focus": [4],
-                            "nodes": [
-                                {
-                                    "id": 4, "type": "workspace", "name": "1: web",
-                                    "window": null, "urgent": false,
-                                    "focus": [7, 6],
-                                    "nodes": [
-                                        { "id": 6, "type": "con", "window": 601, "name": "firefox",
-                                          "focus": [], "nodes": [], "floating_nodes": [] },
-                                        { "id": 7, "type": "con", "window": 602, "name": "kitty",
-                                          "focus": [], "nodes": [], "floating_nodes": [] }
-                                    ],
-                                    "floating_nodes": []
-                                },
-                                {
-                                    "id": 5, "type": "workspace", "name": "2: term",
-                                    "window": null, "urgent": true,
-                                    "focus": [], "nodes": [], "floating_nodes": []
-                                }
-                            ],
-                            "floating_nodes": []
-                        }
-                    ],
-                    "floating_nodes": []
-                },
-                {
-                    "id": 100, "type": "output", "name": "__i3", "window": null,
-                    "focus": [101],
-                    "nodes": [
-                        {
-                            "id": 101, "type": "con", "name": "content", "window": null,
-                            "focus": [102],
-                            "nodes": [
-                                {
-                                    "id": 102, "type": "workspace", "name": "__i3_scratch",
-                                    "window": null, "urgent": false,
-                                    "focus": [], "nodes": [], "floating_nodes": []
-                                }
-                            ],
-                            "floating_nodes": []
-                        }
-                    ],
-                    "floating_nodes": []
-                }
-            ],
-            "floating_nodes": []
-        })
+    fn sample_tree() -> Node {
+        let firefox = node(6, Some("firefox"), "con", Some(601), false, &[], vec![]);
+        let kitty = node(7, Some("kitty"), "con", Some(602), false, &[], vec![]);
+        let ws_web = node(
+            4,
+            Some("1: web"),
+            "workspace",
+            None,
+            false,
+            &[7, 6],
+            vec![firefox, kitty],
+        );
+        let ws_term = node(5, Some("2: term"), "workspace", None, true, &[], vec![]);
+        let content_dp1 = node(
+            3,
+            Some("content"),
+            "con",
+            None,
+            false,
+            &[4],
+            vec![ws_web, ws_term],
+        );
+        let output_dp1 = node(
+            2,
+            Some("DP-1"),
+            "output",
+            None,
+            false,
+            &[3],
+            vec![content_dp1],
+        );
+
+        let ws_scratch = node(
+            102,
+            Some("__i3_scratch"),
+            "workspace",
+            None,
+            false,
+            &[],
+            vec![],
+        );
+        let content_i3 = node(
+            101,
+            Some("content"),
+            "con",
+            None,
+            false,
+            &[102],
+            vec![ws_scratch],
+        );
+        let output_i3 = node(
+            100,
+            Some("__i3"),
+            "output",
+            None,
+            false,
+            &[101],
+            vec![content_i3],
+        );
+
+        node(
+            1,
+            Some("root"),
+            "root",
+            None,
+            false,
+            &[2],
+            vec![output_dp1, output_i3],
+        )
     }
 
     #[test]
