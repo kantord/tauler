@@ -33,7 +33,7 @@ anyhow = "1.0.103"
 serde_yaml = "0.9.34"
 tauler-ui-macro = { path = "tauler-ui-macro" }
 optative = "0.1.2"
-optative-process-pool = "0.0.4"
+optative-process-pool = "0.0.5"
 optative-derive = "0.0.2"
 optative-script = "0.0.3"
 takumi-incr = { path = "takumi-incr" }
