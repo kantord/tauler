@@ -29,7 +29,7 @@ serde = { version = "1.0.228", features = ["derive"] }
 thiserror = "2.0.18"
 json-canon = "0.1.3"
 tiny-skia = "0.12"
-anyhow = "1.0.103"
+anyhow = "1.0.104"
 serde_yaml = "0.9.34"
 tauler-ui-macro = { path = "tauler-ui-macro" }
 optative = "0.1.2"
