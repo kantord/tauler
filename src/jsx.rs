@@ -16,7 +16,7 @@ pub struct EvalOutput {
 type EvalResult = rquickjs::Result<EvalOutput>;
 
 use rquickjs::function::Function;
-use rquickjs::loader::{BuiltinLoader, BuiltinResolver};
+use rquickjs::loader::{Loader, Resolver};
 use rquickjs::{CatchResultExt, Persistent};
 
 use std::path::PathBuf;
@@ -67,53 +67,58 @@ impl Drop for JsxEvaluator {
     }
 }
 
+/// No-op resolver/loader pair used in place of a filesystem resolver when
+/// `JsxEvaluator::new` is called with `base_dir: None`. `build_runtime` always
+/// composes its builtin resolver/loader with a second one, so this pair stands in
+/// for "no filesystem access at all" — matching the pre-`build_runtime` behavior,
+/// where the `None` branch registered only `builtin_resolver`/`builtin_loader` and
+/// any relative/`./`-style import simply failed to resolve.
+struct NoFsResolver;
+
+impl Resolver for NoFsResolver {
+    fn resolve<'js>(
+        &mut self,
+        _ctx: &rquickjs::Ctx<'js>,
+        base: &str,
+        name: &str,
+    ) -> rquickjs::Result<String> {
+        Err(rquickjs::Error::new_resolving(base, name))
+    }
+}
+
+struct NoFsLoader;
+
+impl Loader for NoFsLoader {
+    fn load<'js>(
+        &mut self,
+        _ctx: &rquickjs::Ctx<'js>,
+        name: &str,
+    ) -> rquickjs::Result<rquickjs::Module<'js, rquickjs::module::Declared>> {
+        Err(rquickjs::Error::new_loading(name))
+    }
+}
+
 impl JsxEvaluator {
     pub fn new(
         source: &str,
         ctx: serde_json::Value,
         base_dir: Option<&Path>,
     ) -> rquickjs::Result<Self> {
-        let runtime = rquickjs::Runtime::new()?;
         let loaded_paths: Arc<Mutex<Vec<PathBuf>>> = Arc::new(Mutex::new(Vec::new()));
 
-        // Group UI components by module_path so shared paths emit a single
-        // multi-export module (a second `.with_module` call would overwrite the first).
-        let mut module_groups: std::collections::HashMap<
-            &'static str,
-            Vec<&optative_script::EsEntry>,
-        > = std::collections::HashMap::new();
-        for e in crate::ui::registry::UI_COMPONENTS.iter() {
-            module_groups.entry(e.module_path).or_default().push(e);
-        }
-
-        let builtin_resolver = module_groups
-            .keys()
-            .fold(BuiltinResolver::default(), |r, path| r.with_module(*path));
-        let builtin_loader =
-            module_groups
-                .iter()
-                .fold(BuiltinLoader::default(), |l, (path, entries)| {
-                    l.with_module(
-                        *path,
-                        optative_script::synthetic_module_source_for_entries(entries),
-                    )
-                });
-        if let Some(dir) = base_dir {
-            runtime.set_loader(
-                (
-                    builtin_resolver,
-                    optative_script::loader::ConfinedFsResolver::new(dir.to_path_buf()),
-                ),
-                (
-                    builtin_loader,
-                    optative_script::loader::ConfinedFsLoader::new(Arc::clone(&loaded_paths)),
-                ),
-            );
+        let (runtime, context) = if let Some(dir) = base_dir {
+            optative_script::build_runtime(
+                crate::ui::registry::UI_COMPONENTS,
+                optative_script::loader::ConfinedFsResolver::new(dir.to_path_buf()),
+                optative_script::loader::ConfinedFsLoader::new(Arc::clone(&loaded_paths)),
+            )?
         } else {
-            runtime.set_loader(builtin_resolver, builtin_loader);
-        }
-
-        let context = rquickjs::Context::full(&runtime)?;
+            optative_script::build_runtime(
+                crate::ui::registry::UI_COMPONENTS,
+                NoFsResolver,
+                NoFsLoader,
+            )?
+        };
         let stream_values: StreamValues = Arc::new(RwLock::new(HashMap::new()));
         let calls: StreamCalls = Arc::new(Mutex::new(Vec::new()));
         let module_calls: Arc<Mutex<Vec<(String, serde_json::Value)>>> =
