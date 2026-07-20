@@ -2144,17 +2144,6 @@ dependencies = [
 
 [[package]]
 name = "optative-derive"
-version = "0.0.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "66b0ad091b983a3a7566721d91cacedba51d4bc799a9fcfb46d6c3d4c50a736a"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 2.0.118",
-]
-
-[[package]]
-name = "optative-derive"
 version = "0.0.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "14965929bde76a47f01f47648fb6217258cf16038f821e58d886a1f2f0225284"
@@ -2166,13 +2155,13 @@ dependencies = [
 
 [[package]]
 name = "optative-process-pool"
-version = "0.0.5"
+version = "0.0.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9c7ed2dd98ae0bdaeaf858f990c960daa33955de4f352df65f1257abfc534e81"
+checksum = "1979ca5a22c9b45a983dc0c770869519704cbcc0f1459ed59f506254360536a9"
 dependencies = [
  "nix",
  "optative",
- "optative-derive 0.0.2",
+ "optative-derive",
  "serde",
  "serde_json",
  "tempfile",
@@ -3850,7 +3839,7 @@ dependencies = [
  "libc",
  "notify",
  "optative",
- "optative-derive 0.0.3",
+ "optative-derive",
  "optative-process-pool",
  "optative-script",
  "parley",
