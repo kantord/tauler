@@ -35,7 +35,7 @@ tauler-ui-macro = { path = "tauler-ui-macro" }
 optative = "0.1.3"
 optative-process-pool = "0.0.7"
 optative-derive = "0.0.3"
-optative-script = "0.0.4"
+optative-script = "0.0.6"
 takumi-incr = { path = "takumi-incr" }
 notify = "8.2.0"
 smithay-client-toolkit = "0.20.0"
