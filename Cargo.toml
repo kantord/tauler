@@ -46,6 +46,6 @@ tempfile = "3.27.0"
 
 [dev-dependencies]
 image = "0.25.10"
-libc = "0.2.186"
+libc = "0.2.189"
 tracing-test = "0.2.6"
 rstest = "0.26.1"
