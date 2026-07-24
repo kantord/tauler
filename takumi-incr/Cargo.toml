@@ -6,7 +6,7 @@ publish = false
 
 [dependencies]
 optative = { workspace = true }
-takumi = "1.2.1"
+takumi = "2.4.2"
 serde_json = "1.0.151"
 anyhow = "1.0.104"
 image = "0.25.10"
