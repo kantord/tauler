@@ -41,7 +41,7 @@ notify = "8.2.0"
 smithay-client-toolkit = "0.20.0"
 wayland-client = "0.31.15"
 cached = { version = "0.59.0", features = ["proc_macro"] }
-parley = "0.9"
+parley = "0.11.0"
 tempfile = "3.27.0"
 
 [dev-dependencies]
