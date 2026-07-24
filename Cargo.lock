@@ -1083,6 +1083,7 @@ checksum = "843fba2746e448b37e26a819579957415c8cef339bf08564fe8b7ddbd959573c"
 dependencies = [
  "crc32fast",
  "miniz_oxide 0.8.9",
+ "zlib-rs",
 ]
 
 [[package]]
@@ -3429,6 +3430,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "serde_bytes"
+version = "0.11.19"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a5d440709e79d88e51ac01c4b72fc6cb7314017bb7da9eeff678aa94c10e3ea8"
+dependencies = [
+ "serde",
+ "serde_core",
+]
+
+[[package]]
 name = "serde_core"
 version = "1.0.229"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3777,9 +3788,9 @@ dependencies = [
 
 [[package]]
 name = "taffy"
-version = "0.10.1"
+version = "0.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "aea22054047c16c3f34d3ac473a2170be1424b1115b2a3adcf28cfb067c88859"
+checksum = "dfde4e2f8595f222ceaae1fb16b4963952e9b33e358869dc4cd6316b0e0790cd"
 dependencies = [
  "arrayvec",
  "grid",
@@ -3789,11 +3800,10 @@ dependencies = [
 
 [[package]]
 name = "takumi"
-version = "1.2.1"
+version = "1.8.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a150736b672b56c0c0efc3371fd2cf18365d445dcfc0c6867c9c0490b1aaa522"
+checksum = "0db189b590e71f063e7e8c457216cf6adc4c2fbf6518b9dc9502416c507e2b3c"
 dependencies = [
- "bitflags",
  "bytemuck",
  "color",
  "cssparser",
@@ -3804,24 +3814,47 @@ dependencies = [
  "image-webp",
  "libwebp-sys",
  "parley",
- "paste",
- "phf 0.13.1",
  "png",
- "precomputed-hash",
  "rayon",
  "resvg",
  "roxmltree",
  "selectors",
  "serde",
+ "serde_bytes",
  "skrifa",
  "smallvec",
  "svgtypes",
  "taffy",
+ "takumi-css",
  "thiserror",
  "tiny-skia",
  "typed-builder",
  "wuff",
  "xxhash-rust",
+]
+
+[[package]]
+name = "takumi-css"
+version = "0.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fbf997e767da4e99e5ea5718185e990e8ee92ef5af76a0f7bd2bb753f425eade"
+dependencies = [
+ "bitflags",
+ "bytemuck",
+ "color",
+ "cssparser",
+ "image",
+ "parley",
+ "paste",
+ "phf 0.13.1",
+ "precomputed-hash",
+ "selectors",
+ "serde",
+ "smallvec",
+ "taffy",
+ "thiserror",
+ "tiny-skia",
+ "typed-builder",
 ]
 
 [[package]]
@@ -5151,6 +5184,12 @@ dependencies = [
  "quote",
  "syn 2.0.119",
 ]
+
+[[package]]
+name = "zlib-rs"
+version = "0.6.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b142a20ec14a91d5bc708c1dc21b080c550113d8aa77afa29635673a65dd02c5"
 
 [[package]]
 name = "zmij"
