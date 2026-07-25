@@ -2,6 +2,24 @@ use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use clap::Parser;
+
+/// Generate docs/content/docs/components.mdx from doc comments on UI components.
+#[derive(Parser)]
+struct Args {
+    /// Directory containing UI component source files
+    #[arg(long, default_value = "src/ui/components")]
+    components_dir: PathBuf,
+
+    /// Path to write the generated MDX file
+    #[arg(long, default_value = "docs/content/docs/components.mdx")]
+    output: PathBuf,
+
+    /// Directory to write rendered component screenshots
+    #[arg(long, default_value = "docs/public/assets")]
+    assets_dir: PathBuf,
+}
+
 struct Component {
     module_path: String,
     export_name: String,
@@ -393,9 +411,10 @@ fn render_markdown(components: &[Component], screenshots: &[Option<PathBuf>]) ->
 }
 
 fn main() {
-    let components_dir = Path::new("src/ui/components");
-    let output_path = Path::new("docs/content/docs/components.mdx");
-    let assets_dir = Path::new("docs/public/assets");
+    let args = Args::parse();
+    let components_dir = args.components_dir.as_path();
+    let output_path = args.output.as_path();
+    let assets_dir = args.assets_dir.as_path();
 
     if !components_dir.exists() {
         eprintln!(
