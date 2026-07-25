@@ -2171,9 +2171,9 @@ dependencies = [
 
 [[package]]
 name = "optative-script"
-version = "0.0.7"
+version = "0.0.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4a4d0b670e50031237edcf6c960c6cccffe62a8afd2fe84022c37e68e98f21d2"
+checksum = "e448726088c2e6ce9e6a0775aef9ca04f614575f381aece2761a210ea6091b43"
 dependencies = [
  "optative",
  "oxc_allocator",
@@ -2184,6 +2184,7 @@ dependencies = [
  "oxc_span",
  "oxc_transformer",
  "rquickjs",
+ "serde",
  "sha2",
  "thiserror",
 ]
