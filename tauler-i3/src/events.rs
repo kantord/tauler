@@ -1,6 +1,7 @@
 pub struct InitEvent {
     pub output: String,
-    pub bar_width: u32,
+    pub left_width: u32,
+    pub right_width: u32,
     pub dpi: f32,
     pub outer_gap: u32,
 }
@@ -12,7 +13,8 @@ pub fn parse_init_event(json: &str) -> Option<InitEvent> {
     }
     Some(InitEvent {
         output: val["output"].as_str()?.to_string(),
-        bar_width: val["config"]["width"].as_u64()? as u32,
+        left_width: val["config"]["left"].as_u64()? as u32,
+        right_width: val["config"]["right"].as_u64().unwrap_or(0) as u32,
         dpi: val["dpi"].as_f64().unwrap_or(96.0) as f32,
         outer_gap: val["config"]["outer_gap"].as_u64().unwrap_or(0) as u32,
     })
@@ -32,27 +34,34 @@ mod tests {
 
     #[test]
     fn parse_init_event_extracts_output_and_config() {
-        let json =
-            r#"{"type":"init","output":"DP-1","config":{"width":200,"outer_gap":8},"dpi":96.0}"#;
+        let json = r#"{"type":"init","output":"DP-1","config":{"left":200,"right":87,"outer_gap":8},"dpi":96.0}"#;
         let ev = parse_init_event(json).unwrap();
         assert_eq!(ev.output, "DP-1");
-        assert_eq!(ev.bar_width, 200);
+        assert_eq!(ev.left_width, 200);
+        assert_eq!(ev.right_width, 87);
         assert_eq!(ev.outer_gap, 8);
         assert!((ev.dpi - 96.0).abs() < 0.01);
     }
 
     #[test]
     fn parse_init_event_defaults_outer_gap_to_zero() {
-        let json = r#"{"type":"init","output":"DP-1","config":{"width":200},"dpi":96.0}"#;
+        let json = r#"{"type":"init","output":"DP-1","config":{"left":200},"dpi":96.0}"#;
         let ev = parse_init_event(json).unwrap();
         assert_eq!(ev.outer_gap, 0);
     }
 
     #[test]
     fn parse_init_event_defaults_dpi_to_96() {
-        let json = r#"{"type":"init","output":"DP-1","config":{"width":200}}"#;
+        let json = r#"{"type":"init","output":"DP-1","config":{"left":200}}"#;
         let ev = parse_init_event(json).unwrap();
         assert!((ev.dpi - 96.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn parse_init_event_defaults_right_width_to_zero() {
+        let json = r#"{"type":"init","output":"DP-1","config":{"left":200}}"#;
+        let ev = parse_init_event(json).unwrap();
+        assert_eq!(ev.right_width, 0);
     }
 
     #[test]

@@ -122,16 +122,29 @@ fn scale_gap(dpi: f32, px: u32) -> u32 {
     }
 }
 
-pub fn bar_gap_command(dpi: f32, bar_width: u32, outer_gap: u32) -> String {
-    let left = scale_gap(dpi, bar_width);
-    let og = scale_gap(dpi, outer_gap);
-    if og == 0 {
-        format!("gaps left current set {left}")
-    } else {
-        format!(
-            "gaps left current set {left}; gaps top current set {og}; gaps right current set {og}; gaps bottom current set {og}"
-        )
+/// Build the i3 `gaps` command reserving space for the panel(s). `left`/`right`
+/// are real panel widths (0 if no panel is anchored on that side); `right`
+/// takes precedence over `outer_gap` when a right panel exists, since its
+/// width is the actual space that needs reserving, not the small decorative
+/// `outer_gap` padding. `outer_gap` still drives top/bottom.
+pub fn bar_gap_command(dpi: f32, left: u32, right: u32, outer_gap: u32) -> String {
+    let mut cmds = vec![format!("gaps left current set {}", scale_gap(dpi, left))];
+
+    let right_reserved = if right > 0 { right } else { outer_gap };
+    if right_reserved > 0 {
+        cmds.push(format!(
+            "gaps right current set {}",
+            scale_gap(dpi, right_reserved)
+        ));
     }
+
+    let og = scale_gap(dpi, outer_gap);
+    if og > 0 {
+        cmds.push(format!("gaps top current set {og}"));
+        cmds.push(format!("gaps bottom current set {og}"));
+    }
+
+    cmds.join("; ")
 }
 
 /// Returns true when gap commands should be sent — only in X11/i3 mode where the WM
@@ -141,8 +154,8 @@ pub fn should_apply_bar_gap(output: &str) -> bool {
     !output.is_empty()
 }
 
-pub fn apply_bar_gap(query: &mut I3Query, dpi: f32, bar_width: u32, outer_gap: u32) {
-    let cmd = bar_gap_command(dpi, bar_width, outer_gap);
+pub fn apply_bar_gap(query: &mut I3Query, dpi: f32, left: u32, right: u32, outer_gap: u32) {
+    let cmd = bar_gap_command(dpi, left, right, outer_gap);
     if let Err(e) = query.run_command(&cmd) {
         tracing::warn!(error = %e, "apply_bar_gap failed");
     }
@@ -357,26 +370,43 @@ mod tests {
 
     #[test]
     fn bar_gap_command_sets_only_left_when_outer_gap_zero() {
-        let cmd = bar_gap_command(96.0, 200, 0);
+        let cmd = bar_gap_command(96.0, 200, 0, 0);
         assert_eq!(cmd, "gaps left current set 200");
     }
 
     #[test]
     fn bar_gap_command_sets_all_four_gaps_when_outer_gap_nonzero() {
-        let cmd = bar_gap_command(96.0, 200, 8);
+        let cmd = bar_gap_command(96.0, 200, 0, 8);
         assert_eq!(
             cmd,
-            "gaps left current set 200; gaps top current set 8; gaps right current set 8; gaps bottom current set 8"
+            "gaps left current set 200; gaps right current set 8; gaps top current set 8; gaps bottom current set 8"
         );
     }
 
     #[test]
     fn bar_gap_command_scales_gaps_for_high_dpi() {
         // At DPI 192 (dpr=2.0), i3 scales gaps itself, so we divide back by dpr
-        let cmd = bar_gap_command(192.0, 400, 16);
+        let cmd = bar_gap_command(192.0, 400, 0, 16);
         assert_eq!(
             cmd,
-            "gaps left current set 200; gaps top current set 8; gaps right current set 8; gaps bottom current set 8"
+            "gaps left current set 200; gaps right current set 8; gaps top current set 8; gaps bottom current set 8"
+        );
+    }
+
+    #[test]
+    fn bar_gap_command_sets_right_from_panel_width_when_outer_gap_zero() {
+        // Regression: a right-anchored panel must reserve its own width,
+        // independent of the (unset) decorative outer_gap.
+        let cmd = bar_gap_command(96.0, 200, 87, 0);
+        assert_eq!(cmd, "gaps left current set 200; gaps right current set 87");
+    }
+
+    #[test]
+    fn bar_gap_command_right_panel_width_takes_precedence_over_outer_gap() {
+        let cmd = bar_gap_command(96.0, 200, 87, 8);
+        assert_eq!(
+            cmd,
+            "gaps left current set 200; gaps right current set 87; gaps top current set 8; gaps bottom current set 8"
         );
     }
 }

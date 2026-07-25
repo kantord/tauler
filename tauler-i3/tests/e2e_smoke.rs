@@ -208,7 +208,7 @@ fn stdin_click_and_refresh_worker_round_trip_through_real_process() {
     // switch-workspace command below — the assertion loop tolerates that.
     writeln!(
         stdin,
-        r#"{{"type":"init","output":"DP-1","config":{{"width":24,"outer_gap":4}},"dpi":96.0}}"#
+        r#"{{"type":"init","output":"DP-1","config":{{"left":24,"outer_gap":4}},"dpi":96.0}}"#
     )
     .expect("write init event");
     stdin.flush().expect("flush init event");

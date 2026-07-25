@@ -159,6 +159,9 @@ fn init_x11() -> Result<X11Init, Box<dyn std::error::Error>> {
 
     let output_map = tauler::x11::outputs::build_output_map(&conn, screen.root);
 
+    let root_screen_width = screen.width_in_pixels as u32;
+    let root_screen_height = screen.height_in_pixels as u32;
+
     let (screen_width_logical, screen_height_logical) = output_map
         .get(&output_name)
         .map(|o| {
@@ -202,6 +205,8 @@ fn init_x11() -> Result<X11Init, Box<dyn std::error::Error>> {
         output_name,
         screen_width_logical,
         screen_height_logical,
+        root_screen_width,
+        root_screen_height,
     };
 
     let jsx_ctx = serde_json::json!({
