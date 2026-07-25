@@ -18,13 +18,16 @@ pub fn run(
     rx: mpsc::Receiver<CommandRequest>,
     mut query: I3Query,
     dpi: f32,
-    bar_width: u32,
+    left_width: u32,
+    right_width: u32,
     outer_gap: u32,
 ) {
     while let Ok(req) = rx.recv() {
         match req {
             CommandRequest::SwitchWorkspace(name) => switch_workspace(&mut query, &name),
-            CommandRequest::ApplyBarGap => apply_bar_gap(&mut query, dpi, bar_width, outer_gap),
+            CommandRequest::ApplyBarGap => {
+                apply_bar_gap(&mut query, dpi, left_width, right_width, outer_gap)
+            }
         }
     }
 }

@@ -175,6 +175,8 @@ fn create_panel(
             mon_height,
             phys_width,
             phys_height,
+            ctx.root_screen_width,
+            ctx.root_screen_height,
         );
         ctx.conn.change_property32(
             PropMode::REPLACE,
@@ -230,6 +232,12 @@ pub struct X11PanelContext {
     pub output_name: String,
     pub screen_width_logical: u32,
     pub screen_height_logical: u32,
+    /// Total root X11 screen dimensions (physical px, spanning all
+    /// monitors) — distinct from `screen_width_logical`, which is the
+    /// *primary output's* logical size. Needed for `Right`/`Bottom` strut
+    /// math, which EWMH measures from the root screen's far edge.
+    pub root_screen_width: u32,
+    pub root_screen_height: u32,
 }
 
 /// Backward-compatible alias so callers that import `x11::panel::PanelContext` still compile.
@@ -341,6 +349,8 @@ impl DisplayManager for X11PanelContext {
                     mon_height,
                     new_phys_width,
                     new_phys_height,
+                    self.root_screen_width,
+                    self.root_screen_height,
                 );
                 self.conn
                     .change_property32(
@@ -442,6 +452,8 @@ mod tests {
             output_name: "test-output".to_string(),
             screen_width_logical: mon_width,
             screen_height_logical: mon_height,
+            root_screen_width: mon_width,
+            root_screen_height: mon_height,
         })
     }
 

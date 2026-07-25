@@ -62,9 +62,12 @@ fn main() {
     {
         let query = I3Query::new(socket.clone(), ipc::I3_IPC_TIMEOUT);
         let dpi = init.dpi;
-        let bar_width = init.bar_width;
+        let left_width = init.left_width;
+        let right_width = init.right_width;
         let outer_gap = init.outer_gap;
-        thread::spawn(move || command_worker::run(cmd_rx, query, dpi, bar_width, outer_gap));
+        thread::spawn(move || {
+            command_worker::run(cmd_rx, query, dpi, left_width, right_width, outer_gap)
+        });
     }
 
     // Apply the bar gap once at startup (mirrors the effect a workspace-focus

@@ -45,7 +45,12 @@ pub fn inject_root_bg(rgba: Vec<u8>, width: u32, height: u32) {
 ///   [8] top_start_x,   [9] top_end_x,
 ///   [10] bottom_start_x, [11] bottom_end_x
 ///
+/// `screen_width`/`screen_height` are the total root X11 screen dimensions
+/// (spanning all monitors), needed for `Right`/`Bottom` — EWMH measures those
+/// struts from the root screen's far edge, not the panel's own monitor edge.
+///
 /// All values are in physical pixels, absolute from the screen origin.
+#[allow(clippy::too_many_arguments)]
 pub const fn strut_partial_values_for_anchor(
     anchor: PanelAnchor,
     mon_x: i16,
@@ -54,6 +59,8 @@ pub const fn strut_partial_values_for_anchor(
     mon_height: u32,
     phys_panel_width: u32,
     phys_panel_height: u32,
+    screen_width: u32,
+    screen_height: u32,
 ) -> [u32; 12] {
     let mut v = [0u32; 12];
     match anchor {
@@ -63,7 +70,7 @@ pub const fn strut_partial_values_for_anchor(
             v[5] = mon_y as u32 + mon_height.saturating_sub(1);
         }
         PanelAnchor::Right => {
-            v[1] = phys_panel_width; // measured from right screen edge
+            v[1] = screen_width.saturating_sub(mon_x as u32 + _mon_width) + phys_panel_width;
             v[6] = mon_y as u32;
             v[7] = mon_y as u32 + mon_height.saturating_sub(1);
         }
@@ -73,7 +80,7 @@ pub const fn strut_partial_values_for_anchor(
             v[9] = mon_x as u32 + _mon_width.saturating_sub(1);
         }
         PanelAnchor::Bottom => {
-            v[3] = phys_panel_height; // measured from bottom screen edge
+            v[3] = screen_height.saturating_sub(mon_y as u32 + mon_height) + phys_panel_height;
             v[10] = mon_x as u32;
             v[11] = mon_x as u32 + _mon_width.saturating_sub(1);
         }

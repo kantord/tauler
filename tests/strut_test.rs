@@ -2,7 +2,8 @@ use tauler::{strut_partial_values_for_anchor, PanelAnchor};
 
 #[test]
 fn left_bar_primary_monitor() {
-    let v = strut_partial_values_for_anchor(PanelAnchor::Left, 0, 0, 1920, 1080, 200, 1080);
+    let v =
+        strut_partial_values_for_anchor(PanelAnchor::Left, 0, 0, 1920, 1080, 200, 1080, 1920, 1080);
     assert_eq!(v[0], 200); // left
     assert_eq!(v[1], 0); // right
     assert_eq!(v[2], 0); // top
@@ -16,8 +17,27 @@ fn left_bar_primary_monitor() {
 #[test]
 fn left_bar_offset_monitor() {
     // secondary monitor at y=100
-    let v = strut_partial_values_for_anchor(PanelAnchor::Left, 0, 100, 1920, 900, 200, 900);
+    let v =
+        strut_partial_values_for_anchor(PanelAnchor::Left, 0, 100, 1920, 900, 200, 900, 1920, 1000);
     assert_eq!(v[0], 200); // left
     assert_eq!(v[4], 100); // left_start_y
     assert_eq!(v[5], 999); // left_end_y = mon_y + mon_height - 1
+}
+
+#[test]
+fn right_bar_monitor_not_at_screen_right_edge() {
+    // Root screen 6840 wide; this monitor spans x=1080..4920, not the
+    // rightmost one; an 87px panel is docked at its right edge.
+    let v = strut_partial_values_for_anchor(
+        PanelAnchor::Right,
+        1080,
+        0,
+        3840,
+        2160,
+        87,
+        2160,
+        6840,
+        2160,
+    );
+    assert_eq!(v[1], 2007); // (6840 - (1080 + 3840)) + 87
 }

@@ -201,11 +201,11 @@ fn make_mod_init_value(
     screen_width_logical: u32,
     screen_height_logical: u32,
 ) -> serde_json::Value {
-    let spec = specs
+    let left_spec = specs
         .iter()
         .find(|p| p.anchor == Some(tauler::PanelAnchor::Left))
         .or_else(|| specs.first());
-    let (bar_w, og) = spec
+    let (bar_w_left, og) = left_spec
         .map(|p| {
             (
                 (p.width as f32 * dpr).round() as u32,
@@ -213,9 +213,14 @@ fn make_mod_init_value(
             )
         })
         .unwrap_or((250, 0));
+    let bar_w_right = specs
+        .iter()
+        .find(|p| p.anchor == Some(tauler::PanelAnchor::Right))
+        .map(|p| (p.width as f32 * dpr).round() as u32)
+        .unwrap_or(0);
     serde_json::json!({
         "type": "init",
-        "config": {"width": bar_w, "outer_gap": og},
+        "config": {"left": bar_w_left, "right": bar_w_right, "outer_gap": og},
         "output": output_name,
         "dpi": dpi,
         "screen_width": screen_width_logical,
@@ -851,15 +856,50 @@ mod tests {
         assert_eq!(result["type"].as_str(), Some("init"));
     }
 
-    /// Claim: config.width must match the width of the left-anchored spec (no dpr scaling at 1.0).
+    /// Claim: config.left must match the width of the left-anchored spec (no dpr scaling at 1.0).
     #[test]
-    fn mod_init_config_width_matches_left_anchor_spec() {
+    fn mod_init_config_left_matches_left_anchor_spec() {
         let result = wayland_mod_init(&[left_spec(320)]);
         assert_eq!(
-            result["config"]["width"].as_u64(),
+            result["config"]["left"].as_u64(),
             Some(320),
-            "config.width must match the left-anchored spec width"
+            "config.left must match the left-anchored spec width"
         );
+    }
+
+    fn right_spec(width: u32) -> tauler::PanelSpecData {
+        tauler::PanelSpecData {
+            id: "p".into(),
+            width,
+            height: 30,
+            x: 0,
+            y: 0,
+            outer_gap: 0,
+            above: false,
+            output: None,
+            anchor: Some(tauler::PanelAnchor::Right),
+            content: serde_json::Value::Null,
+            dpr: 1.0,
+        }
+    }
+
+    /// Claim: config.right must match the width of the right-anchored spec, independent of
+    /// the left spec's outer_gap — the bug this fixes: right panels never reserved space.
+    #[test]
+    fn mod_init_config_right_matches_right_anchor_spec() {
+        let result = wayland_mod_init(&[left_spec(250), right_spec(87)]);
+        assert_eq!(
+            result["config"]["right"].as_u64(),
+            Some(87),
+            "config.right must match the right-anchored spec width"
+        );
+    }
+
+    /// Claim: without a right-anchored spec present, config.right defaults to 0 (no reservation).
+    #[test]
+    fn mod_init_config_right_defaults_to_zero_without_right_spec() {
+        let result = wayland_mod_init(&[left_spec(250)]);
+        assert_eq!(result["config"]["right"].as_u64(), Some(0));
     }
 
     #[test]

@@ -152,7 +152,17 @@ mod tests {
 
     #[test]
     fn strut_for_anchor_left_sets_left_strut() {
-        let v = strut_partial_values_for_anchor(PanelAnchor::Left, 0, 0, 1920, 2160, 365, 2160);
+        let v = strut_partial_values_for_anchor(
+            PanelAnchor::Left,
+            0,
+            0,
+            1920,
+            2160,
+            365,
+            2160,
+            1920,
+            2160,
+        );
         assert_eq!(v[0], 365); // left strut
         assert_eq!(v[1], 0); // right strut
         assert_eq!(v[2], 0); // top strut
@@ -163,10 +173,62 @@ mod tests {
 
     #[test]
     fn strut_for_anchor_top_sets_top_strut() {
-        let v = strut_partial_values_for_anchor(PanelAnchor::Top, 0, 0, 1920, 2160, 1920, 32);
+        let v = strut_partial_values_for_anchor(
+            PanelAnchor::Top,
+            0,
+            0,
+            1920,
+            2160,
+            1920,
+            32,
+            1920,
+            2160,
+        );
         assert_eq!(v[0], 0);
         assert_eq!(v[2], 32); // top strut
         assert_eq!(v[8], 0); // top_start_x
         assert_eq!(v[9], 1919); // top_end_x
+    }
+
+    /// Regression: on a multi-monitor root screen, a right-anchored panel's
+    /// monitor is not necessarily at the root screen's right edge. The strut
+    /// must be measured from the true root screen edge, not the monitor edge.
+    #[test]
+    fn strut_for_anchor_right_accounts_for_monitor_offset_from_screen_right_edge() {
+        // Root screen 6840 wide; monitor spans x=1080..4920 (not the
+        // rightmost monitor); an 87px-wide panel is docked at its right edge.
+        let v = strut_partial_values_for_anchor(
+            PanelAnchor::Right,
+            1080,
+            0,
+            3840,
+            2160,
+            87,
+            2160,
+            6840,
+            2160,
+        );
+        assert_eq!(v[1], 2007); // (6840 - (1080 + 3840)) + 87
+        assert_eq!(v[6], 0); // right_start_y
+        assert_eq!(v[7], 2159); // right_end_y
+    }
+
+    /// Same offset-from-screen-edge bug, mirrored for Bottom: this monitor's
+    /// bottom edge (y=2160) is not the root screen's bottom edge (3240) —
+    /// another monitor sits below it.
+    #[test]
+    fn strut_for_anchor_bottom_accounts_for_monitor_offset_from_screen_bottom_edge() {
+        let v = strut_partial_values_for_anchor(
+            PanelAnchor::Bottom,
+            0,
+            0,
+            3840,
+            2160,
+            3840,
+            32,
+            3840,
+            3240,
+        );
+        assert_eq!(v[3], 1112); // (3240 - (0 + 2160)) + 32
     }
 }
