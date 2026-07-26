@@ -1,5 +1,5 @@
 [workspace]
-members = [".", "tauler-i3", "tauler-luax", "tauler-notify", "tauler-ui-macro", "takumi-incr", "tauler-docgen", "tauler-screenshot"]
+members = [".", "tauler-i3", "tauler-luax", "tauler-notify", "tauler-ui-macro", "tauler-docgen", "tauler-screenshot"]
 resolver = "2"
 
 [workspace.dependencies]
@@ -36,7 +36,6 @@ optative = "0.1.4"
 optative-process-pool = "0.0.8"
 optative-derive = "0.0.4"
 optative-script = "0.0.8"
-takumi-incr = { path = "takumi-incr" }
 notify = "8.2.0"
 smithay-client-toolkit = "0.20.0"
 wayland-client = "0.31.15"

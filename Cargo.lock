@@ -1328,7 +1328,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ed5909b6e89a2db4456e54cd5f673791d7eca6732202bbf2a9cc504fe2f9b84a"
 dependencies = [
  "allocator-api2",
- "equivalent",
  "foldhash",
 ]
 
@@ -1794,15 +1793,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0fae87c125b03c1d2c0150c90365d7d6bcc53fb73a9acaef207d2d065860f062"
 dependencies = [
  "imgref",
-]
-
-[[package]]
-name = "lru"
-version = "0.18.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0b6180140927ee907000b0aa540091f6ea512ead4447c92b8fc35bc72788a5a6"
-dependencies = [
- "hashbrown 0.17.1",
 ]
 
 [[package]]
@@ -3848,22 +3838,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "takumi-incr"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "image",
- "insta",
- "lru",
- "optative",
- "parley",
- "serde",
- "serde_json",
- "takumi",
- "tracing",
-]
-
-[[package]]
 name = "tauler"
 version = "0.1.0"
 dependencies = [
@@ -3886,7 +3860,6 @@ dependencies = [
  "serde_yaml",
  "smithay-client-toolkit",
  "takumi",
- "takumi-incr",
  "tauler-ui-macro",
  "tempfile",
  "thiserror",

@@ -1,6 +1,0 @@
----
-source: takumi-incr/src/main.rs
-assertion_line: 3214
-expression: pixel_hash(pixels)
----
-ac28475211c4b697  (55200 px)
