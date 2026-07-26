@@ -1,7 +1,13 @@
 [package]
 name = "tauler-docgen"
-version = "0.1.0"
+description = "Internal tool: generates the tauler component documentation pages"
 edition = "2021"
+publish = false
+version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
 
 [[bin]]
 name = "tauler-docgen"

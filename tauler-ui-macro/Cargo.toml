@@ -1,7 +1,15 @@
 [package]
 name = "tauler-ui-macro"
-version = "0.1.0"
+description = "Proc macro for declaring tauler UI components with JSX-like syntax"
+keywords = ["tauler", "statusbar", "jsx", "macro"]
+categories = ["development-tools::procedural-macro-helpers", "gui"]
 edition = "2021"
+version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+rust-version.workspace = true
 
 [lib]
 proc-macro = true

@@ -1,7 +1,15 @@
 [package]
 name = "tauler-i3"
-version = "0.1.0"
+description = "i3 and sway workspace data source for the tauler status bar"
+keywords = ["tauler", "statusbar", "i3", "sway", "ipc"]
+categories = ["command-line-utilities", "os::linux-apis"]
 edition = "2024"
+version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+rust-version.workspace = true
 
 [dependencies]
 serde_json = "1.0.151"

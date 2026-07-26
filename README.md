@@ -57,3 +57,23 @@ const notifications = useJSONStream("...tauler-notify")?.notifications ?? [];
 ### When you would need explicit state
 
 The pure-function model cannot express state that persists *across ticks* — for example "this workspace received a notification since you last visited it." That kind of memory lives in the data sources themselves (a module process that tracks read/unread state), not in the render function.
+
+## License
+
+Licensed under either of
+
+- Apache License, Version 2.0 ([LICENSE-APACHE](LICENSE-APACHE) or <http://www.apache.org/licenses/LICENSE-2.0>)
+- MIT license ([LICENSE-MIT](LICENSE-MIT) or <http://opensource.org/licenses/MIT>)
+
+at your option.
+
+Unless you explicitly state otherwise, any contribution intentionally submitted
+for inclusion in the work by you, as defined in the Apache-2.0 license, shall be
+dual licensed as above, without any additional terms or conditions.
+
+### Third-party assets
+
+`assets/fonts/inter/InterVariable.ttf` is the [Inter](https://github.com/rsms/inter)
+typeface by The Inter Project Authors, licensed under the SIL Open Font License 1.1
+(see `assets/fonts/inter/LICENSE.txt`). It is used only to render documentation
+screenshots and is not part of the published crates.

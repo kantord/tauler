@@ -1,7 +1,15 @@
 [package]
 name = "tauler-notify"
-version = "0.1.0"
+description = "Desktop notification (D-Bus) data source for the tauler status bar"
+keywords = ["tauler", "statusbar", "notifications", "dbus", "freedesktop"]
+categories = ["command-line-utilities", "os::linux-apis"]
 edition = "2021"
+version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+rust-version.workspace = true
 
 [dependencies]
 tokio = { version = "1.52.3", features = ["macros", "rt-multi-thread", "time", "sync"] }
