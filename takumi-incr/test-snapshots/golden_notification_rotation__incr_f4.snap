@@ -1,5 +1,0 @@
----
-source: takumi-incr/src/main.rs
-expression: pixel_hash(pixels)
----
-a15bb5255ddf77a5  (80000 px)

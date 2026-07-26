@@ -655,8 +655,7 @@ mod tests {
         use crate::config::FontConfig;
         use crate::display_manager::DisplayManager;
         use crate::presentation::PanelFrame;
-        use crate::render::{init_global_ctx, render_frame_partial};
-        use takumi_incr::PartialRenderScene;
+        use crate::render::{init_global_ctx, render_frame};
 
         init_global_ctx(FontConfig::default());
 
@@ -692,8 +691,7 @@ mod tests {
 
         let phys_width = (spec.width as f32 * spec.dpr).round() as u32;
         let phys_height = (spec.height as f32 * spec.dpr).round() as u32;
-        let mut scene = PartialRenderScene::new();
-        let pixels = render_frame_partial(&mut scene, &content, phys_width, phys_height, spec.dpr);
+        let pixels = render_frame(&content, phys_width, phys_height, spec.dpr);
         let expected = pixels.clone();
         let frame = PanelFrame {
             pixels: pixels.clone(),

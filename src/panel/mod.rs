@@ -3,14 +3,8 @@ use std::sync::mpsc::Sender;
 use crate::layout::PanelSpecData;
 use crate::managed_set::Lifecycle;
 use crate::presentation::{PanelCommand, PanelFrame};
-use crate::render::render_frame_partial;
+use crate::render::render_frame;
 pub use crate::x11::panel::X11PanelContext;
-use takumi_incr::PartialRenderScene;
-
-pub struct PanelState {
-    pub spec: PanelSpecData,
-    pub scene: PartialRenderScene,
-}
 
 // ---------------------------------------------------------------------------
 // PanelSpec — pipeline-side tracker of desired panels. Emits typed
@@ -31,7 +25,7 @@ impl Lifecycle for PanelSpec {
     type Key = String;
     /// The pipeline tracks the last-reconciled spec so reconcile_self can diff
     /// and emit Move/Resize commands only when something actually changed.
-    type State = PanelState;
+    type State = PanelSpecData;
     type Context = ();
     type Output = Sender<PanelCommand>;
     type Error = anyhow::Error;
@@ -48,13 +42,12 @@ impl Lifecycle for PanelSpec {
         self,
         _ctx: &mut (),
         output: &mut Sender<PanelCommand>,
-    ) -> Result<PanelState, anyhow::Error> {
+    ) -> Result<PanelSpecData, anyhow::Error> {
         let spec = self.0.clone();
         let phys_w = (spec.width as f32 * spec.dpr).round() as u32;
         let phys_h = (spec.height as f32 * spec.dpr).round() as u32;
-        let mut scene = PartialRenderScene::new();
         let frame = PanelFrame {
-            pixels: render_frame_partial(&mut scene, &spec.content, phys_w, phys_h, spec.dpr),
+            pixels: render_frame(&spec.content, phys_w, phys_h, spec.dpr),
             width: phys_w,
             height: phys_h,
         };
@@ -62,40 +55,31 @@ impl Lifecycle for PanelSpec {
             spec: self.0.clone(),
             frame,
         })?;
-        Ok(PanelState {
-            spec: self.0,
-            scene,
-        })
+        Ok(self.0)
     }
 
     fn reconcile_self(
         self,
-        state: &mut PanelState,
+        state: &mut PanelSpecData,
         _ctx: &mut (),
         output: &mut Sender<PanelCommand>,
     ) -> Result<(), anyhow::Error> {
         let new = self.0;
         let phys_w = (new.width as f32 * new.dpr).round() as u32;
         let phys_h = (new.height as f32 * new.dpr).round() as u32;
-        let state_phys_w = (state.spec.width as f32 * state.spec.dpr).round() as u32;
-        let state_phys_h = (state.spec.height as f32 * state.spec.dpr).round() as u32;
+        let state_phys_w = (state.width as f32 * state.dpr).round() as u32;
+        let state_phys_h = (state.height as f32 * state.dpr).round() as u32;
         let phys_dims_changed = phys_w != state_phys_w || phys_h != state_phys_h;
-        let pos_changed = new.x != state.spec.x
-            || new.y != state.spec.y
-            || new.anchor != state.spec.anchor
-            || new.output != state.spec.output
-            || new.outer_gap != state.spec.outer_gap;
-        let render_changed = new.content != state.spec.content || new.dpr != state.spec.dpr;
+        let pos_changed = new.x != state.x
+            || new.y != state.y
+            || new.anchor != state.anchor
+            || new.output != state.output
+            || new.outer_gap != state.outer_gap;
+        let render_changed = new.content != state.content || new.dpr != state.dpr;
 
         if phys_dims_changed {
             let frame = PanelFrame {
-                pixels: render_frame_partial(
-                    &mut state.scene,
-                    &new.content,
-                    phys_w,
-                    phys_h,
-                    new.dpr,
-                ),
+                pixels: render_frame(&new.content, phys_w, phys_h, new.dpr),
                 width: phys_w,
                 height: phys_h,
             };
@@ -110,13 +94,7 @@ impl Lifecycle for PanelSpec {
             }
             if render_changed {
                 let frame = PanelFrame {
-                    pixels: render_frame_partial(
-                        &mut state.scene,
-                        &new.content,
-                        phys_w,
-                        phys_h,
-                        new.dpr,
-                    ),
+                    pixels: render_frame(&new.content, phys_w, phys_h, new.dpr),
                     width: phys_w,
                     height: phys_h,
                 };
@@ -126,16 +104,16 @@ impl Lifecycle for PanelSpec {
                 })?;
             }
         }
-        state.spec = new;
+        *state = new;
         Ok(())
     }
 
     fn exit(
-        state: PanelState,
+        state: PanelSpecData,
         _ctx: &mut (),
         output: &mut Sender<PanelCommand>,
     ) -> Result<(), anyhow::Error> {
-        let _ = output.send(PanelCommand::Delete { id: state.spec.id });
+        let _ = output.send(PanelCommand::Delete { id: state.id });
         Ok(())
     }
 }
@@ -175,7 +153,7 @@ mod tests {
         let spec = PanelSpec(make_spec_data("p1"));
         let state =
             <PanelSpec as Lifecycle>::enter(spec, &mut (), &mut tx).expect("enter should succeed");
-        assert_eq!(state.spec.id, "p1", "enter returns the spec data as state");
+        assert_eq!(state.id, "p1", "enter returns the spec data as state");
         let cmds: Vec<PanelCommand> = rx.try_iter().collect();
         assert!(
             matches!(cmds.as_slice(), [PanelCommand::Create { spec: s, .. }] if s.id == "p1"),
@@ -187,10 +165,7 @@ mod tests {
     #[test]
     fn panel_spec_reconcile_self_emits_nothing_when_unchanged() {
         let (mut tx, rx) = std::sync::mpsc::channel::<PanelCommand>();
-        let mut state = super::PanelState {
-            spec: make_spec_data("p1"),
-            scene: takumi_incr::PartialRenderScene::new(),
-        };
+        let mut state = make_spec_data("p1");
         let spec = PanelSpec(make_spec_data("p1"));
         <PanelSpec as Lifecycle>::reconcile_self(spec, &mut state, &mut (), &mut tx).unwrap();
         let cmds: Vec<PanelCommand> = rx.try_iter().collect();
@@ -205,10 +180,7 @@ mod tests {
     fn panel_spec_reconcile_self_emits_resize_when_dimensions_change() {
         init_ctx();
         let (mut tx, rx) = std::sync::mpsc::channel::<PanelCommand>();
-        let mut state = super::PanelState {
-            spec: make_spec_data("p1"),
-            scene: takumi_incr::PartialRenderScene::new(),
-        };
+        let mut state = make_spec_data("p1");
         let mut next = make_spec_data("p1");
         next.width = 200;
         let spec = PanelSpec(next);
@@ -230,10 +202,7 @@ mod tests {
     #[test]
     fn panel_spec_reconcile_self_emits_move_when_position_changes() {
         let (mut tx, rx) = std::sync::mpsc::channel::<PanelCommand>();
-        let mut state = super::PanelState {
-            spec: make_spec_data("p1"),
-            scene: takumi_incr::PartialRenderScene::new(),
-        };
+        let mut state = make_spec_data("p1");
         let mut next = make_spec_data("p1");
         next.x = 50;
         let spec = PanelSpec(next);
@@ -256,10 +225,7 @@ mod tests {
     fn panel_spec_reconcile_self_emits_update_picture_when_only_content_changes() {
         init_ctx();
         let (mut tx, rx) = std::sync::mpsc::channel::<PanelCommand>();
-        let mut state = super::PanelState {
-            spec: make_spec_data("p1"),
-            scene: takumi_incr::PartialRenderScene::new(),
-        };
+        let mut state = make_spec_data("p1");
         let mut next = make_spec_data("p1");
         next.content = serde_json::json!({"type": "text", "text": "hello"});
         let spec = PanelSpec(next);
@@ -281,12 +247,9 @@ mod tests {
         // Physical dims changed, so reconcile_self must emit Resize (not UpdatePicture)
         // and a Move so the presenter can reposition anchored panels.
         let (mut tx, rx) = std::sync::mpsc::channel::<PanelCommand>();
-        let mut state = super::PanelState {
-            spec: make_spec_data("p1"),
-            scene: takumi_incr::PartialRenderScene::new(),
-        };
+        let mut state = make_spec_data("p1");
         // state starts with dpr=1.0 (default from make_spec_data)
-        assert_eq!(state.spec.dpr, 1.0);
+        assert_eq!(state.dpr, 1.0);
         let mut next = make_spec_data("p1");
         next.dpr = 2.0; // logical dims unchanged, but physical dims double
         let spec = PanelSpec(next);
@@ -343,10 +306,7 @@ mod tests {
     #[test]
     fn panel_spec_exit_emits_delete_with_id() {
         let (mut tx, rx) = std::sync::mpsc::channel::<PanelCommand>();
-        let state = super::PanelState {
-            spec: make_spec_data("p1"),
-            scene: takumi_incr::PartialRenderScene::new(),
-        };
+        let state = make_spec_data("p1");
         <PanelSpec as Lifecycle>::exit(state, &mut (), &mut tx).unwrap();
         let cmds: Vec<PanelCommand> = rx.try_iter().collect();
         assert!(
