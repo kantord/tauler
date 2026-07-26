@@ -1,37 +1,21 @@
 {
-  "name": ".",
-  "version": "0.0.0",
-  "private": true,
+  "name": "docs",
+  "type": "module",
+  "version": "0.0.1",
+  "packageManager": "pnpm@11.11.0",
   "scripts": {
-    "build": "next build",
-    "dev": "next dev",
-    "start": "serve out",
-    "types:check": "fumadocs-mdx && next typegen && tsc --noEmit",
-    "postinstall": "fumadocs-mdx",
-    "lint": "biome check",
-    "format": "biome format --write"
+    "dev": "astro dev",
+    "start": "astro dev",
+    "build": "astro build",
+    "preview": "astro preview",
+    "astro": "astro"
   },
   "dependencies": {
-    "@orama/orama": "^3.1.18",
-    "fumadocs-core": "16.11.5",
-    "fumadocs-mdx": "15.2.0",
-    "fumadocs-ui": "16.11.5",
-    "lucide-react": "^1.14.0",
-    "next": "16.2.11",
-    "react": "^19.2.5",
-    "react-dom": "^19.2.5",
-    "tailwind-merge": "^3.5.0"
-  },
-  "devDependencies": {
-    "@tailwindcss/postcss": "^4.2.4",
-    "@types/mdx": "^2.0.13",
-    "@types/node": "^25.6.0",
-    "@types/react": "^19.2.14",
-    "@types/react-dom": "^19.2.3",
-    "postcss": "^8.5.13",
-    "serve": "^14.2.6",
-    "tailwindcss": "^4.2.4",
-    "typescript": "^6.0.3",
-    "@biomejs/biome": "^2.4.14"
+    "@astrojs/starlight": "^0.41.0",
+    "astro": "^7.0.0",
+    "astro-mermaid": "^2.0.4",
+    "mermaid": "^11.15.0",
+    "sharp": "^0.35.0",
+    "starlight-theme-flexoki": "^0.2.2"
   }
 }

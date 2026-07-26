@@ -4,7 +4,8 @@ use std::path::{Path, PathBuf};
 
 use clap::Parser;
 
-/// Generate docs/content/docs/components.mdx from doc comments on UI components.
+/// Generate the components page of the docs site from doc comments on UI
+/// components, rendering each `# JSX` example to a screenshot alongside it.
 #[derive(Parser)]
 struct Args {
     /// Directory containing UI component source files
@@ -12,11 +13,11 @@ struct Args {
     components_dir: PathBuf,
 
     /// Path to write the generated MDX file
-    #[arg(long, default_value = "docs/content/docs/components.mdx")]
+    #[arg(long, default_value = "docs/src/content/docs/components.md")]
     output: PathBuf,
 
     /// Directory to write rendered component screenshots
-    #[arg(long, default_value = "docs/public/assets")]
+    #[arg(long, default_value = "docs/src/assets")]
     assets_dir: PathBuf,
 }
 
@@ -389,8 +390,10 @@ fn render_component_section(comp: &Component, screenshot: &Option<PathBuf>) -> S
     }
     if let Some(path) = screenshot {
         let filename = path.file_name().unwrap().to_string_lossy();
+        // Relative to the generated page, so Astro processes the image and the
+        // URL stays correct whatever `base` the site is deployed under.
         out.push_str(&format!(
-            "![{} screenshot](/assets/{})\n\n",
+            "![{} screenshot](../../assets/{})\n\n",
             comp.export_name, filename
         ));
     }
@@ -473,8 +476,9 @@ mod visual_regression {
         format!("{h:016x}  ({} px)", pixels.len() / 4)
     }
 
-    /// Renders every component that has a JSX block to `docs/assets/` and asserts
-    /// the pixel hash via insta.  Skips silently if the screenshot binary is absent.
+    /// Renders every component that has a JSX block and asserts the pixel hash
+    /// via insta.  Screenshots go to a temporary directory — publishing them is
+    /// `just docs`'s job.  Skips silently if the screenshot binary is absent.
     ///
     /// Workflow:
     ///   cargo build -p tauler-screenshot          # build renderer once
@@ -489,7 +493,8 @@ mod visual_regression {
 
         let root = workspace_root();
         let components_dir = root.join("src/ui/components");
-        let assets_dir = root.join("docs/assets");
+        let render_dir = tempfile::tempdir().expect("temp dir for rendered screenshots");
+        let assets_dir = render_dir.path().to_path_buf();
         let snap_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("snapshots");
 
         let all_components = load_all_components(&components_dir);
