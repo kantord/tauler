@@ -25,7 +25,7 @@ importers:
         version: 0.35.3(@types/node@26.1.1)
       starlight-theme-flexoki:
         specifier: ^0.2.2
-        version: 0.2.2(@astrojs/starlight@0.41.5(@astrojs/markdown-remark@7.2.1)(astro@7.1.4(@astrojs/markdown-remark@7.2.1)(@emnapi/core@1.11.1)(@emnapi/runtime@1.11.3)(@types/node@26.1.1)))
+        version: 0.2.3(@astrojs/starlight@0.41.5(@astrojs/markdown-remark@7.2.1)(astro@7.1.4(@astrojs/markdown-remark@7.2.1)(@emnapi/core@1.11.1)(@emnapi/runtime@1.11.3)(@types/node@26.1.1)))
 
 packages:
 
@@ -2116,8 +2116,8 @@ packages:
   space-separated-tokens@2.0.2:
     resolution: {integrity: sha512-PEGlAwrG8yXGXRjW32fGbg66JAlOAwbObuqVoJpv/mRgoWDQfgH1wDPvtzWyUSNAXBGSk8h755YDbbcEy3SH2Q==}
 
-  starlight-theme-flexoki@0.2.2:
-    resolution: {integrity: sha512-WIgWwRqK5m1fhzcKJ+dSQ31puY6NW8HoYvSLL3EOPp9QlNXaX2QxjiViR9nIpWUbo3rq+6HqY//WJid19F3QWQ==}
+  starlight-theme-flexoki@0.2.3:
+    resolution: {integrity: sha512-RrGwJxJvydWLqGDWeFO2eoGODMMffAVAzZ3SZNEo1WYBTEftGqLmrWLFc81S7JDUIINkvN2rlQRK3eg/exgpYA==}
     engines: {node: ^18.17.1 || ^20.3.0 || >=21.0.0}
     peerDependencies:
       '@astrojs/starlight': '>=0.34'
@@ -5031,7 +5031,7 @@ snapshots:
 
   space-separated-tokens@2.0.2: {}
 
-  starlight-theme-flexoki@0.2.2(@astrojs/starlight@0.41.5(@astrojs/markdown-remark@7.2.1)(astro@7.1.4(@astrojs/markdown-remark@7.2.1)(@emnapi/core@1.11.1)(@emnapi/runtime@1.11.3)(@types/node@26.1.1))):
+  starlight-theme-flexoki@0.2.3(@astrojs/starlight@0.41.5(@astrojs/markdown-remark@7.2.1)(astro@7.1.4(@astrojs/markdown-remark@7.2.1)(@emnapi/core@1.11.1)(@emnapi/runtime@1.11.3)(@types/node@26.1.1))):
     dependencies:
       '@astrojs/starlight': 0.41.5(@astrojs/markdown-remark@7.2.1)(astro@7.1.4(@astrojs/markdown-remark@7.2.1)(@emnapi/core@1.11.1)(@emnapi/runtime@1.11.3)(@types/node@26.1.1))
 
