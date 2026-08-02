@@ -13,7 +13,7 @@ use std::thread;
 
 use command_worker::CommandRequest;
 use events::{parse_click_event, parse_init_event};
-use ipc::{BarGeometry, I3Query, gap_management_enabled, i3_socket_path};
+use ipc::{BarConfig, I3Query, gap_management_enabled, i3_socket_path};
 use tree_cache::TreeCache;
 
 /// Wires together the four worker threads (command-worker, refresh-worker,
@@ -63,15 +63,18 @@ fn main() {
     // Command-worker: owns one dedicated RUN_COMMAND connection.
     {
         let query = I3Query::new(socket.clone(), ipc::I3_IPC_TIMEOUT);
-        let dpi = init.dpi;
-        let bar_output = init.output.clone();
-        let geom = BarGeometry::new(init.left_width, init.right_width, init.outer_gap);
-        thread::spawn(move || command_worker::run(cmd_rx, query, dpi, bar_output, geom));
+        let cfg = BarConfig {
+            output: init.output.clone(),
+            dpi: init.dpi,
+            left: init.left_width,
+            right: init.right_width,
+            outer_gap: init.outer_gap,
+        };
+        thread::spawn(move || command_worker::run(cmd_rx, query, cfg));
     }
 
-    // Reconcile gaps once at startup — needed because i3 may have just
-    // (re)started and forgotten every previously-applied runtime gap, and
-    // startup itself produces no workspace event to react to.
+    // i3 may have just restarted and forgotten every runtime gap, and startup
+    // produces no workspace event to react to.
     if gaps_enabled {
         let _ = cmd_tx.send(CommandRequest::ReconcileGaps);
     }

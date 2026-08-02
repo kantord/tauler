@@ -47,15 +47,10 @@ pub fn connect_and_subscribe(socket: &str) -> Option<EventStream> {
     Some(events)
 }
 
-/// Whether `event` should trigger a gap reconcile.
-///
-/// Every workspace event qualifies, deliberately. The payload is used purely
-/// as a signal that *something* about workspaces changed; which workspace is
-/// focused gets resolved separately via GET_WORKSPACES. Matching on specific
-/// variants would be unsound: an event's `current` field names the workspace
-/// the event is *about*, and for an urgency hint or a workspace being emptied
-/// that is routinely a background workspace on a different output than the
-/// focused one that `gaps ... current set` would actually write to.
+/// Every variant qualifies, deliberately: the payload is only a signal that
+/// something changed, and the focused workspace is resolved separately.
+/// Filtering by variant would be unsound — an event's `current` names the
+/// workspace the event is *about*, not the one `current set` writes to.
 pub fn is_workspace_event(event: &Event) -> bool {
     matches!(event, Event::Workspace(_))
 }
@@ -175,27 +170,20 @@ mod tests {
         assert!(is_workspace_event(&workspace_event("focus", Some("DP-1"))));
     }
 
-    /// A workspace moving between outputs is what strands a gap on a monitor
-    /// that no longer has a panel, so it must trigger a reconcile.
+    /// `move` is what strands a gap on a monitor that no longer has a panel.
     #[test]
     fn workspace_move_is_a_workspace_event() {
         assert!(is_workspace_event(&workspace_event("move", Some("DP-1"))));
     }
 
-    /// Deliberate: variants whose `current` is *not* the focused workspace
-    /// still trigger a reconcile, because the focused workspace is resolved
-    /// separately rather than read off the event.
+    /// Guards against re-adding variant filtering: an urgency hint fires for
+    /// a background workspace, often on another output than the focused one.
     #[test]
     fn urgency_change_on_a_background_workspace_is_a_workspace_event() {
         assert!(is_workspace_event(&workspace_event(
             "urgent",
             Some("HDMI-A-1")
         )));
-    }
-
-    #[test]
-    fn workspace_event_on_any_output_qualifies() {
-        assert!(is_workspace_event(&workspace_event("init", Some("DP-9"))));
     }
 
     #[test]
