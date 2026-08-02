@@ -6,10 +6,10 @@ use std::sync::mpsc;
 use std::thread;
 use std::time::Duration;
 
-use swayipc::{Connection, Event, EventStream, EventType, WorkspaceChange};
+use swayipc::{Connection, Event, EventStream, EventType};
 
 use crate::command_worker::CommandRequest;
-use crate::ipc::{self, should_apply_bar_gap};
+use crate::ipc;
 
 /// Connect and subscribe to workspace/window events, returning `None` (after
 /// logging) on any failure along the way. The handshake uses a timeout so a
@@ -47,24 +47,23 @@ pub fn connect_and_subscribe(socket: &str) -> Option<EventStream> {
     Some(events)
 }
 
-/// Whether `event` is a workspace-focus change landing on `output` — the
-/// case that requires re-applying the bar gap (X11/i3 mode only).
-pub fn is_workspace_focus_change_on_output(event: &Event, output: &str) -> bool {
-    match event {
-        Event::Workspace(ws) => {
-            ws.change == WorkspaceChange::Focus
-                && ws.current.as_ref().and_then(|n| n.output.as_deref()) == Some(output)
-        }
-        _ => false,
-    }
+/// Every variant qualifies, deliberately: the payload is only a signal that
+/// something changed, and the focused workspace is resolved separately.
+/// Filtering by variant would be unsound — an event's `current` names the
+/// workspace the event is *about*, not the one `current set` writes to.
+pub fn is_workspace_event(event: &Event) -> bool {
+    matches!(event, Event::Workspace(_))
 }
 
 /// Run the subscribe-thread loop: connect, stream events, forward refresh
-/// hints and bar-gap-reapply commands, and reconnect with backoff on any
+/// hints and gap-reconcile commands, and reconnect with backoff on any
 /// disconnect, until either channel's receiver is gone.
+///
+/// `gaps_enabled` is false in Wayland mode, where the layer-shell exclusive
+/// zone reserves panel space and tauler must not write gaps at all.
 pub fn run(
     socket: String,
-    output: String,
+    gaps_enabled: bool,
     cmd_tx: mpsc::Sender<CommandRequest>,
     refresh_tx: mpsc::Sender<()>,
 ) {
@@ -79,9 +78,9 @@ pub fn run(
                     if refresh_tx.send(()).is_err() {
                         return;
                     }
-                    if is_workspace_focus_change_on_output(&ev, &output)
-                        && should_apply_bar_gap(&output)
-                        && cmd_tx.send(CommandRequest::ApplyBarGap).is_err()
+                    if gaps_enabled
+                        && is_workspace_event(&ev)
+                        && cmd_tx.send(CommandRequest::ReconcileGaps).is_err()
                     {
                         return;
                     }
@@ -167,21 +166,24 @@ mod tests {
     }
 
     #[test]
-    fn focus_change_landing_on_target_output_is_true() {
-        let ev = workspace_event("focus", Some("DP-1"));
-        assert!(is_workspace_focus_change_on_output(&ev, "DP-1"));
+    fn focus_change_is_a_workspace_event() {
+        assert!(is_workspace_event(&workspace_event("focus", Some("DP-1"))));
     }
 
+    /// `move` is what strands a gap on a monitor that no longer has a panel.
     #[test]
-    fn focus_change_landing_on_different_output_is_false() {
-        let ev = workspace_event("focus", Some("HDMI-A-1"));
-        assert!(!is_workspace_focus_change_on_output(&ev, "DP-1"));
+    fn workspace_move_is_a_workspace_event() {
+        assert!(is_workspace_event(&workspace_event("move", Some("DP-1"))));
     }
 
+    /// Guards against re-adding variant filtering: an urgency hint fires for
+    /// a background workspace, often on another output than the focused one.
     #[test]
-    fn non_focus_workspace_change_is_false() {
-        let ev = workspace_event("init", Some("DP-1"));
-        assert!(!is_workspace_focus_change_on_output(&ev, "DP-1"));
+    fn urgency_change_on_a_background_workspace_is_a_workspace_event() {
+        assert!(is_workspace_event(&workspace_event(
+            "urgent",
+            Some("HDMI-A-1")
+        )));
     }
 
     #[test]
@@ -191,6 +193,6 @@ mod tests {
         let shutdown_event: ShutdownEvent =
             serde_json::from_value(json!({"change": "exit"})).expect("valid ShutdownEvent fixture");
         let ev = Event::Shutdown(shutdown_event);
-        assert!(!is_workspace_focus_change_on_output(&ev, "DP-1"));
+        assert!(!is_workspace_event(&ev));
     }
 }

@@ -3,31 +3,22 @@
 
 use std::sync::mpsc;
 
-use crate::ipc::{I3Query, apply_bar_gap, switch_workspace};
+use crate::ipc::{BarConfig, I3Query, reconcile_gaps, switch_workspace};
 
 /// Requests handled by the command-worker thread's dedicated RUN_COMMAND
 /// connection. Fire-and-forget: senders don't wait for a reply.
 pub enum CommandRequest {
     SwitchWorkspace(String),
-    ApplyBarGap,
+    ReconcileGaps,
 }
 
 /// Run the command-worker loop: serve `CommandRequest`s off `rx` one at a
 /// time over `query` until every sender has been dropped.
-pub fn run(
-    rx: mpsc::Receiver<CommandRequest>,
-    mut query: I3Query,
-    dpi: f32,
-    left_width: u32,
-    right_width: u32,
-    outer_gap: u32,
-) {
+pub fn run(rx: mpsc::Receiver<CommandRequest>, mut query: I3Query, cfg: BarConfig) {
     while let Ok(req) = rx.recv() {
         match req {
             CommandRequest::SwitchWorkspace(name) => switch_workspace(&mut query, &name),
-            CommandRequest::ApplyBarGap => {
-                apply_bar_gap(&mut query, dpi, left_width, right_width, outer_gap)
-            }
+            CommandRequest::ReconcileGaps => reconcile_gaps(&mut query, &cfg),
         }
     }
 }
