@@ -172,7 +172,7 @@ fn apply_eval_result(
     let module_specs: Vec<StreamSource> = out
         .module_calls
         .iter()
-        .map(|(bin, _)| {
+        .map(|(bin, jsx_props)| {
             StreamSource::Process(ProcessSpec {
                 identity: ProcessIdentity {
                     bin: bin.clone(),
@@ -181,7 +181,7 @@ fn apply_eval_result(
                 args: vec![],
                 env: std::collections::BTreeMap::new(),
                 current_dir: None,
-                props: Some(mod_init.clone()),
+                props: Some(merge_module_props(&mod_init, jsx_props)),
             })
         })
         .collect();
@@ -191,6 +191,23 @@ fn apply_eval_result(
     let panel_errors = panel_set.reconcile(specs.into_iter().map(PanelSpec), &mut (), command_tx);
     log_lifecycle_errors(panel_errors);
     true
+}
+
+/// Merge a module's JSX-declared props (`<Module bin=".." gaps={{..}}>`) into
+/// the derived init payload. Init keys win: that payload is the module
+/// protocol, not user-editable state.
+fn merge_module_props(
+    mod_init: &serde_json::Value,
+    jsx_props: &serde_json::Value,
+) -> serde_json::Value {
+    let (Some(init_map), Some(jsx_map)) = (mod_init.as_object(), jsx_props.as_object()) else {
+        return mod_init.clone();
+    };
+    let mut merged = jsx_map.clone();
+    for (k, v) in init_map {
+        merged.insert(k.clone(), v.clone());
+    }
+    serde_json::Value::Object(merged)
 }
 
 fn make_mod_init_value(
@@ -698,8 +715,8 @@ impl Drop for App {
 #[cfg(test)]
 mod tests {
     use super::{
-        apply_eval_result, load_theme_from_config, make_mod_init_value, stream_calls_to_specs,
-        theme_file_watch_desired,
+        apply_eval_result, load_theme_from_config, make_mod_init_value, merge_module_props,
+        stream_calls_to_specs, theme_file_watch_desired,
     };
     use std::collections::HashMap;
     use std::path::PathBuf;
@@ -854,6 +871,32 @@ mod tests {
     fn mod_init_type_is_init() {
         let result = wayland_mod_init(&[left_spec(250)]);
         assert_eq!(result["type"].as_str(), Some("init"));
+    }
+
+    #[test]
+    fn module_props_carry_jsx_declared_values_alongside_init() {
+        let init = serde_json::json!({"type": "init", "config": {"left": 250}});
+        let jsx = serde_json::json!({"gaps": {"left": 300}});
+        let merged = merge_module_props(&init, &jsx);
+        assert_eq!(merged["gaps"]["left"].as_u64(), Some(300));
+        assert_eq!(merged["config"]["left"].as_u64(), Some(250));
+    }
+
+    /// The init payload is a protocol, not user-editable state — a JSX prop
+    /// must not be able to redefine `type` and break module parsing.
+    #[test]
+    fn init_keys_win_over_conflicting_jsx_props() {
+        let init = serde_json::json!({"type": "init", "config": {"left": 250}});
+        let jsx = serde_json::json!({"type": "bogus", "config": {"left": 1}});
+        let merged = merge_module_props(&init, &jsx);
+        assert_eq!(merged["type"].as_str(), Some("init"));
+        assert_eq!(merged["config"]["left"].as_u64(), Some(250));
+    }
+
+    #[test]
+    fn merge_is_a_noop_when_the_module_declares_no_props() {
+        let init = serde_json::json!({"type": "init", "config": {"left": 250}});
+        assert_eq!(merge_module_props(&init, &serde_json::Value::Null), init);
     }
 
     /// Claim: config.left must match the width of the left-anchored spec (no dpr scaling at 1.0).

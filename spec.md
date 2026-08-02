@@ -210,6 +210,24 @@ value, and writes it to the subprocess's stdin. No JS executes on click.
 </Module>
 ```
 
+### Module props
+
+Any prop other than `bin` and `children` is merged into the init payload and written to
+the subprocess's stdin — once at spawn, and again whenever the value changes. Identical
+props are not re-sent, so a module only sees real changes. Keys of the derived init
+payload (`type`, `config`, `output`, `dpi`, …) win over declared props; that payload is
+the module protocol, not user-editable state.
+
+`tauler-i3` reads `gaps` this way, overriding the gap it would otherwise derive from
+panel geometry. Sides left unspecified stay derived, and outputs with no panel are still
+revoked to zero regardless of what is declared.
+
+```jsx
+<Module bin="/home/kantord/.cargo/bin/tauler-i3" gaps={{ left: 300, top: 8 }}>
+  {(data, events) => <WorkspaceList workspaces={data?.workspaces} events={events} />}
+</Module>
+```
+
 
 ## Display backend
 

@@ -13,7 +13,7 @@ use std::thread;
 
 use command_worker::CommandRequest;
 use events::{parse_click_event, parse_init_event};
-use ipc::{BarConfig, I3Query, gap_management_enabled, i3_socket_path};
+use ipc::{I3Query, gap_management_enabled, i3_socket_path};
 use tree_cache::TreeCache;
 
 /// Wires together the four worker threads (command-worker, refresh-worker,
@@ -63,13 +63,7 @@ fn main() {
     // Command-worker: owns one dedicated RUN_COMMAND connection.
     {
         let query = I3Query::new(socket.clone(), ipc::I3_IPC_TIMEOUT);
-        let cfg = BarConfig {
-            output: init.output.clone(),
-            dpi: init.dpi,
-            left: init.left_width,
-            right: init.right_width,
-            outer_gap: init.outer_gap,
-        };
+        let cfg = init.bar_config();
         thread::spawn(move || command_worker::run(cmd_rx, query, cfg));
     }
 
@@ -97,7 +91,9 @@ fn main() {
         thread::spawn(move || subscribe::run(socket, gaps_enabled, cmd_tx, refresh_tx));
     }
 
-    // Stdin thread: forward click events directly to the command-worker.
+    // Stdin thread: click events, plus props updates from tauler core — the
+    // process pool re-sends props whenever they change, so panel geometry and
+    // declared gaps track the layout file without a restart.
     // When stdin closes the parent is gone, so exit outright — other
     // threads may be blocked in reads and would otherwise keep an orphaned
     // process alive forever.
@@ -105,6 +101,14 @@ fn main() {
         let stdin = std::io::stdin();
         let mut lines = stdin.lock().lines();
         while let Some(Ok(line)) = lines.next() {
+            if gaps_enabled
+                && let Some(ev) = parse_init_event(&line)
+                && cmd_tx
+                    .send(CommandRequest::UpdateConfig(ev.bar_config()))
+                    .is_err()
+            {
+                break;
+            }
             if let Ok(val) = serde_json::from_str::<serde_json::Value>(&line) {
                 tracing::debug!(event = %val, "stdin event");
                 if let Some(name) = parse_click_event(&val)

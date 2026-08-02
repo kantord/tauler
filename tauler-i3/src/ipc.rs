@@ -137,6 +137,16 @@ pub fn focused_output(workspaces: &[Workspace]) -> Option<&str> {
         .map(|w| w.output.as_str())
 }
 
+/// Gap values declared in JSX via `<Module gaps={{...}}>`. `None` means take
+/// the value derived from panel geometry.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct GapOverrides {
+    pub left: Option<u32>,
+    pub right: Option<u32>,
+    pub top: Option<u32>,
+    pub bottom: Option<u32>,
+}
+
 /// Bar facts from the init event. Physical pixels; `right` is 0 with no
 /// right-anchored panel, `output` is empty in Wayland mode.
 #[derive(Debug, Clone)]
@@ -146,6 +156,7 @@ pub struct BarConfig {
     pub left: u32,
     pub right: u32,
     pub outer_gap: u32,
+    pub gaps: GapOverrides,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -171,15 +182,16 @@ pub fn desired_gaps(focused_output: &str, cfg: &BarConfig) -> Gaps {
     if focused_output != cfg.output {
         return Gaps::ZERO;
     }
+    let o = &cfg.gaps;
     Gaps {
-        left: cfg.left,
-        right: if cfg.right > 0 {
+        left: o.left.unwrap_or(cfg.left),
+        right: o.right.unwrap_or(if cfg.right > 0 {
             cfg.right
         } else {
             cfg.outer_gap
-        },
-        top: cfg.outer_gap,
-        bottom: cfg.outer_gap,
+        }),
+        top: o.top.unwrap_or(cfg.outer_gap),
+        bottom: o.bottom.unwrap_or(cfg.outer_gap),
     }
 }
 
@@ -477,7 +489,33 @@ mod tests {
             left: 272,
             right,
             outer_gap,
+            gaps: GapOverrides::default(),
         }
+    }
+
+    #[test]
+    fn declared_gaps_override_the_derived_side() {
+        let mut c = cfg(60, 8);
+        c.gaps.left = Some(300);
+        let g = desired_gaps("DP-4", &c);
+        assert_eq!(g.left, 300);
+        assert_eq!(g.right, 60, "unspecified sides keep the derived value");
+    }
+
+    #[test]
+    fn declared_gaps_of_zero_are_honoured_not_treated_as_absent() {
+        let mut c = cfg(60, 8);
+        c.gaps.top = Some(0);
+        assert_eq!(desired_gaps("DP-4", &c).top, 0);
+    }
+
+    /// Overrides describe the bar's own output; revocation elsewhere must
+    /// still win, or a declared gap would strand itself on every monitor.
+    #[test]
+    fn declared_gaps_do_not_leak_onto_outputs_without_a_panel() {
+        let mut c = cfg(60, 8);
+        c.gaps.left = Some(300);
+        assert_eq!(desired_gaps("DP-3", &c), Gaps::ZERO);
     }
 
     #[test]
