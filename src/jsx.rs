@@ -27,16 +27,21 @@ const JSX_GLOBALS_JS: &str = r#"
         if (!str) return null;
         try { return JSON.parse(str); } catch { return null; }
     };
+    // `props` are merged into the module's init event (see merge_module_props in app.rs),
+    // so they are load-bearing: registerModule keeps the FIRST registration for a bin, so a
+    // bare useEvents(bin) call evaluated before a <Module bin=... props> would drop them.
+    globalThis.useEvents = (bin, props) => {
+        registerModule(bin, props ?? {});
+        return new Proxy({}, {
+            get: (_, type) => (args) => ({
+                channel: bin,
+                event: { type: String(type), ...args }
+            })
+        });
+    };
     globalThis.Module = ({ bin, children, ...rest }) => {
         const child = Array.isArray(children) ? children[0] : children;
-        if (typeof child === 'function') {
-            registerModule(bin, rest);
-            const data = useJSONStream(bin);
-            const events = new Proxy({}, {
-                get: (_, type) => ({ __channel__: bin, type: String(type) })
-            });
-            return child(data, events);
-        }
+        if (typeof child === 'function') return child(useJSONStream(bin), useEvents(bin, rest));
         return { "bin@": bin, ...rest };
     };
 "#;
@@ -447,9 +452,90 @@ mod tests {
     #[test]
     fn module_render_prop_exposes_channel_in_events() {
         let result = eval(
-            r#"export default function render() { return <Module bin="/usr/bin/test">{(data, events) => <text tw="text-white">{events.doThing.__channel__}</text>}</Module>; }"#,
+            r#"export default function render() { return <Module bin="/usr/bin/test">{(data, events) => <text tw="text-white">{events.doThing().channel}</text>}</Module>; }"#,
         ).layout;
         assert_eq!(result["text"], "/usr/bin/test");
+    }
+
+    /// `useEvents(bin, props)` returns a proxy whose properties are *functions*:
+    /// calling one produces a dispatchable intent
+    /// (`{ channel, event: { type, ...args } }`) — the shape `dispatch_click`
+    /// consumes. No `<Module>` element required.
+    #[test]
+    fn use_events_property_call_produces_intent_with_merged_args() {
+        let result = eval(
+            r#"export default function render() {
+const notify = useEvents("/usr/bin/notify", {});
+return <container tw="flex" on_click={[notify.dismiss({ id: 42 })]} />;
+}"#,
+        )
+        .layout;
+        assert_eq!(
+            result["on_click"],
+            serde_json::json!([
+                { "channel": "/usr/bin/notify", "event": { "type": "dismiss", "id": 42 } }
+            ]),
+            "expected a single intent with merged args, got: {:?}",
+            result["on_click"]
+        );
+    }
+
+    /// Calling a proxy property with no argument is valid: the event carries only `type`.
+    #[test]
+    fn use_events_property_call_without_args_yields_type_only_event() {
+        let result = eval(
+            r#"export default function render() {
+const notify = useEvents("/usr/bin/notify", {});
+return <container tw="flex" on_click={[notify.dismiss()]} />;
+}"#,
+        )
+        .layout;
+        assert_eq!(
+            result["on_click"],
+            serde_json::json!([
+                { "channel": "/usr/bin/notify", "event": { "type": "dismiss" } }
+            ]),
+            "expected an event with `type` and no other keys, got: {:?}",
+            result["on_click"]
+        );
+    }
+
+    /// `useEvents` registers the module itself — a layout can spawn a module without
+    /// ever rendering a `<Module>` element.
+    #[test]
+    fn use_events_registers_module_without_module_element() {
+        let module_calls = eval(
+            r#"export default function render() {
+const notify = useEvents("/usr/bin/notify-module", { limit: 5 });
+return <text tw="text-white">hi</text>;
+}"#,
+        )
+        .module_calls;
+        assert!(
+            module_calls
+                .iter()
+                .any(|(bin, _)| bin == "/usr/bin/notify-module"),
+            "useEvents must register the bin as a module; got: {:?}",
+            module_calls
+        );
+    }
+
+    /// The `<Module>` render prop's `events` argument must produce the very same
+    /// intent shape as `useEvents` (it is implemented on top of it).
+    #[test]
+    fn module_render_prop_events_produce_same_intent_shape() {
+        let result = eval(
+            r#"export default function render() { return <Module bin="/usr/bin/test">{(data, events) => <container tw="flex" on_click={[events.doThing({ id: 7 })]} />}</Module>; }"#,
+        )
+        .layout;
+        assert_eq!(
+            result["on_click"],
+            serde_json::json!([
+                { "channel": "/usr/bin/test", "event": { "type": "doThing", "id": 7 } }
+            ]),
+            "expected Module's events proxy to yield the new intent shape, got: {:?}",
+            result["on_click"]
+        );
     }
 
     #[test]

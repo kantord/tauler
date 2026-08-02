@@ -43,12 +43,13 @@ pub fn parse_init_event(json: &str) -> Option<InitEvent> {
     })
 }
 
-/// Returns the workspace name from a click event, or None if not a workspace click.
-pub fn parse_click_event(val: &serde_json::Value) -> Option<String> {
-    if val["event"].as_str() != Some("click") {
+/// Returns the workspace name from a `switchWorkspace` intent, or None for any
+/// other event.
+pub fn parse_switch_workspace(val: &serde_json::Value) -> Option<String> {
+    if val["type"].as_str() != Some("switchWorkspace") {
         return None;
     }
-    val["data"]["workspace"].as_str().map(str::to_string)
+    val["workspace"].as_str().map(str::to_string)
 }
 
 #[cfg(test)]
@@ -117,20 +118,26 @@ mod tests {
     }
 
     #[test]
-    fn parse_click_event_extracts_workspace_name() {
+    fn parse_switch_workspace_extracts_workspace_name() {
+        let json = serde_json::json!({"type": "switchWorkspace", "workspace": "1: web"});
+        assert_eq!(parse_switch_workspace(&json).as_deref(), Some("1: web"));
+    }
+
+    #[test]
+    fn parse_switch_workspace_returns_none_for_old_envelope_shape() {
         let json = serde_json::json!({"event": "click", "data": {"workspace": "1: web"}});
-        assert_eq!(parse_click_event(&json).as_deref(), Some("1: web"));
+        assert!(parse_switch_workspace(&json).is_none());
     }
 
     #[test]
-    fn parse_click_event_returns_none_for_non_click_event() {
-        let json = serde_json::json!({"event": "hover", "data": {"workspace": "1: web"}});
-        assert!(parse_click_event(&json).is_none());
+    fn parse_switch_workspace_returns_none_for_different_type() {
+        let json = serde_json::json!({"type": "focusWindow", "workspace": "1: web"});
+        assert!(parse_switch_workspace(&json).is_none());
     }
 
     #[test]
-    fn parse_click_event_returns_none_when_no_workspace_data() {
-        let json = serde_json::json!({"event": "click", "data": {}});
-        assert!(parse_click_event(&json).is_none());
+    fn parse_switch_workspace_returns_none_when_workspace_missing() {
+        let json = serde_json::json!({"type": "switchWorkspace"});
+        assert!(parse_switch_workspace(&json).is_none());
     }
 }

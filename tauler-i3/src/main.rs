@@ -12,7 +12,7 @@ use std::sync::mpsc;
 use std::thread;
 
 use command_worker::CommandRequest;
-use events::{parse_click_event, parse_init_event};
+use events::{parse_init_event, parse_switch_workspace};
 use ipc::{I3Query, gap_management_enabled, i3_socket_path};
 use tree_cache::TreeCache;
 
@@ -111,7 +111,7 @@ fn main() {
             }
             if let Ok(val) = serde_json::from_str::<serde_json::Value>(&line) {
                 tracing::debug!(event = %val, "stdin event");
-                if let Some(name) = parse_click_event(&val)
+                if let Some(name) = parse_switch_workspace(&val)
                     && cmd_tx.send(CommandRequest::SwitchWorkspace(name)).is_err()
                 {
                     break;

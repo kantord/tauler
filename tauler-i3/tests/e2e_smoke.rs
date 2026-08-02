@@ -240,11 +240,12 @@ fn stdin_click_and_refresh_worker_round_trip_through_real_process() {
         "expected workspace name in refresh-worker stdout line, got: {first_line}"
     );
 
-    // Path 2: stdin click -> command-worker end-to-end — write a click event
-    // and confirm the fake server actually receives a matching RUN_COMMAND.
+    // Path 2: stdin click -> command-worker end-to-end — write the bare intent
+    // payload and confirm the fake server actually receives a matching
+    // RUN_COMMAND.
     writeln!(
         stdin,
-        r#"{{"event":"click","data":{{"workspace":"1: web"}}}}"#
+        r#"{{"type":"switchWorkspace","workspace":"1: web"}}"#
     )
     .expect("write click event");
     stdin.flush().expect("flush click event");
