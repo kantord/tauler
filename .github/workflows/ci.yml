@@ -69,3 +69,34 @@ jobs:
           sudo apt-get install -y libwayland-dev libxkbcommon-dev libfontconfig-dev libxcb1-dev pkg-config
       - name: Build
         run: cargo build --release --workspace
+
+  # The Linux jobs never compile `src/presenter/macos.rs` — cfg'd-out code is not
+  # type-checked — so this job is the only thing guarding the macOS backend, and
+  # the only thing that catches Linux-isms leaking into shared code.
+  macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
+        with:
+          toolchain: "1.97.1"
+          components: clippy
+      - name: Cache cargo
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+      # No system dependencies: Wayland and libxcb are gated to Linux in
+      # Cargo.toml, and without fontconfig the renderer falls back to the
+      # system font collection.
+      - name: Clippy
+        run: cargo clippy --workspace -- -D warnings
+      - name: Build screenshot binary
+        run: cargo build -p tauler-screenshot
+      - name: Test
+        run: cargo test --workspace
+      - name: Build
+        run: cargo build --release --workspace
