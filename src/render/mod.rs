@@ -34,7 +34,7 @@ pub fn init_global_ctx(font_config: FontConfig) {
 /// those caches by construction.
 pub(crate) fn rebuild_font_context(ctx: &mut GlobalContext, config: &FontConfig) {
     ctx.font_context = Default::default();
-    load_targeted_fonts(ctx);
+    let _ = load_targeted_fonts(ctx);
     apply_font_config(ctx, config);
 }
 
@@ -275,7 +275,16 @@ fn append_symbol_fallback(collection: &mut parley::fontique::Collection) {
 }
 
 /// Load the few families the bar draws with and map each to its generic.
-pub fn load_targeted_fonts(ctx: &mut GlobalContext) {
+/// Which font set `load_targeted_fonts` ended up installing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FontLoad {
+    /// fontconfig resolved the generic families; the collection stays tiny.
+    Targeted,
+    /// No fontconfig, so the whole system collection was loaded instead.
+    SystemFallback,
+}
+
+pub fn load_targeted_fonts(ctx: &mut GlobalContext) -> FontLoad {
     let collection = &mut ctx.font_context.collection;
     let mut loaded_any = false;
     for (generic, alias) in [
@@ -295,7 +304,9 @@ pub fn load_targeted_fonts(ctx: &mut GlobalContext) {
     // whole system collection: slower per render, but it renders.
     if !loaded_any {
         collection.load_system_fonts();
+        return FontLoad::SystemFallback;
     }
+    FontLoad::Targeted
 }
 
 pub fn preload_layout_images(layout: &serde_json::Value) {
@@ -800,20 +811,22 @@ mod tests {
     #[test]
     fn load_targeted_fonts_populates_only_targeted_families_and_maps_sans_serif() {
         let mut ctx = takumi::GlobalContext::default();
-        super::load_targeted_fonts(&mut ctx);
+        let load = super::load_targeted_fonts(&mut ctx);
 
         let count = ctx.font_context.collection.family_names().count();
 
-        // If fontconfig isn't available nothing gets loaded — skip gracefully.
-        if count == 0 {
-            eprintln!("SKIP: no fonts loaded (fontconfig unavailable?)");
-            return;
+        match load {
+            // Without fontconfig — macOS, a bare container — loading the whole
+            // system collection is the documented fallback, not a failure.
+            super::FontLoad::SystemFallback => assert!(
+                count > 0,
+                "the system-font fallback must leave a usable collection"
+            ),
+            super::FontLoad::Targeted => assert!(
+                count < 20,
+                "load_targeted_fonts should load only a small targeted set, got {count} families"
+            ),
         }
-
-        assert!(
-            count < 20,
-            "load_targeted_fonts should load only a small targeted set, got {count} families"
-        );
 
         let sans_serif_mapped = ctx
             .font_context

@@ -2,7 +2,11 @@ use std::sync::mpsc;
 use std::time::Duration;
 use tauler::presentation::PanelCommand;
 
+#[cfg(target_os = "macos")]
+pub(crate) mod macos;
+#[cfg(target_os = "linux")]
 pub(crate) mod wayland;
+#[cfg(not(target_os = "macos"))]
 pub(crate) mod x11;
 
 /// Drains the command channel for one presenter-thread iteration.

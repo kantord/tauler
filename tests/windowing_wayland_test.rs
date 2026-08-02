@@ -1,3 +1,6 @@
+//! Wayland is Linux-only; the module it exercises is not compiled elsewhere.
+#![cfg(target_os = "linux")]
+
 use tauler::windowing::wayland::{
     build_dispatch_result, WaylandConnectError, WaylandDisplayServer,
 };
