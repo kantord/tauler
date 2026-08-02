@@ -1,6 +1,6 @@
 use std::os::unix::net::UnixStream;
 
-use swayipc::{Connection, Fallible, Node};
+use swayipc::{Connection, Fallible, Node, Workspace};
 
 /// Default timeout for request/reply i3 IPC queries.
 pub const I3_IPC_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
@@ -43,6 +43,11 @@ impl I3Query {
     /// GET_TREE: fetch the full node layout tree.
     pub fn get_tree(&mut self) -> Fallible<Node> {
         self.with_retry(|conn| conn.get_tree())
+    }
+
+    /// GET_WORKSPACES: fetch the flat workspace list.
+    pub fn get_workspaces(&mut self) -> Fallible<Vec<Workspace>> {
+        self.with_retry(|conn| conn.get_workspaces())
     }
 
     /// RUN_COMMAND: run one or more sway/i3 commands.
@@ -122,42 +127,133 @@ fn scale_gap(dpi: f32, px: u32) -> u32 {
     }
 }
 
-/// Build the i3 `gaps` command reserving space for the panel(s). `left`/`right`
-/// are real panel widths (0 if no panel is anchored on that side); `right`
-/// takes precedence over `outer_gap` when a right panel exists, since its
-/// width is the actual space that needs reserving, not the small decorative
-/// `outer_gap` padding. `outer_gap` still drives top/bottom.
-pub fn bar_gap_command(dpi: f32, left: u32, right: u32, outer_gap: u32) -> String {
-    let mut cmds = vec![format!("gaps left current set {}", scale_gap(dpi, left))];
-
-    let right_reserved = if right > 0 { right } else { outer_gap };
-    if right_reserved > 0 {
-        cmds.push(format!(
-            "gaps right current set {}",
-            scale_gap(dpi, right_reserved)
-        ));
-    }
-
-    let og = scale_gap(dpi, outer_gap);
-    if og > 0 {
-        cmds.push(format!("gaps top current set {og}"));
-        cmds.push(format!("gaps bottom current set {og}"));
-    }
-
-    cmds.join("; ")
+/// The output of the workspace the default seat currently has focused.
+///
+/// `gaps ... current set` writes to the *focused* workspace, so this — not
+/// the workspace named by whichever event triggered a reconcile — decides
+/// which gaps are correct. Event payloads name the workspace the event is
+/// *about*, which for an urgency hint or a workspace being emptied is
+/// routinely a background workspace on a different output.
+pub fn focused_output(workspaces: &[Workspace]) -> Option<&str> {
+    workspaces
+        .iter()
+        .find(|w| w.focused)
+        .map(|w| w.output.as_str())
 }
 
-/// Returns true when gap commands should be sent — only in X11/i3 mode where the WM
-/// needs IPC gap commands to reserve sidebar space. In Wayland mode the layer-shell
-/// exclusive zone handles this, so output is always "".
-pub fn should_apply_bar_gap(output: &str) -> bool {
-    !output.is_empty()
+/// Panel geometry as reported by tauler core in the init event, in physical
+/// pixels. `right` is 0 when there is no right-anchored panel.
+#[derive(Debug, Clone, Copy)]
+pub struct BarGeometry {
+    pub left: u32,
+    pub right: u32,
+    pub outer_gap: u32,
 }
 
-pub fn apply_bar_gap(query: &mut I3Query, dpi: f32, left: u32, right: u32, outer_gap: u32) {
-    let cmd = bar_gap_command(dpi, left, right, outer_gap);
+impl BarGeometry {
+    pub fn new(left: u32, right: u32, outer_gap: u32) -> Self {
+        Self {
+            left,
+            right,
+            outer_gap,
+        }
+    }
+}
+
+/// Outer gaps for a single workspace, in unscaled physical pixels.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Gaps {
+    pub left: u32,
+    pub right: u32,
+    pub top: u32,
+    pub bottom: u32,
+}
+
+impl Gaps {
+    pub const ZERO: Self = Self {
+        left: 0,
+        right: 0,
+        top: 0,
+        bottom: 0,
+    };
+}
+
+/// The gaps a workspace on `focused_output` should have, given the panels
+/// live on `bar_output`.
+///
+/// Only the output carrying the panels reserves space; every other output
+/// gets zeros. i3 stores per-workspace gaps on the workspace itself, so a
+/// workspace that moves off the bar's output keeps its reservation unless
+/// something explicitly revokes it — nothing else will.
+pub fn desired_gaps(focused_output: &str, bar_output: &str, geom: BarGeometry) -> Gaps {
+    if focused_output != bar_output {
+        return Gaps::ZERO;
+    }
+    Gaps {
+        left: geom.left,
+        // A right panel's width is the real space needing reservation; the
+        // decorative outer_gap only stands in when there is no right panel.
+        right: if geom.right > 0 {
+            geom.right
+        } else {
+            geom.outer_gap
+        },
+        top: geom.outer_gap,
+        bottom: geom.outer_gap,
+    }
+}
+
+/// Render `gaps` as an i3 command targeting the focused workspace.
+///
+/// Every side is emitted even when zero. The runtime `gaps` command can only
+/// address `current` or `all` (i3 rejects named-workspace criteria), so
+/// revoking a stale reservation means writing an explicit 0 — omitting the
+/// side would leave the old value in place.
+pub fn gaps_command(dpi: f32, gaps: &Gaps) -> String {
+    [
+        ("left", gaps.left),
+        ("right", gaps.right),
+        ("top", gaps.top),
+        ("bottom", gaps.bottom),
+    ]
+    .iter()
+    .map(|(side, px)| format!("gaps {side} current set {}", scale_gap(dpi, *px)))
+    .collect::<Vec<_>>()
+    .join("; ")
+}
+
+/// Returns true when tauler should manage gaps at all — only in X11/i3 mode,
+/// where the WM needs IPC gap commands to reserve panel space. In Wayland
+/// mode the layer-shell exclusive zone handles reservation, and the init
+/// event carries an empty output.
+pub fn gap_management_enabled(bar_output: &str) -> bool {
+    !bar_output.is_empty()
+}
+
+/// Resolve the focused workspace's output, derive the gaps it should have,
+/// and write them.
+///
+/// Unconditional by design. Reading the current value back to skip a
+/// redundant write would buy nothing — writes cost the same as reads — and
+/// caching what was last applied is unsound: i3 emits no event whatsoever
+/// when gaps change, so a cache would go silently stale after an i3 restart
+/// or any external `gaps` command. Re-asserting the truth on every trigger
+/// is what keeps this correct.
+pub fn reconcile_gaps(query: &mut I3Query, dpi: f32, bar_output: &str, geom: BarGeometry) {
+    let workspaces = match query.get_workspaces() {
+        Ok(ws) => ws,
+        Err(e) => {
+            tracing::warn!(error = %e, "reconcile_gaps: GET_WORKSPACES failed");
+            return;
+        }
+    };
+    let Some(focused) = focused_output(&workspaces) else {
+        tracing::debug!("reconcile_gaps: no focused workspace, nothing to write");
+        return;
+    };
+    let cmd = gaps_command(dpi, &desired_gaps(focused, bar_output, geom));
     if let Err(e) = query.run_command(&cmd) {
-        tracing::warn!(error = %e, "apply_bar_gap failed");
+        tracing::warn!(error = %e, "reconcile_gaps: apply failed");
     }
 }
 
@@ -354,59 +450,117 @@ mod tests {
     }
 
     #[test]
-    fn should_apply_bar_gap_returns_false_for_empty_output() {
-        assert!(!should_apply_bar_gap(""));
+    fn gap_management_is_disabled_for_empty_output() {
+        assert!(!gap_management_enabled(""));
     }
 
     #[test]
-    fn should_apply_bar_gap_returns_true_for_named_output() {
-        assert!(should_apply_bar_gap("X11-1"));
+    fn gap_management_is_enabled_for_named_output() {
+        assert!(gap_management_enabled("X11-1"));
     }
 
     #[test]
-    fn should_apply_bar_gap_returns_true_for_randr_output() {
-        assert!(should_apply_bar_gap("DP-2"));
+    fn gap_management_is_enabled_for_randr_output() {
+        assert!(gap_management_enabled("DP-2"));
+    }
+
+    /// Build a `swayipc::Workspace` fixture. Like `Node` and `WorkspaceEvent`
+    /// it is `#[non_exhaustive]`, so it can only be built by deserialization
+    /// from this crate, not a struct literal.
+    fn workspace(name: &str, output: &str, focused: bool) -> swayipc::Workspace {
+        let value = serde_json::json!({
+            "id": 1,
+            "num": 1,
+            "name": name,
+            "visible": focused,
+            "focused": focused,
+            "urgent": false,
+            "representation": null,
+            "rect": {"x": 0, "y": 0, "width": 0, "height": 0},
+            "output": output,
+        });
+        serde_json::from_value(value).expect("valid Workspace fixture")
     }
 
     #[test]
-    fn bar_gap_command_sets_only_left_when_outer_gap_zero() {
-        let cmd = bar_gap_command(96.0, 200, 0, 0);
-        assert_eq!(cmd, "gaps left current set 200");
+    fn focused_output_returns_the_output_of_the_focused_workspace() {
+        let ws = [
+            workspace("1", "DP-4", false),
+            workspace("2", "DP-3", true),
+            workspace("3", "HDMI-0", false),
+        ];
+        assert_eq!(focused_output(&ws), Some("DP-3"));
     }
 
     #[test]
-    fn bar_gap_command_sets_all_four_gaps_when_outer_gap_nonzero() {
-        let cmd = bar_gap_command(96.0, 200, 0, 8);
+    fn focused_output_is_none_when_nothing_is_focused() {
+        let ws = [workspace("1", "DP-4", false), workspace("2", "DP-3", false)];
+        assert_eq!(focused_output(&ws), None);
+    }
+
+    #[test]
+    fn focused_output_is_none_for_an_empty_workspace_list() {
+        assert_eq!(focused_output(&[]), None);
+    }
+
+    /// The bar output reserves real panel space on every side it occupies.
+    #[test]
+    fn desired_gaps_reserve_panel_widths_on_the_bar_output() {
+        let g = desired_gaps("DP-4", "DP-4", BarGeometry::new(272, 60, 8));
         assert_eq!(
-            cmd,
-            "gaps left current set 200; gaps right current set 8; gaps top current set 8; gaps bottom current set 8"
+            g,
+            Gaps {
+                left: 272,
+                right: 60,
+                top: 8,
+                bottom: 8
+            }
+        );
+    }
+
+    /// The defect this PR exists to fix: an output with no panel must have
+    /// tauler's reservation revoked, not merely left alone.
+    #[test]
+    fn desired_gaps_are_zero_on_an_output_without_a_panel() {
+        let g = desired_gaps("DP-3", "DP-4", BarGeometry::new(272, 60, 8));
+        assert_eq!(g, Gaps::ZERO);
+    }
+
+    #[test]
+    fn desired_gaps_fall_back_to_outer_gap_when_there_is_no_right_panel() {
+        let g = desired_gaps("DP-4", "DP-4", BarGeometry::new(272, 0, 8));
+        assert_eq!(g.right, 8);
+    }
+
+    #[test]
+    fn desired_gaps_right_panel_width_takes_precedence_over_outer_gap() {
+        let g = desired_gaps("DP-4", "DP-4", BarGeometry::new(272, 87, 8));
+        assert_eq!(g.right, 87);
+    }
+
+    /// Revocation is only expressible if zero-valued sides are emitted
+    /// explicitly — omitting them would leave a stale gap in place.
+    #[test]
+    fn gaps_command_always_emits_all_four_sides() {
+        assert_eq!(
+            gaps_command(96.0, &Gaps::ZERO),
+            "gaps left current set 0; gaps right current set 0; \
+             gaps top current set 0; gaps bottom current set 0"
         );
     }
 
     #[test]
-    fn bar_gap_command_scales_gaps_for_high_dpi() {
-        // At DPI 192 (dpr=2.0), i3 scales gaps itself, so we divide back by dpr
-        let cmd = bar_gap_command(192.0, 400, 0, 16);
+    fn gaps_command_scales_every_side_for_high_dpi() {
+        let g = Gaps {
+            left: 400,
+            right: 0,
+            top: 16,
+            bottom: 16,
+        };
         assert_eq!(
-            cmd,
-            "gaps left current set 200; gaps right current set 8; gaps top current set 8; gaps bottom current set 8"
-        );
-    }
-
-    #[test]
-    fn bar_gap_command_sets_right_from_panel_width_when_outer_gap_zero() {
-        // Regression: a right-anchored panel must reserve its own width,
-        // independent of the (unset) decorative outer_gap.
-        let cmd = bar_gap_command(96.0, 200, 87, 0);
-        assert_eq!(cmd, "gaps left current set 200; gaps right current set 87");
-    }
-
-    #[test]
-    fn bar_gap_command_right_panel_width_takes_precedence_over_outer_gap() {
-        let cmd = bar_gap_command(96.0, 200, 87, 8);
-        assert_eq!(
-            cmd,
-            "gaps left current set 200; gaps right current set 87; gaps top current set 8; gaps bottom current set 8"
+            gaps_command(192.0, &g),
+            "gaps left current set 200; gaps right current set 0; \
+             gaps top current set 8; gaps bottom current set 8"
         );
     }
 }

@@ -13,7 +13,7 @@ use std::thread;
 
 use command_worker::CommandRequest;
 use events::{parse_click_event, parse_init_event};
-use ipc::{I3Query, i3_socket_path, should_apply_bar_gap};
+use ipc::{BarGeometry, I3Query, gap_management_enabled, i3_socket_path};
 use tree_cache::TreeCache;
 
 /// Wires together the four worker threads (command-worker, refresh-worker,
@@ -58,24 +58,22 @@ fn main() {
     // refresh-worker's hint channel: fed by the subscribe thread.
     let (refresh_tx, refresh_rx) = mpsc::channel::<()>();
 
+    let gaps_enabled = gap_management_enabled(&init.output);
+
     // Command-worker: owns one dedicated RUN_COMMAND connection.
     {
         let query = I3Query::new(socket.clone(), ipc::I3_IPC_TIMEOUT);
         let dpi = init.dpi;
-        let left_width = init.left_width;
-        let right_width = init.right_width;
-        let outer_gap = init.outer_gap;
-        thread::spawn(move || {
-            command_worker::run(cmd_rx, query, dpi, left_width, right_width, outer_gap)
-        });
+        let bar_output = init.output.clone();
+        let geom = BarGeometry::new(init.left_width, init.right_width, init.outer_gap);
+        thread::spawn(move || command_worker::run(cmd_rx, query, dpi, bar_output, geom));
     }
 
-    // Apply the bar gap once at startup (mirrors the effect a workspace-focus
-    // event would otherwise trigger) — needed because i3 may have just
-    // (re)started and forgotten any previously-applied runtime gap, and
-    // startup itself doesn't produce a workspace-focus event to react to.
-    if should_apply_bar_gap(&init.output) {
-        let _ = cmd_tx.send(CommandRequest::ApplyBarGap);
+    // Reconcile gaps once at startup — needed because i3 may have just
+    // (re)started and forgotten every previously-applied runtime gap, and
+    // startup itself produces no workspace event to react to.
+    if gaps_enabled {
+        let _ = cmd_tx.send(CommandRequest::ReconcileGaps);
     }
 
     // Refresh-worker: owns one dedicated GET_TREE connection and runs the
@@ -91,10 +89,9 @@ fn main() {
     // events.
     {
         let socket = socket.clone();
-        let output = init.output.clone();
         let cmd_tx = cmd_tx.clone();
         let refresh_tx = refresh_tx.clone();
-        thread::spawn(move || subscribe::run(socket, output, cmd_tx, refresh_tx));
+        thread::spawn(move || subscribe::run(socket, gaps_enabled, cmd_tx, refresh_tx));
     }
 
     // Stdin thread: forward click events directly to the command-worker.
