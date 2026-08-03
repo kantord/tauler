@@ -1,6 +1,6 @@
 use std::sync::{Arc, Mutex, OnceLock};
 
-use cached::proc_macro::cached;
+use cached::macros::cached;
 use cached::Cached;
 use parley::fontique::GenericFamily;
 use takumi::{
@@ -56,8 +56,8 @@ pub fn reload_font_config(font_config: FontConfig) {
     if let Some(mutex) = GLOBAL_CTX.get() {
         let mut ctx = mutex.lock().unwrap();
         rebuild_font_context(&mut ctx, &font_config);
-        RENDER_FRAME_CACHED.lock().cache_clear();
-        MEASURE_LAYOUT_CACHED.lock().cache_clear();
+        RENDER_FRAME_CACHED.write().cache_clear();
+        MEASURE_LAYOUT_CACHED.write().cache_clear();
     }
 }
 
@@ -76,7 +76,7 @@ pub fn render_frame(
     render_frame_cached(canonical, width, height, dpr.to_bits())
 }
 
-#[cached(size = 6)]
+#[cached(max_size = 6)]
 fn render_frame_cached(canonical: String, width: u32, height: u32, dpr_bits: u32) -> Arc<Vec<u8>> {
     let dpr = f32::from_bits(dpr_bits);
     let layout = serde_json::from_str::<serde_json::Value>(&canonical)
@@ -342,7 +342,7 @@ fn preload_layout_images_impl(layout: &serde_json::Value, global: &GlobalContext
 
 /// Cached layout-only pass (no rasterization). Same cache key as `render_frame`
 /// so click handling gets a warm cache hit after any render.
-#[cached(size = 6)]
+#[cached(max_size = 6)]
 fn measure_layout_cached(
     canonical: String,
     width: u32,
