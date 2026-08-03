@@ -9,8 +9,8 @@ use tokio::sync::mpsc;
 use events::parse_dismiss;
 use model::{CloseReason, Event, Notification};
 use server::NotifyServer;
-use store::Notifications;
 use std::sync::atomic::AtomicU32;
+use store::Notifications;
 
 fn emit(notifications: &[Notification]) {
     if let Ok(json) = serde_json::to_string(&serde_json::json!({ "notifications": notifications }))

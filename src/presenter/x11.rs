@@ -100,7 +100,10 @@ mod tests {
             is_dispatchable_button(2),
             "button 2 (middle) should dispatch"
         );
-        assert!(is_dispatchable_button(3), "button 3 (right) should dispatch");
+        assert!(
+            is_dispatchable_button(3),
+            "button 3 (right) should dispatch"
+        );
     }
 
     #[test]

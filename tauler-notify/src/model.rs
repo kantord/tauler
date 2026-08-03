@@ -34,10 +34,16 @@ pub enum Event {
     /// A timer firing, implying `CloseReason::Expired`. Only removes the entry
     /// if `generation` still matches, so a superseded notification's timer
     /// cannot close its replacement.
-    Expire { id: u32, generation: u64 },
+    Expire {
+        id: u32,
+        generation: u64,
+    },
     /// A dismissal or CloseNotification call: removes whatever holds the id.
     /// The reason distinguishes the two for the signal we then emit.
-    Close { id: u32, reason: CloseReason },
+    Close {
+        id: u32,
+        reason: CloseReason,
+    },
 }
 
 #[cfg(test)]

@@ -107,14 +107,8 @@ mod tests {
             {"channel": "module-b", "event": event_b.clone()},
         ]);
         dispatch_click(&txs, &on_click);
-        assert_eq!(
-            rxs[0].try_recv().expect("module-a should receive"),
-            event_a
-        );
-        assert_eq!(
-            rxs[1].try_recv().expect("module-b should receive"),
-            event_b
-        );
+        assert_eq!(rxs[0].try_recv().expect("module-a should receive"), event_a);
+        assert_eq!(rxs[1].try_recv().expect("module-b should receive"), event_b);
     }
 
     #[test]
