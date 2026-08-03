@@ -1,9 +1,25 @@
+use crate::ipc::{BarConfig, GapOverrides};
+
 pub struct InitEvent {
     pub output: String,
     pub left_width: u32,
     pub right_width: u32,
     pub dpi: f32,
     pub outer_gap: u32,
+    pub gaps: GapOverrides,
+}
+
+impl InitEvent {
+    pub fn bar_config(&self) -> BarConfig {
+        BarConfig {
+            output: self.output.clone(),
+            dpi: self.dpi,
+            left: self.left_width,
+            right: self.right_width,
+            outer_gap: self.outer_gap,
+            gaps: self.gaps,
+        }
+    }
 }
 
 pub fn parse_init_event(json: &str) -> Option<InitEvent> {
@@ -11,12 +27,19 @@ pub fn parse_init_event(json: &str) -> Option<InitEvent> {
     if val["type"].as_str() != Some("init") {
         return None;
     }
+    let side = |name: &str| val["gaps"][name].as_u64().map(|v| v as u32);
     Some(InitEvent {
         output: val["output"].as_str()?.to_string(),
         left_width: val["config"]["left"].as_u64()? as u32,
         right_width: val["config"]["right"].as_u64().unwrap_or(0) as u32,
         dpi: val["dpi"].as_f64().unwrap_or(96.0) as f32,
         outer_gap: val["config"]["outer_gap"].as_u64().unwrap_or(0) as u32,
+        gaps: GapOverrides {
+            left: side("left"),
+            right: side("right"),
+            top: side("top"),
+            bottom: side("bottom"),
+        },
     })
 }
 
@@ -62,6 +85,24 @@ mod tests {
         let json = r#"{"type":"init","output":"DP-1","config":{"left":200}}"#;
         let ev = parse_init_event(json).unwrap();
         assert_eq!(ev.right_width, 0);
+    }
+
+    #[test]
+    fn parse_init_event_reads_declared_gap_overrides() {
+        let json =
+            r#"{"type":"init","output":"DP-1","config":{"left":200},"gaps":{"left":300,"top":0}}"#;
+        let ev = parse_init_event(json).unwrap();
+        assert_eq!(ev.gaps.left, Some(300));
+        assert_eq!(ev.gaps.top, Some(0), "an explicit 0 is a declaration");
+        assert_eq!(ev.gaps.right, None, "absent sides stay derived");
+        assert_eq!(ev.gaps.bottom, None);
+    }
+
+    #[test]
+    fn parse_init_event_defaults_gap_overrides_to_absent() {
+        let json = r#"{"type":"init","output":"DP-1","config":{"left":200}}"#;
+        let ev = parse_init_event(json).unwrap();
+        assert_eq!(ev.gaps, crate::ipc::GapOverrides::default());
     }
 
     #[test]
