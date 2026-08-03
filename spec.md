@@ -48,8 +48,8 @@ OXC transform + wrap: **<1ms** (layout-file-change only). QuickJS `_render()` ca
 ### Sandbox
 
 rquickjs is deny-by-default. No filesystem, network, or process access unless explicitly
-registered from Rust. tauler exposes only `useStringStream`, `useJSONStream`, `Module`,
-`globals`, and `ctx`.
+registered from Rust. tauler exposes only `useStringStream`, `useJSONStream`, `useEvents`,
+`Module`, `globals`, and `ctx`.
 
 ### Example layout file
 
@@ -169,6 +169,12 @@ The identity key is `(bin, script)`. On each re-evaluation, Rust diffs the old s
 the new one: unchanged identities reuse the running subprocess, removed ones are killed,
 new ones are spawned.
 
+Registering a bin as a module changes its spec, and a changed spec restarts the
+subprocess. So **call the hooks for a given bin unconditionally**, at the same level of the
+same component — never inside a branch that sometimes does not render. A hook that comes
+and goes restarts its subprocess on every transition, which for a singleton like
+`tauler-notify` means dropped notifications and a momentarily released D-Bus name.
+
 ### `useStringStream(bin, script?)`
 
 Returns the latest stdout line from the subprocess as a string. This is not a React hook —
@@ -190,17 +196,57 @@ Same as `useStringStream` but parses each stdout line as JSON and returns a JS o
 const data = useJSONStream("/usr/bin/myscript");
 ```
 
+### `useEvents(bin)`
+
+Registers the subprocess and returns a Proxy for addressing it. Each property is a
+function; calling it produces an **intent** — a plain JSON object naming a destination and
+the message to deliver there.
+
+```jsx
+const notify = useEvents("/home/kantord/.cargo/bin/tauler-notify");
+
+notify.dismiss({ id: 42 })
+// { "channel": "/home/kantord/.cargo/bin/tauler-notify",
+//   "event": { "type": "dismiss", "id": 42 } }
+```
+
+The property name becomes `event.type`; the argument's keys are merged alongside it.
+Calling with no argument yields just the type.
+
+### Event handlers
+
+`on_click` is **always an array of intents**, never a bare object and never a JS callback.
+Functions do not survive the JSON boundary at the end of evaluation, so a handler that is a
+function is silently dropped.
+
+When a click is detected, Rust hit-tests the rendered tree for the deepest node carrying an
+`on_click`, then delivers each intent's `event` object **verbatim** to that intent's
+channel over stdin — one JSON object per line, with no wrapping envelope. A module
+therefore only ever sees its own vocabulary; it never learns that a click caused the
+message. No JS executes on click.
+
+Because a handler is a list, one gesture can address several subprocesses at once. Each
+intent is delivered independently, in no guaranteed order across channels; an intent naming
+an unknown channel is logged and skipped without affecting the others.
+
+```jsx
+on_click={[
+  i3.switchWorkspace({ workspace: ws.name }),
+  notify.dismiss({ id: n.id }),
+]}
+```
+
+Scroll wheel motion is not a click. X11 reports it as button presses 4–7; those are
+discarded before hit-testing.
+
 ### `<Module bin="...">{(data, events) => ...}</Module>`
 
-A bidirectional subprocess. Sends an init event on startup, receives JSON data on stdout,
-and accepts events on stdin. The child render function receives:
+Sugar over `useJSONStream` + `useEvents` for the common case of a subprocess you both read
+from and talk to. Sends an init event on startup, receives JSON data on stdout, and accepts
+intents on stdin. The child render function receives:
 
 - `data` — latest parsed JSON output from the subprocess
-- `events` — a Proxy that generates JSON event descriptors
-
-`on_click` values produced via `events` are plain JSON objects, not JS callbacks. When a
-click is detected, Rust performs a hit-test on the rendered tree, finds the `on_click`
-value, and writes it to the subprocess's stdin. No JS executes on click.
+- `events` — the same proxy `useEvents` returns
 
 ```jsx
 <Module bin="/home/kantord/.cargo/bin/tauler-i3">

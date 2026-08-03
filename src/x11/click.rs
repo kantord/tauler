@@ -4,42 +4,32 @@ use std::sync::mpsc;
 use crate::modules::hit_test;
 use crate::render::measure_layout_frame;
 
+/// Dispatches a click's `on_click`: an array of intents, each
+/// `{"channel": "<bin>", "event": {...}}`. The `event` object goes to the
+/// channel's sender verbatim. One bad intent never stops the others.
 fn dispatch_click(
     module_event_txs: &HashMap<String, mpsc::Sender<serde_json::Value>>,
-    hit_path: &str,
     on_click: &serde_json::Value,
 ) {
-    if let Some(channel) = on_click.get("__channel__").and_then(|v| v.as_str()) {
-        if let Some(tx) = module_event_txs.get(channel) {
-            let mut payload = on_click.clone();
-            if let Some(obj) = payload.as_object_mut() {
-                obj.remove("__channel__");
-            }
-            let result = tx.send(serde_json::json!({"event": "click", "data": payload}));
-            tracing::debug!(
-                channel,
-                ok = result.is_ok(),
-                "click dispatched via __channel__"
-            );
-        } else {
-            tracing::debug!(channel, known_channels = ?module_event_txs.keys().collect::<Vec<_>>(), "click __channel__ not found");
-        }
+    let Some(intents) = on_click.as_array() else {
+        tracing::warn!(on_click = %on_click, "on_click is not an array of intents");
         return;
-    }
-    let mut path = hit_path.to_string();
-    loop {
-        if let Some(tx) = module_event_txs.get(&path) {
-            let _ = tx.send(serde_json::json!({"event": "click", "data": on_click}));
-            tracing::debug!(path, "click dispatched via path");
-            return;
-        }
-        match path.rfind('/') {
-            Some(pos) => path.truncate(pos),
-            None => {
-                tracing::debug!(hit_path, "click: no channel matched");
-                return;
-            }
-        }
+    };
+    for intent in intents {
+        let Some(channel) = intent.get("channel").and_then(|v| v.as_str()) else {
+            tracing::warn!(intent = %intent, "click intent has no channel");
+            continue;
+        };
+        let Some(tx) = module_event_txs.get(channel) else {
+            tracing::warn!(channel, known_channels = ?module_event_txs.keys().collect::<Vec<_>>(), "click intent channel not found");
+            continue;
+        };
+        let Some(event) = intent.get("event") else {
+            tracing::warn!(channel, "click intent has no event");
+            continue;
+        };
+        let result = tx.send(event.clone());
+        tracing::debug!(channel, ok = result.is_ok(), "click intent dispatched");
     }
 }
 
@@ -59,12 +49,12 @@ pub fn do_hit_test(
     let measured = measure_layout_frame(layout_json, phys_width, phys_height, dpr);
 
     tracing::debug!(click_x, click_y, phys_width, phys_height, "hit test");
-    let Some((hit_path, on_click)) = hit_test(&measured, layout_json, click_x, click_y) else {
+    let Some((_hit_path, on_click)) = hit_test(&measured, layout_json, click_x, click_y) else {
         tracing::debug!(click_x, click_y, "hit test: no clickable node found");
         return;
     };
 
-    dispatch_click(module_event_txs, &hit_path, &on_click);
+    dispatch_click(module_event_txs, &on_click);
 }
 
 #[cfg(test)]
@@ -90,74 +80,77 @@ mod tests {
     }
 
     #[test]
-    fn channel_key_routes_to_named_channel_not_path() {
-        let (txs, rxs) = make_txs(&["my-module", "some/path/module"]);
-        let on_click = serde_json::json!({
-            "__channel__": "my-module",
-            "action": "do-thing"
-        });
-        dispatch_click(&txs, "some/path/module", &on_click);
-        assert!(
-            rxs[0].try_recv().is_ok(),
-            "named channel should receive a message"
-        );
-        assert!(
-            rxs[1].try_recv().is_err(),
-            "path channel should NOT receive a message"
-        );
-    }
-
-    #[test]
-    fn channel_key_is_stripped_from_payload() {
+    fn single_intent_delivers_event_object_verbatim() {
         let (txs, rxs) = make_txs(&["my-module"]);
-        let on_click = serde_json::json!({
-            "__channel__": "my-module",
-            "action": "do-thing"
+        let event = serde_json::json!({
+            "type": "switchWorkspace",
+            "workspace": "1: web"
         });
-        dispatch_click(&txs, "irrelevant/path", &on_click);
+        let on_click = serde_json::json!([
+            {"channel": "my-module", "event": event.clone()}
+        ]);
+        dispatch_click(&txs, &on_click);
         let msg = rxs[0].try_recv().expect("should receive a message");
-        let data = &msg["data"];
-        assert!(
-            data.get("__channel__").is_none(),
-            "__channel__ should be stripped from data"
+        assert_eq!(
+            msg, event,
+            "the event object must be delivered verbatim: no envelope, no channel key"
         );
-        assert_eq!(data["action"], "do-thing");
     }
 
     #[test]
-    fn unknown_channel_key_sends_nothing() {
+    fn two_intents_each_reach_their_own_channel() {
+        let (txs, rxs) = make_txs(&["module-a", "module-b"]);
+        let event_a = serde_json::json!({"type": "a-thing", "n": 1});
+        let event_b = serde_json::json!({"type": "b-thing", "n": 2});
+        let on_click = serde_json::json!([
+            {"channel": "module-a", "event": event_a.clone()},
+            {"channel": "module-b", "event": event_b.clone()},
+        ]);
+        dispatch_click(&txs, &on_click);
+        assert_eq!(rxs[0].try_recv().expect("module-a should receive"), event_a);
+        assert_eq!(rxs[1].try_recv().expect("module-b should receive"), event_b);
+    }
+
+    #[test]
+    #[tracing_test::traced_test]
+    fn unknown_channel_is_skipped_but_other_intents_still_dispatch() {
         let (txs, rxs) = make_txs(&["known-module"]);
-        let on_click = serde_json::json!({
-            "__channel__": "unknown-module",
-            "action": "do-thing"
-        });
-        dispatch_click(&txs, "known-module", &on_click);
+        let event = serde_json::json!({"type": "do-thing"});
+        let on_click = serde_json::json!([
+            {"channel": "ghost-module", "event": {"type": "vanishes"}},
+            {"channel": "known-module", "event": event.clone()},
+        ]);
+        dispatch_click(&txs, &on_click);
+        assert_eq!(
+            rxs[0]
+                .try_recv()
+                .expect("known-module should still receive its intent"),
+            event
+        );
+        assert!(logs_contain("WARN"), "unknown channel should log at WARN");
         assert!(
-            rxs[0].try_recv().is_err(),
-            "no message should be sent when __channel__ is unknown"
+            logs_contain("ghost-module"),
+            "warn should name the unknown channel"
+        );
+        assert!(
+            logs_contain("known-module"),
+            "warn should list the known channels"
         );
     }
 
     #[test]
-    fn no_channel_key_walks_path_to_find_sender() {
-        let (txs, rxs) = make_txs(&["some/path"]);
-        let on_click = serde_json::json!({"action": "click"});
-        dispatch_click(&txs, "some/path/module", &on_click);
-        let msg = rxs[0]
-            .try_recv()
-            .expect("parent path should receive a message");
-        assert_eq!(msg["event"], "click");
-        assert_eq!(msg["data"]["action"], "click");
-    }
-
-    #[test]
-    fn no_channel_key_and_no_path_match_sends_nothing() {
-        let (txs, rxs) = make_txs(&["unrelated-module"]);
-        let on_click = serde_json::json!({"action": "click"});
-        dispatch_click(&txs, "some/path/module", &on_click);
+    #[tracing_test::traced_test]
+    fn non_array_on_click_dispatches_nothing() {
+        let (txs, rxs) = make_txs(&["my-module"]);
+        let on_click = serde_json::json!({"channel": "my-module", "event": {"type": "x"}});
+        dispatch_click(&txs, &on_click);
         assert!(
             rxs[0].try_recv().is_err(),
-            "no message should be sent when no path matches"
+            "a non-array on_click must dispatch nothing"
+        );
+        assert!(
+            logs_contain("WARN"),
+            "a non-array on_click should log at WARN"
         );
     }
 }

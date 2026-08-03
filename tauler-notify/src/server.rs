@@ -5,7 +5,7 @@ use tokio::sync::mpsc;
 use zbus::interface;
 use zbus::zvariant::OwnedValue;
 
-use crate::model::{Event, Notification};
+use crate::model::{CloseReason, Event, Notification};
 
 pub struct NotifyServer {
     pub tx: mpsc::UnboundedSender<Event>,
@@ -66,7 +66,10 @@ impl NotifyServer {
     }
 
     async fn close_notification(&self, id: u32) {
-        let _ = self.tx.send(Event::Remove(id));
+        let _ = self.tx.send(Event::Close {
+            id,
+            reason: CloseReason::Closed,
+        });
     }
 
     async fn get_capabilities(&self) -> Vec<String> {

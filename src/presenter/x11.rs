@@ -19,6 +19,12 @@ fn apply_x11_cmd(pt: &mut PresentationThread<X11PanelContext>, cmd: PanelCommand
     }
 }
 
+/// X11 has no separate scroll event: wheel motion arrives as button presses
+/// 4-7 (up, down, left, right). Only real buttons should become clicks.
+fn is_dispatchable_button(detail: u8) -> bool {
+    !matches!(detail, 4..=7)
+}
+
 pub(crate) fn run_x11_presenter_thread(
     mut pt: PresentationThread<X11PanelContext>,
     command_rx: mpsc::Receiver<PanelCommand>,
@@ -57,7 +63,7 @@ pub(crate) fn run_x11_presenter_thread(
                         let _ = pt.dm.conn.flush();
                     }
                 }
-                x11rb::protocol::Event::ButtonPress(e) => {
+                x11rb::protocol::Event::ButtonPress(e) if is_dispatchable_button(e.detail) => {
                     if let Some(panel) = pt.presenter.panels.values().find(|p| p.win_id == e.event)
                     {
                         let _ = event_tx.send(PresenterEvent::Click {
@@ -80,5 +86,52 @@ pub(crate) fn run_x11_presenter_thread(
                 _ => {}
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn primary_mouse_buttons_are_dispatchable() {
+        assert!(is_dispatchable_button(1), "button 1 (left) should dispatch");
+        assert!(
+            is_dispatchable_button(2),
+            "button 2 (middle) should dispatch"
+        );
+        assert!(
+            is_dispatchable_button(3),
+            "button 3 (right) should dispatch"
+        );
+    }
+
+    #[test]
+    fn scroll_wheel_buttons_are_not_dispatchable() {
+        assert!(
+            !is_dispatchable_button(4),
+            "button 4 (wheel up) should be ignored"
+        );
+        assert!(
+            !is_dispatchable_button(5),
+            "button 5 (wheel down) should be ignored"
+        );
+        assert!(
+            !is_dispatchable_button(6),
+            "button 6 (wheel left) should be ignored"
+        );
+        assert!(
+            !is_dispatchable_button(7),
+            "button 7 (wheel right) should be ignored"
+        );
+    }
+
+    #[test]
+    fn extra_mouse_buttons_are_dispatchable() {
+        assert!(is_dispatchable_button(8), "button 8 (back) should dispatch");
+        assert!(
+            is_dispatchable_button(9),
+            "button 9 (forward) should dispatch"
+        );
     }
 }
