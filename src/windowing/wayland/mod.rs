@@ -3,8 +3,7 @@ use std::sync::Arc;
 
 use smithay_client_toolkit::{
     compositor::{CompositorHandler, CompositorState},
-    delegate_compositor, delegate_layer, delegate_output, delegate_pointer, delegate_registry,
-    delegate_seat, delegate_shm,
+    delegate_dispatch2, delegate_registry,
     output::{OutputHandler, OutputState},
     registry::{ProvidesRegistryState, RegistryState},
     registry_handlers,
@@ -601,12 +600,7 @@ impl ProvidesRegistryState for WaylandState {
     registry_handlers!(OutputState, SeatState);
 }
 
-delegate_compositor!(WaylandState);
-delegate_output!(WaylandState);
-delegate_layer!(WaylandState);
-delegate_seat!(WaylandState);
-delegate_pointer!(WaylandState);
-delegate_shm!(WaylandState);
+delegate_dispatch2!(WaylandState);
 delegate_registry!(WaylandState);
 
 // ---------------------------------------------------------------------------
