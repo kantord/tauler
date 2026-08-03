@@ -2117,9 +2117,9 @@ dependencies = [
 
 [[package]]
 name = "optative-process-pool"
-version = "0.0.8"
+version = "0.0.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2cf5ed7b6f98e4df371fb3a622a427ff199d49728470e19445174a9516ca8394"
+checksum = "c347aa096b0875d5a03d32780c40f62dc91520413d7b6e13b7957bfb251088a3"
 dependencies = [
  "nix",
  "optative",
