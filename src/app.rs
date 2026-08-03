@@ -212,12 +212,17 @@ fn merge_module_props(
 
 fn make_mod_init_value(
     specs: &[tauler::PanelSpecData],
-    dpr: f32,
     output_name: &str,
     dpi: f32,
     screen_width_logical: u32,
     screen_height_logical: u32,
 ) -> serde_json::Value {
+    // Must match how the panel's real pixel width is computed (`panel/mod.rs`
+    // and `x11/panel.rs`: `(spec.width * spec.dpr).round()`), so the space
+    // reserved always equals the space occupied. Scaling by the primary
+    // output's dpr instead leaves dead space — or lets windows slide under the
+    // bar — whenever the bar sits on a differently-scaled monitor. There is
+    // deliberately no global dpr parameter here.
     let left_spec = specs
         .iter()
         .find(|p| p.anchor == Some(tauler::PanelAnchor::Left))
@@ -225,15 +230,15 @@ fn make_mod_init_value(
     let (bar_w_left, og) = left_spec
         .map(|p| {
             (
-                (p.width as f32 * dpr).round() as u32,
-                (p.outer_gap as f32 * dpr).round() as u32,
+                (p.width as f32 * p.dpr).round() as u32,
+                (p.outer_gap as f32 * p.dpr).round() as u32,
             )
         })
         .unwrap_or((250, 0));
     let bar_w_right = specs
         .iter()
         .find(|p| p.anchor == Some(tauler::PanelAnchor::Right))
-        .map(|p| (p.width as f32 * dpr).round() as u32)
+        .map(|p| (p.width as f32 * p.dpr).round() as u32)
         .unwrap_or(0);
     serde_json::json!({
         "type": "init",
@@ -475,7 +480,7 @@ impl App {
             &self.handle,
             &mut self.panels,
             &mut self.command_tx,
-            &move |specs| make_mod_init_value(specs, dpr, &output_name, dpi, sw, sh),
+            &move |specs| make_mod_init_value(specs, &output_name, dpi, sw, sh),
         )
     }
 
@@ -852,7 +857,7 @@ mod tests {
     }
 
     fn wayland_mod_init(specs: &[tauler::PanelSpecData]) -> serde_json::Value {
-        make_mod_init_value(specs, 1.0, "", 96.0, 0, 0)
+        make_mod_init_value(specs, "", 96.0, 0, 0)
     }
 
     /// Claim: output field must be "" (empty string), NOT "wayland" or any compositor name.
@@ -871,6 +876,35 @@ mod tests {
     fn mod_init_type_is_init() {
         let result = wayland_mod_init(&[left_spec(250)]);
         assert_eq!(result["type"].as_str(), Some("init"));
+    }
+
+    /// Regression: the reservation must be computed with the panel's own
+    /// output dpr, not the primary output's. A bar on a non-primary monitor
+    /// renders at `width * spec.dpr` but was reserved at `width * global dpr`,
+    /// leaving dead space between the bar and the windows.
+    #[test]
+    fn mod_init_uses_each_panels_own_dpr_not_the_global_one() {
+        let mut spec = left_spec(272);
+        spec.dpr = 1.4596;
+        // Global dpr deliberately different from the panel's own.
+        let result = make_mod_init_value(&[spec], "DP-4", 140.0, 0, 0);
+        assert_eq!(
+            result["config"]["left"].as_u64(),
+            Some(397),
+            "must use the panel's dpr (272*1.4596=397), not the global (400)"
+        );
+    }
+
+    #[test]
+    fn mod_init_uses_the_right_panels_own_dpr_too() {
+        let mut left = left_spec(272);
+        left.dpr = 1.4596;
+        // Width chosen so the two dprs actually round differently
+        // (100*1.4596=146, 100*1.4706=147).
+        let mut right = right_spec(100);
+        right.dpr = 1.4596;
+        let result = make_mod_init_value(&[left, right], "DP-4", 140.0, 0, 0);
+        assert_eq!(result["config"]["right"].as_u64(), Some(146));
     }
 
     #[test]
