@@ -627,9 +627,14 @@ mod tests {
             tick_called.load(Ordering::Relaxed),
             "on_tick was never called after extra_rx wake signal"
         );
+        // The loop is expected to finish ~120 ms in (wake at 20 ms, stop at
+        // 120 ms). The deadline is deliberately far looser than that: the
+        // regression this guards against is a *blocking* recv that never wakes,
+        // which overshoots by seconds, while a shared CI runner can add a few
+        // hundred ms of scheduler jitter to the same healthy run.
         assert!(
-            elapsed < Duration::from_millis(200),
-            "on_tick was not called within 200 ms deadline (took {:?})",
+            elapsed < Duration::from_secs(2),
+            "on_tick was not called within the 2 s deadline (took {:?})",
             elapsed
         );
     }

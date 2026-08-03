@@ -27,10 +27,7 @@ fn spawn_module_works_without_script() {
 
 #[test]
 fn killing_child_stops_receiver() {
-    let mut m = spawn_module(
-        "/bin/bash",
-        Some("while true; do echo tick; sleep 1; done"),
-    );
+    let mut m = spawn_module("/bin/bash", Some("while true; do echo tick; sleep 1; done"));
     m.rx.recv_timeout(Duration::from_secs(2)).unwrap();
     m.child.kill().unwrap();
     m.child.wait().unwrap();

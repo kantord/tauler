@@ -465,11 +465,19 @@ mod tests {
     /// Ask fontconfig whether any installed font actually covers a codepoint.
     /// `fc-list` filters strictly on charset (unlike `fc-match`, which always
     /// answers with *something*).
+    ///
+    /// Dot-prefixed families are skipped: macOS ships `.LastResort`, which
+    /// declares coverage of everything but draws one placeholder box for every
+    /// codepoint. Counting it would report symbol coverage that cannot render.
     fn any_font_covers(codepoint_hex: &str) -> bool {
         std::process::Command::new("fc-list")
             .args([&format!(":charset={codepoint_hex}"), "family"])
             .output()
-            .map(|o| !String::from_utf8_lossy(&o.stdout).trim().is_empty())
+            .map(|o| {
+                String::from_utf8_lossy(&o.stdout).lines().any(|family| {
+                    !family.trim().is_empty() && !family.trim_start().starts_with('.')
+                })
+            })
             .unwrap_or(false)
     }
 
@@ -708,48 +716,54 @@ mod tests {
         assert!(!families.is_empty());
     }
 
+    /// Map `primary` onto sans-serif and report the family it resolved to.
+    fn sans_serif_id_for_primary(
+        ctx: &mut takumi::GlobalContext,
+        primary: &str,
+    ) -> Option<parley::fontique::FamilyId> {
+        apply_font_config(
+            ctx,
+            &FontConfig {
+                primary: Some(primary.to_string()),
+                emoji: None,
+                primary_path: None,
+            },
+        );
+        ctx.font_context
+            .collection
+            .generic_families(parley::GenericFamily::SansSerif)
+            .next()
+    }
+
     #[test]
     fn apply_font_config_updates_sans_serif_mapping_when_called_twice_with_different_primary_font()
     {
+        // Two *installed* families are required. An unknown family leaves the
+        // previous mapping untouched, so naming fonts that happen to be absent
+        // would compare a mapping to itself and pass or fail for the wrong
+        // reason. Candidates span Linux and macOS so the test runs on both.
+        let installed: Vec<String> = ["Adwaita Sans", "Liberation Serif", "Helvetica", "Georgia"]
+            .iter()
+            .filter_map(|f| installed_family(&[f]))
+            .collect();
+        let (Some(first_family), Some(second_family)) = (installed.first(), installed.get(1))
+        else {
+            eprintln!(
+                "SKIP: need two installed candidate families, found {}",
+                installed.len()
+            );
+            return;
+        };
+
         let mut ctx = takumi::GlobalContext::default();
+        let first_id = sans_serif_id_for_primary(&mut ctx, first_family);
+        let second_id = sans_serif_id_for_primary(&mut ctx, second_family);
 
-        apply_font_config(
-            &mut ctx,
-            &FontConfig {
-                primary: Some("Adwaita Sans".to_string()),
-                emoji: None,
-                primary_path: None,
-            },
+        assert!(first_id.is_some(), "{first_family} should map sans-serif");
+        assert_ne!(
+            first_id, second_id,
+            "re-applying the config with {second_family} should remap sans-serif away from {first_family}"
         );
-        let first_id = ctx
-            .font_context
-            .collection
-            .generic_families(parley::GenericFamily::SansSerif)
-            .next();
-        if first_id.is_none() {
-            eprintln!("SKIP: Adwaita Sans not found on this system");
-            return;
-        }
-
-        apply_font_config(
-            &mut ctx,
-            &FontConfig {
-                primary: Some("Liberation Serif".to_string()),
-                emoji: None,
-                primary_path: None,
-            },
-        );
-        let second_id = ctx
-            .font_context
-            .collection
-            .generic_families(parley::GenericFamily::SansSerif)
-            .next();
-        if second_id.is_none() {
-            eprintln!("SKIP: Liberation Serif not found on this system");
-            return;
-        }
-
-        assert_ne!(first_id, second_id);
     }
 
     #[test]
