@@ -75,16 +75,16 @@ mod tests {
     use std::time::{SystemTime, UNIX_EPOCH};
 
     /// Unique socket path under the system temp dir.
+    /// Unique socket path under the system temp dir. The name is terse because
+    /// the full path must fit `SUN_LEN` (104 bytes) and macOS's `TMPDIR` is long.
     fn temp_sock(name: &str) -> String {
         let nanos = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()
-            .as_nanos();
+            .as_nanos() as u64
+            % 1_000_000_000_000;
         std::env::temp_dir()
-            .join(format!(
-                "tauler-i3-refresh-worker-{name}-{}-{nanos}.sock",
-                std::process::id()
-            ))
+            .join(format!("ti3-{name}-{}-{nanos}.sock", std::process::id()))
             .to_string_lossy()
             .into_owned()
     }

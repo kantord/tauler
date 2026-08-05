@@ -4,10 +4,15 @@ use std::thread;
 use std::time::Duration;
 
 use tauler::config::{FontConfig, TaulerConfig};
-use tauler::data::data_loop::{DataLoop, StreamItem};
+use tauler::data::data_loop::DataLoop;
+#[cfg(not(target_os = "macos"))]
+use tauler::data::data_loop::StreamItem;
 use tauler::init_global_ctx;
+#[cfg(target_os = "linux")]
 use tauler::windowing::wayland::WaylandDisplayServer;
+#[cfg(not(target_os = "macos"))]
 use tauler::x11::panel::{i3_dpi, PanelContext};
+#[cfg(not(target_os = "macos"))]
 use x11rb::{
     connection::Connection,
     protocol::{randr::ConnectionExt as RandrExt, xproto::*},
@@ -16,12 +21,17 @@ use x11rb::{
 
 mod app;
 mod presenter;
-use app::{App, TickReceivers, X11Init};
+use app::TickReceivers;
+#[cfg(not(target_os = "macos"))]
+use app::{App, X11Init};
 
 const FREEZE_WATCHDOG_POLL_SECS: u64 = 10;
 const FREEZE_STALE_THRESHOLD_SECS: u64 = 10;
 
 fn detect_backend() -> &'static str {
+    if cfg!(target_os = "macos") {
+        return "macos";
+    }
     if let Ok(b) = std::env::var("TAULER_BACKEND") {
         if b == "wayland" {
             return "wayland";
@@ -144,6 +154,7 @@ fn load_font_config(config_path: &std::path::Path) -> FontConfig {
         .unwrap_or_default()
 }
 
+#[cfg(not(target_os = "macos"))]
 fn init_x11() -> Result<X11Init, Box<dyn std::error::Error>> {
     let (conn, screen_num) = RustConnection::connect(None)?;
     let conn = Arc::new(conn);
@@ -266,6 +277,22 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     init_global_ctx(font_config);
 
+    // AppKit owns the main thread, so `App` moves to a worker thread.
+    #[cfg(target_os = "macos")]
+    presenter::macos::run(presenter::macos::MacBoot {
+        data_loop,
+        handle,
+        rx,
+        item_tx,
+        layout_jsx_path,
+        config_yaml_path,
+        module_event_txs,
+        stop: Arc::clone(&stop),
+        last_tick,
+        watcher: Arc::clone(&_watcher),
+    })?;
+
+    #[cfg(not(target_os = "macos"))]
     if backend == "wayland" {
         tracing::info!("display backend: Wayland");
         let server = WaylandDisplayServer::connect()?;

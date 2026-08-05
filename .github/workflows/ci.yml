@@ -69,3 +69,30 @@ jobs:
           sudo apt-get install -y libwayland-dev libxkbcommon-dev libfontconfig-dev libxcb1-dev pkg-config
       - name: Build
         run: cargo build --release --workspace
+
+  # cfg'd-out code is never type-checked, so the Linux jobs do not compile the
+  # macOS backend at all. This job is the only thing covering it.
+  macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
+        with:
+          toolchain: "1.97.1"
+          components: clippy
+      - name: Cache cargo
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+      - name: Clippy
+        run: cargo clippy --workspace -- -D warnings
+      - name: Build screenshot binary
+        run: cargo build -p tauler-screenshot
+      - name: Test
+        run: cargo test --workspace
+      - name: Build
+        run: cargo build --release --workspace

@@ -11,14 +11,20 @@ use tauler::data::data_loop::{
 use tauler::layout::OutputInfo;
 use tauler::managed_set::{Lifecycle, OptativeSet, Reconcile};
 use tauler::panel::PanelSpec;
-use tauler::presentation::{PanelCommand, PresentationThread, PresenterEvent};
+#[cfg(not(target_os = "macos"))]
+use tauler::presentation::PresentationThread;
+use tauler::presentation::{PanelCommand, PresenterEvent};
 use tauler::theme::resolver::resolve_tw_in_json;
 use tauler::theme::{Theme, ThemeMode};
+#[cfg(target_os = "linux")]
 use tauler::windowing::wayland::WaylandDisplayServer;
 use tauler::x11::click::do_hit_test;
+#[cfg(not(target_os = "macos"))]
 use tauler::x11::panel::PanelContext;
 
+#[cfg(target_os = "linux")]
 use crate::presenter::wayland::run_wayland_presenter_thread;
+#[cfg(not(target_os = "macos"))]
 use crate::presenter::x11::run_x11_presenter_thread;
 
 pub(crate) type ModuleEventTxs =
@@ -260,9 +266,24 @@ pub(crate) struct TickReceivers {
     pub(crate) reload_rx: mpsc::Receiver<()>,
 }
 
+#[cfg(not(target_os = "macos"))]
 pub(crate) struct X11Init {
     pub(crate) panel_ctx: PanelContext,
     pub(crate) jsx_ctx: serde_json::Value,
+}
+
+/// macOS reports a backing scale factor, not DPI, so `dpi = dpr * 96`.
+#[cfg(target_os = "macos")]
+pub(crate) const DEFAULT_DPI: f32 = 96.0;
+
+#[cfg(target_os = "macos")]
+pub(crate) struct MacInit {
+    pub(crate) command_tx: mpsc::Sender<PanelCommand>,
+    pub(crate) event_rx: mpsc::Receiver<PresenterEvent>,
+    pub(crate) screen_width_logical: u32,
+    pub(crate) screen_height_logical: u32,
+    pub(crate) dpr: f32,
+    pub(crate) output_name: String,
 }
 
 pub(crate) struct App {
@@ -336,6 +357,7 @@ fn load_theme_from_config(
 }
 
 impl App {
+    #[cfg(not(target_os = "macos"))]
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn new_x11(
         x11: X11Init,
@@ -396,6 +418,7 @@ impl App {
         state
     }
 
+    #[cfg(target_os = "linux")]
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn new_wayland(
         server: WaylandDisplayServer,
@@ -451,6 +474,82 @@ impl App {
             event_rx,
             module_event_txs,
             presenter_thread: Some(presenter_thread),
+        };
+        state.initial_load();
+        state.reconcile_theme_file_watch(theme_file_path);
+        state
+    }
+
+    /// Spawns no presenter thread: on macOS the presenter is already on the
+    /// main thread, so the channel ends are passed in.
+    #[cfg(target_os = "macos")]
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn new_macos(
+        mac: MacInit,
+        handle: DataLoopHandle,
+        rx: TickReceivers,
+        layout_jsx_path: std::path::PathBuf,
+        config_path: std::path::PathBuf,
+        module_event_txs: ModuleEventTxs,
+        stop: Arc<AtomicBool>,
+        last_tick: Arc<std::sync::atomic::AtomicU64>,
+        watcher: SharedWatcher,
+    ) -> Self {
+        let MacInit {
+            command_tx,
+            event_rx,
+            screen_width_logical,
+            screen_height_logical,
+            dpr,
+            output_name,
+        } = mac;
+        let jsx_ctx = serde_json::json!({
+            "output": output_name,
+            "dpi": dpr * DEFAULT_DPI,
+            "screen_width": screen_width_logical,
+            "screen_height": screen_height_logical,
+        });
+        // `apply_eval_result` silently drops panels whose output is missing here.
+        let output_map = HashMap::from([(
+            output_name.clone(),
+            OutputInfo {
+                name: output_name.clone(),
+                x: 0,
+                y: 0,
+                width: screen_width_logical,
+                height: screen_height_logical,
+                dpr,
+            },
+        )]);
+        let (theme, theme_mode, theme_file_path) = load_theme_from_config(&config_path);
+        let mut state = Self {
+            theme,
+            theme_mode,
+            config_path,
+            dpr,
+            dpi: dpr * DEFAULT_DPI,
+            output_name,
+            screen_width_logical,
+            screen_height_logical,
+            output_map,
+            panels: OptativeSet::new(),
+            import_watches: OptativeSet::new(),
+            theme_file_watch: OptativeSet::new(),
+            watcher,
+            stream_values: HashMap::new(),
+            jsx_evaluator: None,
+            handle,
+            jsx_ctx,
+            item_rx: rx.item_rx,
+            bin_reload_rx: rx.bin_reload_rx,
+            reload_rx: rx.reload_rx,
+            layout_jsx_path,
+            stop,
+            last_tick,
+            command_tx,
+            event_rx,
+            module_event_txs,
+            presenter_thread: None,
         };
         state.initial_load();
         state.reconcile_theme_file_watch(theme_file_path);

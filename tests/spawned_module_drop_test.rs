@@ -30,7 +30,7 @@ fn spawned_module_drop_kills_child() {
     if ret == 0 {
         panic!("child process (pid {pid}) is still alive after SpawnedModule was dropped");
     }
-    let errno = unsafe { *libc::__errno_location() };
+    let errno = std::io::Error::last_os_error().raw_os_error().unwrap_or(0);
     assert_eq!(
         errno,
         libc::ESRCH,

@@ -627,9 +627,11 @@ mod tests {
             tick_called.load(Ordering::Relaxed),
             "on_tick was never called after extra_rx wake signal"
         );
+        // Loose on purpose: the regression is a recv that never wakes, which
+        // overshoots by seconds. A loaded CI runner adds hundreds of ms.
         assert!(
-            elapsed < Duration::from_millis(200),
-            "on_tick was not called within 200 ms deadline (took {:?})",
+            elapsed < Duration::from_secs(2),
+            "on_tick was not called within the 2 s deadline (took {:?})",
             elapsed
         );
     }

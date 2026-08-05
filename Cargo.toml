@@ -41,7 +41,7 @@ tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 rquickjs = { version = "0.11", features = ["loader"] }
 rquickjs-serde = "0.5"
 takumi = "1.8.7"
-x11rb = { version = "0.14.0", features = ["allow-unsafe-code", "randr"] }
+x11rb = { version = "0.14.0", features = ["randr"] }
 serde_json = "1.0.151"
 serde = { version = "1.0.229", features = ["derive"] }
 thiserror = "2.0.19"
@@ -55,11 +55,20 @@ optative-process-pool = "0.0.9"
 optative-derive = "0.0.4"
 optative-script = "0.0.8"
 notify = "8.2.0"
-smithay-client-toolkit = "0.21.1"
-wayland-client = "0.31.15"
 cached = { version = "2.0.2", features = ["proc_macro"] }
 parley = "0.9"
 tempfile = "3.27.0"
+
+# Kept off other platforms: Wayland's build scripts need pkg-config and
+# libxkbcommon, and x11rb's `allow-unsafe-code` links libxcb.
+[target.'cfg(target_os = "linux")'.dependencies]
+smithay-client-toolkit = "0.21.1"
+wayland-client = "0.31.15"
+x11rb = { version = "0.14.0", features = ["allow-unsafe-code"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+winit = "0.30.13"
+softbuffer = "0.4.8"
 
 [dev-dependencies]
 image = "0.25.10"

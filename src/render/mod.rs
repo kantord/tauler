@@ -34,7 +34,7 @@ pub fn init_global_ctx(font_config: FontConfig) {
 /// those caches by construction.
 pub(crate) fn rebuild_font_context(ctx: &mut GlobalContext, config: &FontConfig) {
     ctx.font_context = Default::default();
-    load_targeted_fonts(ctx);
+    let _ = load_targeted_fonts(ctx);
     apply_font_config(ctx, config);
 }
 
@@ -275,7 +275,16 @@ fn append_symbol_fallback(collection: &mut parley::fontique::Collection) {
 }
 
 /// Load the few families the bar draws with and map each to its generic.
-pub fn load_targeted_fonts(ctx: &mut GlobalContext) {
+/// Which font set `load_targeted_fonts` ended up installing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FontLoad {
+    /// fontconfig resolved the generic families; the collection stays tiny.
+    Targeted,
+    /// No fontconfig, so the whole system collection was loaded instead.
+    SystemFallback,
+}
+
+pub fn load_targeted_fonts(ctx: &mut GlobalContext) -> FontLoad {
     let collection = &mut ctx.font_context.collection;
     let mut loaded_any = false;
     for (generic, alias) in [
@@ -295,7 +304,9 @@ pub fn load_targeted_fonts(ctx: &mut GlobalContext) {
     // whole system collection: slower per render, but it renders.
     if !loaded_any {
         collection.load_system_fonts();
+        return FontLoad::SystemFallback;
     }
+    FontLoad::Targeted
 }
 
 pub fn preload_layout_images(layout: &serde_json::Value) {
@@ -454,11 +465,18 @@ mod tests {
     /// Ask fontconfig whether any installed font actually covers a codepoint.
     /// `fc-list` filters strictly on charset (unlike `fc-match`, which always
     /// answers with *something*).
+    ///
+    /// Dot-prefixed families are skipped: macOS's `.LastResort` claims to cover
+    /// everything but draws one placeholder box for every codepoint.
     fn any_font_covers(codepoint_hex: &str) -> bool {
         std::process::Command::new("fc-list")
             .args([&format!(":charset={codepoint_hex}"), "family"])
             .output()
-            .map(|o| !String::from_utf8_lossy(&o.stdout).trim().is_empty())
+            .map(|o| {
+                String::from_utf8_lossy(&o.stdout).lines().any(|family| {
+                    !family.trim().is_empty() && !family.trim_start().starts_with('.')
+                })
+            })
             .unwrap_or(false)
     }
 
@@ -697,48 +715,51 @@ mod tests {
         assert!(!families.is_empty());
     }
 
+    fn sans_serif_id_for_primary(
+        ctx: &mut takumi::GlobalContext,
+        primary: &str,
+    ) -> Option<parley::fontique::FamilyId> {
+        apply_font_config(
+            ctx,
+            &FontConfig {
+                primary: Some(primary.to_string()),
+                emoji: None,
+                primary_path: None,
+            },
+        );
+        ctx.font_context
+            .collection
+            .generic_families(parley::GenericFamily::SansSerif)
+            .next()
+    }
+
     #[test]
     fn apply_font_config_updates_sans_serif_mapping_when_called_twice_with_different_primary_font()
     {
+        // An unknown family leaves the previous mapping untouched, so both
+        // candidates must actually be installed or this compares a value to itself.
+        let installed: Vec<String> = ["Adwaita Sans", "Liberation Serif", "Helvetica", "Georgia"]
+            .iter()
+            .filter_map(|f| installed_family(&[f]))
+            .collect();
+        let (Some(first_family), Some(second_family)) = (installed.first(), installed.get(1))
+        else {
+            eprintln!(
+                "SKIP: need two installed candidate families, found {}",
+                installed.len()
+            );
+            return;
+        };
+
         let mut ctx = takumi::GlobalContext::default();
+        let first_id = sans_serif_id_for_primary(&mut ctx, first_family);
+        let second_id = sans_serif_id_for_primary(&mut ctx, second_family);
 
-        apply_font_config(
-            &mut ctx,
-            &FontConfig {
-                primary: Some("Adwaita Sans".to_string()),
-                emoji: None,
-                primary_path: None,
-            },
+        assert!(first_id.is_some(), "{first_family} should map sans-serif");
+        assert_ne!(
+            first_id, second_id,
+            "re-applying the config with {second_family} should remap sans-serif away from {first_family}"
         );
-        let first_id = ctx
-            .font_context
-            .collection
-            .generic_families(parley::GenericFamily::SansSerif)
-            .next();
-        if first_id.is_none() {
-            eprintln!("SKIP: Adwaita Sans not found on this system");
-            return;
-        }
-
-        apply_font_config(
-            &mut ctx,
-            &FontConfig {
-                primary: Some("Liberation Serif".to_string()),
-                emoji: None,
-                primary_path: None,
-            },
-        );
-        let second_id = ctx
-            .font_context
-            .collection
-            .generic_families(parley::GenericFamily::SansSerif)
-            .next();
-        if second_id.is_none() {
-            eprintln!("SKIP: Liberation Serif not found on this system");
-            return;
-        }
-
-        assert_ne!(first_id, second_id);
     }
 
     #[test]
@@ -800,20 +821,22 @@ mod tests {
     #[test]
     fn load_targeted_fonts_populates_only_targeted_families_and_maps_sans_serif() {
         let mut ctx = takumi::GlobalContext::default();
-        super::load_targeted_fonts(&mut ctx);
+        let load = super::load_targeted_fonts(&mut ctx);
 
         let count = ctx.font_context.collection.family_names().count();
 
-        // If fontconfig isn't available nothing gets loaded — skip gracefully.
-        if count == 0 {
-            eprintln!("SKIP: no fonts loaded (fontconfig unavailable?)");
-            return;
+        match load {
+            // Without fontconfig — macOS, a bare container — loading the whole
+            // system collection is the documented fallback, not a failure.
+            super::FontLoad::SystemFallback => assert!(
+                count > 0,
+                "the system-font fallback must leave a usable collection"
+            ),
+            super::FontLoad::Targeted => assert!(
+                count < 20,
+                "load_targeted_fonts should load only a small targeted set, got {count} families"
+            ),
         }
-
-        assert!(
-            count < 20,
-            "load_targeted_fonts should load only a small targeted set, got {count} families"
-        );
 
         let sans_serif_mapped = ctx
             .font_context
