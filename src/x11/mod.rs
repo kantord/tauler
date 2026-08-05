@@ -1,6 +1,6 @@
-use crate::render::with_global_ctx;
-use takumi::resources::image::ImageSource;
-use tiny_skia::{IntSize, Pixmap};
+use crate::render::with_global_ctx_mut;
+use takumi::prelude::ImageSource;
+use takumi_core::resources::image_buffer::ImageBuffer;
 
 pub use crate::layout::PanelAnchor;
 
@@ -25,15 +25,16 @@ pub fn x11_bgrx_to_rgba(bgrx: &[u8]) -> Vec<u8> {
 /// Because takumi treats this as real pixel content, `backdrop-filter: blur()`
 /// will correctly blur the wallpaper — the same effect a compositor would produce.
 pub fn inject_root_bg(rgba: Vec<u8>, width: u32, height: u32) {
-    if let Some(size) = IntSize::from_wh(width, height) {
-        if let Some(pixmap) = Pixmap::from_vec(rgba, size) {
-            with_global_ctx(|global| {
-                global
-                    .persistent_image_store
-                    .insert("root-bg".to_string(), ImageSource::from(pixmap.clone()));
-            });
-        }
-    }
+    // Straight alpha in, premultiplied out — the wallpaper is opaque, so this is
+    // a copy either way, but saying so keeps it correct if that ever changes.
+    let Some(buffer) = ImageBuffer::from_rgba_bytes(rgba, width, height) else {
+        return;
+    };
+    with_global_ctx_mut(|global| {
+        global
+            .images
+            .insert("root-bg".into(), ImageSource::from(buffer));
+    });
 }
 
 /// Compute `_NET_WM_STRUT_PARTIAL` values for a panel anchored to a screen edge.

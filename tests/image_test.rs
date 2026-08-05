@@ -19,7 +19,7 @@ fn preload_layout_images_loads_local_file_into_store() {
     });
     preload_layout_images(&layout);
     with_global_ctx(|global| {
-        assert!(global.persistent_image_store.get(&src).is_some());
+        assert!(global.images.contains_key(src.as_str()));
     });
 }
 
@@ -29,10 +29,7 @@ fn preload_layout_images_ignores_missing_files() {
     let layout = serde_json::json!({"type": "image", "src": "/nonexistent/image.png"});
     preload_layout_images(&layout);
     with_global_ctx(|global| {
-        assert!(global
-            .persistent_image_store
-            .get("/nonexistent/image.png")
-            .is_none());
+        assert!(!global.images.contains_key("/nonexistent/image.png"));
     });
 }
 
@@ -42,9 +39,6 @@ fn preload_layout_images_skips_http_urls() {
     let layout = serde_json::json!({"type": "image", "src": "https://example.com/img.png"});
     preload_layout_images(&layout);
     with_global_ctx(|global| {
-        assert!(global
-            .persistent_image_store
-            .get("https://example.com/img.png")
-            .is_none());
+        assert!(!global.images.contains_key("https://example.com/img.png"));
     });
 }
