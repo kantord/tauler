@@ -1,10 +1,6 @@
-//! macOS presenter: owns the panel windows and runs on the main thread.
-//!
-//! AppKit may only be driven from the main thread, so unlike the X11 and Wayland
-//! presenters this one is not a `run_*_presenter_thread` function. The main
-//! thread runs winit's event loop and `App` lives on a worker thread; they talk
-//! over the same `PanelCommand` / `PresenterEvent` channels the other backends
-//! use, so nothing above the presenter knows which platform it is on.
+//! macOS presenter. AppKit may only be driven from the main thread, so the
+//! event loop runs there and `App` lives on a worker thread, connected by the
+//! same `PanelCommand` / `PresenterEvent` channels the other backends use.
 
 use std::collections::HashMap;
 use std::num::NonZeroU32;
@@ -25,15 +21,12 @@ use winit::window::{Window, WindowId, WindowLevel};
 use crate::app::{App, MacInit, ModuleEventTxs, SharedWatcher, TickReceivers};
 use crate::presenter::drain_commands;
 
-/// How often the main thread wakes to drain `PanelCommand`s. The worker thread
-/// produces at most one frame per data tick, so ~120 Hz is comfortably ahead of
-/// it without busy-spinning.
+/// How often the main thread wakes to drain `PanelCommand`s.
 const COMMAND_POLL_INTERVAL: Duration = Duration::from_millis(8);
 
-/// Fallback logical screen size when no monitor can be queried.
 const FALLBACK_SCREEN: (u32, u32) = (1920, 1080);
 
-/// A monitor's logical-pixel geometry, the unit `PanelSpecData` is expressed in.
+/// Monitor geometry in logical pixels, the unit `PanelSpecData` uses.
 #[derive(Debug, Clone, Copy)]
 struct MonitorRect {
     x: f64,
@@ -53,7 +46,6 @@ impl MonitorRect {
     }
 }
 
-/// Everything the main thread hands to the worker thread that will own `App`.
 pub(crate) struct MacBoot {
     pub(crate) data_loop: DataLoop,
     pub(crate) handle: tauler::data::data_loop::DataLoopHandle,
@@ -67,25 +59,21 @@ pub(crate) struct MacBoot {
     pub(crate) watcher: SharedWatcher,
 }
 
-/// A live macOS panel window plus its softbuffer surface.
 struct MacPanel {
     window: Arc<Window>,
-    // The surface borrows nothing from the context, but softbuffer ties their
-    // lifetimes together, so the context rides along with the panel.
+    // Unused, but softbuffer ties the surface's lifetime to its context.
     _context: softbuffer::Context<Arc<Window>>,
     surface: softbuffer::Surface<Arc<Window>, Arc<Window>>,
-    /// Retained so an AppKit-initiated redraw can re-present the last frame.
+    /// Retained so an AppKit-initiated redraw can re-present it.
     last_frame: Option<PanelFrame>,
     cursor: (f64, f64),
     dpr: f32,
 }
 
-/// Convert BGRX bytes — the format every tauler backend rasterizes into — to the
-/// `0RGB` u32 words softbuffer presents, writing straight into the mapped buffer.
+/// Convert rasterized BGRX bytes to the `0RGB` words softbuffer presents.
 ///
-/// Source and destination lengths are allowed to disagree: a frame that arrives
-/// either side of a resize is clipped rather than panicking, leaving any excess
-/// destination pixels untouched.
+/// Mismatched lengths are clipped, not panicked: a frame can arrive either side
+/// of a resize.
 fn write_0rgb(dst: &mut [u32], bgrx: &[u8]) {
     for (word, px) in dst.iter_mut().zip(bgrx.chunks_exact(4)) {
         *word = (u32::from(px[2]) << 16) | (u32::from(px[1]) << 8) | u32::from(px[0]);
@@ -93,9 +81,6 @@ fn write_0rgb(dst: &mut [u32], bgrx: &[u8]) {
 }
 
 /// Top-left corner of a panel window in logical screen coordinates.
-///
-/// Mirrors the X11 backend: an anchored panel pins to that monitor edge, an
-/// unanchored one is placed at its `x`/`y` offset from the monitor origin.
 fn window_origin(spec: &PanelSpecData, mon: MonitorRect) -> (f64, f64) {
     match spec.anchor {
         Some(PanelAnchor::Left) | Some(PanelAnchor::Top) => (mon.x, mon.y),
@@ -105,9 +90,8 @@ fn window_origin(spec: &PanelSpecData, mon: MonitorRect) -> (f64, f64) {
     }
 }
 
-/// Boot state the presenter still has to consume. Monitor geometry is only
-/// reachable from an `ActiveEventLoop`, so the worker thread cannot be started
-/// until the first `resumed` callback.
+/// Monitor geometry is only reachable from an `ActiveEventLoop`, so the worker
+/// cannot start until the first `resumed` callback.
 struct PendingBoot {
     boot: MacBoot,
     command_tx: mpsc::Sender<PanelCommand>,
@@ -228,7 +212,6 @@ impl MacPresenter {
     }
 }
 
-/// Blit a frame into the panel's surface and present it.
 fn present(panel: &mut MacPanel, frame: &PanelFrame, id: &str) {
     let size = panel.window.inner_size();
     let (Some(w), Some(h)) = (NonZeroU32::new(size.width), NonZeroU32::new(size.height)) else {
@@ -311,8 +294,7 @@ impl ApplicationHandler for MacPresenter {
     }
 
     fn about_to_wait(&mut self, elwt: &ActiveEventLoop) {
-        // `drain_commands` blocks up to 8 ms for the first command; that is the
-        // main thread's idle wait, so no separate sleep is needed.
+        // `drain_commands` blocks briefly, which doubles as the idle wait.
         let mut pending = Vec::new();
         let shutdown = drain_commands(&self.command_rx, |cmd| pending.push(cmd));
         for cmd in pending {
@@ -369,11 +351,8 @@ impl ApplicationHandler for MacPresenter {
     }
 }
 
-/// Start the thread that owns `App` and the data loop.
-///
-/// `App` is built inside the closure so its QuickJS runtime — which is not
-/// `Send` — is created on, and never leaves, this worker thread. Only the
-/// channel ends cross the boundary.
+/// `App` is built inside the closure because its QuickJS runtime is not `Send`.
+/// Only the channel ends cross the thread boundary.
 fn spawn_worker(boot: MacBoot, mac: MacInit) -> thread::JoinHandle<()> {
     let MacBoot {
         mut data_loop,
@@ -410,8 +389,6 @@ fn spawn_worker(boot: MacBoot, mac: MacInit) -> thread::JoinHandle<()> {
     })
 }
 
-/// Run tauler on macOS: window event loop on this (main) thread, `App` and the
-/// data loop on a worker thread.
 pub(crate) fn run(boot: MacBoot) -> Result<(), Box<dyn std::error::Error>> {
     let event_loop = EventLoop::new()?;
     event_loop.set_control_flow(ControlFlow::Poll);

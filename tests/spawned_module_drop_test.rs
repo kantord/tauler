@@ -30,7 +30,6 @@ fn spawned_module_drop_kills_child() {
     if ret == 0 {
         panic!("child process (pid {pid}) is still alive after SpawnedModule was dropped");
     }
-    // `last_os_error` reads errno portably; the symbol for it differs per libc.
     let errno = std::io::Error::last_os_error().raw_os_error().unwrap_or(0);
     assert_eq!(
         errno,

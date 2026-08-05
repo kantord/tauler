@@ -255,11 +255,8 @@ mod tests {
     use std::sync::{Arc, mpsc};
     use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-    /// Unique socket path under the system temp dir.
-    ///
-    /// The file name is kept terse because the whole path must fit in
-    /// `SUN_LEN` (104 bytes on macOS), and `TMPDIR` there is a ~49-byte
-    /// per-user path rather than Linux's `/tmp`.
+    /// Unique socket path under the system temp dir. The name is terse because
+    /// the full path must fit `SUN_LEN` (104 bytes) and macOS's `TMPDIR` is long.
     fn temp_sock(name: &str) -> String {
         let nanos = SystemTime::now()
             .duration_since(UNIX_EPOCH)

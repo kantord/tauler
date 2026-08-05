@@ -466,9 +466,8 @@ mod tests {
     /// `fc-list` filters strictly on charset (unlike `fc-match`, which always
     /// answers with *something*).
     ///
-    /// Dot-prefixed families are skipped: macOS ships `.LastResort`, which
-    /// declares coverage of everything but draws one placeholder box for every
-    /// codepoint. Counting it would report symbol coverage that cannot render.
+    /// Dot-prefixed families are skipped: macOS's `.LastResort` claims to cover
+    /// everything but draws one placeholder box for every codepoint.
     fn any_font_covers(codepoint_hex: &str) -> bool {
         std::process::Command::new("fc-list")
             .args([&format!(":charset={codepoint_hex}"), "family"])
@@ -716,7 +715,6 @@ mod tests {
         assert!(!families.is_empty());
     }
 
-    /// Map `primary` onto sans-serif and report the family it resolved to.
     fn sans_serif_id_for_primary(
         ctx: &mut takumi::GlobalContext,
         primary: &str,
@@ -738,10 +736,8 @@ mod tests {
     #[test]
     fn apply_font_config_updates_sans_serif_mapping_when_called_twice_with_different_primary_font()
     {
-        // Two *installed* families are required. An unknown family leaves the
-        // previous mapping untouched, so naming fonts that happen to be absent
-        // would compare a mapping to itself and pass or fail for the wrong
-        // reason. Candidates span Linux and macOS so the test runs on both.
+        // An unknown family leaves the previous mapping untouched, so both
+        // candidates must actually be installed or this compares a value to itself.
         let installed: Vec<String> = ["Adwaita Sans", "Liberation Serif", "Helvetica", "Georgia"]
             .iter()
             .filter_map(|f| installed_family(&[f]))

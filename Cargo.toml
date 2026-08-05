@@ -59,8 +59,8 @@ cached = { version = "2.0.2", features = ["proc_macro"] }
 parley = "0.9"
 tempfile = "3.27.0"
 
-# Wayland's build scripts require pkg-config + libxkbcommon, and x11rb's
-# `allow-unsafe-code` links libxcb — none of which exist on non-Linux hosts.
+# Kept off other platforms: Wayland's build scripts need pkg-config and
+# libxkbcommon, and x11rb's `allow-unsafe-code` links libxcb.
 [target.'cfg(target_os = "linux")'.dependencies]
 smithay-client-toolkit = "0.21.1"
 wayland-client = "0.31.15"

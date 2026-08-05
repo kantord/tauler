@@ -29,7 +29,6 @@ const FREEZE_WATCHDOG_POLL_SECS: u64 = 10;
 const FREEZE_STALE_THRESHOLD_SECS: u64 = 10;
 
 fn detect_backend() -> &'static str {
-    // macOS has exactly one windowing system, so there is nothing to detect.
     if cfg!(target_os = "macos") {
         return "macos";
     }
@@ -278,8 +277,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     init_global_ctx(font_config);
 
-    // AppKit owns the main thread, so macOS inverts the usual arrangement: the
-    // window event loop runs here and `App` moves to a worker thread.
+    // AppKit owns the main thread, so `App` moves to a worker thread.
     #[cfg(target_os = "macos")]
     presenter::macos::run(presenter::macos::MacBoot {
         data_loop,

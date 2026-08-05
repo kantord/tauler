@@ -272,12 +272,10 @@ pub(crate) struct X11Init {
     pub(crate) jsx_ctx: serde_json::Value,
 }
 
-/// Reference DPI: macOS reports scale as a backing factor (1.0 / 2.0), not dots
-/// per inch, so logical px are always 96-DPI-equivalent and `dpi = dpr * 96`.
+/// macOS reports a backing scale factor, not DPI, so `dpi = dpr * 96`.
 #[cfg(target_os = "macos")]
 pub(crate) const DEFAULT_DPI: f32 = 96.0;
 
-/// What the main thread hands the worker thread that owns `App` on macOS.
 #[cfg(target_os = "macos")]
 pub(crate) struct MacInit {
     pub(crate) command_tx: mpsc::Sender<PanelCommand>,
@@ -482,9 +480,8 @@ impl App {
         state
     }
 
-    /// macOS keeps its presenter on the main thread (AppKit is main-thread-only),
-    /// so unlike the X11/Wayland constructors this one does not spawn a presenter
-    /// thread — it receives the channel ends the main thread already owns.
+    /// Spawns no presenter thread: on macOS the presenter is already on the
+    /// main thread, so the channel ends are passed in.
     #[cfg(target_os = "macos")]
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn new_macos(
@@ -512,9 +509,7 @@ impl App {
             "screen_width": screen_width_logical,
             "screen_height": screen_height_logical,
         });
-        // Unlike Wayland — which learns its outputs later via `OutputsChanged` —
-        // the monitor is known at boot, and `apply_eval_result` drops every panel
-        // whose output is absent from this map.
+        // `apply_eval_result` silently drops panels whose output is missing here.
         let output_map = HashMap::from([(
             output_name.clone(),
             OutputInfo {
