@@ -56,7 +56,7 @@ optative-derive = "0.0.4"
 optative-script = "0.0.8"
 notify = "8.2.0"
 cached = { version = "2.0.2", features = ["proc_macro"] }
-parley = "0.9"
+parley = "0.11.0"
 tempfile = "3.27.0"
 
 # Kept off other platforms: Wayland's build scripts need pkg-config and
