@@ -1,46 +1,57 @@
+use std::collections::HashMap;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock};
 
 use cached::macros::cached;
 use cached::Cached;
-use parley::fontique::GenericFamily;
-use takumi::{
-    layout::{node::Node, Viewport},
-    rendering::{measure_layout as takumi_measure_layout, render, MeasuredNode, RenderOptions},
-    resources::image::ImageSource,
-    GlobalContext,
+use takumi::prelude::{
+    FontResource, Fonts, GenericFamily, ImageSource, MeasuredNode, Node, RenderOptions, Viewport,
 };
+use takumi::{measure as takumi_measure_layout, render};
 
 use crate::config::FontConfig;
 use crate::layout::parse_layout;
 
-static GLOBAL_CTX: OnceLock<Mutex<GlobalContext>> = OnceLock::new();
+/// Everything a render needs that outlives a single frame.
+///
+/// takumi has no global context of its own: fonts live in a [`Fonts`] handle and
+/// decoded images are handed to each render individually, so tauler owns both and
+/// passes them down per frame.
+#[derive(Default)]
+pub struct RenderContext {
+    pub fonts: Fonts,
+    /// Pre-decoded images keyed by the `src` a node references them by.
+    pub images: HashMap<Arc<str>, ImageSource>,
+}
+
+static GLOBAL_CTX: OnceLock<Mutex<RenderContext>> = OnceLock::new();
 
 /// Initialize the global rendering context. Must be called once at startup.
 /// Loads fonts into the context before storing it.
 pub fn init_global_ctx(font_config: FontConfig) {
-    let mut ctx = GlobalContext::default();
+    let mut ctx = RenderContext::default();
     rebuild_font_context(&mut ctx, &font_config);
     GLOBAL_CTX.set(Mutex::new(ctx)).ok();
 }
 
 /// Rebuild `ctx`'s fonts from scratch for `config`.
 ///
-/// The context is *replaced* rather than mutated in place: takumi memoises a
-/// clone of the font context per thread, keyed by its id and a version counter
-/// that only its own loader bumps (`FontContext::load_and_store`). Mutating the
-/// collection through `DerefMut`, as we do, leaves that counter untouched, so
-/// every thread that has already rendered would keep using its stale clone and
-/// never see the new fonts. A fresh context carries a fresh id, which misses
-/// those caches by construction.
-pub(crate) fn rebuild_font_context(ctx: &mut GlobalContext, config: &FontConfig) {
-    ctx.font_context = Default::default();
-    let _ = load_targeted_fonts(ctx);
-    apply_font_config(ctx, config);
+/// Registration order *is* priority order: [`Fonts::register`] appends to a
+/// generic family's list and nothing can replace or remove an entry afterwards.
+/// So the configured font is registered before the fontconfig defaults it is
+/// meant to override, not after. The symbol fallback is exempt — it registers as
+/// a last resort, which sorts behind every normal family however early it lands.
+pub(crate) fn rebuild_font_context(ctx: &mut RenderContext, config: &FontConfig) -> FontLoad {
+    ctx.fonts = Fonts::default();
+    apply_font_config(&mut ctx.fonts, config);
+    let load = load_targeted_fonts(&mut ctx.fonts);
+    append_symbol_fallback(&mut ctx.fonts);
+    load
 }
 
 pub fn with_global_ctx<F, R>(f: F) -> R
 where
-    F: FnOnce(&GlobalContext) -> R,
+    F: FnOnce(&RenderContext) -> R,
 {
     let g = GLOBAL_CTX
         .get()
@@ -48,6 +59,19 @@ where
         .lock()
         .unwrap();
     f(&g)
+}
+
+/// As [`with_global_ctx`], for the paths that add images to the context.
+pub fn with_global_ctx_mut<F, R>(f: F) -> R
+where
+    F: FnOnce(&mut RenderContext) -> R,
+{
+    let mut g = GLOBAL_CTX
+        .get()
+        .expect("call init_global_ctx before rendering")
+        .lock()
+        .unwrap();
+    f(&mut g)
 }
 
 /// Update the global rendering context's font configuration at runtime.
@@ -88,11 +112,7 @@ fn render_frame_cached(canonical: String, width: u32, height: u32, dpr_bits: u32
         });
     with_global_ctx(|global| {
         let node = layout.unwrap_or_else(|| Node::container(vec![]));
-        let options = RenderOptions::builder()
-            .global(global)
-            .viewport(Viewport::new((Some(width), Some(height))).with_device_pixel_ratio(dpr))
-            .node(node)
-            .build();
+        let options = frame_options(global, node, width, height, dpr);
         let t = std::time::Instant::now();
         let rgba = render(options).expect("render").into_raw();
         tracing::debug!(full_render_us = t.elapsed().as_micros(), "full render");
@@ -123,18 +143,30 @@ pub fn render_frame_rgba(
                 .ok()
         });
     with_global_ctx(|global| {
-        let node = layout.unwrap_or_else(|| takumi::layout::node::Node::container(vec![]));
-        let options = RenderOptions::builder()
-            .global(global)
-            .viewport(
-                takumi::layout::Viewport::new((Some(width), Some(height)))
-                    .with_device_pixel_ratio(dpr),
-            )
-            .node(node)
-            .build();
+        let node = layout.unwrap_or_else(|| Node::container(vec![]));
+        let options = frame_options(global, node, width, height, dpr);
         let rgba = render(options).expect("render").into_raw();
         Arc::new(rgba)
     })
+}
+
+/// The options every frame is rendered or measured with: the shared fonts and
+/// decoded images, at `width × height` physical pixels with `dpr` scaling CSS `px`.
+///
+/// Cloning `images` is a per-entry `Arc` bump, not a pixel copy.
+fn frame_options(
+    ctx: &RenderContext,
+    node: Node,
+    width: u32,
+    height: u32,
+    dpr: f32,
+) -> RenderOptions<'_> {
+    RenderOptions::builder()
+        .fonts(&ctx.fonts)
+        .images(ctx.images.clone())
+        .viewport(Viewport::new((Some(width), Some(height))).with_device_pixel_ratio(dpr))
+        .node(node)
+        .build()
 }
 
 // ---------------------------------------------------------------------------
@@ -188,76 +220,68 @@ fn generic_family(alias: &str) -> Option<String> {
         .filter(|name| !name.is_empty())
 }
 
-/// Id of the family owning the font file at `path`.
-fn family_id_for_path(
-    collection: &mut parley::fontique::Collection,
-    path: &std::path::Path,
-) -> Option<parley::fontique::FamilyId> {
-    use parley::fontique::SourceKind;
-    let names: Vec<String> = collection.family_names().map(|s| s.to_string()).collect();
-    for name in &names {
-        let Some(info) = collection.family_by_name(name) else {
+/// Register each file's faces, so every weight and style resolves to a real font
+/// rather than a synthesised one. Reports whether any face was actually taken.
+///
+/// A file that cannot be read or decoded is skipped rather than fatal: font sets
+/// are discovered from the system, so one bad entry must not cost us the rest.
+fn register_files(
+    fonts: &mut Fonts,
+    files: &[PathBuf],
+    generic: Option<GenericFamily>,
+    last_resort: bool,
+) -> bool {
+    let mut registered = false;
+    for path in files {
+        let Ok(bytes) = std::fs::read(path) else {
             continue;
         };
-        let owns_path = info
-            .fonts()
-            .iter()
-            .any(|font| matches!(&font.source().kind, SourceKind::Path(p) if p.as_ref() == path));
-        if owns_path {
-            return Some(info.id());
+        let mut resource = FontResource::new(bytes);
+        if let Some(generic) = generic {
+            resource = resource.generic_family(generic);
+        }
+        if last_resort {
+            resource = resource.last_resort();
+        }
+        match fonts.register(resource) {
+            Ok(families) => registered |= !families.is_empty(),
+            Err(error) => {
+                tracing::warn!(path = %path.display(), ?error, "could not register font")
+            }
         }
     }
-    None
+    registered
 }
 
-/// Load every face of `family`, so each weight and style resolves to a real font
-/// rather than a synthesised one.
-fn load_family(
-    collection: &mut parley::fontique::Collection,
-    family: &str,
-) -> Option<parley::fontique::FamilyId> {
-    let files = matching_files(family);
-    let first = files.first()?.clone();
-    collection.load_fonts_from_paths(files.iter());
-    family_id_for_path(collection, &first)
+/// Register every face of `family` under `generic`.
+fn register_family(fonts: &mut Fonts, family: &str, generic: Option<GenericFamily>) -> bool {
+    register_files(fonts, &matching_files(family), generic, false)
 }
 
-pub(crate) fn apply_font_config(ctx: &mut GlobalContext, config: &FontConfig) {
-    let collection = &mut ctx.font_context.collection;
-
-    if let Some(id) = configured_primary(collection, config) {
-        collection.set_generic_families(GenericFamily::SansSerif, std::iter::once(id));
-    }
-    if let Some(id) = config
-        .emoji
-        .as_deref()
-        .and_then(|family| load_family(collection, family))
-    {
-        collection.set_generic_families(GenericFamily::Emoji, std::iter::once(id));
-    }
-
-    // Last: `set_generic_families` replaces a generic's family list, so a
-    // fallback appended before those calls would be dropped again.
-    append_symbol_fallback(collection);
-}
-
-/// The configured primary family. `primary_path` names one exact file;
-/// `primary` names a family, which is loaded with all of its faces.
-fn configured_primary(
-    collection: &mut parley::fontique::Collection,
-    config: &FontConfig,
-) -> Option<parley::fontique::FamilyId> {
+/// Register the configured fonts. Runs before [`load_targeted_fonts`] so that it
+/// takes precedence — see [`rebuild_font_context`] on why order is priority.
+pub(crate) fn apply_font_config(fonts: &mut Fonts, config: &FontConfig) {
+    // `primary_path` names one exact file; `primary` names a family, which is
+    // registered with all of its faces.
     if let Some(path) = &config.primary_path {
-        collection.load_fonts_from_paths(std::iter::once(path));
-        return family_id_for_path(collection, path);
+        register_files(
+            fonts,
+            std::slice::from_ref(path),
+            Some(GenericFamily::SANS_SERIF),
+            false,
+        );
+    } else if let Some(primary) = config.primary.as_deref() {
+        register_family(fonts, primary, Some(GenericFamily::SANS_SERIF));
     }
-    load_family(collection, config.primary.as_deref()?)
+
+    if let Some(emoji) = config.emoji.as_deref() {
+        register_family(fonts, emoji, Some(GenericFamily::EMOJI));
+    }
 }
 
-/// Put a symbol font at the end of the family list for the generics that text
-/// resolves through. Parley picks a font per cluster by coverage, so this only
-/// catches codepoints the primary font cannot render.
-fn append_symbol_fallback(collection: &mut parley::fontique::Collection) {
+/// Put a symbol font behind every other family. Parley picks a font per cluster
+/// by coverage, so this only catches codepoints no other font can render.
+fn append_symbol_fallback(fonts: &mut Fonts) {
     // The symbols-only font carries icon ranges alone, so it can never shadow a
     // text glyph; failing that, take whatever covers the probe icon.
     let file = first_matching_file("Symbols Nerd Font Mono")
@@ -265,55 +289,100 @@ fn append_symbol_fallback(collection: &mut parley::fontique::Collection) {
     let Some(file) = file else {
         return;
     };
-    collection.load_fonts_from_paths(std::iter::once(&file));
-    let Some(id) = family_id_for_path(collection, &file) else {
-        return;
-    };
-    for generic in [GenericFamily::SansSerif, GenericFamily::Monospace] {
-        collection.append_generic_families(generic, std::iter::once(id));
-    }
+    // Registered as a last resort, which sorts it behind every normal family in
+    // fallback selection regardless of when it was registered.
+    register_files(fonts, std::slice::from_ref(&file), None, true);
 }
 
-/// Load the few families the bar draws with and map each to its generic.
 /// Which font set `load_targeted_fonts` ended up installing.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FontLoad {
-    /// fontconfig resolved the generic families; the collection stays tiny.
+    /// fontconfig resolved the generic families; the font set stays tiny.
     Targeted,
-    /// No fontconfig, so the whole system collection was loaded instead.
+    /// No fontconfig, so every system font was registered instead.
     SystemFallback,
 }
 
-pub fn load_targeted_fonts(ctx: &mut GlobalContext) -> FontLoad {
-    let collection = &mut ctx.font_context.collection;
+/// Register the few families the bar draws with and map each to its generic.
+pub fn load_targeted_fonts(fonts: &mut Fonts) -> FontLoad {
     let mut loaded_any = false;
     for (generic, alias) in [
-        (GenericFamily::SansSerif, "sans-serif"),
-        (GenericFamily::Monospace, "monospace"),
-        (GenericFamily::Emoji, "emoji"),
+        (GenericFamily::SANS_SERIF, "sans-serif"),
+        (GenericFamily::MONOSPACE, "monospace"),
+        (GenericFamily::EMOJI, "emoji"),
     ] {
-        let Some(id) = generic_family(alias).and_then(|family| load_family(collection, &family))
-        else {
+        let Some(family) = generic_family(alias) else {
             continue;
         };
-        collection.set_generic_families(generic, std::iter::once(id));
-        loaded_any = true;
+        loaded_any |= register_family(fonts, &family, Some(generic));
     }
 
-    // Where there is no fontconfig — macOS, a bare container — fall back to the
-    // whole system collection: slower per render, but it renders.
+    // Where there is no fontconfig — macOS, a bare container — fall back to every
+    // font on the system: slower to start and per render, but it renders.
     if !loaded_any {
-        collection.load_system_fonts();
+        register_system_fonts(fonts);
         return FontLoad::SystemFallback;
     }
     FontLoad::Targeted
 }
 
-pub fn preload_layout_images(layout: &serde_json::Value) {
-    with_global_ctx(|global| preload_layout_images_impl(layout, global));
+/// Font directories searched when fontconfig is unavailable.
+const SYSTEM_FONT_DIRS: &[&str] = &[
+    "/System/Library/Fonts",
+    "/Library/Fonts",
+    "/usr/share/fonts",
+    "/usr/local/share/fonts",
+];
+
+/// As [`SYSTEM_FONT_DIRS`], relative to the user's home directory.
+const HOME_FONT_DIRS: &[&str] = &["Library/Fonts", ".local/share/fonts", ".fonts"];
+
+/// Extensions parley can decode from a plain byte blob.
+const FONT_EXTENSIONS: &[&str] = &["ttf", "otf", "ttc", "otc"];
+
+/// Register every font in the platform's font directories.
+///
+/// takumi has no notion of a system font source — a font is invisible until it is
+/// registered from its bytes — so the directories are walked here. Only reached
+/// when fontconfig answered nothing, where the alternative is rendering no text.
+fn register_system_fonts(fonts: &mut Fonts) {
+    let mut dirs: Vec<PathBuf> = SYSTEM_FONT_DIRS.iter().map(PathBuf::from).collect();
+    if let Some(home) = std::env::var_os("HOME") {
+        dirs.extend(HOME_FONT_DIRS.iter().map(|dir| Path::new(&home).join(dir)));
+    }
+
+    let mut files = Vec::new();
+    for dir in &dirs {
+        collect_font_files(dir, &mut files);
+    }
+    register_files(fonts, &files, None, false);
 }
 
-fn preload_layout_images_impl(layout: &serde_json::Value, global: &GlobalContext) {
+/// Every font file at or below `dir`. A missing or unreadable directory yields
+/// nothing — the list is a union of candidates, most of which will not exist.
+fn collect_font_files(dir: &Path, out: &mut Vec<PathBuf>) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            collect_font_files(&path, out);
+        } else if path
+            .extension()
+            .and_then(|ext| ext.to_str())
+            .is_some_and(|ext| FONT_EXTENSIONS.contains(&ext.to_ascii_lowercase().as_str()))
+        {
+            out.push(path);
+        }
+    }
+}
+
+pub fn preload_layout_images(layout: &serde_json::Value) {
+    with_global_ctx_mut(|global| preload_layout_images_impl(layout, global));
+}
+
+fn preload_layout_images_impl(layout: &serde_json::Value, global: &mut RenderContext) {
     fn walk(value: &serde_json::Value, srcs: &mut Vec<String>) {
         match value {
             serde_json::Value::Object(map) => {
@@ -345,7 +414,7 @@ fn preload_layout_images_impl(layout: &serde_json::Value, global: &GlobalContext
         }
         if let Ok(bytes) = std::fs::read(&src) {
             if let Ok(image) = ImageSource::from_bytes(&bytes) {
-                global.persistent_image_store.insert(src, image);
+                global.images.insert(src.into(), image);
             }
         }
     }
@@ -370,11 +439,7 @@ fn measure_layout_cached(
         });
     with_global_ctx(|global| {
         let node = layout.unwrap_or_else(|| Node::container(vec![]));
-        let options = RenderOptions::builder()
-            .global(global)
-            .viewport(Viewport::new((Some(width), Some(height))).with_device_pixel_ratio(dpr))
-            .node(node)
-            .build();
+        let options = frame_options(global, node, width, height, dpr);
         Arc::new(takumi_measure_layout(options).expect("measure_layout"))
     })
 }
@@ -391,26 +456,20 @@ pub fn measure_layout_frame(
 
 #[cfg(test)]
 mod tests {
-    use super::{apply_font_config, init_global_ctx, render_frame, GLOBAL_CTX};
-    use crate::config::FontConfig;
+    use super::{
+        apply_font_config, init_global_ctx, render_frame, FontConfig, Fonts, RenderContext,
+    };
     use std::sync::Arc;
 
-    fn with_global_ctx_mut<F, R>(f: F) -> R
-    where
-        F: FnOnce(&mut takumi::GlobalContext) -> R,
-    {
-        let mut g = GLOBAL_CTX
-            .get()
-            .expect("call init_global_ctx before rendering")
-            .lock()
-            .unwrap();
-        f(&mut g)
-    }
-
     // -----------------------------------------------------------------------
-    // Font coverage: the collection is deliberately tiny (see load_targeted_fonts),
-    // so these tests guard the things that smallness can silently break —
-    // symbol/PUA fallback, real weight faces, and honouring the configured family.
+    // Font coverage: the registered set is deliberately tiny (see
+    // load_targeted_fonts), so these tests guard the things that smallness can
+    // silently break — symbol/PUA fallback, real weight faces, and honouring the
+    // configured family.
+    //
+    // They assert on rendered output rather than on the font set itself: takumi
+    // exposes no way to enumerate what a `Fonts` holds, and pixels are the
+    // behaviour we actually care about.
     // -----------------------------------------------------------------------
 
     /// A nerd-font glyph (Private Use Area) — no normal text font covers these.
@@ -421,14 +480,13 @@ mod tests {
         pixels.chunks_exact(4).filter(|px| px[3] != 0).count()
     }
 
-    /// Ink for `text` rendered against an explicit context. Tests can't rely on
+    /// Ink for `text` rendered against an explicit font set. Tests can't rely on
     /// the process-global GLOBAL_CTX: it is a OnceLock shared by every test in
     /// this binary, so whichever test runs first fixes its font config.
-    fn ink_of(ctx: &takumi::GlobalContext, text: &str, weight: u32) -> usize {
-        use takumi::{
-            layout::Viewport,
-            rendering::{render, RenderOptions},
-        };
+    fn ink_of(fonts: &Fonts, text: &str, weight: u32) -> usize {
+        use takumi::prelude::{RenderOptions, Viewport};
+        use takumi::render;
+
         let content = serde_json::json!({
             "type": "container",
             "style": {"width": 120, "height": 48},
@@ -440,25 +498,41 @@ mod tests {
         });
         let node = crate::layout::parse_layout(&content).expect("probe layout should parse");
         let options = RenderOptions::builder()
-            .global(ctx)
+            .fonts(fonts)
             .viewport(Viewport::new((Some(120), Some(48))))
             .node(node)
             .build();
         ink(&render(options).expect("render").into_raw())
     }
 
-    fn targeted_ctx() -> takumi::GlobalContext {
-        let mut ctx = takumi::GlobalContext::default();
-        super::load_targeted_fonts(&mut ctx);
-        ctx
+    /// Only the fontconfig-resolved generics, as `load_targeted_fonts` installs them.
+    fn targeted_fonts() -> Fonts {
+        let mut fonts = Fonts::default();
+        super::load_targeted_fonts(&mut fonts);
+        fonts
+    }
+
+    /// The full set the bar renders with, exactly as startup builds it.
+    fn fonts_for(config: &FontConfig) -> Fonts {
+        let mut ctx = RenderContext::default();
+        super::rebuild_font_context(&mut ctx, config);
+        ctx.fonts
+    }
+
+    fn config_with_primary(primary: &str) -> FontConfig {
+        FontConfig {
+            primary: Some(primary.to_string()),
+            emoji: None,
+            primary_path: None,
+        }
     }
 
     /// True when two different PUA codepoints render as two different shapes.
     /// A missing-glyph box is identical for every codepoint, so equal ink means
     /// both fell back to tofu.
-    fn renders_distinct_symbol_glyphs(ctx: &takumi::GlobalContext) -> bool {
-        let home = ink_of(ctx, NERD_HOME, 400);
-        let folder = ink_of(ctx, NERD_FOLDER, 400);
+    fn renders_distinct_symbol_glyphs(fonts: &Fonts) -> bool {
+        let home = ink_of(fonts, NERD_HOME, 400);
+        let folder = ink_of(fonts, NERD_FOLDER, 400);
         home > 0 && folder > 0 && home != folder
     }
 
@@ -500,28 +574,27 @@ mod tests {
             eprintln!("SKIP: no installed font covers U+F015 (no nerd font on this system)");
             return;
         }
-        let mut ctx = targeted_ctx();
-        apply_font_config(&mut ctx, &FontConfig::default());
+        let fonts = fonts_for(&FontConfig::default());
         assert!(
-            renders_distinct_symbol_glyphs(&ctx),
+            renders_distinct_symbol_glyphs(&fonts),
             "U+F015 and U+E5FF rendered identically (or blank) — the targeted font \
-             collection has no symbol fallback, so PUA glyphs come out as tofu"
+             set has no symbol fallback, so PUA glyphs come out as tofu"
         );
     }
 
     #[test]
     fn targeted_fonts_provide_distinct_regular_and_bold_faces() {
-        let ctx = targeted_ctx();
-        let regular = ink_of(&ctx, "ABC", 400);
+        let fonts = targeted_fonts();
+        let regular = ink_of(&fonts, "ABC", 400);
         if regular == 0 {
             eprintln!("SKIP: no fonts loaded (fontconfig unavailable?)");
             return;
         }
-        let bold = ink_of(&ctx, "ABC", 700);
+        let bold = ink_of(&fonts, "ABC", 700);
         assert_ne!(
             regular, bold,
             "weight 400 and 700 rendered identically — only one face of the family \
-             was loaded, so font-weight has no effect"
+             was registered, so font-weight has no effect"
         );
     }
 
@@ -533,28 +606,15 @@ mod tests {
             eprintln!("SKIP: none of the candidate primary fonts are installed");
             return;
         };
-        let mut default_ctx = takumi::GlobalContext::default();
-        super::rebuild_font_context(&mut default_ctx, &FontConfig::default());
+        let default_fonts = fonts_for(&FontConfig::default());
+        let configured = fonts_for(&config_with_primary(&family));
 
-        let mut configured = takumi::GlobalContext::default();
-        super::rebuild_font_context(
-            &mut configured,
-            &FontConfig {
-                primary: Some(family.clone()),
-                emoji: None,
-                primary_path: None,
-            },
-        );
         assert!(
-            configured
-                .font_context
-                .collection
-                .family_by_name(&family)
-                .is_some(),
-            "configured primary family {family:?} was never loaded into the collection"
+            ink_of(&configured, "ABC", 400) > 0,
+            "configured primary family {family:?} was never registered"
         );
         assert_ne!(
-            ink_of(&default_ctx, "ABC", 400),
+            ink_of(&default_fonts, "ABC", 400),
             ink_of(&configured, "ABC", 400),
             "text renders identically after switching primary to {family:?} — \
              the configured family is being ignored"
@@ -565,23 +625,14 @@ mod tests {
     /// `fc-match` answers an unknown name with an arbitrary substitute.
     #[test]
     fn unknown_primary_family_name_is_ignored_not_silently_substituted() {
-        let mut ctx = takumi::GlobalContext::default();
-        super::rebuild_font_context(&mut ctx, &FontConfig::default());
-        let before = ink_of(&ctx, "ABC", 400);
+        let fonts = fonts_for(&FontConfig::default());
+        let before = ink_of(&fonts, "ABC", 400);
         if before == 0 {
             eprintln!("SKIP: no fonts loaded (fontconfig unavailable?)");
             return;
         }
 
-        let mut unknown = takumi::GlobalContext::default();
-        super::rebuild_font_context(
-            &mut unknown,
-            &FontConfig {
-                primary: Some("Totally Fake Font XYZ".to_string()),
-                emoji: None,
-                primary_path: None,
-            },
-        );
+        let unknown = fonts_for(&config_with_primary("Totally Fake Font XYZ"));
 
         assert_eq!(
             before,
@@ -598,33 +649,24 @@ mod tests {
             eprintln!("SKIP: none of the candidate primary fonts are installed");
             return;
         };
-        let mut ctx = takumi::GlobalContext::default();
+        let mut ctx = RenderContext::default();
         super::rebuild_font_context(&mut ctx, &FontConfig::default());
-        // Rendering first populates takumi's per-thread font-context cache, which
-        // is what a reload has to invalidate.
-        let before = ink_of(&ctx, "ABC", 400);
+        let before = ink_of(&ctx.fonts, "ABC", 400);
         if before == 0 {
             eprintln!("SKIP: no fonts loaded (fontconfig unavailable?)");
             return;
         }
 
-        super::rebuild_font_context(
-            &mut ctx,
-            &FontConfig {
-                primary: Some(family.clone()),
-                emoji: None,
-                primary_path: None,
-            },
-        );
+        super::rebuild_font_context(&mut ctx, &config_with_primary(&family));
 
         assert_ne!(
             before,
-            ink_of(&ctx, "ABC", 400),
-            "reloading the font config had no visible effect — the new fonts were \
-             masked by takumi's cached clone of the font context"
+            ink_of(&ctx.fonts, "ABC", 400),
+            "reloading the font config had no visible effect — the new fonts never \
+             replaced the old ones"
         );
         assert!(
-            renders_distinct_symbol_glyphs(&ctx) || !any_font_covers("f015"),
+            renders_distinct_symbol_glyphs(&ctx.fonts) || !any_font_covers("f015"),
             "the symbol fallback was lost when the font config was reloaded"
         );
     }
@@ -655,87 +697,47 @@ mod tests {
 
     #[test]
     fn apply_font_config_maps_emoji_generic_family_when_font_is_present() {
-        let mut ctx = takumi::GlobalContext::default();
-        ctx.font_context.collection.load_system_fonts();
-        if ctx
-            .font_context
-            .collection
-            .family_by_name("Noto Color Emoji")
-            .is_none()
-        {
-            eprintln!("SKIP: Noto Color Emoji not found on this system");
+        let Some(family) = installed_family(&["Noto Color Emoji", "Apple Color Emoji"]) else {
+            eprintln!("SKIP: no colour emoji font found on this system");
             return;
-        }
-
-        let config = FontConfig {
-            emoji: Some("Noto Color Emoji".to_string()),
-            primary: None,
-            primary_path: None,
         };
-
-        apply_font_config(&mut ctx, &config);
-
-        let families: Vec<_> = ctx
-            .font_context
-            .collection
-            .generic_families(parley::GenericFamily::Emoji)
-            .collect();
+        let mut fonts = Fonts::default();
+        apply_font_config(
+            &mut fonts,
+            &FontConfig {
+                emoji: Some(family.clone()),
+                primary: None,
+                primary_path: None,
+            },
+        );
         assert!(
-            !families.is_empty(),
-            "GenericFamily::Emoji should be mapped to at least one family after apply_font_config"
+            ink_of(&fonts, "👋", 400) > 0,
+            "an emoji drew nothing after {family:?} was configured — the emoji \
+             generic family was never mapped"
         );
     }
 
     #[test]
     fn apply_font_config_maps_sans_serif_generic_family_when_primary_font_is_present() {
-        let mut ctx = takumi::GlobalContext::default();
-        ctx.font_context.collection.load_system_fonts();
-        if ctx
-            .font_context
-            .collection
-            .family_by_name("Adwaita Sans")
-            .is_none()
-        {
-            eprintln!("SKIP: Adwaita Sans not found on this system");
+        let Some(family) = installed_family(&["Adwaita Sans", "DejaVu Sans", "Liberation Sans"])
+        else {
+            eprintln!("SKIP: none of the candidate sans-serif fonts are installed");
             return;
-        }
-        apply_font_config(
-            &mut ctx,
-            &FontConfig {
-                primary: Some("Adwaita Sans".to_string()),
-                emoji: None,
-                primary_path: None,
-            },
+        };
+        let mut fonts = Fonts::default();
+        apply_font_config(&mut fonts, &config_with_primary(&family));
+        assert!(
+            ink_of(&fonts, "ABC", 400) > 0,
+            "text drew nothing with only {family:?} registered — the sans-serif \
+             generic family was never mapped"
         );
-        let families: Vec<_> = ctx
-            .font_context
-            .collection
-            .generic_families(parley::GenericFamily::SansSerif)
-            .collect();
-        assert!(!families.is_empty());
     }
 
-    fn sans_serif_id_for_primary(
-        ctx: &mut takumi::GlobalContext,
-        primary: &str,
-    ) -> Option<parley::fontique::FamilyId> {
-        apply_font_config(
-            ctx,
-            &FontConfig {
-                primary: Some(primary.to_string()),
-                emoji: None,
-                primary_path: None,
-            },
-        );
-        ctx.font_context
-            .collection
-            .generic_families(parley::GenericFamily::SansSerif)
-            .next()
-    }
-
+    /// `Fonts::register` appends and nothing can replace an entry, so switching
+    /// the primary font only takes effect through a *rebuild*. This guards that
+    /// `rebuild_font_context` really does start from an empty set.
     #[test]
-    fn apply_font_config_updates_sans_serif_mapping_when_called_twice_with_different_primary_font()
-    {
+    fn rebuilding_with_a_different_primary_font_remaps_sans_serif() {
         // An unknown family leaves the previous mapping untouched, so both
         // candidates must actually be installed or this compares a value to itself.
         let installed: Vec<String> = ["Adwaita Sans", "Liberation Serif", "Helvetica", "Georgia"]
@@ -751,14 +753,17 @@ mod tests {
             return;
         };
 
-        let mut ctx = takumi::GlobalContext::default();
-        let first_id = sans_serif_id_for_primary(&mut ctx, first_family);
-        let second_id = sans_serif_id_for_primary(&mut ctx, second_family);
+        let mut ctx = RenderContext::default();
+        super::rebuild_font_context(&mut ctx, &config_with_primary(first_family));
+        let first_ink = ink_of(&ctx.fonts, "ABC", 400);
 
-        assert!(first_id.is_some(), "{first_family} should map sans-serif");
+        super::rebuild_font_context(&mut ctx, &config_with_primary(second_family));
+        let second_ink = ink_of(&ctx.fonts, "ABC", 400);
+
+        assert!(first_ink > 0, "{first_family} should map sans-serif");
         assert_ne!(
-            first_id, second_id,
-            "re-applying the config with {second_family} should remap sans-serif away from {first_family}"
+            first_ink, second_ink,
+            "rebuilding with {second_family} should remap sans-serif away from {first_family}"
         );
     }
 
@@ -791,13 +796,8 @@ mod tests {
             primary_path: Some(first_path),
         });
 
-        let first_id = with_global_ctx_mut(|ctx| {
-            ctx.font_context
-                .collection
-                .generic_families(parley::GenericFamily::SansSerif)
-                .next()
-        });
-        if first_id.is_none() {
+        let first_ink = super::with_global_ctx(|ctx| ink_of(&ctx.fonts, "ABC", 400));
+        if first_ink == 0 {
             eprintln!("SKIP: first font not mapped");
             return;
         }
@@ -808,44 +808,34 @@ mod tests {
             primary_path: Some(second_path),
         });
 
-        let second_id = with_global_ctx_mut(|ctx| {
-            ctx.font_context
-                .collection
-                .generic_families(parley::GenericFamily::SansSerif)
-                .next()
-        });
-        assert!(second_id.is_some());
-        assert_ne!(first_id, second_id);
+        let second_ink = super::with_global_ctx(|ctx| ink_of(&ctx.fonts, "ABC", 400));
+        assert!(second_ink > 0);
+        assert_ne!(first_ink, second_ink);
     }
 
+    /// The old form of this test counted families in the collection to prove we
+    /// had not accidentally loaded everything. takumi no longer exposes that, but
+    /// `FontLoad` reports the same fact directly: `Targeted` means the fontconfig
+    /// path ran and `register_system_fonts` was never reached.
     #[test]
-    fn load_targeted_fonts_populates_only_targeted_families_and_maps_sans_serif() {
-        let mut ctx = takumi::GlobalContext::default();
-        let load = super::load_targeted_fonts(&mut ctx);
+    fn load_targeted_fonts_stays_targeted_and_maps_sans_serif() {
+        let mut fonts = Fonts::default();
+        let load = super::load_targeted_fonts(&mut fonts);
 
-        let count = ctx.font_context.collection.family_names().count();
-
-        match load {
-            // Without fontconfig — macOS, a bare container — loading the whole
-            // system collection is the documented fallback, not a failure.
-            super::FontLoad::SystemFallback => assert!(
-                count > 0,
-                "the system-font fallback must leave a usable collection"
-            ),
-            super::FontLoad::Targeted => assert!(
-                count < 20,
-                "load_targeted_fonts should load only a small targeted set, got {count} families"
-            ),
+        if load == super::FontLoad::SystemFallback {
+            // Without fontconfig — macOS, a bare container — registering every
+            // system font is the documented fallback, not a failure.
+            assert!(
+                ink_of(&fonts, "ABC", 400) > 0,
+                "the system-font fallback must leave a usable font set"
+            );
+            return;
         }
 
-        let sans_serif_mapped = ctx
-            .font_context
-            .collection
-            .generic_families(parley::GenericFamily::SansSerif)
-            .next();
+        assert_eq!(load, super::FontLoad::Targeted);
         assert!(
-            sans_serif_mapped.is_some(),
-            "load_targeted_fonts must map GenericFamily::SansSerif to a real font"
+            ink_of(&fonts, "ABC", 400) > 0,
+            "load_targeted_fonts must map the sans-serif generic to a real font"
         );
     }
 
@@ -853,11 +843,8 @@ mod tests {
     fn bench_system_fonts_vs_minimal() {
         use crate::layout::parse_layout;
         use std::time::Instant;
-        use takumi::{
-            layout::Viewport,
-            rendering::{render, RenderOptions},
-            GlobalContext,
-        };
+        use takumi::prelude::{RenderOptions, Viewport};
+        use takumi::render;
 
         fn fc_match(pattern: &str) -> Option<std::path::PathBuf> {
             let out = std::process::Command::new("fc-match")
@@ -896,9 +883,9 @@ mod tests {
 
         const N: usize = 30;
 
-        let render_once = |ctx: &GlobalContext| -> u128 {
+        let render_once = |fonts: &Fonts| -> u128 {
             let opts = RenderOptions::builder()
-                .global(ctx)
+                .fonts(fonts)
                 .viewport(Viewport::new((Some(364), Some(2159))))
                 .node(node.clone())
                 .build();
@@ -907,31 +894,31 @@ mod tests {
             t.elapsed().as_micros()
         };
 
-        // --- baseline: all system fonts ---
-        let mut ctx_sys = GlobalContext::default();
-        ctx_sys.font_context.collection.load_system_fonts();
-        let family_count = ctx_sys.font_context.collection.family_names().count();
-        let _ = render_once(&ctx_sys); // warm-up
-        let mut times_sys: Vec<u128> = (0..N).map(|_| render_once(&ctx_sys)).collect();
+        // --- baseline: every system font ---
+        // Registration cost matters on its own here: this is the no-fontconfig
+        // startup path, and it reads every font file's bytes.
+        let mut fonts_sys = Fonts::default();
+        let t = Instant::now();
+        super::register_system_fonts(&mut fonts_sys);
+        eprintln!("\nregister_system_fonts: {}µs", t.elapsed().as_micros());
+        let _ = render_once(&fonts_sys); // warm-up
+        let mut times_sys: Vec<u128> = (0..N).map(|_| render_once(&fonts_sys)).collect();
         times_sys.sort_unstable();
 
         // --- candidate: minimal curated fonts ---
-        let mut ctx_min = GlobalContext::default();
+        let mut fonts_min = Fonts::default();
         for path in [&sans, &mono, &emoji] {
-            ctx_min
-                .font_context
-                .collection
-                .load_fonts_from_paths(std::iter::once(path));
+            super::register_files(&mut fonts_min, std::slice::from_ref(path), None, false);
         }
-        let _ = render_once(&ctx_min); // warm-up
-        let mut times_min: Vec<u128> = (0..N).map(|_| render_once(&ctx_min)).collect();
+        let _ = render_once(&fonts_min); // warm-up
+        let mut times_min: Vec<u128> = (0..N).map(|_| render_once(&fonts_min)).collect();
         times_min.sort_unstable();
 
         let p50 = |v: &[u128]| v[v.len() / 2];
         let p95 = |v: &[u128]| v[v.len() * 95 / 100];
         let p99 = |v: &[u128]| v[v.len() * 99 / 100];
 
-        eprintln!("\n=== system fonts ({} families) ===", family_count);
+        eprintln!("\n=== system fonts ===");
         eprintln!(
             "  p50={:>6}µs  p95={:>6}µs  p99={:>6}µs",
             p50(&times_sys),

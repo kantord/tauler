@@ -13,8 +13,8 @@ pub mod ui;
 pub mod windowing;
 pub mod x11;
 
-pub use takumi::rendering::MeasuredNode;
-pub use takumi::GlobalContext;
+pub use render::RenderContext;
+pub use takumi::prelude::MeasuredNode;
 
 // layout
 pub use layout::{parse_layout, parse_root_node, OutputInfo, PanelAnchor, PanelSpecData};
@@ -31,7 +31,7 @@ pub use panel::X11PanelContext;
 // render
 pub use render::{
     init_global_ctx, measure_layout_frame, preload_layout_images, reload_font_config, render_frame,
-    render_frame_rgba, with_global_ctx,
+    render_frame_rgba, with_global_ctx, with_global_ctx_mut,
 };
 
 // modules

@@ -1,4 +1,4 @@
-use takumi::rendering::MeasuredNode;
+use takumi::prelude::MeasuredNode;
 
 /// Find the deepest node under `(click_x, click_y)` that carries an `on_click` field.
 ///

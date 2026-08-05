@@ -1,16 +1,14 @@
-use takumi::{
-    layout::Viewport,
-    rendering::{measure_layout, RenderOptions},
-};
+use takumi::measure as measure_layout;
+use takumi::prelude::{MeasuredNode, RenderOptions, Viewport};
 use tauler::config::FontConfig;
 use tauler::{init_global_ctx, parse_layout, render_frame, with_global_ctx};
 
-fn measure_node(node: &serde_json::Value, width: u32, dpr: f32) -> takumi::rendering::MeasuredNode {
+fn measure_node(node: &serde_json::Value, width: u32, dpr: f32) -> MeasuredNode {
     init_global_ctx(FontConfig::default());
     let layout = parse_layout(node).unwrap();
     with_global_ctx(|global| {
         let options = RenderOptions::builder()
-            .global(global)
+            .fonts(&global.fonts)
             .viewport(Viewport::new((Some(width), Some(800u32))).with_device_pixel_ratio(dpr))
             .node(layout)
             .build();
