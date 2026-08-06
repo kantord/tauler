@@ -40,7 +40,7 @@ tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 rquickjs = { version = "0.11", features = ["loader"] }
 rquickjs-serde = "0.5"
-takumi = "2.5.7"
+takumi = "2.5.9"
 # For `ImageBuffer`, the only way to build an `ImageSource` from raw pixels: the
 # `takumi` facade re-exports it only behind its semver-exempt `unstable` feature.
 takumi-core = { version = "0.14", default-features = false }
