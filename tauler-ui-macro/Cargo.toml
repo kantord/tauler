@@ -3,6 +3,7 @@ name = "tauler-ui-macro"
 description = "Proc macro for declaring tauler UI components with JSX-like syntax"
 keywords = ["tauler", "statusbar", "jsx", "macro"]
 categories = ["development-tools::procedural-macro-helpers", "gui"]
+readme = "README.md"
 edition = "2021"
 version.workspace = true
 authors.workspace = true

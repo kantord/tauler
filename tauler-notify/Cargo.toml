@@ -3,6 +3,7 @@ name = "tauler-notify"
 description = "Desktop notification (D-Bus) data source for the tauler status bar"
 keywords = ["tauler", "statusbar", "notifications", "dbus", "freedesktop"]
 categories = ["command-line-utilities", "os::linux-apis"]
+readme = "README.md"
 edition = "2021"
 version.workspace = true
 authors.workspace = true
@@ -10,6 +11,15 @@ license.workspace = true
 repository.workspace = true
 homepage.workspace = true
 rust-version.workspace = true
+
+[package.metadata.binstall]
+pkg-url = "{ repo }/releases/download/{ name }-v{ version }/{ name }-{ target }{ archive-suffix }"
+pkg-fmt = "tgz"
+bin-dir = "{ bin }{ binary-ext }"
+
+[package.metadata.binstall.signing]
+algorithm = "minisign"
+pubkey = "RWSIIxAW8MOpS1/+qA/KhHpVtPwT58dU4A4YY0sw+DN02POargT6PDM0"
 
 [dependencies]
 tokio = { version = "1.53.1", features = ["macros", "rt-multi-thread", "time", "sync"] }

@@ -23,6 +23,54 @@ jobs:
         run: cargo fmt --all --check
       - name: Clippy
         run: cargo clippy --workspace -- -D warnings
+      - name: Check binstall metadata coverage
+        run: |
+          missing=$(cargo metadata --no-deps --format-version 1 | jq -r '
+            .packages[]
+            | select(.publish != [])
+            | select(any(.targets[]; any(.kind[]; . == "bin")))
+            | select(.metadata.binstall == null)
+            | .name
+          ')
+          if [ -n "$missing" ]; then
+            echo "Crates with a [[bin]] target but no [package.metadata.binstall]:"
+            echo "$missing"
+            exit 1
+          fi
+      - name: Check minisign pubkey is real
+        run: |
+          placeholder=$(cargo metadata --no-deps --format-version 1 | jq -r '
+            .packages[]
+            | select(.metadata.binstall.signing.pubkey == "REPLACE_WITH_TAULER_MINISIGN_PUBKEY")
+            | .name
+          ')
+          if [ -n "$placeholder" ]; then
+            echo "Crates still carrying the placeholder minisign pubkey:"
+            echo "$placeholder"
+            exit 1
+          fi
+
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable
+        with:
+          toolchain: "1.97.1"
+      - name: Cache cargo
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-package-${{ hashFiles('**/Cargo.lock') }}
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwayland-dev libxkbcommon-dev libfontconfig-dev libxcb1-dev pkg-config
+      - name: Publish dry run
+        run: cargo publish --workspace --dry-run
 
   test:
     runs-on: ubuntu-latest
