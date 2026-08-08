@@ -85,6 +85,7 @@ async fn main() {
     let server = NotifyServer {
         tx: event_tx.clone(),
         next_id: AtomicU32::new(1),
+        tags: std::sync::Mutex::new(std::collections::HashMap::new()),
     };
 
     let conn = zbus::connection::Builder::session()
