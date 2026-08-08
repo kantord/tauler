@@ -14,9 +14,27 @@
       "rangeStrategy": "bump"
     },
     {
+      "description": "optative-script pins an rquickjs major, and tauler uses rquickjs types directly at the UI-component registration boundary (src/ui/registry.rs, src/jsx.rs). Two rquickjs versions in the graph make `Ctx`/`Error` fail to unify, so a lone bump of any one of these never compiles.",
       "matchManagers": ["cargo"],
-      "matchPackagePatterns": ["^oxc"],
-      "groupName": "oxc crates"
+      "matchPackageNames": ["/^optative/", "/^rquickjs/"],
+      "groupName": "optative + quickjs"
+    },
+    {
+      "description": "takumi re-exports takumi-core types; a lone bump of either puts two takumi-core versions in the graph and the ImageSource/ImageBuffer types stop unifying.",
+      "matchManagers": ["cargo"],
+      "matchPackageNames": ["/^takumi/"],
+      "groupName": "takumi crates"
+    },
+    {
+      "description": "Starlight and its themes/integrations peer-depend on the Astro major.",
+      "matchManagers": ["npm"],
+      "matchPackageNames": ["astro", "/^@astrojs//", "/^starlight-/", "/^astro-/"],
+      "groupName": "astro + starlight"
+    },
+    {
+      "description": "Action digest bumps are independent and noisy; one PR is enough.",
+      "matchManagers": ["github-actions"],
+      "groupName": "github actions"
     }
   ]
 }
