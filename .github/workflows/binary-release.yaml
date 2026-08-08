@@ -1,0 +1,100 @@
+name: Binary release
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  resolve:
+    runs-on: ubuntu-latest
+    if: ${{ github.repository_owner == 'kantord' }}
+    outputs:
+      crate: ${{ steps.resolve.outputs.crate }}
+      bin: ${{ steps.resolve.outputs.bin }}
+      should_build: ${{ steps.resolve.outputs.should_build }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable
+        with:
+          toolchain: "1.97.1"
+      - name: Resolve crate and binary from release tag
+        id: resolve
+        run: |
+          set -euo pipefail
+          tag="${{ github.event.release.tag_name }}"
+          crate=$(cargo metadata --no-deps --format-version 1 | jq -r --arg tag "$tag" '
+            .packages[] | select("\(.name)-v\(.version)" == $tag) | .name
+          ')
+          if [ -z "$crate" ]; then
+            echo "Tag $tag does not match any workspace crate version; nothing to build."
+            echo "should_build=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          bin=$(cargo metadata --no-deps --format-version 1 | jq -r --arg pkg "$crate" '
+            .packages[] | select(.name == $pkg) | .targets[] | select(.kind[] == "bin") | .name
+          ' | head -n1)
+          if [ -z "$bin" ]; then
+            echo "$crate has no [[bin]] target; nothing to build."
+            echo "should_build=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          {
+            echo "crate=$crate"
+            echo "bin=$bin"
+            echo "should_build=true"
+          } >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: resolve
+    if: needs.resolve.outputs.should_build == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-22.04
+          - target: aarch64-unknown-linux-gnu
+            os: ubuntu-22.04-arm
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: write
+    env:
+      CRATE: ${{ needs.resolve.outputs.crate }}
+      BIN: ${{ needs.resolve.outputs.bin }}
+      TARGET: ${{ matrix.target }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable
+        with:
+          toolchain: "1.97.1"
+          targets: ${{ matrix.target }}
+      - name: Install build and signing dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwayland-dev libxkbcommon-dev libfontconfig-dev libxcb1-dev pkg-config minisign
+      - name: Build
+        run: cargo build --release -p "$CRATE" --target "$TARGET"
+      - name: Package
+        run: |
+          asset="${CRATE}-${TARGET}.tgz"
+          tar -C "target/${TARGET}/release" -czf "$asset" "$BIN"
+          echo "ASSET=$asset" >> "$GITHUB_ENV"
+      - name: Sign
+        env:
+          MINISIGN_PRIVATE_KEY: ${{ secrets.MINISIGN_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          if [ -z "${MINISIGN_PRIVATE_KEY:-}" ]; then
+            echo "MINISIGN_PRIVATE_KEY is not set."
+            exit 1
+          fi
+          key=$(mktemp)
+          printf '%s\n' "$MINISIGN_PRIVATE_KEY" > "$key"
+          minisign -S -W -s "$key" -x "${ASSET}.sig" -m "$ASSET"
+          shred -u "$key" 2>/dev/null || rm -f "$key"
+      - name: Upload release assets
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release upload "${{ github.event.release.tag_name }}" "$ASSET" "${ASSET}.sig" \
+            --clobber --repo "${{ github.repository }}"

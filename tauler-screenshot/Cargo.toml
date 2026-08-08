@@ -12,6 +12,15 @@ repository.workspace = true
 homepage.workspace = true
 rust-version.workspace = true
 
+[package.metadata.binstall]
+pkg-url = "{ repo }/releases/download/{ name }-v{ version }/{ name }-{ target }{ archive-suffix }"
+pkg-fmt = "tgz"
+bin-dir = "{ bin }{ binary-ext }"
+
+[package.metadata.binstall.signing]
+algorithm = "minisign"
+pubkey = "RWSIIxAW8MOpS1/+qA/KhHpVtPwT58dU4A4YY0sw+DN02POargT6PDM0"
+
 [[bin]]
 name = "tauler-screenshot"
 path = "src/main.rs"

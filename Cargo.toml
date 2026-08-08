@@ -39,6 +39,15 @@ exclude = [
     "/.pre-commit-config.yaml",
 ]
 
+[package.metadata.binstall]
+pkg-url = "{ repo }/releases/download/{ name }-v{ version }/{ name }-{ target }{ archive-suffix }"
+pkg-fmt = "tgz"
+bin-dir = "{ bin }{ binary-ext }"
+
+[package.metadata.binstall.signing]
+algorithm = "minisign"
+pubkey = "RWSIIxAW8MOpS1/+qA/KhHpVtPwT58dU4A4YY0sw+DN02POargT6PDM0"
+
 [profile.release]
 opt-level = 3
 lto = true
