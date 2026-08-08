@@ -4045,6 +4045,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "selectors"
+version = "0.40.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "eeee001a77567bb05e71652718d3ff76d8697c151ac523e68e9513194eb2b75a"
+dependencies = [
+ "bitflags 2.13.1",
+ "cssparser",
+ "derive_more",
+ "log",
+ "new_debug_unreachable",
+ "phf 0.13.1",
+ "phf_codegen",
+ "precomputed-hash",
+ "rustc-hash",
+ "servo_arc",
+ "smallvec",
+]
+
+[[package]]
 name = "self_cell"
 version = "1.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4517,11 +4536,11 @@ dependencies = [
 
 [[package]]
 name = "takumi"
-version = "2.5.9"
+version = "2.5.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c1c093a58b08e8028382c4610cf9a83c29dc120a4d08b9a0a0bec62062471183"
+checksum = "d4e4dd4b5f14afae5db550b2e5702d7ec8e29760ef95311f527164289325c0b8"
 dependencies = [
- "takumi-core",
+ "takumi-core 0.16.0",
  "takumi-raster",
 ]
 
@@ -4530,6 +4549,37 @@ name = "takumi-core"
 version = "0.14.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d96555966bc17caccebd2449623ac8e6b9d2088fbfafa7000bb99f93d16e5d5d"
+dependencies = [
+ "bitflags 2.13.1",
+ "bytemuck",
+ "color",
+ "cssparser",
+ "data-url",
+ "image",
+ "kurbo",
+ "parley",
+ "paste",
+ "phf 0.13.1",
+ "png",
+ "precomputed-hash",
+ "quick_cache",
+ "selectors 0.39.0",
+ "serde",
+ "serde_bytes",
+ "skrifa",
+ "smallvec",
+ "taffy",
+ "thiserror 2.0.20",
+ "tiny-skia 0.12.0",
+ "typed-builder",
+ "xxhash-rust",
+]
+
+[[package]]
+name = "takumi-core"
+version = "0.16.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a2c6fd820fb35e98abbe3df2cbbd2f481a1ed410230243b27b82d88093eb5508"
 dependencies = [
  "bitflags 2.13.1",
  "bytemuck",
@@ -4547,7 +4597,7 @@ dependencies = [
  "quick_cache",
  "rgb",
  "roxmltree",
- "selectors",
+ "selectors 0.40.0",
  "serde",
  "serde_bytes",
  "simplecss",
@@ -4567,9 +4617,9 @@ dependencies = [
 
 [[package]]
 name = "takumi-raster"
-version = "0.4.9"
+version = "0.4.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "78e87510d64ab96a004b9d098385bf2eaadda61f410eae70843100eae160830d"
+checksum = "8e47925d63778908a4561c8e357716b5b452e8462f2f4eab6d4cbcd35df9ea91"
 dependencies = [
  "bytemuck",
  "color",
@@ -4583,7 +4633,7 @@ dependencies = [
  "skrifa",
  "smallvec",
  "svgtypes",
- "takumi-core",
+ "takumi-core 0.16.0",
  "tiny-skia 0.12.0",
  "typed-builder",
  "xxhash-rust",
@@ -4612,7 +4662,7 @@ dependencies = [
  "smithay-client-toolkit 0.21.1",
  "softbuffer",
  "takumi",
- "takumi-core",
+ "takumi-core 0.14.1",
  "tauler-ui-macro",
  "tempfile",
  "thiserror 2.0.20",
