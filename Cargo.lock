@@ -1545,6 +1545,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ed5909b6e89a2db4456e54cd5f673791d7eca6732202bbf2a9cc504fe2f9b84a"
 dependencies = [
  "allocator-api2",
+ "equivalent",
  "foldhash",
 ]
 
@@ -2717,7 +2718,7 @@ dependencies = [
  "oxc_semantic",
  "oxc_span",
  "oxc_transformer",
- "rquickjs",
+ "rquickjs 0.11.0",
  "serde",
  "sha2",
  "thiserror 2.0.20",
@@ -3855,7 +3856,16 @@ version = "0.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c50dc6d6c587c339edb4769cf705867497a2baf0eca8b4645fa6ecd22f02c77a"
 dependencies = [
- "rquickjs-core",
+ "rquickjs-core 0.11.0",
+]
+
+[[package]]
+name = "rquickjs"
+version = "0.12.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4e04e4eedfb060b503b5f0a2644abb890b0b3620d3fb674f9455f230014964e4"
+dependencies = [
+ "rquickjs-core 0.12.2",
 ]
 
 [[package]]
@@ -3866,7 +3876,18 @@ checksum = "b8bf7840285c321c3ab20e752a9afb95548c75cd7f4632a0627cea3507e310c1"
 dependencies = [
  "hashbrown 0.16.1",
  "relative-path 2.0.1",
- "rquickjs-sys",
+ "rquickjs-sys 0.11.0",
+]
+
+[[package]]
+name = "rquickjs-core"
+version = "0.12.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "16e4f499ac5b943d97ee6dbc44f23c2c10426f420f7d2f1793d6318911b6608c"
+dependencies = [
+ "hashbrown 0.17.1",
+ "relative-path 2.0.1",
+ "rquickjs-sys 0.12.2",
 ]
 
 [[package]]
@@ -3875,7 +3896,7 @@ version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e9382258c8bd1cc5c555887e5e379ab1491ff0287ca68ceb07be39ea561beb23"
 dependencies = [
- "rquickjs",
+ "rquickjs 0.11.0",
  "serde",
 ]
 
@@ -3884,6 +3905,15 @@ name = "rquickjs-sys"
 version = "0.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "27344601ef27460e82d6a4e1ecb9e7e99f518122095f3c51296da8e9be2b9d83"
+dependencies = [
+ "cc",
+]
+
+[[package]]
+name = "rquickjs-sys"
+version = "0.12.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a13ac243b86a74120814ef7e9e30ad5a2c1199b7b9963b1cf7c84e4cdc1cad99"
 dependencies = [
  "cc",
 ]
@@ -4603,7 +4633,7 @@ dependencies = [
  "optative-derive",
  "optative-process-pool",
  "optative-script",
- "rquickjs",
+ "rquickjs 0.12.2",
  "rquickjs-serde",
  "rstest",
  "serde",

@@ -41,7 +41,7 @@ tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 # Pinned to match `optative-script`'s rquickjs: a second version in the graph
 # makes `Ctx`/`Error` types from the two copies fail to unify at the UI-component
 # registration boundary. Bump only in lockstep with `optative-script`.
-rquickjs = { version = "0.11", features = ["loader"] }
+rquickjs = { version = "0.12.2", features = ["loader"] }
 rquickjs-serde = "0.5"
 takumi = "2.5.11"
 # For `ImageBuffer`, the only way to build an `ImageSource` from raw pixels: the
