@@ -4045,6 +4045,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "selectors"
+version = "0.40.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "eeee001a77567bb05e71652718d3ff76d8697c151ac523e68e9513194eb2b75a"
+dependencies = [
+ "bitflags 2.13.1",
+ "cssparser",
+ "derive_more",
+ "log",
+ "new_debug_unreachable",
+ "phf 0.13.1",
+ "phf_codegen",
+ "precomputed-hash",
+ "rustc-hash",
+ "servo_arc",
+ "smallvec",
+]
+
+[[package]]
 name = "self_cell"
 version = "1.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4521,7 +4540,7 @@ version = "2.5.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c1c093a58b08e8028382c4610cf9a83c29dc120a4d08b9a0a0bec62062471183"
 dependencies = [
- "takumi-core",
+ "takumi-core 0.14.1",
  "takumi-raster",
 ]
 
@@ -4547,7 +4566,7 @@ dependencies = [
  "quick_cache",
  "rgb",
  "roxmltree",
- "selectors",
+ "selectors 0.39.0",
  "serde",
  "serde_bytes",
  "simplecss",
@@ -4562,6 +4581,37 @@ dependencies = [
  "tiny-skia-path 0.12.0",
  "typed-builder",
  "wuff",
+ "xxhash-rust",
+]
+
+[[package]]
+name = "takumi-core"
+version = "0.16.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a2c6fd820fb35e98abbe3df2cbbd2f481a1ed410230243b27b82d88093eb5508"
+dependencies = [
+ "bitflags 2.13.1",
+ "bytemuck",
+ "color",
+ "cssparser",
+ "data-url",
+ "image",
+ "kurbo",
+ "parley",
+ "paste",
+ "phf 0.13.1",
+ "png",
+ "precomputed-hash",
+ "quick_cache",
+ "selectors 0.40.0",
+ "serde",
+ "serde_bytes",
+ "skrifa",
+ "smallvec",
+ "taffy",
+ "thiserror 2.0.20",
+ "tiny-skia 0.12.0",
+ "typed-builder",
  "xxhash-rust",
 ]
 
@@ -4583,7 +4633,7 @@ dependencies = [
  "skrifa",
  "smallvec",
  "svgtypes",
- "takumi-core",
+ "takumi-core 0.14.1",
  "tiny-skia 0.12.0",
  "typed-builder",
  "xxhash-rust",
@@ -4612,7 +4662,7 @@ dependencies = [
  "smithay-client-toolkit 0.21.1",
  "softbuffer",
  "takumi",
- "takumi-core",
+ "takumi-core 0.16.0",
  "tauler-ui-macro",
  "tempfile",
  "thiserror 2.0.20",
