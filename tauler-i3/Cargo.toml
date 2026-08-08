@@ -3,6 +3,7 @@ name = "tauler-i3"
 description = "i3 and sway workspace data source for the tauler status bar"
 keywords = ["tauler", "statusbar", "i3", "sway", "ipc"]
 categories = ["command-line-utilities", "os::linux-apis"]
+readme = "README.md"
 edition = "2024"
 version.workspace = true
 authors.workspace = true

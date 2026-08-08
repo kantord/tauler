@@ -3,6 +3,7 @@ name = "tauler-screenshot"
 description = "Renders a tauler JSX layout to a PNG, using the same pipeline as the bar itself"
 keywords = ["tauler", "statusbar", "jsx", "screenshot", "rendering"]
 categories = ["command-line-utilities", "visualization"]
+readme = "README.md"
 edition = "2021"
 version.workspace = true
 authors.workspace = true

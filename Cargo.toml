@@ -26,7 +26,18 @@ license.workspace = true
 repository.workspace = true
 homepage.workspace = true
 rust-version.workspace = true
-exclude = ["/docs", "/.github", "/assets"]
+exclude = [
+    "/docs",
+    "/.github",
+    "/assets",
+    "/.cargo",
+    "/CLAUDE.md",
+    "/spec.md",
+    "/VISION.md",
+    "/justfile",
+    "/renovate.json",
+    "/.pre-commit-config.yaml",
+]
 
 [profile.release]
 opt-level = 3

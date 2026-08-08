@@ -3,6 +3,7 @@ name = "tauler-notify"
 description = "Desktop notification (D-Bus) data source for the tauler status bar"
 keywords = ["tauler", "statusbar", "notifications", "dbus", "freedesktop"]
 categories = ["command-line-utilities", "os::linux-apis"]
+readme = "README.md"
 edition = "2021"
 version.workspace = true
 authors.workspace = true
