@@ -38,11 +38,11 @@ strip = true
 [dependencies]
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
-# Pinned to match `optative-script`'s rquickjs: a second version in the graph
+# Must match `optative-script`'s rquickjs major: a second version in the graph
 # makes `Ctx`/`Error` types from the two copies fail to unify at the UI-component
 # registration boundary. Bump only in lockstep with `optative-script`.
-rquickjs = { version = "0.11", features = ["loader"] }
-rquickjs-serde = "0.5"
+rquickjs = { version = "0.12.2", features = ["loader"] }
+rquickjs-serde = "0.6.1"
 takumi = "2.5.11"
 # For `ImageBuffer`, the only way to build an `ImageSource` from raw pixels: the
 # `takumi` facade re-exports it only behind its semver-exempt `unstable` feature.
@@ -58,7 +58,7 @@ tauler-ui-macro = { path = "tauler-ui-macro", version = "0.1.0" }
 optative = "0.1.4"
 optative-process-pool = "0.0.9"
 optative-derive = "0.0.4"
-optative-script = "0.0.8"
+optative-script = "0.0.9"
 notify = "8.2.0"
 cached = { version = "2.0.2", features = ["proc_macro"] }
 tempfile = "3.27.0"

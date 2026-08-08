@@ -86,6 +86,7 @@ impl Resolver for NoFsResolver {
         _ctx: &rquickjs::Ctx<'js>,
         base: &str,
         name: &str,
+        _attrs: Option<rquickjs::loader::ImportAttributes<'js>>,
     ) -> rquickjs::Result<String> {
         Err(rquickjs::Error::new_resolving(base, name))
     }
@@ -98,6 +99,7 @@ impl Loader for NoFsLoader {
         &mut self,
         _ctx: &rquickjs::Ctx<'js>,
         name: &str,
+        _attrs: Option<rquickjs::loader::ImportAttributes<'js>>,
     ) -> rquickjs::Result<rquickjs::Module<'js, rquickjs::module::Declared>> {
         Err(rquickjs::Error::new_loading(name))
     }
