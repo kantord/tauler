@@ -351,7 +351,13 @@ fn flatten_passthrough(value: serde_json::Value) -> serde_json::Value {
                 }
             }
 
-            if node_type.as_str() == Some("text") {
+            // Follow whatever `type` ended up as, not the tag it started from: a
+            // `type` prop may have overridden it just above. Testing the original
+            // tag here lets the two disagree — `<span type="text">` would reach
+            // takumi as a text node with no `text` field, which `TextData`
+            // requires and rejects.
+            let effective_type = flat.get("type").cloned().unwrap_or(serde_json::Value::Null);
+            if effective_type.as_str() == Some("text") {
                 let text = match &children {
                     serde_json::Value::Array(items) => {
                         items.iter().map(text_child_to_string).collect::<String>()
@@ -405,6 +411,20 @@ mod tests {
             "a type prop must win over the tag name"
         );
         assert_eq!(result["id"], "bg");
+    }
+
+    /// The `text` special-case must follow the overridden type too, or the node
+    /// claims to be text while missing the `text` field takumi requires.
+    #[test]
+    fn type_prop_overriding_to_text_still_joins_children() {
+        let result =
+            eval(r#"export default function render() { return <span type="text">hi</span>; }"#)
+                .layout;
+        assert_eq!(result["type"], "text");
+        assert_eq!(
+            result["text"], "hi",
+            "children must be joined into `text` when the effective type is text"
+        );
     }
 
     // Was `transform_jsx_self_closing_element_with_tw_prop`, exercising tauler's own
