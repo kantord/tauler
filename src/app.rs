@@ -10,10 +10,10 @@ use tauler::data::data_loop::{
 };
 use tauler::layout::OutputInfo;
 use tauler::managed_set::{Lifecycle, OptativeSet, Reconcile};
-use tauler::panel::PanelSpec;
 #[cfg(not(target_os = "macos"))]
 use tauler::presentation::PresentationThread;
-use tauler::presentation::{PanelCommand, PresenterEvent};
+use tauler::presentation::{PresenterEvent, SurfaceCommand};
+use tauler::surface::Surface;
 use tauler::theme::resolver::resolve_tw_in_json;
 use tauler::theme::{Theme, ThemeMode};
 #[cfg(target_os = "linux")]
@@ -143,9 +143,9 @@ fn apply_eval_result(
     primary_output_name: &str,
     output_map: &HashMap<String, OutputInfo>,
     handle: &DataLoopHandle,
-    panel_set: &mut OptativeSet<PanelSpec>,
-    command_tx: &mut mpsc::Sender<PanelCommand>,
-    mod_init_fn: &dyn Fn(&[tauler::PanelSpecData]) -> serde_json::Value,
+    surface_set: &mut OptativeSet<Surface>,
+    command_tx: &mut mpsc::Sender<SurfaceCommand>,
+    mod_init_fn: &dyn Fn(&[tauler::SurfaceSpec]) -> serde_json::Value,
 ) -> bool {
     let mut specs = match tauler::parse_root_node(&out.layout) {
         Ok(s) => s,
@@ -162,7 +162,20 @@ fn apply_eval_result(
     });
     for spec in &mut specs {
         let name = spec.output.as_deref().unwrap_or(primary_output_name);
-        spec.dpr = output_map.get(name).map(|o| o.dpr).unwrap_or(dpr);
+        let out = output_map.get(name);
+        spec.dpr = out.map(|o| o.dpr).unwrap_or(dpr);
+        if spec.kind == tauler::SurfaceKind::Wallpaper {
+            if let Some(out) = out {
+                // A wallpaper is always exactly its display: geometry comes from
+                // the output, never from the layout file. Tracking the origin here
+                // too means a monitor that moves shows up as a spec change, which
+                // is what triggers the repaint.
+                spec.width = (out.width as f32 / spec.dpr).round() as u32;
+                spec.height = (out.height as f32 / spec.dpr).round() as u32;
+                spec.x = out.x as i32;
+                spec.y = out.y as i32;
+            }
+        }
     }
     let mod_init = mod_init_fn(&specs);
 
@@ -194,8 +207,8 @@ fn apply_eval_result(
     let combined: Vec<StreamSource> = stream_specs.into_iter().chain(module_specs).collect();
     handle.set_desired(combined);
 
-    let panel_errors = panel_set.reconcile(specs.into_iter().map(PanelSpec), &mut (), command_tx);
-    log_lifecycle_errors(panel_errors);
+    let surface_errors = surface_set.reconcile(specs.into_iter().map(Surface), &mut (), command_tx);
+    log_lifecycle_errors(surface_errors);
     true
 }
 
@@ -217,7 +230,7 @@ fn merge_module_props(
 }
 
 fn make_mod_init_value(
-    specs: &[tauler::PanelSpecData],
+    specs: &[tauler::SurfaceSpec],
     output_name: &str,
     dpi: f32,
     screen_width_logical: u32,
@@ -229,10 +242,16 @@ fn make_mod_init_value(
     // output's dpr instead leaves dead space — or lets windows slide under the
     // bar — whenever the bar sits on a differently-scaled monitor. There is
     // deliberately no global dpr parameter here.
-    let left_spec = specs
-        .iter()
+    // Wallpapers are excluded throughout: they reserve no space, and the
+    // `specs.first()` fallback below would otherwise report a full-screen strut.
+    let panels = || {
+        specs
+            .iter()
+            .filter(|p| p.kind == tauler::SurfaceKind::Panel)
+    };
+    let left_spec = panels()
         .find(|p| p.anchor == Some(tauler::PanelAnchor::Left))
-        .or_else(|| specs.first());
+        .or_else(|| panels().next());
     let (bar_w_left, og) = left_spec
         .map(|p| {
             (
@@ -241,8 +260,7 @@ fn make_mod_init_value(
             )
         })
         .unwrap_or((250, 0));
-    let bar_w_right = specs
-        .iter()
+    let bar_w_right = panels()
         .find(|p| p.anchor == Some(tauler::PanelAnchor::Right))
         .map(|p| (p.width as f32 * p.dpr).round() as u32)
         .unwrap_or(0);
@@ -278,7 +296,7 @@ pub(crate) const DEFAULT_DPI: f32 = 96.0;
 
 #[cfg(target_os = "macos")]
 pub(crate) struct MacInit {
-    pub(crate) command_tx: mpsc::Sender<PanelCommand>,
+    pub(crate) command_tx: mpsc::Sender<SurfaceCommand>,
     pub(crate) event_rx: mpsc::Receiver<PresenterEvent>,
     pub(crate) screen_width_logical: u32,
     pub(crate) screen_height_logical: u32,
@@ -296,7 +314,7 @@ pub(crate) struct App {
     screen_width_logical: u32,
     screen_height_logical: u32,
     output_map: HashMap<String, OutputInfo>,
-    panels: OptativeSet<PanelSpec>,
+    panels: OptativeSet<Surface>,
     import_watches: OptativeSet<WatchedPath>,
     theme_file_watch: OptativeSet<WatchedPath>,
     watcher: SharedWatcher,
@@ -310,7 +328,7 @@ pub(crate) struct App {
     layout_jsx_path: std::path::PathBuf,
     stop: Arc<AtomicBool>,
     last_tick: Arc<std::sync::atomic::AtomicU64>,
-    command_tx: mpsc::Sender<PanelCommand>,
+    command_tx: mpsc::Sender<SurfaceCommand>,
     event_rx: mpsc::Receiver<PresenterEvent>,
     module_event_txs: ModuleEventTxs,
     presenter_thread: Option<thread::JoinHandle<()>>,
@@ -809,7 +827,7 @@ impl App {
 impl Drop for App {
     fn drop(&mut self) {
         log_lifecycle_errors(self.panels.reconcile(vec![], &mut (), &mut self.command_tx));
-        let _ = self.command_tx.send(PanelCommand::Shutdown);
+        let _ = self.command_tx.send(SurfaceCommand::Shutdown);
         if let Some(h) = self.presenter_thread.take() {
             let _ = h.join();
         }
@@ -828,8 +846,8 @@ mod tests {
     use tauler::data::data_loop::{DataLoop, StreamSource};
     use tauler::layout::OutputInfo;
     use tauler::managed_set::OptativeSet;
-    use tauler::panel::PanelSpec;
-    use tauler::presentation::PanelCommand;
+    use tauler::presentation::SurfaceCommand;
+    use tauler::surface::Surface;
 
     fn make_eval_output(layout: serde_json::Value) -> tauler::jsx::EvalOutput {
         tauler::jsx::EvalOutput {
@@ -839,12 +857,12 @@ mod tests {
         }
     }
 
-    fn noop_mod_init(_specs: &[tauler::PanelSpecData]) -> serde_json::Value {
+    fn noop_mod_init(_specs: &[tauler::SurfaceSpec]) -> serde_json::Value {
         serde_json::Value::Null
     }
 
     /// Claim A: apply_eval_result silently excludes any panel spec whose resolved output
-    /// name is absent from the output_map. No PanelCommand::Create is sent for that spec.
+    /// name is absent from the output_map. No SurfaceCommand::Create is sent for that spec.
     #[test]
     fn apply_eval_result_excludes_panel_with_unknown_output_name() {
         let layout = serde_json::json!({
@@ -864,8 +882,8 @@ mod tests {
         let output_map: HashMap<String, OutputInfo> = HashMap::new();
 
         let (_data_loop, handle) = DataLoop::new();
-        let mut panel_set: OptativeSet<PanelSpec> = OptativeSet::new();
-        let (mut command_tx, command_rx) = mpsc::channel::<PanelCommand>();
+        let mut surface_set: OptativeSet<Surface> = OptativeSet::new();
+        let (mut command_tx, command_rx) = mpsc::channel::<SurfaceCommand>();
 
         apply_eval_result(
             &out,
@@ -873,26 +891,26 @@ mod tests {
             "DP-4",
             &output_map,
             &handle,
-            &mut panel_set,
+            &mut surface_set,
             &mut command_tx,
             &noop_mod_init,
         );
 
-        let cmds: Vec<PanelCommand> = command_rx.try_iter().collect();
+        let cmds: Vec<SurfaceCommand> = command_rx.try_iter().collect();
         let create_count = cmds
             .iter()
-            .filter(|cmd| matches!(cmd, PanelCommand::Create { .. }))
+            .filter(|cmd| matches!(cmd, SurfaceCommand::Create { .. }))
             .count();
         assert_eq!(
             create_count, 0,
-            "expected no PanelCommand::Create for a panel whose output \"HDMI-1\" is absent from output_map, but got {} Create commands",
+            "expected no SurfaceCommand::Create for a panel whose output \"HDMI-1\" is absent from output_map, but got {} Create commands",
             create_count
         );
     }
 
     /// Claim B: A panel spec with output: None uses ctx.output_name (the primary output name)
     /// as its resolved output. If that name is also absent from the output_map, the spec is
-    /// excluded and no PanelCommand::Create is sent.
+    /// excluded and no SurfaceCommand::Create is sent.
     #[test]
     fn apply_eval_result_excludes_panel_with_null_output_when_primary_output_absent() {
         let layout = serde_json::json!({
@@ -912,8 +930,8 @@ mod tests {
         let output_map: HashMap<String, OutputInfo> = HashMap::new();
 
         let (_data_loop, handle) = DataLoop::new();
-        let mut panel_set: OptativeSet<PanelSpec> = OptativeSet::new();
-        let (mut command_tx, command_rx) = mpsc::channel::<PanelCommand>();
+        let mut surface_set: OptativeSet<Surface> = OptativeSet::new();
+        let (mut command_tx, command_rx) = mpsc::channel::<SurfaceCommand>();
 
         // primary output "DP-1" is not in output_map, so the null-output spec must be excluded
         apply_eval_result(
@@ -922,25 +940,115 @@ mod tests {
             "DP-1",
             &output_map,
             &handle,
-            &mut panel_set,
+            &mut surface_set,
             &mut command_tx,
             &noop_mod_init,
         );
 
-        let cmds: Vec<PanelCommand> = command_rx.try_iter().collect();
+        let cmds: Vec<SurfaceCommand> = command_rx.try_iter().collect();
         let create_count = cmds
             .iter()
-            .filter(|cmd| matches!(cmd, PanelCommand::Create { .. }))
+            .filter(|cmd| matches!(cmd, SurfaceCommand::Create { .. }))
             .count();
         assert_eq!(
             create_count, 0,
-            "expected no PanelCommand::Create when panel output is None and primary output is absent from output_map, but got {} Create commands",
+            "expected no SurfaceCommand::Create when panel output is None and primary output is absent from output_map, but got {} Create commands",
             create_count
         );
     }
 
-    fn left_spec(width: u32) -> tauler::PanelSpecData {
-        tauler::PanelSpecData {
+    fn output(name: &str, x: i16, y: i16, width: u32, height: u32, dpr: f32) -> OutputInfo {
+        OutputInfo {
+            name: name.to_string(),
+            x,
+            y,
+            width,
+            height,
+            dpr,
+        }
+    }
+
+    /// A `<wallpaper>` declares no geometry — it always covers its display
+    /// exactly, so the dimensions come from the output, not the layout file.
+    #[test]
+    fn apply_eval_result_sizes_wallpaper_to_its_output() {
+        tauler::init_global_ctx(tauler::config::FontConfig::default());
+        let layout = serde_json::json!({
+            "type": "root",
+            "children": [{ "type": "wallpaper", "id": "bg", "output": "DP-1" }]
+        });
+        let out = make_eval_output(layout);
+        let output_map: HashMap<String, OutputInfo> =
+            [("DP-1".to_string(), output("DP-1", 100, 50, 2560, 1440, 2.0))]
+                .into_iter()
+                .collect();
+
+        let (_data_loop, handle) = DataLoop::new();
+        let mut surface_set: OptativeSet<Surface> = OptativeSet::new();
+        let (mut command_tx, command_rx) = mpsc::channel::<SurfaceCommand>();
+
+        apply_eval_result(
+            &out,
+            1.0,
+            "DP-1",
+            &output_map,
+            &handle,
+            &mut surface_set,
+            &mut command_tx,
+            &noop_mod_init,
+        );
+
+        let cmds: Vec<SurfaceCommand> = command_rx.try_iter().collect();
+        let Some(SurfaceCommand::PaintWallpaper { spec, frame }) = cmds
+            .into_iter()
+            .find(|c| matches!(c, SurfaceCommand::PaintWallpaper { .. }))
+        else {
+            panic!("expected a PaintWallpaper command for the wallpaper");
+        };
+        assert_eq!(
+            (frame.width, frame.height),
+            (2560, 1440),
+            "the rendered buffer must be exactly the output's physical size"
+        );
+        assert_eq!(
+            (spec.width, spec.height),
+            (1280, 720),
+            "logical dimensions must be the output size divided by its DPR"
+        );
+        assert_eq!(
+            (spec.x, spec.y),
+            (100, 50),
+            "wallpaper position must track the output's origin"
+        );
+        assert_eq!(spec.dpr, 2.0);
+    }
+
+    /// Regression guard: `make_mod_init_value` falls back to `specs.first()` for
+    /// the bar width. A wallpaper declared before the bar must not be mistaken
+    /// for one — it would report a full-screen-wide strut to the WM.
+    #[test]
+    fn wallpaper_is_not_used_as_the_bar_width_fallback() {
+        let specs = vec![
+            tauler::SurfaceSpec {
+                kind: tauler::SurfaceKind::Wallpaper,
+                anchor: None,
+                ..left_spec(3840)
+            },
+            tauler::SurfaceSpec {
+                anchor: None,
+                ..left_spec(250)
+            },
+        ];
+        let init = make_mod_init_value(&specs, "DP-1", 96.0, 1920, 1080);
+        assert_eq!(
+            init["config"]["left"], 250,
+            "the bar width must come from the panel, not the wallpaper"
+        );
+    }
+
+    fn left_spec(width: u32) -> tauler::SurfaceSpec {
+        tauler::SurfaceSpec {
+            kind: tauler::SurfaceKind::Panel,
             id: "p".into(),
             width,
             height: 30,
@@ -955,7 +1063,7 @@ mod tests {
         }
     }
 
-    fn wayland_mod_init(specs: &[tauler::PanelSpecData]) -> serde_json::Value {
+    fn wayland_mod_init(specs: &[tauler::SurfaceSpec]) -> serde_json::Value {
         make_mod_init_value(specs, "", 96.0, 0, 0)
     }
 
@@ -1043,8 +1151,9 @@ mod tests {
         );
     }
 
-    fn right_spec(width: u32) -> tauler::PanelSpecData {
-        tauler::PanelSpecData {
+    fn right_spec(width: u32) -> tauler::SurfaceSpec {
+        tauler::SurfaceSpec {
+            kind: tauler::SurfaceKind::Panel,
             id: "p".into(),
             width,
             height: 30,

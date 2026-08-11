@@ -5,9 +5,9 @@ pub mod jsx;
 pub mod layout;
 pub mod managed_set;
 pub mod modules;
-pub mod panel;
 pub mod presentation;
 pub mod render;
+pub mod surface;
 pub mod theme;
 pub mod ui;
 pub mod windowing;
@@ -17,16 +17,18 @@ pub use render::RenderContext;
 pub use takumi::prelude::MeasuredNode;
 
 // layout
-pub use layout::{parse_layout, parse_root_node, OutputInfo, PanelAnchor, PanelSpecData};
+pub use layout::{
+    parse_layout, parse_root_node, OutputInfo, PanelAnchor, SurfaceKind, SurfaceSpec,
+};
 
-// panel — generic PanelSpec<DM>
-pub use panel::PanelSpec;
+// surface — the reconciled <panel> / <wallpaper> lifecycle
+pub use surface::Surface;
 
 // managed_set
 pub use managed_set::OptativeSet;
 
-// panel module — unified context and lifecycle
-pub use panel::X11PanelContext;
+// x11 display backend, re-exported for the presenter thread
+pub use surface::X11PanelContext;
 
 // render
 pub use render::{
@@ -123,6 +125,86 @@ mod tests {
         assert_eq!(panels[0].width, 250);
         assert_eq!(panels[0].height, 2160);
         assert_eq!(panels[0].outer_gap, 8);
+    }
+
+    #[test]
+    fn parse_root_node_extracts_wallpaper_specs() {
+        use layout::SurfaceKind;
+        let root = serde_json::json!({
+            "type": "root",
+            "children": [{
+                "type": "wallpaper",
+                "id": "bg",
+                "output": "DP-2",
+                "children": [{ "type": "container" }]
+            }]
+        });
+        let specs = parse_root_node(&root).unwrap();
+        assert_eq!(specs.len(), 1);
+        assert_eq!(specs[0].id, "bg");
+        assert_eq!(
+            specs[0].kind,
+            SurfaceKind::Wallpaper,
+            "a <wallpaper> child must parse as SurfaceKind::Wallpaper"
+        );
+        assert_eq!(specs[0].output.as_deref(), Some("DP-2"));
+    }
+
+    #[test]
+    fn parse_root_node_wallpaper_does_not_require_width_and_height() {
+        // Wallpaper dimensions are always the display's — the layout file must
+        // not have to state them.
+        let root = serde_json::json!({
+            "type": "root",
+            "children": [{ "type": "wallpaper", "id": "bg", "children": [] }]
+        });
+        assert!(
+            parse_root_node(&root).is_ok(),
+            "wallpaper without width/height must parse"
+        );
+    }
+
+    #[test]
+    fn parse_root_node_marks_panels_as_panel_kind() {
+        use layout::SurfaceKind;
+        let root = serde_json::json!({
+            "type": "root",
+            "children": [{ "type": "panel", "id": "bar", "width": 10, "height": 10 }]
+        });
+        let specs = parse_root_node(&root).unwrap();
+        assert_eq!(specs[0].kind, SurfaceKind::Panel);
+    }
+
+    /// `<surface type="wallpaper">` reaches the parser already flattened to
+    /// `{type: "wallpaper"}`, so both spellings must land on the same spec.
+    #[test]
+    fn parse_root_node_accepts_the_surface_long_hand() {
+        use layout::SurfaceKind;
+        let root = serde_json::json!({
+            "type": "root",
+            "children": [
+                { "type": "wallpaper", "id": "bg" },
+                { "type": "panel", "id": "bar", "width": 10, "height": 10 },
+            ]
+        });
+        let specs = parse_root_node(&root).unwrap();
+        assert_eq!(specs[0].kind, SurfaceKind::Wallpaper);
+        assert_eq!(specs[1].kind, SurfaceKind::Panel);
+    }
+
+    /// A bare `<surface>` names no kind. Silently dropping it would leave the
+    /// user staring at a missing bar with nothing in the log.
+    #[test]
+    fn parse_root_node_rejects_surface_without_a_type() {
+        let root = serde_json::json!({
+            "type": "root",
+            "children": [{ "type": "surface", "id": "bg" }]
+        });
+        let err = parse_root_node(&root).expect_err("bare <surface> must be an error");
+        assert!(
+            err.contains("panel") && err.contains("wallpaper"),
+            "the error must name the valid types; got {err:?}"
+        );
     }
 
     #[test]

@@ -1,7 +1,7 @@
 use std::sync::{mpsc, Arc};
 
 use tauler::layout::OutputInfo;
-use tauler::presentation::{PanelCommand, PresentationThread, PresenterEvent};
+use tauler::presentation::{PresentationThread, PresenterEvent, SurfaceCommand};
 use tauler::x11::outputs::build_output_map;
 use tauler::x11::panel::{put_image_chunked, resolve_panel_dpr, X11PanelContext};
 use x11rb::connection::Connection as _;
@@ -9,7 +9,7 @@ use x11rb::protocol::randr::{ConnectionExt as RandrExt, NotifyMask};
 
 use super::drain_commands;
 
-fn apply_x11_cmd(pt: &mut PresentationThread<X11PanelContext>, cmd: PanelCommand) {
+fn apply_x11_cmd(pt: &mut PresentationThread<X11PanelContext>, cmd: SurfaceCommand) {
     let PresentationThread {
         ref mut dm,
         ref mut presenter,
@@ -27,7 +27,7 @@ fn is_dispatchable_button(detail: u8) -> bool {
 
 pub(crate) fn run_x11_presenter_thread(
     mut pt: PresentationThread<X11PanelContext>,
-    command_rx: mpsc::Receiver<PanelCommand>,
+    command_rx: mpsc::Receiver<SurfaceCommand>,
     event_tx: mpsc::Sender<PresenterEvent>,
 ) {
     let _ = pt
@@ -43,7 +43,12 @@ pub(crate) fn run_x11_presenter_thread(
 
         while let Some(event) = pt.dm.conn.poll_for_event().unwrap_or(None) {
             match event {
-                x11rb::protocol::Event::RandrScreenChangeNotify(_) => {
+                x11rb::protocol::Event::RandrScreenChangeNotify(e) => {
+                    // The root screen itself can grow or shrink here, not just the
+                    // monitors on it — strut math and the wallpaper pixmap are both
+                    // sized against it.
+                    pt.dm.root_screen_width = e.width as u32;
+                    pt.dm.root_screen_height = e.height as u32;
                     let new_map = build_output_map(&pt.dm.conn, pt.dm.root);
                     let outputs: Vec<OutputInfo> = new_map.values().cloned().collect();
                     pt.dm.output_map = Arc::new(new_map);

@@ -22,6 +22,19 @@ impl PanelAnchor {
     }
 }
 
+/// What kind of surface a spec describes.
+///
+/// Both kinds are rendered identically — takumi rasterizes the subtree into a
+/// pixel buffer. They differ only in where that buffer is handed to: a `Panel`
+/// gets its own window (X11 override-redirect window / Wayland layer surface),
+/// a `Wallpaper` is painted straight into the desktop background of its output.
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Default)]
+pub enum SurfaceKind {
+    #[default]
+    Panel,
+    Wallpaper,
+}
+
 /// Per-monitor metadata, including physical pixel dimensions and device pixel ratio.
 #[derive(Debug, Clone)]
 pub struct OutputInfo {
@@ -33,11 +46,13 @@ pub struct OutputInfo {
     pub dpr: f32,
 }
 
-/// Logical-pixel description of a `<panel>` node extracted from the JSX root.
-/// All dimensions are in logical pixels; the display backend scales to physical pixels.
-#[derive(Debug, Clone)]
-pub struct PanelSpecData {
+/// Logical-pixel description of a `<panel>` or `<wallpaper>` node extracted from
+/// the JSX root. All dimensions are in logical pixels; the display backend scales
+/// to physical pixels.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SurfaceSpec {
     pub id: String,
+    pub kind: SurfaceKind,
     pub anchor: Option<PanelAnchor>,
     /// Logical width in CSS px (same unit as i3 config / Tailwind values).
     pub width: u32,
@@ -58,7 +73,7 @@ pub struct PanelSpecData {
     pub dpr: f32,
 }
 
-impl std::fmt::Display for PanelSpecData {
+impl std::fmt::Display for SurfaceSpec {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.id)
     }
@@ -69,12 +84,19 @@ pub fn parse_layout(value: &serde_json::Value) -> Result<Node, serde_json::Error
     Node::deserialize(value)
 }
 
-/// Parse the JSX evaluator's output into a list of panel specs.
+/// Parse the JSX evaluator's output into a list of surface specs.
 ///
-/// Expects the root value to be `{ type: "root", children: [...panels] }`. Each panel
-/// child must have at minimum `id`, `width`, and `height`. Returns an error string if
-/// the root type is wrong or a required field is missing.
-pub fn parse_root_node(root: &serde_json::Value) -> Result<Vec<PanelSpecData>, String> {
+/// Expects the root value to be `{ type: "root", children: [...surfaces] }`. Each
+/// `panel` child must have at minimum `id`, `width`, and `height`; each `wallpaper`
+/// child needs only `id`, since its size is always the display's. Returns an error
+/// string if the root type is wrong or a required field is missing.
+///
+/// `<surface type="panel">` and `<surface type="wallpaper">` are equivalent
+/// long-hand spellings: a `type` prop overrides the tag name during JSX
+/// flattening (see `jsx::flatten_passthrough`), so they arrive here already
+/// indistinguishable from `<panel>` / `<wallpaper>`. A bare `<surface>` names no
+/// kind and is rejected rather than silently ignored.
+pub fn parse_root_node(root: &serde_json::Value) -> Result<Vec<SurfaceSpec>, String> {
     if root.get("type").and_then(|t| t.as_str()) != Some("root") {
         return Err(format!("expected root node, got {:?}", root.get("type")));
     }
@@ -86,8 +108,14 @@ pub fn parse_root_node(root: &serde_json::Value) -> Result<Vec<PanelSpecData>, S
     children
         .iter()
         .enumerate()
-        .filter(|(_, p)| p.get("type").and_then(|t| t.as_str()) == Some("panel"))
-        .map(|(i, p)| parse_panel_spec(i, p))
+        .filter_map(|(i, p)| match p.get("type").and_then(|t| t.as_str()) {
+            Some("panel") => Some(parse_panel(i, p)),
+            Some("wallpaper") => Some(parse_wallpaper(i, p)),
+            Some("surface") => Some(Err(format!(
+                "surface[{i}] needs type=\"panel\" or type=\"wallpaper\""
+            ))),
+            _ => None,
+        })
         .collect()
 }
 
@@ -127,11 +155,33 @@ fn first_child(node: &serde_json::Value) -> serde_json::Value {
         .unwrap_or(serde_json::Value::Null)
 }
 
-fn parse_panel_spec(i: usize, panel: &serde_json::Value) -> Result<PanelSpecData, String> {
+/// A `<wallpaper>` node. It carries no geometry of its own: `width`/`height`/`x`/`y`
+/// are filled in from the target output before reconciliation, so the rendered
+/// buffer always matches the display exactly.
+fn parse_wallpaper(i: usize, node: &serde_json::Value) -> Result<SurfaceSpec, String> {
+    let id = required_str(node, "id", &format!("wallpaper[{i}]"))?.to_string();
+    Ok(SurfaceSpec {
+        id,
+        kind: SurfaceKind::Wallpaper,
+        width: 0,
+        height: 0,
+        anchor: None,
+        x: 0,
+        y: 0,
+        outer_gap: 0,
+        output: optional_str(node, "output").map(str::to_string),
+        above: false,
+        content: first_child(node),
+        dpr: 1.0,
+    })
+}
+
+fn parse_panel(i: usize, panel: &serde_json::Value) -> Result<SurfaceSpec, String> {
     let id = required_str(panel, "id", &format!("panel[{i}]"))?.to_string();
     let label = format!("panel '{id}'");
-    Ok(PanelSpecData {
+    Ok(SurfaceSpec {
         id,
+        kind: SurfaceKind::Panel,
         width: required_u64(panel, "width", &label)? as u32,
         height: required_u64(panel, "height", &label)? as u32,
         anchor: optional_str(panel, "anchor").and_then(PanelAnchor::parse),
