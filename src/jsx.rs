@@ -308,6 +308,12 @@ fn text_child_to_string(value: &serde_json::Value) -> String {
 /// (`{ type, props: {...}, children }`) to the flat shape tauler's own downstream
 /// consumers expect (`{ type, ...props, children }`), recursively.
 ///
+/// Props are written after the tag name, so **a `type` prop overrides the tag**.
+/// That is deliberate, and load-bearing: it is what makes the long-hand
+/// `<surface type="wallpaper">` spelling equivalent to `<wallpaper>` (see
+/// `layout::parse_root_node`). The flip side is that the rule is global — any
+/// node given a `type` prop becomes that type instead.
+///
 /// Also reproduces tauler's old `_jsx`-level special case for `type === "text"`
 /// nodes: their children are joined into a single `text: String` field (required,
 /// non-optional, by `takumi`'s `TextData`) rather than left as a `children` array.
@@ -383,6 +389,22 @@ mod tests {
         assert_eq!(result["type"], "text");
         assert_eq!(result["tw"], "flex");
         assert_eq!(result["text"], "hello");
+    }
+
+    /// A `type` prop overrides the tag name. `<surface type="wallpaper">` relies
+    /// on this to be long-hand for `<wallpaper>`; if flattening ever writes the
+    /// tag last instead, that spelling silently becomes an unknown `surface` node.
+    #[test]
+    fn type_prop_overrides_the_tag_name() {
+        let result = eval(
+            r#"export default function render() { return <surface type="wallpaper" id="bg" />; }"#,
+        )
+        .layout;
+        assert_eq!(
+            result["type"], "wallpaper",
+            "a type prop must win over the tag name"
+        );
+        assert_eq!(result["id"], "bg");
     }
 
     // Was `transform_jsx_self_closing_element_with_tw_prop`, exercising tauler's own

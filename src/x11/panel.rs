@@ -9,8 +9,8 @@ use x11rb::{
 };
 
 use crate::display_manager::DisplayManager;
-use crate::layout::{OutputInfo, PanelAnchor, PanelSpecData};
-use crate::presentation::PanelFrame;
+use crate::layout::{OutputInfo, PanelAnchor, SurfaceSpec};
+use crate::presentation::SurfaceFrame;
 
 const XRESOURCES_PROP_MAX_LEN: u32 = 65536;
 const MM_PER_INCH: f32 = 25.4;
@@ -29,6 +29,22 @@ pub fn put_image_chunked(
     depth: u8,
     bgrx: &[u8],
 ) -> anyhow::Result<()> {
+    put_image_chunked_at(conn, drawable, gc, width, depth, bgrx, 0, 0)
+}
+
+/// `put_image_chunked` with a destination offset, for blitting into a drawable
+/// larger than the buffer — a monitor's rectangle of the root background pixmap.
+#[allow(clippy::too_many_arguments)]
+pub fn put_image_chunked_at(
+    conn: &RustConnection,
+    drawable: u32,
+    gc: u32,
+    width: u32,
+    depth: u8,
+    bgrx: &[u8],
+    dst_x: i16,
+    dst_y: i16,
+) -> anyhow::Result<()> {
     let stride = width as usize * 4;
     if stride == 0 || bgrx.is_empty() {
         return Ok(());
@@ -45,8 +61,8 @@ pub fn put_image_chunked(
             gc,
             width as u16,
             chunk_rows,
-            0,
-            (i * rows_per_chunk) as i16,
+            dst_x,
+            dst_y + (i * rows_per_chunk) as i16,
             0,
             depth,
             chunk,
@@ -56,7 +72,7 @@ pub fn put_image_chunked(
     Ok(())
 }
 
-/// A live X11 panel window, created from a `PanelSpec` at runtime.
+/// A live X11 panel window, created from a `Surface` at runtime.
 pub struct Panel {
     pub id: String,
     pub win_id: u32,
@@ -116,8 +132,8 @@ pub fn i3_dpi(conn: &RustConnection, root: Window, screen: &Screen) -> f32 {
 }
 
 fn create_panel(
-    spec: &PanelSpecData,
-    frame: &PanelFrame,
+    spec: &SurfaceSpec,
+    frame: &SurfaceFrame,
     ctx: &PanelContext,
 ) -> anyhow::Result<Panel> {
     let phys_width = (spec.width as f32 * spec.dpr).round() as u32;
@@ -238,6 +254,8 @@ pub struct X11PanelContext {
     /// math, which EWMH measures from the root screen's far edge.
     pub root_screen_width: u32,
     pub root_screen_height: u32,
+    /// Lazily created on the first `<wallpaper>` node; see `x11::wallpaper`.
+    pub root_bg: Option<crate::x11::wallpaper::RootBackground>,
 }
 
 /// Backward-compatible alias so callers that import `x11::panel::PanelContext` still compile.
@@ -248,8 +266,8 @@ impl DisplayManager for X11PanelContext {
 
     fn create_window(
         &mut self,
-        spec: &PanelSpecData,
-        frame: &PanelFrame,
+        spec: &SurfaceSpec,
+        frame: &SurfaceFrame,
     ) -> Result<Panel, anyhow::Error> {
         let panel = create_panel(spec, frame, self)?;
         Ok(panel)
@@ -278,7 +296,7 @@ impl DisplayManager for X11PanelContext {
     fn update_position(
         &mut self,
         panel: &mut Panel,
-        spec: &PanelSpecData,
+        spec: &SurfaceSpec,
     ) -> Result<(), anyhow::Error> {
         let output_name = spec.output.as_deref().unwrap_or(&self.output_name);
         let output = self
@@ -317,7 +335,7 @@ impl DisplayManager for X11PanelContext {
     fn update_dimensions(
         &mut self,
         panel: &mut Panel,
-        spec: &PanelSpecData,
+        spec: &SurfaceSpec,
     ) -> Result<(), anyhow::Error> {
         let new_phys_width = (spec.width as f32 * spec.dpr).round() as u32;
         let new_phys_height = (spec.height as f32 * spec.dpr).round() as u32;
@@ -376,6 +394,14 @@ impl DisplayManager for X11PanelContext {
         }
 
         Ok(())
+    }
+
+    fn paint_wallpaper(
+        &mut self,
+        spec: &SurfaceSpec,
+        frame: &SurfaceFrame,
+    ) -> Result<(), anyhow::Error> {
+        self.paint_wallpaper_impl(spec, frame)
     }
 
     fn flush(&mut self) {
@@ -454,12 +480,14 @@ mod tests {
             screen_height_logical: mon_height,
             root_screen_width: mon_width,
             root_screen_height: mon_height,
+            root_bg: None,
         })
     }
 
-    /// Build a minimal PanelSpecData with the given id/dimensions.
-    fn make_spec(id: &str, width: u32, height: u32) -> crate::layout::PanelSpecData {
-        crate::layout::PanelSpecData {
+    /// Build a minimal SurfaceSpec with the given id/dimensions.
+    fn make_spec(id: &str, width: u32, height: u32) -> crate::layout::SurfaceSpec {
+        crate::layout::SurfaceSpec {
+            kind: crate::layout::SurfaceKind::Panel,
             id: id.to_string(),
             anchor: None,
             width,
@@ -474,9 +502,9 @@ mod tests {
         }
     }
 
-    fn blank_frame(w: u32, h: u32) -> crate::presentation::PanelFrame {
+    fn blank_frame(w: u32, h: u32) -> crate::presentation::SurfaceFrame {
         use std::sync::Arc;
-        crate::presentation::PanelFrame {
+        crate::presentation::SurfaceFrame {
             pixels: Arc::new(vec![0u8; (w * h * 4) as usize]),
             width: w,
             height: h,
@@ -654,7 +682,7 @@ mod tests {
     fn create_window_with_non_null_content_renders_spec_content_not_null() {
         use crate::config::FontConfig;
         use crate::display_manager::DisplayManager;
-        use crate::presentation::PanelFrame;
+        use crate::presentation::SurfaceFrame;
         use crate::render::{init_global_ctx, render_frame};
 
         init_global_ctx(FontConfig::default());
@@ -675,7 +703,8 @@ mod tests {
             "style": {"backgroundColor": "red"},
             "children": []
         });
-        let spec = crate::layout::PanelSpecData {
+        let spec = crate::layout::SurfaceSpec {
+            kind: crate::layout::SurfaceKind::Panel,
             id: "test-content-render".to_string(),
             anchor: None,
             width: 100,
@@ -693,7 +722,7 @@ mod tests {
         let phys_height = (spec.height as f32 * spec.dpr).round() as u32;
         let pixels = render_frame(&content, phys_width, phys_height, spec.dpr);
         let expected = pixels.clone();
-        let frame = PanelFrame {
+        let frame = SurfaceFrame {
             pixels: pixels.clone(),
             width: phys_width,
             height: phys_height,
@@ -800,7 +829,8 @@ mod tests {
         )
         .expect("create_window should succeed when X11 is available");
 
-        let new_spec = crate::layout::PanelSpecData {
+        let new_spec = crate::layout::SurfaceSpec {
+            kind: crate::layout::SurfaceKind::Panel,
             id: "test-dm-pos".to_string(),
             x: 50,
             y: 20,

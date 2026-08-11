@@ -28,8 +28,8 @@ use wayland_client::{
 
 use super::{DispatchError, DisplayServer, WindowEvent};
 use crate::display_manager::DisplayManager;
-use crate::layout::{PanelAnchor, PanelSpecData};
-use crate::presentation::PanelFrame;
+use crate::layout::{PanelAnchor, SurfaceSpec};
+use crate::presentation::SurfaceFrame;
 
 // ---------------------------------------------------------------------------
 // Public error type
@@ -65,7 +65,7 @@ pub struct WaylandPanel {
 impl WaylandPanel {
     /// Update the panel from a new spec. Resizes the layer surface if the fixed dimension changed,
     /// which will cause the compositor to send a new configure before the next render.
-    pub fn update_spec(&mut self, data: &PanelSpecData) {
+    pub fn update_spec(&mut self, data: &SurfaceSpec) {
         if fixed_axis_changed(
             self.anchor.as_ref(),
             self.width,
@@ -235,7 +235,7 @@ impl WaylandDisplayServer {
     /// Create a Wayland layer-shell panel for the given spec.
     /// The surface won't render until the compositor sends a configure and
     /// `WaylandPanel::render` is called with pixel data.
-    pub fn create_panel(&mut self, data: &PanelSpecData) -> Result<WaylandPanel, anyhow::Error> {
+    pub fn create_panel(&mut self, data: &SurfaceSpec) -> Result<WaylandPanel, anyhow::Error> {
         let qh = self.event_queue.handle();
         let wl_surface = self.state.compositor_state.create_surface(&qh);
 
@@ -374,8 +374,8 @@ impl DisplayManager for WaylandDisplayServer {
 
     fn create_window(
         &mut self,
-        spec: &PanelSpecData,
-        frame: &PanelFrame,
+        spec: &SurfaceSpec,
+        frame: &SurfaceFrame,
     ) -> Result<WaylandPanel, anyhow::Error> {
         let mut panel = self.create_panel(spec)?;
         self.update_image(&mut panel, &frame.pixels)?;
@@ -385,7 +385,7 @@ impl DisplayManager for WaylandDisplayServer {
     fn update_position(
         &mut self,
         _panel: &mut WaylandPanel,
-        _spec: &PanelSpecData,
+        _spec: &SurfaceSpec,
     ) -> Result<(), anyhow::Error> {
         // No-op: Wayland position is compositor-managed via anchor
         Ok(())
@@ -394,7 +394,7 @@ impl DisplayManager for WaylandDisplayServer {
     fn update_dimensions(
         &mut self,
         panel: &mut WaylandPanel,
-        spec: &PanelSpecData,
+        spec: &SurfaceSpec,
     ) -> Result<(), anyhow::Error> {
         panel.update_spec(spec);
         Ok(())
@@ -662,13 +662,14 @@ mod tests {
         WaylandDisplayServer,
     };
     use crate::display_manager::DisplayManager;
-    use crate::layout::{PanelAnchor, PanelSpecData};
+    use crate::layout::{PanelAnchor, SurfaceSpec};
     use smithay_client_toolkit::shell::wlr_layer::Anchor;
 
-    // Minimal PanelSpecData for testing
-    fn minimal_spec() -> PanelSpecData {
-        PanelSpecData {
+    // Minimal SurfaceSpec for testing
+    fn minimal_spec() -> SurfaceSpec {
+        SurfaceSpec {
             id: "test-panel".to_string(),
+            kind: crate::layout::SurfaceKind::Panel,
             anchor: None,
             width: 100,
             height: 30,
@@ -682,9 +683,9 @@ mod tests {
         }
     }
 
-    fn blank_frame(w: u32, h: u32) -> crate::presentation::PanelFrame {
+    fn blank_frame(w: u32, h: u32) -> crate::presentation::SurfaceFrame {
         use std::sync::Arc;
-        crate::presentation::PanelFrame {
+        crate::presentation::SurfaceFrame {
             pixels: Arc::new(vec![0u8; (w * h * 4) as usize]),
             width: w,
             height: h,
@@ -708,7 +709,7 @@ mod tests {
         let spec = minimal_spec();
         let mut panel =
             DisplayManager::create_window(&mut server, &spec, &blank_frame(100, 30)).unwrap();
-        let new_spec = PanelSpecData {
+        let new_spec = SurfaceSpec {
             x: 50,
             y: 50,
             ..minimal_spec()
@@ -730,7 +731,7 @@ mod tests {
         let spec = minimal_spec();
         let mut panel =
             DisplayManager::create_window(&mut server, &spec, &blank_frame(100, 30)).unwrap();
-        let new_spec = PanelSpecData {
+        let new_spec = SurfaceSpec {
             width: 200,
             height: 60,
             ..minimal_spec()

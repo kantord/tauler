@@ -2,11 +2,11 @@ use std::sync::mpsc;
 
 use super::drain_commands;
 use tauler::layout::OutputInfo;
-use tauler::presentation::{PanelCommand, PresentationThread, PresenterEvent};
+use tauler::presentation::{PresentationThread, PresenterEvent, SurfaceCommand};
 use tauler::windowing::wayland::WaylandDisplayServer;
 use tauler::windowing::{DisplayServer, WindowEvent};
 
-fn apply_wayland_cmd(pt: &mut PresentationThread<WaylandDisplayServer>, cmd: PanelCommand) {
+fn apply_wayland_cmd(pt: &mut PresentationThread<WaylandDisplayServer>, cmd: SurfaceCommand) {
     let PresentationThread {
         ref mut dm,
         ref mut presenter,
@@ -18,7 +18,7 @@ fn apply_wayland_cmd(pt: &mut PresentationThread<WaylandDisplayServer>, cmd: Pan
 
 pub(crate) fn run_wayland_presenter_thread(
     mut pt: PresentationThread<WaylandDisplayServer>,
-    command_rx: mpsc::Receiver<PanelCommand>,
+    command_rx: mpsc::Receiver<SurfaceCommand>,
     event_tx: mpsc::Sender<PresenterEvent>,
 ) {
     loop {

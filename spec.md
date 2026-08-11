@@ -113,8 +113,15 @@ returns a plain JS object `{ type, ...props, children }`.
 
 | node | description |
 |---|---|
-| `root` | mandatory top-level node, contains one or more `panel` nodes |
+| `root` | mandatory top-level node, contains `panel` and `wallpaper` nodes |
 | `panel` | declares one desktop surface (X11 window / Wayland layer surface) |
+| `wallpaper` | paints its subtree into the desktop background of one output |
+
+Both surface kinds parse into the same `SurfaceSpec`; only the destination of the
+rasterized buffer differs. `<surface type="panel">` and `<surface type="wallpaper">`
+are accepted long-hand spellings — a `type` prop overrides the tag name during JSX
+flattening, so they are indistinguishable from the short forms by the time Rust sees
+them. A bare `<surface>` names no kind and is a parse error.
 
 ### `<panel>` props
 
@@ -128,6 +135,37 @@ returns a plain JS object `{ type, ...props, children }`.
 | `above` | boolean | stack above other windows (for overlays like notifications) |
 | `output` | string | RandR output name, e.g. `"DP-2"`. omit for primary output |
 | `outer_gap` | number | gap reserved around screen edges |
+
+### `<wallpaper>` props
+
+| prop | type | description |
+|---|---|---|
+| `output` | string | RandR output name, e.g. `"DP-2"`. omit for primary output |
+
+A `<wallpaper>` has no geometry props: it always covers its output exactly, and its
+subtree is laid out against those dimensions. It reserves no strut space and receives
+no clicks — there is no window, only pixels handed to the desktop background.
+
+```jsx
+<root>
+  <wallpaper output="DP-2">
+    <container tw="flex w-full h-full items-end justify-end p-12"
+               style={{ backgroundImage: "linear-gradient(160deg, #0b1020, #1c2b4a)" }}>
+      <text tw="text-[28px] text-white opacity-30">{time}</text>
+    </container>
+  </wallpaper>
+</root>
+```
+
+Everything a wallpaper does is ordinary layout. Scaling or cropping a photo is
+`<image>` plus `object-fit`; a solid colour or gradient is a `<container>` with a
+background — there is no wallpaper-specific fitting, tiling or colour handling, and
+none is planned. The buffer is a straight pixel passthrough.
+
+On X11 the buffer is blitted into the root window's background pixmap, and
+`_XROOTPMAP_ID` / `ESETROOT_PMAP_ID` are published so pseudo-transparent clients can
+find it. Wayland and macOS do not support `<wallpaper>` yet; the node is ignored with
+a warning there.
 
 
 ## Components

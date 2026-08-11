@@ -1,6 +1,6 @@
 //! macOS presenter. AppKit may only be driven from the main thread, so the
 //! event loop runs there and `App` lives on a worker thread, connected by the
-//! same `PanelCommand` / `PresenterEvent` channels the other backends use.
+//! same `SurfaceCommand` / `PresenterEvent` channels the other backends use.
 
 use std::collections::HashMap;
 use std::num::NonZeroU32;
@@ -10,8 +10,8 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use tauler::data::data_loop::{DataLoop, StreamItem};
-use tauler::layout::{PanelAnchor, PanelSpecData};
-use tauler::presentation::{PanelCommand, PanelFrame, PresenterEvent};
+use tauler::layout::{PanelAnchor, SurfaceSpec};
+use tauler::presentation::{PresenterEvent, SurfaceCommand, SurfaceFrame};
 use winit::application::ApplicationHandler;
 use winit::dpi::{LogicalPosition, LogicalSize};
 use winit::event::{ElementState, WindowEvent};
@@ -21,12 +21,12 @@ use winit::window::{Window, WindowId, WindowLevel};
 use crate::app::{App, MacInit, ModuleEventTxs, SharedWatcher, TickReceivers};
 use crate::presenter::drain_commands;
 
-/// How often the main thread wakes to drain `PanelCommand`s.
+/// How often the main thread wakes to drain `SurfaceCommand`s.
 const COMMAND_POLL_INTERVAL: Duration = Duration::from_millis(8);
 
 const FALLBACK_SCREEN: (u32, u32) = (1920, 1080);
 
-/// Monitor geometry in logical pixels, the unit `PanelSpecData` uses.
+/// Monitor geometry in logical pixels, the unit `SurfaceSpec` uses.
 #[derive(Debug, Clone, Copy)]
 struct MonitorRect {
     x: f64,
@@ -65,7 +65,7 @@ struct MacPanel {
     _context: softbuffer::Context<Arc<Window>>,
     surface: softbuffer::Surface<Arc<Window>, Arc<Window>>,
     /// Retained so an AppKit-initiated redraw can re-present it.
-    last_frame: Option<PanelFrame>,
+    last_frame: Option<SurfaceFrame>,
     cursor: (f64, f64),
     dpr: f32,
 }
@@ -81,7 +81,7 @@ fn write_0rgb(dst: &mut [u32], bgrx: &[u8]) {
 }
 
 /// Top-left corner of a panel window in logical screen coordinates.
-fn window_origin(spec: &PanelSpecData, mon: MonitorRect) -> (f64, f64) {
+fn window_origin(spec: &SurfaceSpec, mon: MonitorRect) -> (f64, f64) {
     match spec.anchor {
         Some(PanelAnchor::Left) | Some(PanelAnchor::Top) => (mon.x, mon.y),
         Some(PanelAnchor::Right) => (mon.x + mon.width - spec.width as f64, mon.y),
@@ -94,13 +94,13 @@ fn window_origin(spec: &PanelSpecData, mon: MonitorRect) -> (f64, f64) {
 /// cannot start until the first `resumed` callback.
 struct PendingBoot {
     boot: MacBoot,
-    command_tx: mpsc::Sender<PanelCommand>,
+    command_tx: mpsc::Sender<SurfaceCommand>,
     event_rx: mpsc::Receiver<PresenterEvent>,
 }
 
 struct MacPresenter {
     panels: HashMap<String, MacPanel>,
-    command_rx: mpsc::Receiver<PanelCommand>,
+    command_rx: mpsc::Receiver<SurfaceCommand>,
     event_tx: mpsc::Sender<PresenterEvent>,
     stop: Arc<AtomicBool>,
     monitor: MonitorRect,
@@ -109,7 +109,7 @@ struct MacPresenter {
 }
 
 impl MacPresenter {
-    fn create(&mut self, elwt: &ActiveEventLoop, spec: &PanelSpecData, frame: &PanelFrame) {
+    fn create(&mut self, elwt: &ActiveEventLoop, spec: &SurfaceSpec, frame: &SurfaceFrame) {
         let (x, y) = window_origin(spec, self.monitor);
         let attrs = Window::default_attributes()
             .with_title(format!("tauler:{}", spec.id))
@@ -169,10 +169,10 @@ impl MacPresenter {
         self.panels.insert(spec.id.clone(), panel);
     }
 
-    fn apply(&mut self, elwt: &ActiveEventLoop, cmd: PanelCommand) {
+    fn apply(&mut self, elwt: &ActiveEventLoop, cmd: SurfaceCommand) {
         match cmd {
-            PanelCommand::Create { spec, frame } => self.create(elwt, &spec, &frame),
-            PanelCommand::Move(spec) => {
+            SurfaceCommand::Create { spec, frame } => self.create(elwt, &spec, &frame),
+            SurfaceCommand::Move(spec) => {
                 let origin = window_origin(&spec, self.monitor);
                 if let Some(panel) = self.panels.get_mut(&spec.id) {
                     panel
@@ -180,7 +180,7 @@ impl MacPresenter {
                         .set_outer_position(LogicalPosition::new(origin.0, origin.1));
                 }
             }
-            PanelCommand::Resize { spec, frame } => {
+            SurfaceCommand::Resize { spec, frame } => {
                 if let Some(panel) = self.panels.get_mut(&spec.id) {
                     let _ = panel.window.request_inner_size(LogicalSize::new(
                         spec.width as f64,
@@ -190,15 +190,19 @@ impl MacPresenter {
                     present(panel, &frame, &spec.id);
                 }
             }
-            PanelCommand::Delete { id } => {
+            SurfaceCommand::Delete { id } => {
                 self.panels.remove(&id);
             }
-            PanelCommand::UpdatePicture { id, frame } => {
+            SurfaceCommand::UpdatePicture { id, frame } => {
                 if let Some(panel) = self.panels.get_mut(&id) {
                     present(panel, &frame, &id);
                 }
             }
-            PanelCommand::Shutdown => {
+            // macOS offers no equivalent of painting the desktop background.
+            SurfaceCommand::PaintWallpaper { spec, .. } => {
+                tracing::warn!(id = %spec.id, "<wallpaper> is not supported on macOS; ignoring");
+            }
+            SurfaceCommand::Shutdown => {
                 unreachable!("Shutdown is intercepted by drain_commands before apply is called")
             }
         }
@@ -212,7 +216,7 @@ impl MacPresenter {
     }
 }
 
-fn present(panel: &mut MacPanel, frame: &PanelFrame, id: &str) {
+fn present(panel: &mut MacPanel, frame: &SurfaceFrame, id: &str) {
     let size = panel.window.inner_size();
     let (Some(w), Some(h)) = (NonZeroU32::new(size.width), NonZeroU32::new(size.height)) else {
         return;
@@ -422,7 +426,7 @@ pub(crate) fn run(boot: MacBoot) -> Result<(), Box<dyn std::error::Error>> {
 #[cfg(test)]
 mod tests {
     use super::{window_origin, write_0rgb, MonitorRect};
-    use tauler::layout::{PanelAnchor, PanelSpecData};
+    use tauler::layout::{PanelAnchor, SurfaceSpec};
 
     #[test]
     fn packs_bgrx_into_0rgb_and_drops_the_pad_byte() {
@@ -452,8 +456,9 @@ mod tests {
         assert_eq!(dst, [0x0003_0201]);
     }
 
-    fn spec(anchor: Option<PanelAnchor>, x: i32, y: i32) -> PanelSpecData {
-        PanelSpecData {
+    fn spec(anchor: Option<PanelAnchor>, x: i32, y: i32) -> SurfaceSpec {
+        SurfaceSpec {
+            kind: tauler::SurfaceKind::Panel,
             id: "p".into(),
             anchor,
             width: 200,

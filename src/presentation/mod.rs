@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use crate::display_manager::DisplayManager;
-use crate::layout::{OutputInfo, PanelSpecData};
+use crate::layout::{OutputInfo, SurfaceSpec};
 
 /// A rasterized panel frame ready to be committed to a display.
 ///
@@ -11,7 +11,7 @@ use crate::layout::{OutputInfo, PanelSpecData};
 /// X11's existing `Panel::bgrx` is already this type, so the pipeline can
 /// clone the Arc directly with no byte copy.
 #[derive(Clone, Debug)]
-pub struct PanelFrame {
+pub struct SurfaceFrame {
     pub pixels: Arc<Vec<u8>>,
     pub width: u32,
     pub height: u32,
@@ -25,22 +25,33 @@ pub struct PanelFrame {
 /// from the command channel. `Shutdown` is intercepted by `drain_commands`
 /// before reaching `Presenter::apply` — it is never passed to `apply`.
 #[derive(Debug)]
-pub enum PanelCommand {
+pub enum SurfaceCommand {
     Create {
-        spec: PanelSpecData,
-        frame: PanelFrame,
+        spec: SurfaceSpec,
+        frame: SurfaceFrame,
     },
-    Move(PanelSpecData),
+    Move(SurfaceSpec),
     Resize {
-        spec: PanelSpecData,
-        frame: PanelFrame,
+        spec: SurfaceSpec,
+        frame: SurfaceFrame,
     },
     Delete {
         id: String,
     },
     UpdatePicture {
         id: String,
-        frame: PanelFrame,
+        frame: SurfaceFrame,
+    },
+    /// Paint a `<wallpaper>` into its output's slice of the desktop background.
+    ///
+    /// Wallpapers get their own command because their whole lifecycle is one
+    /// verb. They own no window, so there is nothing to move, resize or destroy,
+    /// and re-painting is the same operation as first painting. Riding the panel
+    /// variants would mean a wallpaper branch inside `Create`, `Delete` and
+    /// `UpdatePicture` to say "not that kind" three times over.
+    PaintWallpaper {
+        spec: SurfaceSpec,
+        frame: SurfaceFrame,
     },
     Shutdown,
 }
@@ -62,15 +73,19 @@ pub enum PresenterEvent {
     },
 }
 
-/// Owns the window state (one `DM::Panel` per live panel id). Does NOT own
-/// the `DisplayManager` — callers pass `&mut DM` into `apply`.
+/// Owns the window state: one `DM::Panel` per live panel id. Does NOT own the
+/// `DisplayManager` — callers pass `&mut DM` into `apply`.
+///
+/// Wallpapers are deliberately absent. They own no window and keep no handle, so
+/// there is nothing to track between paints — `PaintWallpaper` carries
+/// everything the backend needs.
 pub struct Presenter<DM: DisplayManager> {
     pub panels: HashMap<String, DM::Panel>,
 }
 
 /// Bundles `dm: DM` and `presenter: Presenter<DM>` so they travel together
 /// as one owned unit. Lives on a dedicated thread; the main `App` interacts
-/// with it only through `PanelCommand` / `PresenterEvent` mpsc channels.
+/// with it only through `SurfaceCommand` / `PresenterEvent` mpsc channels.
 pub struct PresentationThread<DM: DisplayManager> {
     pub dm: DM,
     pub presenter: Presenter<DM>,
@@ -98,19 +113,19 @@ impl<DM: DisplayManager> Presenter<DM> {
         Self::default()
     }
 
-    pub fn apply(&mut self, cmd: PanelCommand, dm: &mut DM) -> anyhow::Result<()> {
+    pub fn apply(&mut self, cmd: SurfaceCommand, dm: &mut DM) -> anyhow::Result<()> {
         match cmd {
-            PanelCommand::Create { spec, frame } => {
+            SurfaceCommand::Create { spec, frame } => {
                 let id = spec.id.clone();
                 let panel = dm.create_window(&spec, &frame)?;
                 self.panels.insert(id, panel);
             }
-            PanelCommand::Move(spec) => {
+            SurfaceCommand::Move(spec) => {
                 if let Some(panel) = self.panels.get_mut(&spec.id) {
                     dm.update_position(panel, &spec)?;
                 }
             }
-            PanelCommand::Resize { spec, frame } => {
+            SurfaceCommand::Resize { spec, frame } => {
                 if let Some(panel) = self.panels.get_mut(&spec.id) {
                     dm.update_dimensions(panel, &spec)?;
                     if let Err(e) = dm.update_image(panel, &frame.pixels[..]) {
@@ -118,19 +133,22 @@ impl<DM: DisplayManager> Presenter<DM> {
                     }
                 }
             }
-            PanelCommand::Delete { id } => {
+            SurfaceCommand::Delete { id } => {
                 if let Some(panel) = self.panels.remove(&id) {
                     dm.delete_window(panel)?;
                 }
             }
-            PanelCommand::UpdatePicture { id, frame } => {
+            SurfaceCommand::UpdatePicture { id, frame } => {
                 if let Some(panel) = self.panels.get_mut(&id) {
                     if let Err(e) = dm.update_image(panel, &frame.pixels[..]) {
                         tracing::error!(panel = %id, error = %e, "presenter update_image failed");
                     }
                 }
             }
-            PanelCommand::Shutdown => {
+            SurfaceCommand::PaintWallpaper { spec, frame } => {
+                dm.paint_wallpaper(&spec, &frame)?;
+            }
+            SurfaceCommand::Shutdown => {
                 unreachable!("Shutdown is intercepted by drain_commands before apply is called")
             }
         }
@@ -145,6 +163,7 @@ mod tests {
     struct MockDM {
         calls: Vec<String>,
         next_id: u32,
+        wallpaper_supported: bool,
     }
 
     impl MockDM {
@@ -152,6 +171,7 @@ mod tests {
             MockDM {
                 calls: Vec::new(),
                 next_id: 0,
+                wallpaper_supported: true,
             }
         }
     }
@@ -160,23 +180,19 @@ mod tests {
         type Panel = u32;
         fn create_window(
             &mut self,
-            spec: &PanelSpecData,
-            _frame: &PanelFrame,
+            spec: &SurfaceSpec,
+            _frame: &SurfaceFrame,
         ) -> anyhow::Result<u32> {
             self.next_id += 1;
             self.calls
                 .push(format!("create:{}:{}", spec.id, self.next_id));
             Ok(self.next_id)
         }
-        fn update_position(&mut self, panel: &mut u32, spec: &PanelSpecData) -> anyhow::Result<()> {
+        fn update_position(&mut self, panel: &mut u32, spec: &SurfaceSpec) -> anyhow::Result<()> {
             self.calls.push(format!("move:{}:{}", spec.id, panel));
             Ok(())
         }
-        fn update_dimensions(
-            &mut self,
-            panel: &mut u32,
-            spec: &PanelSpecData,
-        ) -> anyhow::Result<()> {
+        fn update_dimensions(&mut self, panel: &mut u32, spec: &SurfaceSpec) -> anyhow::Result<()> {
             self.calls.push(format!("resize:{}:{}", spec.id, panel));
             Ok(())
         }
@@ -188,10 +204,22 @@ mod tests {
             self.calls.push(format!("delete:{}", panel));
             Ok(())
         }
+        fn paint_wallpaper(
+            &mut self,
+            spec: &SurfaceSpec,
+            _frame: &SurfaceFrame,
+        ) -> anyhow::Result<()> {
+            if !self.wallpaper_supported {
+                anyhow::bail!("wallpaper unsupported");
+            }
+            self.calls.push(format!("paint_wallpaper:{}", spec.id));
+            Ok(())
+        }
     }
 
-    fn spec(id: &str) -> PanelSpecData {
-        PanelSpecData {
+    fn spec(id: &str) -> SurfaceSpec {
+        SurfaceSpec {
+            kind: crate::layout::SurfaceKind::Panel,
             id: id.to_string(),
             anchor: None,
             width: 100,
@@ -206,12 +234,86 @@ mod tests {
         }
     }
 
-    fn blank_frame() -> PanelFrame {
-        PanelFrame {
+    fn blank_frame() -> SurfaceFrame {
+        SurfaceFrame {
             pixels: Arc::new(vec![0u8; 4]),
             width: 1,
             height: 1,
         }
+    }
+
+    fn wallpaper_spec(id: &str) -> SurfaceSpec {
+        SurfaceSpec {
+            kind: crate::layout::SurfaceKind::Wallpaper,
+            ..spec(id)
+        }
+    }
+
+    #[test]
+    fn presenter_paint_wallpaper_calls_the_backend_and_tracks_nothing() {
+        let mut p: Presenter<MockDM> = Presenter::new();
+        let mut dm = MockDM::new();
+        p.apply(
+            SurfaceCommand::PaintWallpaper {
+                spec: wallpaper_spec("bg"),
+                frame: blank_frame(),
+            },
+            &mut dm,
+        )
+        .unwrap();
+        assert!(
+            !p.panels.contains_key("bg"),
+            "a wallpaper owns no window, so it must not be tracked as a panel"
+        );
+        assert!(
+            dm.calls.iter().any(|c| c == "paint_wallpaper:bg"),
+            "dm.calls: {:?}",
+            dm.calls
+        );
+    }
+
+    /// Repainting is the same operation as first painting — there is no
+    /// create/update distinction to get wrong.
+    #[test]
+    fn presenter_repeated_paint_wallpaper_just_repaints() {
+        let mut p: Presenter<MockDM> = Presenter::new();
+        let mut dm = MockDM::new();
+        for _ in 0..2 {
+            p.apply(
+                SurfaceCommand::PaintWallpaper {
+                    spec: wallpaper_spec("bg"),
+                    frame: blank_frame(),
+                },
+                &mut dm,
+            )
+            .unwrap();
+        }
+        assert_eq!(
+            dm.calls
+                .iter()
+                .filter(|c| *c == "paint_wallpaper:bg")
+                .count(),
+            2,
+            "each PaintWallpaper must reach the backend; got {:?}",
+            dm.calls
+        );
+    }
+
+    /// A backend with no wallpaper support (Wayland, macOS) surfaces the failure
+    /// rather than silently dropping the node.
+    #[test]
+    fn presenter_surfaces_the_error_when_backend_rejects_a_wallpaper() {
+        let mut p: Presenter<MockDM> = Presenter::new();
+        let mut dm = MockDM::new();
+        dm.wallpaper_supported = false;
+        let result = p.apply(
+            SurfaceCommand::PaintWallpaper {
+                spec: wallpaper_spec("bg"),
+                frame: blank_frame(),
+            },
+            &mut dm,
+        );
+        assert!(result.is_err(), "the backend's error must propagate");
     }
 
     #[test]
@@ -219,7 +321,7 @@ mod tests {
         let mut p: Presenter<MockDM> = Presenter::new();
         let mut dm = MockDM::new();
         p.apply(
-            PanelCommand::Create {
+            SurfaceCommand::Create {
                 spec: spec("p1"),
                 frame: blank_frame(),
             },
@@ -242,7 +344,7 @@ mod tests {
         let mut p: Presenter<MockDM> = Presenter::new();
         let mut dm = MockDM::new();
         p.apply(
-            PanelCommand::Create {
+            SurfaceCommand::Create {
                 spec: spec("p1"),
                 frame: blank_frame(),
             },
@@ -250,7 +352,7 @@ mod tests {
         )
         .unwrap();
         p.apply(
-            PanelCommand::Delete {
+            SurfaceCommand::Delete {
                 id: "p1".to_string(),
             },
             &mut dm,
@@ -272,20 +374,20 @@ mod tests {
         let mut p: Presenter<MockDM> = Presenter::new();
         let mut dm = MockDM::new();
         p.apply(
-            PanelCommand::Create {
+            SurfaceCommand::Create {
                 spec: spec("p1"),
                 frame: blank_frame(),
             },
             &mut dm,
         )
         .unwrap();
-        let frame = PanelFrame {
+        let frame = SurfaceFrame {
             pixels: Arc::new(vec![42u8; 4]),
             width: 1,
             height: 1,
         };
         p.apply(
-            PanelCommand::UpdatePicture {
+            SurfaceCommand::UpdatePicture {
                 id: "p1".to_string(),
                 frame,
             },
@@ -303,13 +405,13 @@ mod tests {
     fn presenter_update_picture_for_unknown_panel_is_noop() {
         let mut p: Presenter<MockDM> = Presenter::new();
         let mut dm = MockDM::new();
-        let frame = PanelFrame {
+        let frame = SurfaceFrame {
             pixels: Arc::new(vec![42u8; 4]),
             width: 1,
             height: 1,
         };
         p.apply(
-            PanelCommand::UpdatePicture {
+            SurfaceCommand::UpdatePicture {
                 id: "ghost".to_string(),
                 frame,
             },
@@ -328,16 +430,16 @@ mod tests {
         let mut p: Presenter<MockDM> = Presenter::new();
         let mut dm = MockDM::new();
         p.apply(
-            PanelCommand::Create {
+            SurfaceCommand::Create {
                 spec: spec("p1"),
                 frame: blank_frame(),
             },
             &mut dm,
         )
         .unwrap();
-        p.apply(PanelCommand::Move(spec("p2")), &mut dm).unwrap(); // unknown id: no-op
+        p.apply(SurfaceCommand::Move(spec("p2")), &mut dm).unwrap(); // unknown id: no-op
         p.apply(
-            PanelCommand::Resize {
+            SurfaceCommand::Resize {
                 spec: spec("p1"),
                 frame: blank_frame(),
             },

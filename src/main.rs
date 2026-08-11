@@ -217,6 +217,7 @@ fn init_x11() -> Result<X11Init, Box<dyn std::error::Error>> {
         screen_height_logical,
         root_screen_width,
         root_screen_height,
+        root_bg: None,
     };
 
     let jsx_ctx = serde_json::json!({
