@@ -162,6 +162,56 @@ Everything a wallpaper does is ordinary layout. Scaling or cropping a photo is
 background — there is no wallpaper-specific fitting, tiling or colour handling, and
 none is planned. The buffer is a straight pixel passthrough.
 
+### Fake transparency (`root-bg`)
+
+A panel is rasterized into its own isolated buffer, so there is nothing behind it
+to show through. To give it something, tauler binds the slice of wallpaper each
+panel covers as an image named `root-bg`, for the duration of that one render:
+
+```jsx
+<panel id="sidebar" anchor="left" width={272} height={ctx.screen_height}>
+  <container style={{ position: "relative", width: "100%", height: "100%" }}>
+    <image src="root-bg" style={{ position: "absolute", top: 0, left: 0,
+                                  width: "100%", height: "100%" }} />
+    <container tw="h-full w-full p-2" style={{ position: "relative" }}>
+      <container tw="h-full w-full rounded-2xl"
+                 style={{ backgroundColor: "rgba(20,20,24,0.55)" }}>
+        ...
+      </container>
+    </container>
+  </container>
+</panel>
+```
+
+**Use an `<image>` node, not `backgroundImage: url(root-bg)`.** Both work, but
+takumi's background-image path rebuilds per-pixel state that does not depend on
+the pixel — including a validating `PixmapRef::from_bytes` for every pixel — so a
+full-height panel costs ~19ms/render against a ~6ms floor. The `<image>` node
+path hoists that setup correctly and costs ~5ms. Keep the overlaying content
+`position: relative` rather than `absolute`: one out-of-flow sibling avoids the
+multiple-absolute-siblings bug family documented in
+`docs/takumi-absolute-sibling-bug-research.md`, and still paints above the image.
+
+The pixels come from tauler's own `<wallpaper>` render, matched by output — a
+wallpaper set by another program (feh, xwallpaper) is not visible to this. A
+panel on an output with no `<wallpaper>` gets no `root-bg` at all: the key is
+removed rather than left holding the last panel's crop, so a bare output renders
+without a backdrop instead of borrowing its neighbour's pixels.
+
+Wallpapers and panels are reconciled as two separate sets, wallpapers first, so
+the backdrop is never a tick stale. Ordering cannot come from sorting the specs:
+`OptativeSet::reconcile` dedups them into a `HashMap` and iterates its keys, and
+runs `update_existing` before `enter_new` — so a sorted input buys nothing and a
+newly added wallpaper would otherwise land after every existing panel.
+
+Freshness needs two things, and either alone is insufficient. The reconciler
+compares each panel's last-rendered wallpaper generation against the registry's
+current one, so a panel whose own spec is byte-identical is still re-rendered
+when the wallpaper moves. And the render cache is keyed by `(generation, rect)`:
+the generation stops a stale hit, while the rect tells two same-size,
+same-content panels apart — without it they collide on one entry and the second
+is served the first one's slice of wallpaper.
+
 On X11 the buffer is blitted into the root window's background pixmap, and
 `_XROOTPMAP_ID` / `ESETROOT_PMAP_ID` are published so pseudo-transparent clients can
 find it. Wayland and macOS do not support `<wallpaper>` yet; the node is ignored with

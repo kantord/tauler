@@ -42,7 +42,7 @@ fn render_frame_rgba_transparent_pixels_have_alpha_zero() {
         "tw": "w-full h-full",
         "children": []
     });
-    let rgba = render_frame_rgba(&content, 10, 10, 1.0);
+    let rgba = render_frame_rgba(&content, 10, 10, 1.0, None);
     assert_eq!(rgba.len(), 10 * 10 * 4, "expected 400 bytes for 10x10 RGBA");
     for i in 0..(10 * 10) {
         assert_eq!(

@@ -46,6 +46,31 @@ pub struct OutputInfo {
     pub dpr: f32,
 }
 
+impl OutputInfo {
+    /// The area this output covers on the root screen.
+    pub fn rect(&self) -> Rect {
+        Rect {
+            x: self.x,
+            y: self.y,
+            width: self.width,
+            height: self.height,
+        }
+    }
+}
+
+/// An absolute rect on the root screen, in physical pixels.
+///
+/// `Hash`/`Eq` because it doubles as a cache key: two panels over one wallpaper
+/// differ only in which slice of it they cover, so the rect is what tells their
+/// otherwise-identical frames apart.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct Rect {
+    pub x: i16,
+    pub y: i16,
+    pub width: u32,
+    pub height: u32,
+}
+
 /// Logical-pixel description of a `<panel>` or `<wallpaper>` node extracted from
 /// the JSX root. All dimensions are in logical pixels; the display backend scales
 /// to physical pixels.
@@ -76,6 +101,34 @@ pub struct SurfaceSpec {
 impl std::fmt::Display for SurfaceSpec {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.id)
+    }
+}
+
+/// Where a surface's top-left corner lands on the root screen, in physical pixels.
+///
+/// Anchored surfaces sit flush against an edge of their output; unanchored ones
+/// are offset from its origin by their logical `x`/`y`. `phys` is passed in
+/// rather than derived from the spec because callers that already resized a
+/// window know its real dimensions, which can differ from the spec mid-reconcile.
+///
+/// The pipeline needs this as much as the display backend does: cropping the
+/// wallpaper behind a panel means knowing where the panel actually is, and for
+/// an anchored panel `spec.x`/`spec.y` are both zero.
+///
+/// Takes the output's `Rect` rather than the whole [`OutputInfo`]: a caller that
+/// only knows where a wallpaper sits — which is the same rect — should not have
+/// to invent a name and a dpr it has no use for.
+pub fn surface_origin(spec: &SurfaceSpec, phys: (u32, u32), output: Rect) -> (i16, i16) {
+    let (phys_width, phys_height) = phys;
+    let (mon_x, mon_y) = (output.x, output.y);
+    match &spec.anchor {
+        Some(PanelAnchor::Left) | Some(PanelAnchor::Top) => (mon_x, mon_y),
+        Some(PanelAnchor::Right) => (mon_x + output.width as i16 - phys_width as i16, mon_y),
+        Some(PanelAnchor::Bottom) => (mon_x, mon_y + output.height as i16 - phys_height as i16),
+        None => (
+            mon_x + (spec.x as f32 * spec.dpr).round() as i16,
+            mon_y + (spec.y as f32 * spec.dpr).round() as i16,
+        ),
     }
 }
 
@@ -193,4 +246,74 @@ fn parse_panel(i: usize, panel: &serde_json::Value) -> Result<SurfaceSpec, Strin
         content: first_child(panel),
         dpr: 1.0,
     })
+}
+
+#[cfg(test)]
+mod origin_tests {
+    use super::*;
+
+    fn out() -> OutputInfo {
+        // A secondary monitor at a non-zero origin, so a bug that ignores the
+        // output offset can't pass by accident.
+        OutputInfo {
+            name: "DP-4".into(),
+            x: 1080,
+            y: 748,
+            width: 3840,
+            height: 2160,
+            dpr: 1.0,
+        }
+    }
+
+    fn spec(anchor: Option<PanelAnchor>, x: i32, y: i32, dpr: f32) -> SurfaceSpec {
+        SurfaceSpec {
+            id: "s".into(),
+            kind: SurfaceKind::Panel,
+            anchor,
+            width: 272,
+            height: 2160,
+            x,
+            y,
+            outer_gap: 0,
+            output: None,
+            above: false,
+            content: serde_json::Value::Null,
+            dpr,
+        }
+    }
+
+    #[test]
+    fn left_and_top_sit_at_the_output_origin() {
+        let o = out();
+        let at = |a| surface_origin(&spec(Some(a), 0, 0, 1.0), (272, 2160), o.rect());
+        assert_eq!(at(PanelAnchor::Left), (1080, 748));
+        assert_eq!(at(PanelAnchor::Top), (1080, 748));
+    }
+
+    #[test]
+    fn right_is_flush_with_the_outputs_right_edge() {
+        let (x, y) = surface_origin(
+            &spec(Some(PanelAnchor::Right), 0, 0, 1.0),
+            (60, 2160),
+            out().rect(),
+        );
+        assert_eq!((x, y), (1080 + 3840 - 60, 748));
+    }
+
+    #[test]
+    fn bottom_is_flush_with_the_outputs_bottom_edge() {
+        let (x, y) = surface_origin(
+            &spec(Some(PanelAnchor::Bottom), 0, 0, 1.0),
+            (3840, 32),
+            out().rect(),
+        );
+        assert_eq!((x, y), (1080, 748 + 2160 - 32));
+    }
+
+    #[test]
+    fn unanchored_offsets_from_the_output_origin_in_physical_pixels() {
+        // Logical 10,20 at dpr 2.0 is 20,40 physical from the output's corner.
+        let (x, y) = surface_origin(&spec(None, 10, 20, 2.0), (100, 100), out().rect());
+        assert_eq!((x, y), (1080 + 20, 748 + 40));
+    }
 }

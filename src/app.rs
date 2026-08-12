@@ -13,7 +13,7 @@ use tauler::managed_set::{Lifecycle, OptativeSet, Reconcile};
 #[cfg(not(target_os = "macos"))]
 use tauler::presentation::PresentationThread;
 use tauler::presentation::{PresenterEvent, SurfaceCommand};
-use tauler::surface::Surface;
+use tauler::surface::SurfaceSets;
 use tauler::theme::resolver::resolve_tw_in_json;
 use tauler::theme::{Theme, ThemeMode};
 #[cfg(target_os = "linux")]
@@ -143,7 +143,7 @@ fn apply_eval_result(
     primary_output_name: &str,
     output_map: &HashMap<String, OutputInfo>,
     handle: &DataLoopHandle,
-    surface_set: &mut OptativeSet<Surface>,
+    surface_set: &mut SurfaceSets,
     command_tx: &mut mpsc::Sender<SurfaceCommand>,
     mod_init_fn: &dyn Fn(&[tauler::SurfaceSpec]) -> serde_json::Value,
 ) -> bool {
@@ -161,9 +161,17 @@ fn apply_eval_result(
         output_map.contains_key(name)
     });
     for spec in &mut specs {
-        let name = spec.output.as_deref().unwrap_or(primary_output_name);
-        let out = output_map.get(name);
+        let name = spec
+            .output
+            .as_deref()
+            .unwrap_or(primary_output_name)
+            .to_string();
+        let out = output_map.get(&name);
         spec.dpr = out.map(|o| o.dpr).unwrap_or(dpr);
+        // Resolve "unspecified" to the primary output's real name, so a panel
+        // and a wallpaper that mean the same monitor agree on one key — that is
+        // how `backdrop` pairs them up.
+        spec.output = Some(name.clone());
         if spec.kind == tauler::SurfaceKind::Wallpaper {
             if let Some(out) = out {
                 // A wallpaper is always exactly its display: geometry comes from
@@ -207,7 +215,7 @@ fn apply_eval_result(
     let combined: Vec<StreamSource> = stream_specs.into_iter().chain(module_specs).collect();
     handle.set_desired(combined);
 
-    let surface_errors = surface_set.reconcile(specs.into_iter().map(Surface), &mut (), command_tx);
+    let surface_errors = surface_set.reconcile_all(specs, command_tx);
     log_lifecycle_errors(surface_errors);
     true
 }
@@ -314,7 +322,7 @@ pub(crate) struct App {
     screen_width_logical: u32,
     screen_height_logical: u32,
     output_map: HashMap<String, OutputInfo>,
-    panels: OptativeSet<Surface>,
+    surfaces: SurfaceSets,
     import_watches: OptativeSet<WatchedPath>,
     theme_file_watch: OptativeSet<WatchedPath>,
     watcher: SharedWatcher,
@@ -412,7 +420,7 @@ impl App {
             screen_width_logical,
             screen_height_logical,
             output_map,
-            panels: OptativeSet::new(),
+            surfaces: SurfaceSets::new(),
             import_watches: OptativeSet::new(),
             theme_file_watch: OptativeSet::new(),
             watcher,
@@ -474,7 +482,7 @@ impl App {
             screen_width_logical: screen_width,
             screen_height_logical: screen_height,
             output_map: HashMap::new(),
-            panels: OptativeSet::new(),
+            surfaces: SurfaceSets::new(),
             import_watches: OptativeSet::new(),
             theme_file_watch: OptativeSet::new(),
             watcher,
@@ -550,7 +558,7 @@ impl App {
             screen_width_logical,
             screen_height_logical,
             output_map,
-            panels: OptativeSet::new(),
+            surfaces: SurfaceSets::new(),
             import_watches: OptativeSet::new(),
             theme_file_watch: OptativeSet::new(),
             watcher,
@@ -595,7 +603,7 @@ impl App {
             &self.output_name,
             &self.output_map,
             &self.handle,
-            &mut self.panels,
+            &mut self.surfaces,
             &mut self.command_tx,
             &move |specs| make_mod_init_value(specs, &output_name, dpi, sw, sh),
         )
@@ -809,7 +817,7 @@ impl App {
                     phys_height,
                     dpr,
                 } => {
-                    if let Some(spec) = self.panels.get(&panel_id) {
+                    if let Some(spec) = self.surfaces.spec(&panel_id) {
                         let raw_layout = if spec.content.is_null() {
                             None
                         } else {
@@ -826,7 +834,7 @@ impl App {
 
 impl Drop for App {
     fn drop(&mut self) {
-        log_lifecycle_errors(self.panels.reconcile(vec![], &mut (), &mut self.command_tx));
+        log_lifecycle_errors(self.surfaces.clear(&mut self.command_tx));
         let _ = self.command_tx.send(SurfaceCommand::Shutdown);
         if let Some(h) = self.presenter_thread.take() {
             let _ = h.join();
@@ -845,9 +853,8 @@ mod tests {
     use std::sync::mpsc;
     use tauler::data::data_loop::{DataLoop, StreamSource};
     use tauler::layout::OutputInfo;
-    use tauler::managed_set::OptativeSet;
     use tauler::presentation::SurfaceCommand;
-    use tauler::surface::Surface;
+    use tauler::surface::SurfaceSets;
 
     fn make_eval_output(layout: serde_json::Value) -> tauler::jsx::EvalOutput {
         tauler::jsx::EvalOutput {
@@ -882,7 +889,7 @@ mod tests {
         let output_map: HashMap<String, OutputInfo> = HashMap::new();
 
         let (_data_loop, handle) = DataLoop::new();
-        let mut surface_set: OptativeSet<Surface> = OptativeSet::new();
+        let mut surface_set = SurfaceSets::new();
         let (mut command_tx, command_rx) = mpsc::channel::<SurfaceCommand>();
 
         apply_eval_result(
@@ -930,7 +937,7 @@ mod tests {
         let output_map: HashMap<String, OutputInfo> = HashMap::new();
 
         let (_data_loop, handle) = DataLoop::new();
-        let mut surface_set: OptativeSet<Surface> = OptativeSet::new();
+        let mut surface_set = SurfaceSets::new();
         let (mut command_tx, command_rx) = mpsc::channel::<SurfaceCommand>();
 
         // primary output "DP-1" is not in output_map, so the null-output spec must be excluded
@@ -968,6 +975,45 @@ mod tests {
         }
     }
 
+    /// A surface that names no output means "the primary one". That has to be
+    /// resolved to the primary's real name before reconciling, or a panel and a
+    /// wallpaper meaning the same monitor carry different keys (`None` vs
+    /// `Some("DP-1")`) and `backdrop` never pairs them up.
+    #[test]
+    fn apply_eval_result_resolves_an_unspecified_output_to_the_primary_name() {
+        tauler::init_global_ctx(tauler::config::FontConfig::default());
+        let layout = serde_json::json!({
+            "type": "root",
+            "children": [{ "type": "panel", "id": "p", "width": 10, "height": 10 }]
+        });
+        let out = make_eval_output(layout);
+        let output_map: HashMap<String, OutputInfo> =
+            [("DP-1".to_string(), output("DP-1", 0, 0, 2560, 1440, 1.0))]
+                .into_iter()
+                .collect();
+
+        let (_data_loop, handle) = DataLoop::new();
+        let mut surface_set = SurfaceSets::new();
+        let (mut command_tx, _command_rx) = mpsc::channel::<SurfaceCommand>();
+
+        apply_eval_result(
+            &out,
+            1.0,
+            "DP-1",
+            &output_map,
+            &handle,
+            &mut surface_set,
+            &mut command_tx,
+            &noop_mod_init,
+        );
+
+        assert_eq!(
+            surface_set.spec("p").and_then(|s| s.output.as_deref()),
+            Some("DP-1"),
+            "a panel with no declared output must be reconciled under the primary output's name"
+        );
+    }
+
     /// A `<wallpaper>` declares no geometry — it always covers its display
     /// exactly, so the dimensions come from the output, not the layout file.
     #[test]
@@ -984,7 +1030,7 @@ mod tests {
                 .collect();
 
         let (_data_loop, handle) = DataLoop::new();
-        let mut surface_set: OptativeSet<Surface> = OptativeSet::new();
+        let mut surface_set = SurfaceSets::new();
         let (mut command_tx, command_rx) = mpsc::channel::<SurfaceCommand>();
 
         apply_eval_result(

@@ -9,7 +9,7 @@ use x11rb::{
 };
 
 use crate::display_manager::DisplayManager;
-use crate::layout::{OutputInfo, PanelAnchor, SurfaceSpec};
+use crate::layout::{surface_origin, OutputInfo, SurfaceSpec};
 use crate::presentation::SurfaceFrame;
 
 const XRESOURCES_PROP_MAX_LEN: u32 = 65536;
@@ -146,15 +146,7 @@ fn create_panel(
         .ok_or_else(|| anyhow::anyhow!("output '{}' not in map", output_name))?;
     let (mon_x, mon_y, mon_width, mon_height) = (output.x, output.y, output.width, output.height);
 
-    let (win_x, win_y) = match &spec.anchor {
-        Some(PanelAnchor::Left) | Some(PanelAnchor::Top) => (mon_x, mon_y),
-        Some(PanelAnchor::Right) => (mon_x + mon_width as i16 - phys_width as i16, mon_y),
-        Some(PanelAnchor::Bottom) => (mon_x, mon_y + mon_height as i16 - phys_height as i16),
-        None => (
-            mon_x + (spec.x as f32 * spec.dpr).round() as i16,
-            mon_y + (spec.y as f32 * spec.dpr).round() as i16,
-        ),
-    };
+    let (win_x, win_y) = surface_origin(spec, (phys_width, phys_height), output.rect());
 
     let win_id = ctx.conn.generate_id()?;
     ctx.conn.create_window(
@@ -303,20 +295,8 @@ impl DisplayManager for X11PanelContext {
             .output_map
             .get(output_name)
             .ok_or_else(|| anyhow::anyhow!("output '{}' not in map", output_name))?;
-        let (mon_x, mon_y, mon_width, mon_height) =
-            (output.x, output.y, output.width, output.height);
-
-        let (win_x, win_y) = match &spec.anchor {
-            Some(PanelAnchor::Left) | Some(PanelAnchor::Top) => (mon_x, mon_y),
-            Some(PanelAnchor::Right) => (mon_x + mon_width as i16 - panel.phys_width as i16, mon_y),
-            Some(PanelAnchor::Bottom) => {
-                (mon_x, mon_y + mon_height as i16 - panel.phys_height as i16)
-            }
-            None => (
-                mon_x + (spec.x as f32 * spec.dpr).round() as i16,
-                mon_y + (spec.y as f32 * spec.dpr).round() as i16,
-            ),
-        };
+        let (win_x, win_y) =
+            surface_origin(spec, (panel.phys_width, panel.phys_height), output.rect());
 
         if win_x != panel.win_x || win_y != panel.win_y {
             self.conn
