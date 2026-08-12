@@ -145,7 +145,7 @@ fn apply_eval_result(
     handle: &DataLoopHandle,
     surface_set: &mut SurfaceSets,
     command_tx: &mut mpsc::Sender<SurfaceCommand>,
-    mod_init_fn: &dyn Fn(&[tauler::SurfaceSpec]) -> serde_json::Value,
+    mod_init_fn: &dyn Fn() -> serde_json::Value,
 ) -> bool {
     let mut specs = match tauler::parse_root_node(&out.layout) {
         Ok(s) => s,
@@ -185,7 +185,7 @@ fn apply_eval_result(
             }
         }
     }
-    let mod_init = mod_init_fn(&specs);
+    let mod_init = mod_init_fn();
 
     let module_bins: std::collections::HashSet<String> =
         out.module_calls.iter().map(|(b, _)| b.clone()).collect();
@@ -237,44 +237,24 @@ fn merge_module_props(
     serde_json::Value::Object(merged)
 }
 
+/// The environment every module is told about at startup.
+///
+/// Facts only. tauler used to also derive `config: {left, right, outer_gap}` —
+/// its guess at the i3 gaps the panels imply — and send it to *every* module,
+/// including ones with no idea what it meant. That guess could never be right:
+/// i3 reserves nothing for override-redirect windows, and has no left/right
+/// dock concept at all (`W_DOCK_TOP`/`W_DOCK_BOTTOM` are its only variants), so
+/// what to reserve is a decision, not a consequence of geometry. The layout
+/// file now states it via `<Module gaps={{...}}>`, which passes through
+/// untouched.
 fn make_mod_init_value(
-    specs: &[tauler::SurfaceSpec],
     output_name: &str,
     dpi: f32,
     screen_width_logical: u32,
     screen_height_logical: u32,
 ) -> serde_json::Value {
-    // Must match how the panel's real pixel width is computed (`panel/mod.rs`
-    // and `x11/panel.rs`: `(spec.width * spec.dpr).round()`), so the space
-    // reserved always equals the space occupied. Scaling by the primary
-    // output's dpr instead leaves dead space — or lets windows slide under the
-    // bar — whenever the bar sits on a differently-scaled monitor. There is
-    // deliberately no global dpr parameter here.
-    // Wallpapers are excluded throughout: they reserve no space, and the
-    // `specs.first()` fallback below would otherwise report a full-screen strut.
-    let panels = || {
-        specs
-            .iter()
-            .filter(|p| p.kind == tauler::SurfaceKind::Panel)
-    };
-    let left_spec = panels()
-        .find(|p| p.anchor == Some(tauler::PanelAnchor::Left))
-        .or_else(|| panels().next());
-    let (bar_w_left, og) = left_spec
-        .map(|p| {
-            (
-                (p.width as f32 * p.dpr).round() as u32,
-                (p.outer_gap as f32 * p.dpr).round() as u32,
-            )
-        })
-        .unwrap_or((250, 0));
-    let bar_w_right = panels()
-        .find(|p| p.anchor == Some(tauler::PanelAnchor::Right))
-        .map(|p| (p.width as f32 * p.dpr).round() as u32)
-        .unwrap_or(0);
     serde_json::json!({
         "type": "init",
-        "config": {"left": bar_w_left, "right": bar_w_right, "outer_gap": og},
         "output": output_name,
         "dpi": dpi,
         "screen_width": screen_width_logical,
@@ -605,7 +585,7 @@ impl App {
             &self.handle,
             &mut self.surfaces,
             &mut self.command_tx,
-            &move |specs| make_mod_init_value(specs, &output_name, dpi, sw, sh),
+            &move || make_mod_init_value(&output_name, dpi, sw, sh),
         )
     }
 
@@ -864,7 +844,7 @@ mod tests {
         }
     }
 
-    fn noop_mod_init(_specs: &[tauler::SurfaceSpec]) -> serde_json::Value {
+    fn noop_mod_init() -> serde_json::Value {
         serde_json::Value::Null
     }
 
@@ -1069,55 +1049,15 @@ mod tests {
         assert_eq!(spec.dpr, 2.0);
     }
 
-    /// Regression guard: `make_mod_init_value` falls back to `specs.first()` for
-    /// the bar width. A wallpaper declared before the bar must not be mistaken
-    /// for one — it would report a full-screen-wide strut to the WM.
-    #[test]
-    fn wallpaper_is_not_used_as_the_bar_width_fallback() {
-        let specs = vec![
-            tauler::SurfaceSpec {
-                kind: tauler::SurfaceKind::Wallpaper,
-                anchor: None,
-                ..left_spec(3840)
-            },
-            tauler::SurfaceSpec {
-                anchor: None,
-                ..left_spec(250)
-            },
-        ];
-        let init = make_mod_init_value(&specs, "DP-1", 96.0, 1920, 1080);
-        assert_eq!(
-            init["config"]["left"], 250,
-            "the bar width must come from the panel, not the wallpaper"
-        );
-    }
-
-    fn left_spec(width: u32) -> tauler::SurfaceSpec {
-        tauler::SurfaceSpec {
-            kind: tauler::SurfaceKind::Panel,
-            id: "p".into(),
-            width,
-            height: 30,
-            x: 0,
-            y: 0,
-            outer_gap: 0,
-            above: false,
-            output: None,
-            anchor: Some(tauler::PanelAnchor::Left),
-            content: serde_json::Value::Null,
-            dpr: 1.0,
-        }
-    }
-
-    fn wayland_mod_init(specs: &[tauler::SurfaceSpec]) -> serde_json::Value {
-        make_mod_init_value(specs, "", 96.0, 0, 0)
+    fn wayland_mod_init() -> serde_json::Value {
+        make_mod_init_value("", 96.0, 0, 0)
     }
 
     /// Claim: output field must be "" (empty string), NOT "wayland" or any compositor name.
     /// fetch_workspaces in tauler-i3 filters all workspaces when output is non-empty.
     #[test]
     fn mod_init_wayland_output_is_empty_string() {
-        let result = wayland_mod_init(&[left_spec(250)]);
+        let result = wayland_mod_init();
         assert_eq!(
             result["output"].as_str(),
             Some(""),
@@ -1127,46 +1067,21 @@ mod tests {
 
     #[test]
     fn mod_init_type_is_init() {
-        let result = wayland_mod_init(&[left_spec(250)]);
+        let result = wayland_mod_init();
         assert_eq!(result["type"].as_str(), Some("init"));
     }
 
-    /// Regression: the reservation must be computed with the panel's own
-    /// output dpr, not the primary output's. A bar on a non-primary monitor
-    /// renders at `width * spec.dpr` but was reserved at `width * global dpr`,
-    /// leaving dead space between the bar and the windows.
     #[test]
-    fn mod_init_uses_each_panels_own_dpr_not_the_global_one() {
-        let mut spec = left_spec(272);
-        spec.dpr = 1.4596;
-        // Global dpr deliberately different from the panel's own.
-        let result = make_mod_init_value(&[spec], "DP-4", 140.0, 0, 0);
-        assert_eq!(
-            result["config"]["left"].as_u64(),
-            Some(397),
-            "must use the panel's dpr (272*1.4596=397), not the global (400)"
-        );
-    }
-
-    #[test]
-    fn mod_init_uses_the_right_panels_own_dpr_too() {
-        let mut left = left_spec(272);
-        left.dpr = 1.4596;
-        // Width chosen so the two dprs actually round differently
-        // (100*1.4596=146, 100*1.4706=147).
-        let mut right = right_spec(100);
-        right.dpr = 1.4596;
-        let result = make_mod_init_value(&[left, right], "DP-4", 140.0, 0, 0);
-        assert_eq!(result["config"]["right"].as_u64(), Some(146));
-    }
-
-    #[test]
+    /// `gaps` is an ordinary prop now: tauler neither derives nor rescales it,
+    /// so whatever the layout declared is what the module receives. i3 applies
+    /// `logical_px` itself, so a logical value must arrive intact.
     fn module_props_carry_jsx_declared_values_alongside_init() {
-        let init = serde_json::json!({"type": "init", "config": {"left": 250}});
-        let jsx = serde_json::json!({"gaps": {"left": 300}});
+        let init = serde_json::json!({"type": "init", "output": "DP-4"});
+        let jsx = serde_json::json!({"gaps": {"left": 272, "top": 26}});
         let merged = merge_module_props(&init, &jsx);
-        assert_eq!(merged["gaps"]["left"].as_u64(), Some(300));
-        assert_eq!(merged["config"]["left"].as_u64(), Some(250));
+        assert_eq!(merged["gaps"]["left"].as_u64(), Some(272));
+        assert_eq!(merged["gaps"]["top"].as_u64(), Some(26));
+        assert_eq!(merged["output"].as_str(), Some("DP-4"));
     }
 
     /// The init payload is a protocol, not user-editable state — a JSX prop
@@ -1184,53 +1099,6 @@ mod tests {
     fn merge_is_a_noop_when_the_module_declares_no_props() {
         let init = serde_json::json!({"type": "init", "config": {"left": 250}});
         assert_eq!(merge_module_props(&init, &serde_json::Value::Null), init);
-    }
-
-    /// Claim: config.left must match the width of the left-anchored spec (no dpr scaling at 1.0).
-    #[test]
-    fn mod_init_config_left_matches_left_anchor_spec() {
-        let result = wayland_mod_init(&[left_spec(320)]);
-        assert_eq!(
-            result["config"]["left"].as_u64(),
-            Some(320),
-            "config.left must match the left-anchored spec width"
-        );
-    }
-
-    fn right_spec(width: u32) -> tauler::SurfaceSpec {
-        tauler::SurfaceSpec {
-            kind: tauler::SurfaceKind::Panel,
-            id: "p".into(),
-            width,
-            height: 30,
-            x: 0,
-            y: 0,
-            outer_gap: 0,
-            above: false,
-            output: None,
-            anchor: Some(tauler::PanelAnchor::Right),
-            content: serde_json::Value::Null,
-            dpr: 1.0,
-        }
-    }
-
-    /// Claim: config.right must match the width of the right-anchored spec, independent of
-    /// the left spec's outer_gap — the bug this fixes: right panels never reserved space.
-    #[test]
-    fn mod_init_config_right_matches_right_anchor_spec() {
-        let result = wayland_mod_init(&[left_spec(250), right_spec(87)]);
-        assert_eq!(
-            result["config"]["right"].as_u64(),
-            Some(87),
-            "config.right must match the right-anchored spec width"
-        );
-    }
-
-    /// Claim: without a right-anchored spec present, config.right defaults to 0 (no reservation).
-    #[test]
-    fn mod_init_config_right_defaults_to_zero_without_right_spec() {
-        let result = wayland_mod_init(&[left_spec(250)]);
-        assert_eq!(result["config"]["right"].as_u64(), Some(0));
     }
 
     #[test]
