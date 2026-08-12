@@ -196,6 +196,12 @@ fn apply_eval_result(
             StreamSource::BuiltIn(_) => true,
         })
         .collect::<Vec<_>>();
+    // The init payload names the primary output, so a `gaps` override is
+    // expressed in that output's pixels.
+    let module_dpr = output_map
+        .get(primary_output_name)
+        .map(|o| o.dpr)
+        .unwrap_or(dpr);
     let module_specs: Vec<StreamSource> = out
         .module_calls
         .iter()
@@ -208,7 +214,7 @@ fn apply_eval_result(
                 args: vec![],
                 env: std::collections::BTreeMap::new(),
                 current_dir: None,
-                props: Some(merge_module_props(&mod_init, jsx_props)),
+                props: Some(merge_module_props(&mod_init, jsx_props, module_dpr)),
             })
         })
         .collect();
@@ -226,15 +232,42 @@ fn apply_eval_result(
 fn merge_module_props(
     mod_init: &serde_json::Value,
     jsx_props: &serde_json::Value,
+    dpr: f32,
 ) -> serde_json::Value {
     let (Some(init_map), Some(jsx_map)) = (mod_init.as_object(), jsx_props.as_object()) else {
         return mod_init.clone();
     };
     let mut merged = jsx_map.clone();
+    if let Some(gaps) = merged.get_mut(GAPS_PROP) {
+        scale_lengths(gaps, dpr);
+    }
     for (k, v) in init_map {
         merged.insert(k.clone(), v.clone());
     }
     serde_json::Value::Object(merged)
+}
+
+/// The one `<Module>` prop whose values are lengths rather than opaque config.
+const GAPS_PROP: &str = "gaps";
+
+/// Convert every number in `value` from logical to physical pixels in place.
+///
+/// Layout files are written entirely in logical px, and the gaps tauler derives
+/// itself (`config.left`/`right`/`outer_gap`) are scaled before being sent. A
+/// hand-written `gaps` override has to be scaled the same way, or that one prop
+/// would silently mean something different from every other length in the file.
+///
+/// Non-numeric entries are left alone: this is a unit conversion, not validation,
+/// and swallowing an unexpected value would only hide the mistake from the module.
+fn scale_lengths(value: &mut serde_json::Value, dpr: f32) {
+    let Some(map) = value.as_object_mut() else {
+        return;
+    };
+    for (_, v) in map.iter_mut() {
+        if let Some(n) = v.as_f64() {
+            *v = serde_json::json!((n * dpr as f64).round() as i64);
+        }
+    }
 }
 
 fn make_mod_init_value(
@@ -1164,7 +1197,7 @@ mod tests {
     fn module_props_carry_jsx_declared_values_alongside_init() {
         let init = serde_json::json!({"type": "init", "config": {"left": 250}});
         let jsx = serde_json::json!({"gaps": {"left": 300}});
-        let merged = merge_module_props(&init, &jsx);
+        let merged = merge_module_props(&init, &jsx, 1.0);
         assert_eq!(merged["gaps"]["left"].as_u64(), Some(300));
         assert_eq!(merged["config"]["left"].as_u64(), Some(250));
     }
@@ -1175,7 +1208,7 @@ mod tests {
     fn init_keys_win_over_conflicting_jsx_props() {
         let init = serde_json::json!({"type": "init", "config": {"left": 250}});
         let jsx = serde_json::json!({"type": "bogus", "config": {"left": 1}});
-        let merged = merge_module_props(&init, &jsx);
+        let merged = merge_module_props(&init, &jsx, 1.0);
         assert_eq!(merged["type"].as_str(), Some("init"));
         assert_eq!(merged["config"]["left"].as_u64(), Some(250));
     }
@@ -1183,7 +1216,56 @@ mod tests {
     #[test]
     fn merge_is_a_noop_when_the_module_declares_no_props() {
         let init = serde_json::json!({"type": "init", "config": {"left": 250}});
-        assert_eq!(merge_module_props(&init, &serde_json::Value::Null), init);
+        assert_eq!(
+            merge_module_props(&init, &serde_json::Value::Null, 1.0),
+            init
+        );
+    }
+
+    /// Every other length in a layout file is logical, and the derived
+    /// `config.left`/`right`/`outer_gap` are scaled by DPR before they reach the
+    /// module. A hand-written `gaps` override must be scaled the same way, or the
+    /// author has to know that this one prop is secretly physical pixels.
+    #[test]
+    fn jsx_gaps_are_scaled_from_logical_to_physical() {
+        let init = serde_json::json!({"type": "init"});
+        let jsx = serde_json::json!({"gaps": {"top": 26, "bottom": 26}});
+        let merged = merge_module_props(&init, &jsx, 1.5);
+        assert_eq!(merged["gaps"]["top"].as_i64(), Some(39));
+        assert_eq!(merged["gaps"]["bottom"].as_i64(), Some(39));
+    }
+
+    /// An explicit 0 is a declaration ("no gap here"), not an omission — it must
+    /// survive scaling rather than being dropped.
+    #[test]
+    fn a_zero_gap_stays_zero_and_stays_present() {
+        let merged = merge_module_props(
+            &serde_json::json!({"type": "init"}),
+            &serde_json::json!({"gaps": {"top": 0}}),
+            2.0,
+        );
+        assert_eq!(merged["gaps"]["top"].as_i64(), Some(0));
+    }
+
+    #[test]
+    fn gaps_scaling_leaves_other_props_untouched() {
+        let merged = merge_module_props(
+            &serde_json::json!({"type": "init"}),
+            &serde_json::json!({"gaps": {"left": 10}, "other": 10}),
+            2.0,
+        );
+        assert_eq!(merged["gaps"]["left"].as_i64(), Some(20));
+        assert_eq!(merged["other"].as_i64(), Some(10), "only gaps are lengths");
+    }
+
+    #[test]
+    fn a_non_numeric_gap_is_passed_through_rather_than_dropped() {
+        let merged = merge_module_props(
+            &serde_json::json!({"type": "init"}),
+            &serde_json::json!({"gaps": {"top": "wat"}}),
+            2.0,
+        );
+        assert_eq!(merged["gaps"]["top"].as_str(), Some("wat"));
     }
 
     /// Claim: config.left must match the width of the left-anchored spec (no dpr scaling at 1.0).

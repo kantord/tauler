@@ -356,6 +356,12 @@ the module protocol, not user-editable state.
 panel geometry. Sides left unspecified stay derived, and outputs with no panel are still
 revoked to zero regardless of what is declared.
 
+`gaps` values are **logical pixels**, like every other length in a layout file; tauler
+scales them by the target output's DPR before sending. `top` and `bottom` are the only
+way to reserve space for a top- or bottom-anchored panel: tauler derives `left` and
+`right` from panel geometry, but not the vertical sides, so a `<panel anchor="top">`
+without a matching `gaps` entry will be tiled over by windows.
+
 ```jsx
 <Module bin="/home/kantord/.cargo/bin/tauler-i3" gaps={{ left: 300, top: 8 }}>
   {(data, events) => <WorkspaceList workspaces={data?.workspaces} events={events} />}
