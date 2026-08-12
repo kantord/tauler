@@ -23,6 +23,6 @@ pubkey = "RWSIIxAW8MOpS1/+qA/KhHpVtPwT58dU4A4YY0sw+DN02POargT6PDM0"
 
 [dependencies]
 tokio = { version = "1.53.1", features = ["macros", "rt-multi-thread", "time", "sync"] }
-zbus = { version = "5.18.0", features = ["tokio"] }
+zbus = { version = "5.19.0", features = ["tokio"] }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"
