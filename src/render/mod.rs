@@ -9,8 +9,9 @@ use takumi::prelude::{
 };
 use takumi::{measure as takumi_measure_layout, render};
 
+use crate::backdrop::{Backdrop, ROOT_BG_KEY};
 use crate::config::FontConfig;
-use crate::layout::parse_layout;
+use crate::layout::{parse_layout, Rect};
 
 /// Everything a render needs that outlives a single frame.
 ///
@@ -96,12 +97,47 @@ pub fn render_frame(
     height: u32,
     dpr: f32,
 ) -> Arc<Vec<u8>> {
-    let canonical = json_canon::to_string(content).unwrap_or_default();
-    render_frame_cached(canonical, width, height, dpr.to_bits())
+    render_frame_keyed(content, width, height, dpr, None)
 }
 
-#[cached(max_size = 6)]
-fn render_frame_cached(canonical: String, width: u32, height: u32, dpr_bits: u32) -> Arc<Vec<u8>> {
+/// As [`render_frame`], but with the surface's slice of wallpaper bound as
+/// `root-bg` for the duration of the render.
+///
+/// `backdrop` is part of the cache key by `(generation, rect)`: the generation
+/// catches a wallpaper that moved under an otherwise-unchanged panel, and the
+/// rect tells two same-size, same-content panels apart — without it they collide
+/// on one entry and the second is served the first one's slice.
+pub fn render_frame_keyed(
+    content: &serde_json::Value,
+    width: u32,
+    height: u32,
+    dpr: f32,
+    backdrop: Option<&Backdrop>,
+) -> Arc<Vec<u8>> {
+    let canonical = json_canon::to_string(content).unwrap_or_default();
+    render_frame_cached(canonical, width, height, dpr.to_bits(), backdrop.cloned())
+}
+
+#[cached(
+    max_size = 6,
+    key = "(String, u32, u32, u32, Option<(u64, Rect)>)",
+    convert = r#"{
+        (
+            canonical.clone(),
+            width,
+            height,
+            dpr_bits,
+            backdrop.as_ref().map(|b| (b.generation, b.rect)),
+        )
+    }"#
+)]
+fn render_frame_cached(
+    canonical: String,
+    width: u32,
+    height: u32,
+    dpr_bits: u32,
+    backdrop: Option<Backdrop>,
+) -> Arc<Vec<u8>> {
     let dpr = f32::from_bits(dpr_bits);
     let layout = serde_json::from_str::<serde_json::Value>(&canonical)
         .ok()
@@ -110,7 +146,7 @@ fn render_frame_cached(canonical: String, width: u32, height: u32, dpr_bits: u32
                 .map_err(|e| tracing::error!(error = %e, "layout parse error"))
                 .ok()
         });
-    with_global_ctx(|global| {
+    with_backdrop(backdrop.as_ref(), |global| {
         let node = layout.unwrap_or_else(|| Node::container(vec![]));
         let options = frame_options(global, node, width, height, dpr);
         let t = std::time::Instant::now();
@@ -124,6 +160,25 @@ fn render_frame_cached(canonical: String, width: u32, height: u32, dpr_bits: u32
     })
 }
 
+/// Run `f` with `backdrop` bound as `root-bg` in the global context.
+///
+/// `None` *removes* the key rather than leaving the previous surface's crop in
+/// place: a panel on an output with no wallpaper must render with no backdrop,
+/// not with whatever the last panel installed. Binding and rendering happen
+/// under one lock, so surfaces cannot interleave.
+fn with_backdrop<F, R>(backdrop: Option<&Backdrop>, f: F) -> R
+where
+    F: FnOnce(&RenderContext) -> R,
+{
+    with_global_ctx_mut(|global| {
+        match backdrop {
+            Some(b) => global.images.insert(ROOT_BG_KEY.into(), b.image.clone()),
+            None => global.images.remove(ROOT_BG_KEY),
+        };
+        f(global)
+    })
+}
+
 /// Render `content` into a raw RGBA framebuffer (no channel swap, alpha preserved).
 ///
 /// `width` and `height` are **physical** pixels. `dpr` scales CSS `px` units.
@@ -133,6 +188,7 @@ pub fn render_frame_rgba(
     width: u32,
     height: u32,
     dpr: f32,
+    backdrop: Option<&Backdrop>,
 ) -> Arc<Vec<u8>> {
     let canonical = json_canon::to_string(content).unwrap_or_default();
     let layout = serde_json::from_str::<serde_json::Value>(&canonical)
@@ -142,7 +198,7 @@ pub fn render_frame_rgba(
                 .map_err(|e| tracing::error!(error = %e, "layout parse error"))
                 .ok()
         });
-    with_global_ctx(|global| {
+    with_backdrop(backdrop, |global| {
         let node = layout.unwrap_or_else(|| Node::container(vec![]));
         let options = frame_options(global, node, width, height, dpr);
         let rgba = render(options).expect("render").into_raw();
@@ -412,6 +468,12 @@ fn preload_layout_images_impl(layout: &serde_json::Value, global: &mut RenderCon
         if src.starts_with("http://") || src.starts_with("https://") || src.starts_with("data:") {
             continue;
         }
+        // Bound per render by `with_backdrop`, not loaded from disk. Skipping it
+        // explicitly also stops a file named `root-bg` in the cwd from shadowing
+        // the wallpaper crop.
+        if src == ROOT_BG_KEY {
+            continue;
+        }
         if let Ok(bytes) = std::fs::read(&src) {
             if let Ok(image) = ImageSource::from_bytes(&bytes) {
                 global.images.insert(src.into(), image);
@@ -420,8 +482,13 @@ fn preload_layout_images_impl(layout: &serde_json::Value, global: &mut RenderCon
     }
 }
 
-/// Cached layout-only pass (no rasterization). Same cache key as `render_frame`
-/// so click handling gets a warm cache hit after any render.
+/// Cached layout-only pass (no rasterization), so click handling does not pay
+/// for a re-layout after a render.
+///
+/// Keyed on content and geometry alone — deliberately *not* on the backdrop,
+/// unlike `render_frame`. The backdrop only ever changes pixels, never where a
+/// node lands, so folding it in here would evict this cache every time the
+/// wallpaper moved and buy nothing.
 #[cached(max_size = 6)]
 fn measure_layout_cached(
     canonical: String,
