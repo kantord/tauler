@@ -162,11 +162,11 @@ Everything a wallpaper does is ordinary layout. Scaling or cropping a photo is
 background — there is no wallpaper-specific fitting, tiling or colour handling, and
 none is planned. The buffer is a straight pixel passthrough.
 
-### Fake transparency (`url(root-bg)`)
+### Fake transparency (`root-bg`)
 
-A panel is rasterized into its own isolated buffer, so `backdrop-filter` has
-nothing behind it to filter. To give it something, tauler installs the slice of
-wallpaper each panel covers as an image named `root-bg`:
+A panel is rasterized into its own isolated buffer, so there is nothing behind it
+to show through. To give it something, tauler binds the slice of wallpaper each
+panel covers as an image named `root-bg`, for the duration of that one render:
 
 ```jsx
 <panel id="sidebar" anchor="left" width={272} height={ctx.screen_height}>
