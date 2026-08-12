@@ -1,11 +1,14 @@
 use crate::ipc::{BarConfig, GapOverrides};
 
+/// The environment tauler reports at startup.
+///
+/// Deliberately just facts: which output the bar is on, and whatever gaps the
+/// layout declared. tauler used to also send derived `config.left`/`right`/
+/// `outer_gap` — its guess at what the gaps should be — which this module then
+/// had to allow overriding. Panel geometry is tauler's to know; what i3 should
+/// reserve is this module's to decide, and the layout file's to state.
 pub struct InitEvent {
     pub output: String,
-    pub left_width: u32,
-    pub right_width: u32,
-    pub dpi: f32,
-    pub outer_gap: u32,
     pub gaps: GapOverrides,
 }
 
@@ -13,10 +16,6 @@ impl InitEvent {
     pub fn bar_config(&self) -> BarConfig {
         BarConfig {
             output: self.output.clone(),
-            dpi: self.dpi,
-            left: self.left_width,
-            right: self.right_width,
-            outer_gap: self.outer_gap,
             gaps: self.gaps,
         }
     }
@@ -30,10 +29,6 @@ pub fn parse_init_event(json: &str) -> Option<InitEvent> {
     let side = |name: &str| val["gaps"][name].as_u64().map(|v| v as u32);
     Some(InitEvent {
         output: val["output"].as_str()?.to_string(),
-        left_width: val["config"]["left"].as_u64()? as u32,
-        right_width: val["config"]["right"].as_u64().unwrap_or(0) as u32,
-        dpi: val["dpi"].as_f64().unwrap_or(96.0) as f32,
-        outer_gap: val["config"]["outer_gap"].as_u64().unwrap_or(0) as u32,
         gaps: GapOverrides {
             left: side("left"),
             right: side("right"),
@@ -57,58 +52,47 @@ mod tests {
     use super::*;
 
     #[test]
-    fn parse_init_event_extracts_output_and_config() {
-        let json = r#"{"type":"init","output":"DP-1","config":{"left":200,"right":87,"outer_gap":8},"dpi":96.0}"#;
+    fn parse_init_event_extracts_the_output() {
+        let json = r#"{"type":"init","output":"DP-1"}"#;
         let ev = parse_init_event(json).unwrap();
         assert_eq!(ev.output, "DP-1");
-        assert_eq!(ev.left_width, 200);
-        assert_eq!(ev.right_width, 87);
-        assert_eq!(ev.outer_gap, 8);
-        assert!((ev.dpi - 96.0).abs() < 0.01);
+    }
+
+    /// tauler no longer sends derived gap widths, so the payload must parse
+    /// without them. The old parser took `config.left` with `?` and would
+    /// reject the whole init.
+    #[test]
+    fn parse_init_event_needs_no_derived_config_block() {
+        assert!(parse_init_event(r#"{"type":"init","output":"DP-1"}"#).is_some());
+    }
+
+    /// Anything tauler adds for other modules must not confuse this one.
+    #[test]
+    fn parse_init_event_ignores_unknown_fields() {
+        let json = r#"{"type":"init","output":"DP-1","dpi":140.0,"screen_width":2633}"#;
+        assert_eq!(parse_init_event(json).unwrap().output, "DP-1");
     }
 
     #[test]
-    fn parse_init_event_defaults_outer_gap_to_zero() {
-        let json = r#"{"type":"init","output":"DP-1","config":{"left":200},"dpi":96.0}"#;
-        let ev = parse_init_event(json).unwrap();
-        assert_eq!(ev.outer_gap, 0);
-    }
-
-    #[test]
-    fn parse_init_event_defaults_dpi_to_96() {
-        let json = r#"{"type":"init","output":"DP-1","config":{"left":200}}"#;
-        let ev = parse_init_event(json).unwrap();
-        assert!((ev.dpi - 96.0).abs() < 0.01);
-    }
-
-    #[test]
-    fn parse_init_event_defaults_right_width_to_zero() {
-        let json = r#"{"type":"init","output":"DP-1","config":{"left":200}}"#;
-        let ev = parse_init_event(json).unwrap();
-        assert_eq!(ev.right_width, 0);
-    }
-
-    #[test]
-    fn parse_init_event_reads_declared_gap_overrides() {
-        let json =
-            r#"{"type":"init","output":"DP-1","config":{"left":200},"gaps":{"left":300,"top":0}}"#;
+    fn parse_init_event_reads_declared_gaps() {
+        let json = r#"{"type":"init","output":"DP-1","gaps":{"left":300,"top":0}}"#;
         let ev = parse_init_event(json).unwrap();
         assert_eq!(ev.gaps.left, Some(300));
         assert_eq!(ev.gaps.top, Some(0), "an explicit 0 is a declaration");
-        assert_eq!(ev.gaps.right, None, "absent sides stay derived");
+        assert_eq!(ev.gaps.right, None, "an absent side means no gap");
         assert_eq!(ev.gaps.bottom, None);
     }
 
     #[test]
-    fn parse_init_event_defaults_gap_overrides_to_absent() {
-        let json = r#"{"type":"init","output":"DP-1","config":{"left":200}}"#;
+    fn parse_init_event_defaults_gaps_to_absent() {
+        let json = r#"{"type":"init","output":"DP-1"}"#;
         let ev = parse_init_event(json).unwrap();
         assert_eq!(ev.gaps, crate::ipc::GapOverrides::default());
     }
 
     #[test]
     fn parse_init_event_returns_none_for_wrong_type() {
-        let json = r#"{"type":"ping","output":"DP-1","config":{"width":200}}"#;
+        let json = r#"{"type":"ping","output":"DP-1"}"#;
         assert!(parse_init_event(json).is_none());
     }
 

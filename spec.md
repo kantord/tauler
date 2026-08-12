@@ -127,7 +127,7 @@ them. A bare `<surface>` names no kind and is a parse error.
 
 | prop | type | description |
 |---|---|---|
-| `anchor` | `"left" \| "right" \| "top" \| "bottom"` | stick to this screen edge and reserve strut space. omit for a free-floating panel |
+| `anchor` | `"left" \| "right" \| "top" \| "bottom"` | stick to this screen edge. omit for a free-floating panel. does **not** reserve space — see "Reserving space" below |
 | `width` | number | panel width in logical pixels |
 | `height` | number | panel height in logical pixels |
 | `x` | number | x position (ignored when `anchor` is set) |
@@ -352,15 +352,11 @@ props are not re-sent, so a module only sees real changes. Keys of the derived i
 payload (`type`, `config`, `output`, `dpi`, …) win over declared props; that payload is
 the module protocol, not user-editable state.
 
-`tauler-i3` reads `gaps` this way, overriding the gap it would otherwise derive from
-panel geometry. Sides left unspecified stay derived, and outputs with no panel are still
-revoked to zero regardless of what is declared.
+`tauler-i3` reads `gaps` this way. Every side is declared, never derived; an omitted side
+reserves nothing, and outputs with no panel are revoked to zero regardless.
 
-`gaps` values are **logical pixels**, like every other length in a layout file; tauler
-scales them by the target output's DPR before sending. `top` and `bottom` are the only
-way to reserve space for a top- or bottom-anchored panel: tauler derives `left` and
-`right` from panel geometry, but not the vertical sides, so a `<panel anchor="top">`
-without a matching `gaps` entry will be tiled over by windows.
+`gaps` values are **logical pixels** and tauler passes them through untouched — see
+"Reserving space" below for why there is no conversion.
 
 ```jsx
 <Module bin="/home/kantord/.cargo/bin/tauler-i3" gaps={{ left: 300, top: 8 }}>
@@ -368,6 +364,34 @@ without a matching `gaps` entry will be tiled over by windows.
 </Module>
 ```
 
+
+### Reserving space
+
+`anchor` places a panel; it does not reserve space for it. On X11 tauler creates panels
+as **override-redirect** windows, which the window manager does not manage at all — so
+the `_NET_WM_STRUT_PARTIAL` tauler sets on them is never read. i3 would not honour it
+anyway: it classifies dock clients as `W_DOCK_TOP` or `W_DOCK_BOTTOM` only
+(`include/data.h`), and consults just the top/bottom struts (`src/manage.c`). There is no
+left/right dock, so a full-height sidebar can never reserve space via struts.
+
+Space is therefore reserved by declaring it, through `tauler-i3`'s `gaps` prop:
+
+```jsx
+const SIDEBAR_W = 272, BAR_H = 26;
+
+<Module bin="~/.cargo/bin/tauler-i3"
+        gaps={{ left: SIDEBAR_W, right: 60, top: BAR_H, bottom: BAR_H }}>
+```
+
+Use the same constants as the panel dimensions — tauler cannot derive the gaps for you,
+because "how much space should i3 reserve" is a decision, not a consequence of geometry.
+
+The values reach i3 unconverted. i3's own `cmd_gaps` opens with `logical_px(atoi(value))`
+(`src/commands.c`), and `logical_px` is `ceil(dpi/96 * value)` above a 1.25 DPI threshold,
+identity below (`libi3/dpi.c`) — so **i3's gap unit is already logical pixels**, the same
+unit a layout is written in. Scaling here would only have to be undone there, with
+different rounding. i3's grammar accepts a trailing `px` keyword, but it is discarded and
+`cmd_gaps` has no unit parameter; there is no physical-pixel path.
 
 ## Display backend
 

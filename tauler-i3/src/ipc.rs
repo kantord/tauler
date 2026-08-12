@@ -116,17 +116,6 @@ pub fn i3_socket_path() -> Result<String, String> {
     Err("could not determine i3/sway IPC socket path: I3SOCK and SWAYSOCK are unset, and neither `i3 --get-socketpath` nor `sway --get-socketpath` succeeded".to_string())
 }
 
-const I3_DPI_SCALE_THRESHOLD: f32 = 1.25;
-
-// i3 only scales gaps if dpi/96 >= 1.25 (logical_px threshold in libi3/dpi.c)
-fn scale_gap(dpi: f32, px: u32) -> u32 {
-    if (dpi / 96.0) < I3_DPI_SCALE_THRESHOLD {
-        px
-    } else {
-        (px as f32 * 96.0 / dpi).floor() as u32
-    }
-}
-
 /// `gaps ... current set` writes to the focused workspace, so the focused
 /// workspace — not the one named by the triggering event — decides what is
 /// correct.
@@ -152,10 +141,6 @@ pub struct GapOverrides {
 #[derive(Debug, Clone)]
 pub struct BarConfig {
     pub output: String,
-    pub dpi: f32,
-    pub left: u32,
-    pub right: u32,
-    pub outer_gap: u32,
     pub gaps: GapOverrides,
 }
 
@@ -182,22 +167,36 @@ pub fn desired_gaps(focused_output: &str, cfg: &BarConfig) -> Gaps {
     if focused_output != cfg.output {
         return Gaps::ZERO;
     }
+    // Declared, never derived. tauler knows the panel geometry but not what i3
+    // should do about it — and it cannot know: i3 reserves no space for
+    // override-redirect windows, and has no left/right dock concept at all
+    // (`W_DOCK_TOP`/`W_DOCK_BOTTOM` are the only variants). A side gap is a
+    // decision, so the layout file makes it.
     let o = &cfg.gaps;
     Gaps {
-        left: o.left.unwrap_or(cfg.left),
-        right: o.right.unwrap_or(if cfg.right > 0 {
-            cfg.right
-        } else {
-            cfg.outer_gap
-        }),
-        top: o.top.unwrap_or(cfg.outer_gap),
-        bottom: o.bottom.unwrap_or(cfg.outer_gap),
+        left: o.left.unwrap_or(0),
+        right: o.right.unwrap_or(0),
+        top: o.top.unwrap_or(0),
+        bottom: o.bottom.unwrap_or(0),
     }
 }
 
 /// Zero sides are emitted explicitly: the command can only target `current`
 /// or `all`, so omitting a side leaves its stale value in place.
-pub fn gaps_command(dpi: f32, gaps: &Gaps) -> String {
+/// Build the `gaps ... set` command for all four sides.
+///
+/// The values are passed through unconverted, because **i3's gap unit is
+/// logical pixels** — exactly what a tauler layout is written in. `cmd_gaps`
+/// (i3 `src/commands.c`) opens with `logical_px(atoi(value))`, and the config
+/// path (`CFGFUN(gaps)`, `src/config_directives.c`) does the same; there is no
+/// physical-pixel syntax. The `px` keyword i3's grammar accepts after the value
+/// is consumed and discarded — it is not captured, and `cmd_gaps` has no unit
+/// parameter.
+///
+/// So do not "fix" this by scaling: i3 applies `ceil(dpi/96 * value)` itself,
+/// above its own 1.25 threshold, using its own DPI. Scaling here would have to
+/// be undone there, and the two roundings would not agree.
+pub fn gaps_command(gaps: &Gaps) -> String {
     [
         ("left", gaps.left),
         ("right", gaps.right),
@@ -205,7 +204,7 @@ pub fn gaps_command(dpi: f32, gaps: &Gaps) -> String {
         ("bottom", gaps.bottom),
     ]
     .iter()
-    .map(|(side, px)| format!("gaps {side} current set {}", scale_gap(dpi, *px)))
+    .map(|(side, px)| format!("gaps {side} current set {px}"))
     .collect::<Vec<_>>()
     .join("; ")
 }
@@ -230,7 +229,7 @@ pub fn reconcile_gaps(query: &mut I3Query, cfg: &BarConfig) {
     let Some(focused) = focused_output(&workspaces) else {
         return;
     };
-    let cmd = gaps_command(cfg.dpi, &desired_gaps(focused, cfg));
+    let cmd = gaps_command(&desired_gaps(focused, cfg));
     if let Err(e) = query.run_command(&cmd) {
         tracing::warn!(error = %e, "reconcile_gaps: apply failed");
     }
@@ -481,44 +480,22 @@ mod tests {
         assert_eq!(focused_output(&[]), None);
     }
 
-    fn cfg(right: u32, outer_gap: u32) -> BarConfig {
+    /// A bar on DP-4 with the gaps a layout would declare for a 272px left
+    /// sidebar, a `right`px right sidebar and `edge`px top/bottom bars.
+    fn cfg(right: u32, edge: u32) -> BarConfig {
         BarConfig {
             output: "DP-4".into(),
-            dpi: 96.0,
-            left: 272,
-            right,
-            outer_gap,
-            gaps: GapOverrides::default(),
+            gaps: GapOverrides {
+                left: Some(272),
+                right: Some(right),
+                top: Some(edge),
+                bottom: Some(edge),
+            },
         }
     }
 
     #[test]
-    fn declared_gaps_override_the_derived_side() {
-        let mut c = cfg(60, 8);
-        c.gaps.left = Some(300);
-        let g = desired_gaps("DP-4", &c);
-        assert_eq!(g.left, 300);
-        assert_eq!(g.right, 60, "unspecified sides keep the derived value");
-    }
-
-    #[test]
-    fn declared_gaps_of_zero_are_honoured_not_treated_as_absent() {
-        let mut c = cfg(60, 8);
-        c.gaps.top = Some(0);
-        assert_eq!(desired_gaps("DP-4", &c).top, 0);
-    }
-
-    /// Overrides describe the bar's own output; revocation elsewhere must
-    /// still win, or a declared gap would strand itself on every monitor.
-    #[test]
-    fn declared_gaps_do_not_leak_onto_outputs_without_a_panel() {
-        let mut c = cfg(60, 8);
-        c.gaps.left = Some(300);
-        assert_eq!(desired_gaps("DP-3", &c), Gaps::ZERO);
-    }
-
-    #[test]
-    fn desired_gaps_reserve_panel_widths_on_the_bar_output() {
+    fn declared_gaps_are_used_verbatim() {
         assert_eq!(
             desired_gaps("DP-4", &cfg(60, 8)),
             Gaps {
@@ -538,26 +515,26 @@ mod tests {
     }
 
     #[test]
-    fn desired_gaps_fall_back_to_outer_gap_when_there_is_no_right_panel() {
-        assert_eq!(desired_gaps("DP-4", &cfg(0, 8)).right, 8);
-    }
-
-    #[test]
-    fn desired_gaps_right_panel_width_takes_precedence_over_outer_gap() {
-        assert_eq!(desired_gaps("DP-4", &cfg(87, 8)).right, 87);
+    fn an_undeclared_side_reserves_nothing() {
+        let mut c = cfg(60, 8);
+        c.gaps.right = None;
+        assert_eq!(desired_gaps("DP-4", &c).right, 0);
     }
 
     #[test]
     fn gaps_command_always_emits_all_four_sides() {
         assert_eq!(
-            gaps_command(96.0, &Gaps::ZERO),
+            gaps_command(&Gaps::ZERO),
             "gaps left current set 0; gaps right current set 0; \
              gaps top current set 0; gaps bottom current set 0"
         );
     }
 
+    /// i3 applies `logical_px` to every gaps value itself, so the declared
+    /// logical value must reach it untouched. Scaling here would be undone by
+    /// i3 — and with a different rounding (i3 uses `ceil`).
     #[test]
-    fn gaps_command_scales_every_side_for_high_dpi() {
+    fn gaps_are_passed_to_i3_unscaled() {
         let g = Gaps {
             left: 400,
             right: 0,
@@ -565,9 +542,9 @@ mod tests {
             bottom: 16,
         };
         assert_eq!(
-            gaps_command(192.0, &g),
-            "gaps left current set 200; gaps right current set 0; \
-             gaps top current set 8; gaps bottom current set 8"
+            gaps_command(&g),
+            "gaps left current set 400; gaps right current set 0; \
+             gaps top current set 16; gaps bottom current set 16"
         );
     }
 
