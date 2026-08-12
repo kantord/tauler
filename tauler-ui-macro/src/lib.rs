@@ -40,11 +40,47 @@ fn needs_serde_default(ty: &Type) -> bool {
     false
 }
 
+/// The component's declared return type, as tokens usable from the generated impl.
+///
+/// `Node` and `Vec<Node>` are rewritten fully qualified: the macro keeps only a
+/// function's body, so component modules never had to import `Node` and mostly
+/// do not. Any other type is used verbatim — a component may return arbitrary
+/// serialisable data, which is how `<I3Layout>` hands back panels *and* gaps.
+fn output_type(output: &syn::ReturnType) -> TokenStream2 {
+    let syn::ReturnType::Type(_, ty) = output else {
+        return quote! { crate::ui::Node };
+    };
+    let Type::Path(p) = &**ty else {
+        return quote! { #ty };
+    };
+    match p.path.segments.last() {
+        Some(seg) if seg.ident == "Node" => quote! { crate::ui::Node },
+        Some(seg) if seg.ident == "Vec" && vec_elem_is_node(seg) => {
+            quote! { ::std::vec::Vec<crate::ui::Node> }
+        }
+        _ => quote! { #ty },
+    }
+}
+
+fn vec_elem_is_node(seg: &syn::PathSegment) -> bool {
+    let syn::PathArguments::AngleBracketed(args) = &seg.arguments else {
+        return false;
+    };
+    args.args.iter().any(|a| {
+        matches!(a, syn::GenericArgument::Type(Type::Path(p))
+            if p.path.segments.last().is_some_and(|s| s.ident == "Node"))
+    })
+}
+
 fn gen_component(path: Option<LitStr>, func: ItemFn) -> TokenStream2 {
     let vis = &func.vis;
     let fn_name = &func.sig.ident;
     let fn_str = fn_name.to_string();
     let stmts = &func.block.stmts;
+
+    // A component declaring `-> Vec<Node>` emits siblings rather than one node;
+    // any other type is returned as data (see `output_type`).
+    let output_ty = output_type(&func.sig.output);
 
     let component_name = format_ident!("{}", to_pascal_case(&fn_str));
     let props_name = format_ident!("{}Props", component_name);
@@ -101,7 +137,8 @@ fn gen_component(path: Option<LitStr>, func: ItemFn) -> TokenStream2 {
 
         impl crate::ui::UiComponent for #component_name {
             type Props = #props_name;
-            fn render(props: #props_name) -> crate::ui::Node {
+            type Output = #output_ty;
+            fn render(props: #props_name) -> Self::Output {
                 let #props_name { #(#param_names),* } = props;
                 #(#stmts)*
             }
