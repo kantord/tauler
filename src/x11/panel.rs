@@ -5,7 +5,6 @@ use x11rb::{
     connection::{Connection, RequestConnection},
     protocol::xproto::*,
     rust_connection::RustConnection,
-    wrapper::ConnectionExt as _,
 };
 
 use crate::display_manager::DisplayManager;
@@ -16,7 +15,6 @@ const XRESOURCES_PROP_MAX_LEN: u32 = 65536;
 const MM_PER_INCH: f32 = 25.4;
 const FALLBACK_DPI: f32 = 96.0;
 const PUT_IMAGE_HEADER_BYTES: usize = 28; // 24-byte standard header + 4-byte BigRequests field
-use crate::x11::strut_partial_values_for_anchor;
 
 /// Send a BGRX pixel buffer via one or more PutImage requests, each within
 /// the X server's maximum request size. Large panels (e.g. 4K) exceed the
@@ -144,8 +142,6 @@ fn create_panel(
         .output_map
         .get(output_name)
         .ok_or_else(|| anyhow::anyhow!("output '{}' not in map", output_name))?;
-    let (mon_x, mon_y, mon_width, mon_height) = (output.x, output.y, output.width, output.height);
-
     let (win_x, win_y) = surface_origin(spec, (phys_width, phys_height), output.rect());
 
     let win_id = ctx.conn.generate_id()?;
@@ -173,34 +169,6 @@ fn create_panel(
     };
     ctx.conn
         .configure_window(win_id, &ConfigureWindowAux::new().stack_mode(stack_mode))?;
-
-    if let Some(anchor) = spec.anchor.clone() {
-        let strut_vals = strut_partial_values_for_anchor(
-            anchor,
-            mon_x,
-            mon_y,
-            mon_width,
-            mon_height,
-            phys_width,
-            phys_height,
-            ctx.root_screen_width,
-            ctx.root_screen_height,
-        );
-        ctx.conn.change_property32(
-            PropMode::REPLACE,
-            win_id,
-            ctx.strut_atom,
-            AtomEnum::CARDINAL,
-            &strut_vals,
-        )?;
-        ctx.conn.change_property32(
-            PropMode::REPLACE,
-            win_id,
-            ctx.strut_legacy_atom,
-            AtomEnum::CARDINAL,
-            &strut_vals[..4],
-        )?;
-    }
 
     let gc = ctx.conn.generate_id()?;
     ctx.conn.create_gc(gc, win_id, &CreateGCAux::new())?;
@@ -233,17 +201,15 @@ pub struct X11PanelContext {
     pub black_pixel: u32,
     pub dpr: f32,
     pub xrootpmap_atom: Option<u32>,
-    pub strut_atom: u32,
-    pub strut_legacy_atom: u32,
     pub output_map: Arc<HashMap<String, OutputInfo>>,
     pub dpi: f32,
     pub output_name: String,
     pub screen_width_logical: u32,
     pub screen_height_logical: u32,
-    /// Total root X11 screen dimensions (physical px, spanning all
-    /// monitors) — distinct from `screen_width_logical`, which is the
-    /// *primary output's* logical size. Needed for `Right`/`Bottom` strut
-    /// math, which EWMH measures from the root screen's far edge.
+    /// Total root X11 screen dimensions (physical px, spanning all monitors) —
+    /// distinct from `screen_width_logical`, which is the *primary output's*
+    /// logical size. Sizes the shared root background pixmap, which every
+    /// `<wallpaper>` blits its own output's rectangle into.
     pub root_screen_width: u32,
     pub root_screen_height: u32,
     /// Lazily created on the first `<wallpaper>` node; see `x11::wallpaper`.
@@ -332,44 +298,6 @@ impl DisplayManager for X11PanelContext {
             panel.phys_width = new_phys_width;
             panel.phys_height = new_phys_height;
 
-            if let Some(anchor) = spec.anchor.clone() {
-                let output_name = spec.output.as_deref().unwrap_or(&self.output_name);
-                let Some(out) = self.output_map.get(output_name) else {
-                    return Ok(());
-                };
-                let (mon_x, mon_y, mon_width, mon_height) = (out.x, out.y, out.width, out.height);
-
-                let strut_vals = strut_partial_values_for_anchor(
-                    anchor,
-                    mon_x,
-                    mon_y,
-                    mon_width,
-                    mon_height,
-                    new_phys_width,
-                    new_phys_height,
-                    self.root_screen_width,
-                    self.root_screen_height,
-                );
-                self.conn
-                    .change_property32(
-                        PropMode::REPLACE,
-                        panel.win_id,
-                        self.strut_atom,
-                        AtomEnum::CARDINAL,
-                        &strut_vals,
-                    )
-                    .map_err(|e| anyhow::anyhow!(e))?;
-                self.conn
-                    .change_property32(
-                        PropMode::REPLACE,
-                        panel.win_id,
-                        self.strut_legacy_atom,
-                        AtomEnum::CARDINAL,
-                        &strut_vals[..4],
-                    )
-                    .map_err(|e| anyhow::anyhow!(e))?;
-            }
-
             self.conn.flush().map_err(|e| anyhow::anyhow!(e))?;
         }
 
@@ -406,16 +334,6 @@ mod tests {
         let black_pixel = screen.black_pixel;
         let root = screen.root;
 
-        let strut_atom = XprotoConnExt::intern_atom(&conn, false, b"_NET_WM_STRUT_PARTIAL")
-            .ok()?
-            .reply()
-            .ok()?
-            .atom;
-        let strut_legacy_atom = XprotoConnExt::intern_atom(&conn, false, b"_NET_WM_STRUT")
-            .ok()?
-            .reply()
-            .ok()?
-            .atom;
         let xrootpmap_atom = XprotoConnExt::intern_atom(&conn, false, b"_XROOTPMAP_ID")
             .ok()
             .and_then(
@@ -437,8 +355,6 @@ mod tests {
             black_pixel,
             dpr: 1.0,
             xrootpmap_atom,
-            strut_atom,
-            strut_legacy_atom,
             output_map: Arc::new({
                 let mut m = HashMap::new();
                 m.insert(

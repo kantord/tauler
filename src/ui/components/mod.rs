@@ -1,5 +1,6 @@
 pub mod badge;
 pub mod card;
+pub mod i3_layout;
 pub mod icon;
 pub mod progress;
 pub mod table;

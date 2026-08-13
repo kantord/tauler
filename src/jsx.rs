@@ -28,8 +28,8 @@ const JSX_GLOBALS_JS: &str = r#"
         try { return JSON.parse(str); } catch { return null; }
     };
     // `props` are merged into the module's init event (see merge_module_props in app.rs),
-    // so they are load-bearing: registerModule keeps the FIRST registration for a bin, so a
-    // bare useEvents(bin) call evaluated before a <Module bin=... props> would drop them.
+    // so they are load-bearing. Registering the same bin more than once contributes
+    // every declaration's props (see registerModule): one subprocess, union of props.
     globalThis.useEvents = (bin, props) => {
         registerModule(bin, props ?? {});
         return new Proxy({}, {
@@ -39,12 +39,46 @@ const JSX_GLOBALS_JS: &str = r#"
             })
         });
     };
+    // Declaration only: <I3Layout> reads these, positions them, and emits the
+    // real <panel> nodes. Kept a marker rather than a panel because a panel's
+    // position depends on every sibling declared before it.
+    globalThis.Panel = (props) => ({ ...props, __i3panel: true });
+    // Dispatch only — the layout arithmetic is `ui::components::i3_layout`.
+    // The gaps must be registered here rather than in Rust: registration is a
+    // JS-side call, and a Rust component has no context to make one.
+    globalThis.I3Layout = ({ module, children }) => {
+        const decls = (Array.isArray(children) ? children : [children]).filter(Boolean);
+        const out = __ui_i3_layout({
+            children: decls,
+            width: ctx.screen_width,
+            height: ctx.screen_height,
+        });
+        if (module) useEvents(module, { gaps: out.gaps });
+        return out.panels;
+    };
     globalThis.Module = ({ bin, children, ...rest }) => {
         const child = Array.isArray(children) ? children[0] : children;
         if (typeof child === 'function') return child(useJSONStream(bin), useEvents(bin, rest));
         return { "bin@": bin, ...rest };
     };
 "#;
+
+/// Fold a later module registration's props into the ones already recorded.
+///
+/// Additive: a key already declared is kept, so a later registration can only
+/// fill in what an earlier one left out. That ordering matters because children
+/// are evaluated before their parent — a wrapper that derives props from its
+/// children (layout geometry, say) can only register after them, and must not be
+/// able to clobber what the author wrote by hand.
+fn merge_missing(existing: &mut serde_json::Value, incoming: serde_json::Value) {
+    let (Some(target), serde_json::Value::Object(source)) = (existing.as_object_mut(), incoming)
+    else {
+        return;
+    };
+    for (k, v) in source {
+        target.entry(k).or_insert(v);
+    }
+}
 
 /// A persistent JSX evaluator that compiles the layout source once and re-evaluates
 /// cheaply on each tick by calling the pre-compiled render function.
@@ -153,33 +187,38 @@ impl JsxEvaluator {
                     globalThis.Fragment = {{ {}: true }};",
                     optative_script::tags::ESTO_FRAGMENT
                 ))?;
-                let func = rquickjs::Function::new(
-                    qjs_ctx.clone(),
-                    move |bin: String, script: Option<String>| {
-                        calls_inner
-                            .lock()
-                            .unwrap()
-                            .push((bin.clone(), script.clone()));
-                        sv.read()
-                            .unwrap()
-                            .get(&(bin, script))
-                            .cloned()
-                            .unwrap_or_default()
-                    },
+                qjs_ctx.globals().set(
+                    "useStringStream",
+                    rquickjs::Function::new(
+                        qjs_ctx.clone(),
+                        move |bin: String, script: Option<String>| {
+                            calls_inner
+                                .lock()
+                                .unwrap()
+                                .push((bin.clone(), script.clone()));
+                            sv.read()
+                                .unwrap()
+                                .get(&(bin, script))
+                                .cloned()
+                                .unwrap_or_default()
+                        },
+                    )?,
                 )?;
-                qjs_ctx.globals().set("useStringStream", func)?;
-                let func2 = rquickjs::Function::new(
-                    qjs_ctx.clone(),
-                    move |bin: String, props: rquickjs::Value| {
-                        let props: serde_json::Value =
-                            rquickjs_serde::from_value(props).unwrap_or(serde_json::Value::Null);
-                        let mut mc = module_calls_inner.lock().unwrap();
-                        if !mc.iter().any(|(b, _)| b == &bin) {
-                            mc.push((bin, props));
-                        }
-                    },
+                qjs_ctx.globals().set(
+                    "registerModule",
+                    rquickjs::Function::new(
+                        qjs_ctx.clone(),
+                        move |bin: String, props: rquickjs::Value| {
+                            let props: serde_json::Value = rquickjs_serde::from_value(props)
+                                .unwrap_or(serde_json::Value::Null);
+                            let mut mc = module_calls_inner.lock().unwrap();
+                            match mc.iter_mut().find(|(b, _)| b == &bin) {
+                                Some((_, existing)) => merge_missing(existing, props),
+                                None => mc.push((bin, props)),
+                            }
+                        },
+                    )?,
                 )?;
-                qjs_ctx.globals().set("registerModule", func2)?;
                 crate::ui::registry::register_ui_components(&qjs_ctx)?;
                 if !ctx.is_null() {
                     let js_ctx = rquickjs_serde::to_value(qjs_ctx.clone(), &ctx)
@@ -562,6 +601,68 @@ return <text tw="text-white">hi</text>;
             "useEvents must register the bin as a module; got: {:?}",
             module_calls
         );
+    }
+
+    /// A bin registered more than once keeps every prop any registration declared.
+    ///
+    /// This used to be first-wins, which silently dropped the later props. A
+    /// wrapper that computes something from its children — layout geometry, say —
+    /// can only register *after* them, so first-wins made such a wrapper
+    /// impossible to write.
+    #[test]
+    fn a_later_registration_contributes_its_props() {
+        let module_calls = eval(
+            r#"export default function render() {
+useEvents("/usr/bin/mod");
+useEvents("/usr/bin/mod", { gaps: { left: 272 } });
+return <text tw="text-white">hi</text>;
+}"#,
+        )
+        .module_calls;
+        let (_, props) = module_calls
+            .iter()
+            .find(|(bin, _)| bin == "/usr/bin/mod")
+            .expect("the bin must be registered");
+        assert_eq!(props["gaps"]["left"].as_u64(), Some(272));
+    }
+
+    /// One subprocess per bin, however many times it is registered.
+    #[test]
+    fn registering_a_bin_twice_still_yields_one_module() {
+        let module_calls = eval(
+            r#"export default function render() {
+useEvents("/usr/bin/mod", { a: 1 });
+useEvents("/usr/bin/mod", { b: 2 });
+return <text tw="text-white">hi</text>;
+}"#,
+        )
+        .module_calls;
+        assert_eq!(
+            module_calls
+                .iter()
+                .filter(|(b, _)| b == "/usr/bin/mod")
+                .count(),
+            1
+        );
+    }
+
+    /// Merging is additive: an earlier declaration is never overwritten by a
+    /// later one, so a wrapper can only fill gaps, never clobber the author.
+    #[test]
+    fn the_first_registration_wins_a_conflicting_key() {
+        let module_calls = eval(
+            r#"export default function render() {
+useEvents("/usr/bin/mod", { gaps: "mine" });
+useEvents("/usr/bin/mod", { gaps: "theirs" });
+return <text tw="text-white">hi</text>;
+}"#,
+        )
+        .module_calls;
+        let (_, props) = module_calls
+            .iter()
+            .find(|(bin, _)| bin == "/usr/bin/mod")
+            .unwrap();
+        assert_eq!(props["gaps"].as_str(), Some("mine"));
     }
 
     /// The `<Module>` render prop's `events` argument must produce the very same

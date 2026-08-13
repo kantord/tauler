@@ -12,3 +12,13 @@ pub fn foo_widget(_unused: Option<String>) -> Node {
 pub fn bar_widget(_unused: Option<String>) -> Node {
     rsx! { <container tw="bar-widget" /> }
 }
+
+/// Returns siblings rather than a single node — a Rust-side JSX fragment.
+/// Exercised by `tests/ui_multi_node_test.rs`.
+#[component("@ui/test-multi")]
+pub fn pair_widget(_unused: Option<String>) -> Vec<Node> {
+    vec![
+        rsx! { <container tw="pair-first" /> },
+        rsx! { <container tw="pair-second" /> },
+    ]
+}

@@ -74,9 +74,16 @@ impl IntoNodes for Vec<Node> {
 pub trait UiComponent {
     type Props: for<'de> serde::Deserialize<'de> + Default;
 
-    fn render(props: Self::Props) -> Node;
+    /// Usually [`Node`], but a component may return `Vec<Node>` to emit several
+    /// siblings — the equivalent of a JSX fragment, which JS components can
+    /// already do (see `jsx_fragment_shorthand_flattens_into_parent_children`).
+    /// `rquickjs_serde` turns a `Vec` into a JS array, and the runtime splices
+    /// arrays into the parent's children, so both arrive correctly shaped.
+    type Output: serde::Serialize;
 
-    fn render_from_value(v: serde_json::Value) -> Node {
+    fn render(props: Self::Props) -> Self::Output;
+
+    fn render_from_value(v: serde_json::Value) -> Self::Output {
         Self::render(serde_json::from_value(v).unwrap_or_default())
     }
 

@@ -194,12 +194,6 @@ fn init_x11() -> Result<X11Init, Box<dyn std::error::Error>> {
         .ok()
         .and_then(|c| c.reply().ok())
         .map(|r| r.atom);
-    let strut_atom = conn
-        .intern_atom(false, b"_NET_WM_STRUT_PARTIAL")?
-        .reply()?
-        .atom;
-    let strut_legacy_atom = conn.intern_atom(false, b"_NET_WM_STRUT")?.reply()?.atom;
-
     let panel_ctx = PanelContext {
         conn: Arc::clone(&conn),
         root: screen.root,
@@ -208,8 +202,6 @@ fn init_x11() -> Result<X11Init, Box<dyn std::error::Error>> {
         black_pixel: screen.black_pixel,
         dpr,
         xrootpmap_atom,
-        strut_atom,
-        strut_legacy_atom,
         output_map: Arc::new(output_map),
         dpi,
         output_name,
