@@ -1,3 +1,17 @@
+//! Every subprocess a layout reads from, reconciled once per tick.
+//!
+//! A layout does not start or stop anything. It re-declares, on every tick, which
+//! subprocesses it wants to read from; this module diffs that set against the running one
+//! and spawns, keeps, or kills accordingly. The identity that decides "same process" is
+//! the `(bin, script)` pair — so two components asking for the same clock share one
+//! subprocess without either knowing about the other (ADR 0009).
+//!
+//! The sharp edge is that a *changed spec* restarts a subprocess, and registering a bin
+//! as a module changes its spec. A hook called inside a branch therefore restarts its
+//! process on every transition — for a singleton like `tauler-notify` that means dropped
+//! notifications and a briefly released D-Bus name. Hooks are meant to be called
+//! unconditionally, at the same level of the same component.
+
 mod builtin;
 
 pub use builtin::{BuiltInSource, BuiltInState};

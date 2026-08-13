@@ -58,8 +58,8 @@ fn panel(id: &str, output: &str, x: i32) -> SurfaceSpec {
 
 /// A panel whose whole surface is the backdrop image.
 ///
-/// An `<image>` node, not `backgroundImage: url(root-bg)` — spec.md mandates the
-/// image node (~5ms vs ~19ms), so that is the path worth covering.
+/// An `<image>` node, not `backgroundImage: url(root-bg)` — the image node is the
+/// documented path (~5ms vs ~19ms), so that is the one worth covering.
 fn backdrop_content() -> serde_json::Value {
     serde_json::json!({
         "type": "container",

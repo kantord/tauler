@@ -6,7 +6,14 @@
   ones it lists under `_Avoid_`. Glossary only, no implementation detail.
 - `docs/adr/` — decisions that are hard to reverse and surprising without context. Check
   here before "fixing" something that looks wrong.
-- `spec.md` — how it actually works. Implementation detail lives here, not in `CONTEXT.md`.
+- `docs/src/content/docs/` — the published site. Everything a person writing a layout file
+  needs; nothing about how tauler is built inside.
+- **Module-level `//!` docs** — how a given piece actually works. This is where
+  implementation detail belongs: next to the code, where it goes stale loudly.
+
+There is no `spec.md`. It was one document trying to be all four of the above at once, and
+it drifted from the code in every section that had no test holding it honest — see the
+commit that retired it for what moved where.
 
 `CONTEXT.md` and `docs/adr/` are maintained by the `domain-modeling` skill and are
 repo-internal — neither is published to the docs site.

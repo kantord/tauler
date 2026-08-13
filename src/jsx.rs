@@ -1,3 +1,30 @@
+//! Evaluating a layout file: JSX in, a JSON tree out.
+//!
+//! Two phases, at very different rates:
+//!
+//! 1. **On load or change of the layout file.** `optative-script` transforms the JSX —
+//!    turning tags into `_jsx(...)` calls — and QuickJS declares the result as an ES
+//!    module. The module's *default export* is the render function, which is saved as a
+//!    [`rquickjs::Persistent`] and reused. A layout file that does not export one fails
+//!    here with a type error about `undefined` not being a function.
+//! 2. **On every data tick.** Stream values are written into a shared map and the saved
+//!    render function is called. No reparse, no recompile. It returns a JS object tree
+//!    that Rust walks to extract surfaces and build takumi nodes.
+//!
+//! The `Runtime` and `Context` are created once and live forever, which is what makes the
+//! second phase cost 100–200μs — small enough that re-rendering everything on every tick
+//! is affordable (ADR 0007). The transform is under a millisecond and happens only in the
+//! first phase. Rasterization dominates both by two orders of magnitude.
+//!
+//! `_jsx` is registered from Rust as a global. It takes `(tag, props, ...children)` and
+//! returns `{ type, ...props, children }` — a plain object, no intermediate
+//! representation.
+//!
+//! Everything a layout file can reach is registered here — in `JSX_GLOBALS_JS` and in the
+//! setup below: `useStringStream`, `useJSONStream`, `useEvents`, `Module`, `I3Layout`,
+//! `Panel`, `globals` and `ctx`. rquickjs grants nothing by default, so that list is
+//! exhaustive by construction rather than by audit (ADR 0008).
+
 use std::collections::HashMap;
 use std::path::Path;
 use std::sync::{Arc, Mutex, RwLock};

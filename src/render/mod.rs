@@ -1,3 +1,25 @@
+//! Turning a layout tree into pixels, and not doing it twice.
+//!
+//! Rasterization is the whole cost of a tick: 40–90ms for a full-height panel at
+//! 365×2160, against under a millisecond for everything upstream of it — JSX evaluation,
+//! layout parsing, the cache-key check. So the cache is per surface, the smallest unit
+//! that maps to one rasterization, and it is keyed by the canonical JSON of that
+//! surface's subtree (`json_canon`) rather than by any notion of identity.
+//!
+//! Keying on content is what lets every tick re-render everything (ADR 0007): two
+//! structurally identical trees produce the same key whether or not they came from the
+//! same component, so a full re-evaluation costs nothing when nothing actually changed.
+//! It also means a panel with a live clock rasterizes every second — the cache helps
+//! static panels, not ticking ones.
+//!
+//! Backdrops widen the key to `(generation, rect)`. The generation stops a stale hit once
+//! the wallpaper moves underneath, and the rect keeps two same-size, same-content panels
+//! from colliding on one entry and being served each other's slice of wallpaper — see
+//! [`crate::backdrop`].
+//!
+//! Rendering is software only (takumi + tiny-skia), which is why this module is one of
+//! the two a second display backend did not have to touch (ADR 0010).
+
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock};
