@@ -1,0 +1,16 @@
+#!/bin/sh
+# The bar's right-hand group: frozen.
+#
+# The rule this scenario follows is that structure is real and cosmetics are
+# not. Workspaces come from tauler-i3 talking to the actual i3, because a bar
+# showing invented workspaces would be lying about the thing under test. These
+# four numbers are invented, because a real cpu reading would make every pull
+# request's screenshot differ in four digits for no reason.
+#
+# Still goes through the real subprocess, stdout-stream and JSON-parse path:
+# one line, then hold the pipe open.
+set -eu
+
+printf '{"cpu":"12%%","mem":"3.4G","vol":"64%%","bat":"87%%","time":"09:41"}\n'
+
+exec sleep infinity

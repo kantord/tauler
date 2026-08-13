@@ -38,13 +38,26 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         x11-utils \
         x11-xserver-utils \
         xterm \
+        rxvt-unicode \
         scrot \
+        fontconfig \
         fonts-jetbrains-mono \
         libwayland-client0 libxkbcommon0 libfontconfig1 libxcb1 \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=builder /artifacts/tauler /artifacts/tauler-i3 /usr/local/bin/
-COPY assets/fonts /usr/local/share/tauler/fonts
+
+# /usr/local/share/fonts, not /usr/local/share/tauler/fonts: nothing reads the
+# latter. tauler resolves fonts through fontconfig, and falls back to walking
+# the platform font directories only when fontconfig answers nothing — neither
+# path has ever looked under a `tauler/` subdirectory, so these fonts were
+# invisible to the very binary they were shipped for.
+#
+# This is also what puts Symbols Nerd Font Mono where `append_symbol_fallback`
+# probes for it. Without it every <Icon> in this image renders as tofu.
+COPY assets/fonts /usr/local/share/fonts
+COPY tauler-e2e/docker/fonts.conf /etc/fonts/conf.d/99-tauler-e2e.conf
+RUN fc-cache -f
 COPY tauler-e2e/docker/ /usr/local/share/e2e/
 RUN chmod +x /usr/local/share/e2e/bin/*
 

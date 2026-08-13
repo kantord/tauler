@@ -1,0 +1,88 @@
+#!/bin/sh
+# Populate the desktop for the showcase, in place of the default two xterms.
+#
+# Two things make this different from the default launch.
+#
+# Terminals are urxvt, not xterm, and pseudo-transparent. tauler publishes
+# _XROOTPMAP_ID after blitting its <wallpaper> into the root, precisely so that
+# clients like this can find it — a path nothing else exercises. xterm cannot
+# read it; urxvt can, and needs no compositor to do so.
+#
+# That means the clients depend on tauler, which the entrypoint starts *after*
+# this script. So this script returns immediately and does the real work in the
+# background, gated on the property actually appearing. Waiting here instead
+# would deadlock: the entrypoint would never reach the line that starts tauler.
+#
+# The scenario waits for both clients before asserting anything about them —
+# without that, a slow start would leave the containment check asserting over an
+# empty list and passing vacuously.
+set -eu
+
+BIN="$(dirname "$0")/bin"
+
+# Comma-separated fallback list: urxvt takes the first font that has the glyph.
+FONT="xft:JetBrains Mono:pixelsize=15,xft:Symbols Nerd Font Mono:pixelsize=15"
+
+client() {
+    workspace="$1"
+    pane="$2"
+    title="$3"
+
+    i3-msg "workspace $workspace" >/dev/null 2>&1
+
+    # C.UTF-8 is built into glibc, so it needs no locale generation — and
+    # without it urxvt decodes the pane's box-drawing characters as Latin-1 and
+    # draws three mojibake glyphs for every one of them.
+    LC_ALL=C.UTF-8 \
+    urxvt \
+        -tr -sh 45 \
+        -fn "$FONT" \
+        -fg "#e0def4" -bg "#232136" \
+        -b 16 \
+        +sb \
+        -title "$title" \
+        -e "$BIN/pane" "$pane" &
+
+    # Sequentially, and waited for: i3 places a window on whatever workspace is
+    # focused when it maps, and tauler-i3 reports focused_windows in focus
+    # order. Launching these concurrently makes both of those a race, and the
+    # bar's workspace pills are what the screenshot is showing off.
+    #
+    # Ask i3, not the X server: a managed client is reparented into an i3 frame,
+    # so `xwininfo -root -children` lists the frame's title and never the
+    # client's. Grepping that finds nothing, forever.
+    i=0
+    while [ "$i" -lt 100 ]; do
+        if i3-msg -t get_tree 2>/dev/null | grep -q "\"$title\""; then
+            return 0
+        fi
+        i=$((i + 1))
+        sleep 0.1
+    done
+    echo "e2e: client $title never mapped" >&2
+    return 1
+}
+
+populate() {
+    # urxvt reads the root pixmap when it starts and repaints on later changes,
+    # but starting it before there is anything to read has no upside.
+    i=0
+    until xprop -root _XROOTPMAP_ID 2>/dev/null | grep -qv "not found"; do
+        i=$((i + 1))
+        [ "$i" -lt 300 ] || { echo "e2e: tauler never published _XROOTPMAP_ID" >&2; break; }
+        sleep 0.1
+    done
+
+    # Workspaces 1 and 3 exist only so the bar has more than one pill; what is
+    # in them is never photographed.
+    client 1 2 showcase-ws1
+    client 3 2 showcase-ws3
+    client 2 1 showcase-1
+    client 2 2 showcase-2
+
+    # Land on the workspace holding two windows: it is the one that shows i3's
+    # inner gaps, and it puts the focused pill in the middle of the three.
+    i3-msg "workspace 2" >/dev/null 2>&1
+}
+
+populate &

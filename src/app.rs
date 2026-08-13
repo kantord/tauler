@@ -565,6 +565,15 @@ impl App {
     fn apply_eval_result_dispatch(&mut self, out: &tauler::jsx::EvalOutput) -> bool {
         let mut layout = out.layout.clone();
         resolve_tw_in_json(&mut layout, &self.theme, self.theme_mode);
+        // An `<image src="…">` naming a file has to be read off disk and put in
+        // the render context's image store before the frame is built; takumi
+        // resolves `src` against that store and has no filesystem of its own.
+        // Without this an `<image>` renders as nothing at all — silently, since
+        // a missing file and an undecodable one are both just an absent key.
+        //
+        // Per tick, but not per read: the loader skips any src already in the
+        // store, so this is one read per distinct path for the process's life.
+        tauler::preload_layout_images(&layout);
         let resolved_out = tauler::jsx::EvalOutput {
             layout,
             stream_calls: out.stream_calls.clone(),

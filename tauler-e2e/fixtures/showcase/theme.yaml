@@ -1,0 +1,63 @@
+# Rose Pine Moon.
+#
+# tauler's shipped default.yaml is shadcn's neutral ramp — every colour token is
+# chroma 0. That is a sensible default and a poor screenshot, so this scenario
+# carries its own palette and reaches it through config.yaml's `theme.file`,
+# which is the mechanism a real user would use.
+#
+# Only the `dark` half is filled in: config.yaml pins the mode, and a `light`
+# block nobody renders would be three dozen lines of unverifiable colour.
+# `colors_for_mode` reads one map or the other, never both.
+
+colors:
+  light: {}
+  dark:
+    background: "#232136"
+    foreground: "#e0def4"
+
+    # `card` is the bar's own surface. It is deliberately *not* opaque: the
+    # panel paints it over the root-bg crop, and the alpha is the entire reason
+    # the bar looks like it belongs to the wallpaper rather than sitting on it.
+    card: "#2a273fd9"
+    card-foreground: "#e0def4"
+    popover: "#2a273f"
+    popover-foreground: "#e0def4"
+
+    primary: "#c4a7e7"
+    primary-foreground: "#232136"
+    secondary: "#393552"
+    secondary-foreground: "#e0def4"
+
+    muted: "#393552"
+    muted-foreground: "#908caa"
+    accent: "#ea9a97"
+    accent-foreground: "#232136"
+    destructive: "#eb6f92"
+
+    border: "#ffffff1a"
+    input: "#ffffff26"
+    ring: "#c4a7e7"
+
+    chart-1: "#c4a7e7"
+    chart-2: "#9ccfd8"
+    chart-3: "#f6c177"
+    chart-4: "#ea9a97"
+    chart-5: "#3e8fb0"
+
+    sidebar: "#2a273f"
+    sidebar-foreground: "#e0def4"
+    sidebar-primary: "#c4a7e7"
+    sidebar-primary-foreground: "#232136"
+    sidebar-accent: "#393552"
+    sidebar-accent-foreground: "#e0def4"
+    sidebar-border: "#ffffff1a"
+    sidebar-ring: "#c4a7e7"
+
+radius:
+  sm: "6px"
+  md: "8px"
+  lg: "10px"
+  xl: "13px"
+  2xl: "17px"
+  3xl: "21px"
+  4xl: "25px"

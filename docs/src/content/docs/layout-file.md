@@ -75,6 +75,7 @@ happily tile other windows underneath. Reserving space is a separate decision �
 
 | prop | type | description |
 |---|---|---|
+| `id` | string | surface id; **required** — without it the whole root fails to parse |
 | `output` | string | RandR output name, e.g. `"DP-2"`; omit for the primary output |
 
 A wallpaper has no geometry props. It always covers its output exactly, and its subtree is
@@ -83,7 +84,7 @@ clicks — there are only pixels handed to the desktop background.
 
 ```jsx
 <root>
-  <wallpaper output="DP-2">
+  <wallpaper id="desktop" output="DP-2">
     <container tw="flex w-full h-full items-end justify-end p-12"
                style={{ backgroundImage: "linear-gradient(160deg, #0b1020, #1c2b4a)" }}>
       <text tw="text-[28px] text-white opacity-30">{time}</text>
@@ -95,6 +96,11 @@ clicks — there are only pixels handed to the desktop background.
 Everything a wallpaper does is ordinary layout. Scaling or cropping a photo is `<image>`
 plus `object-fit`; a solid colour or gradient is a `<container>` with a background. There
 is no wallpaper-specific fitting, tiling or colour handling, and none is planned.
+
+**An `<image>` file must be a PNG.** The renderer is built with only PNG and ICO decoding
+enabled, so a JPEG decodes to nothing — and a file that cannot be decoded is
+indistinguishable from one that is not there, so the symptom is a surface that renders
+empty with nothing in the log.
 
 Wallpapers are an X11 feature for now. On Wayland and macOS the node is ignored with a
 warning.
