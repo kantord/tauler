@@ -1,0 +1,125 @@
+name: Desktop screenshots
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: e2e-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  screenshots:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435 # v3.11.1
+
+      - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable
+        with:
+          toolchain: "1.97.1"
+
+      - name: Cache cargo
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-e2e-${{ hashFiles('**/Cargo.lock') }}
+
+      # tauler is compiled inside the image, so this is the expensive step. The
+      # gha cache backend is what keeps it from being a full rebuild every run.
+      - name: Build desktop image
+        uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 # v6.18.0
+        with:
+          context: .
+          file: tauler-e2e/Dockerfile
+          tags: tauler-e2e:local
+          load: true
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Run scenarios
+        run: cargo test -p tauler-e2e -- --ignored --test-threads=1
+
+      # A harness that quietly produced nothing would otherwise pass as "no
+      # scenarios to run".
+      - name: Check screenshots were produced
+        run: |
+          count=$(find target/e2e -name desktop.png | wc -l)
+          expected=$(find tauler-e2e/fixtures -mindepth 1 -maxdepth 1 -type d | wc -l)
+          echo "captured $count of $expected scenarios"
+          [ "$count" -eq "$expected" ]
+
+      - name: Collect screenshots
+        run: |
+          mkdir -p screenshots
+          for png in target/e2e/*/desktop.png; do
+            cp "$png" "screenshots/$(basename "$(dirname "$png")").png"
+          done
+
+      - uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
+        with:
+          name: desktop-screenshots
+          path: screenshots/
+
+      # Fork PRs get a read-only token: they cannot push the branch or post the
+      # comment. They still run every scenario and still get the artifact.
+      - name: Publish screenshots to the ci-screenshots branch
+        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+        env:
+          DEST: pr-${{ github.event.pull_request.number }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          tmp=$(mktemp -d)
+          cp screenshots/*.png "$tmp/"
+          git fetch origin ci-screenshots || true
+          git checkout ci-screenshots 2>/dev/null || git checkout --orphan ci-screenshots
+          git rm -rf . >/dev/null 2>&1 || true
+          git clean -fdx -e screenshots -e target >/dev/null 2>&1 || true
+          mkdir -p "$DEST"
+          cp "$tmp"/*.png "$DEST/"
+          git add "$DEST"
+          git commit -m "screenshots for PR #${{ github.event.pull_request.number }} (${GITHUB_SHA::7})" || exit 0
+          git push origin ci-screenshots
+
+      - name: Comment with the screenshots
+        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7.1.0
+        with:
+          script: |
+            const fs = require('fs');
+            const base = `https://raw.githubusercontent.com/${context.repo.owner}/${context.repo.repo}/ci-screenshots/pr-${context.issue.number}`;
+            const sha = context.sha.slice(0, 7);
+            const images = fs.readdirSync('screenshots')
+              .filter(f => f.endsWith('.png'))
+              .map(f => `### \`${f.replace(/\.png$/, '')}\`\n\n![${f}](${base}/${f}?v=${sha})`)
+              .join('\n\n');
+            const marker = '<!-- tauler-e2e-screenshots -->';
+            const body = `${marker}\n## Desktop screenshots\n\nReal X11 + i3, one container per scenario, at \`${sha}\`.\n\n${images}`;
+
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner, repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+            const existing = comments.find(c => c.body.includes(marker));
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner, repo: context.repo.repo,
+                comment_id: existing.id, body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner, repo: context.repo.repo,
+                issue_number: context.issue.number, body,
+              });
+            }

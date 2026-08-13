@@ -1,0 +1,16 @@
+[package]
+name = "tauler-e2e"
+description = "Internal tool: runs tauler against a real X11 + i3 desktop in a container"
+edition = "2021"
+publish = false
+version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+anyhow = "1.0.104"
+image = "0.25.10"
+serde_json = "1.0.151"
+testcontainers = { version = "0.28.0", features = ["blocking"] }
