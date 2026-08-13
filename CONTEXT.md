@@ -86,6 +86,42 @@ own. The expected numbers are part of the scenario, written by hand — a scenar
 derives them is not checking anything.
 _Avoid_: test case, fixture (a fixture is only the layout file half), e2e test
 
+### Components
+
+**Data component**:
+A component that renders no pixels and instead hands data to its children through a render
+prop. Defined by shape, not by where the data comes from — a Module wrapper and a pure
+transform are both Data components.
+_Avoid_: provider, source, container
+_Elsewhere_: headless component, render-prop component (React)
+
+**Display component**:
+A component that renders data as pixels. A wrapper that only decorates what it is given,
+like `<Card>`, is a Display component too — wrapping is not a kind of its own.
+_Avoid_: view, presentational component, dumb component
+_Elsewhere_: mark (Vega-Lite), geom (ggplot)
+
+**Control component**:
+A Display component that also emits intents. It never holds a value: it renders the value
+it is given and remembers nothing.
+_Avoid_: input, interactive component, widget
+_Elsewhere_: controlled component (React). Observable's `viewof` is the opposite — see
+ADR 0012.
+
+**Component kind**:
+Which of Data, Display or Control a component is. Exactly one applies, resolved by
+precedence: Data, then Control, then Display. Components that produce Shell nodes, like
+`<I3Layout>`, have no kind.
+_Avoid_: type, class, category
+
+**Accessor**:
+A prop naming which part of the data a component should use. A field name is shorthand for
+a function — `y="usage"` means `y={r => r.usage}` — and the same form points a Repeater at
+what to split on.
+_Avoid_: key, selector, encoding, mapping
+_Elsewhere_: accessor (d3), aesthetic mapping (ggplot), encoding channel (Vega-Lite),
+field (Grafana)
+
 ### Data
 
 **Module**:
@@ -97,6 +133,13 @@ _Avoid_: plugin, provider, service, backend
 A subprocess whose stdout tauler reads, one value per line. Read-only — a stream that is
 also written to is a Module.
 _Avoid_: source, feed, watcher
+
+**Accumulator**:
+A subprocess that buffers the stream piped into it and re-emits a fixed-length window on
+each line. It is what gives a layout file history, since tauler itself keeps only the
+latest line of a stream.
+_Avoid_: buffer, history, retention, ring buffer
+_Elsewhere_: rolling window (pandas), range vector (Prometheus)
 
 **Subprocess identity**:
 The `(bin, script)` pair that decides whether a running subprocess is reused or replaced.
