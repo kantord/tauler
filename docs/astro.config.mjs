@@ -24,7 +24,7 @@ export default defineConfig({
           href: 'https://github.com/kantord/tauler',
         },
       ],
-      sidebar: [{ slug: 'index' }, { slug: 'components' }],
+      sidebar: [{ slug: 'index' }, { slug: 'layout' }, { slug: 'components' }],
     }),
   ],
 })
