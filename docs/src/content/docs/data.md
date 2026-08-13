@@ -50,6 +50,56 @@ The same, but each stdout line is parsed as JSON and returned as an object.
 const data = useJSONStream("/usr/bin/myscript");
 ```
 
+## History: `tauler-accumulate`
+
+tauler keeps exactly one value per stream — the latest line. A widget that needs to show
+what happened *before* now gets it by piping the stream through `tauler-accumulate`, inside
+the script you are already writing:
+
+```jsx
+const recent = useJSONStream("/bin/sh", `
+  journalctl -f -o json | tauler-accumulate -n 5
+`);
+```
+
+`recent` is an array of the last five lines, **oldest first**. One array is written per
+input line, starting from the first one — the window grows to `-n` rather than staying
+blank until it fills, so the widget appears immediately.
+
+It is a ring buffer and nothing more. Each line is parsed as JSON if it parses, and kept as
+a string if it does not, so a bare number arrives as a number and an error message arrives
+as a string:
+
+```
+$ printf '0.41\n0.52\noops\n' | tauler-accumulate -n 2
+[0.41]
+[0.41,0.52]
+[0.52,"oops"]
+```
+
+There is no query or filter option, because both sides of it already have one. To trim fat
+lines before they are buffered, put `jq` in the pipe:
+
+```sh
+journalctl -f -o json | jq -c .MESSAGE | tauler-accumulate -n 5
+```
+
+To reshape the window afterwards, do it in the layout file, which is JavaScript:
+
+```jsx
+const load = useJSONStream("/bin/sh", `
+  while :; do cut -d' ' -f1 /proc/loadavg; sleep 1; done | tauler-accumulate -n 60
+`);
+
+const average = load.reduce((a, b) => a + b, 0) / load.length;
+const newestFirst = [...load].reverse();
+```
+
+Two things to know. Numbers are re-serialized, so `0.60` comes back as `0.6` — accumulate
+strings if the exact text matters. And a stream is never restarted once its subprocess
+exits, which a pipe makes twice as likely, so a dead source keeps rendering its last window
+indefinitely.
+
 ## `useEvents(bin)`
 
 Registers the subprocess and returns a proxy for addressing it. Every property is a

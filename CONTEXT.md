@@ -135,9 +135,9 @@ also written to is a Module.
 _Avoid_: source, feed, watcher
 
 **Accumulator**:
-A subprocess that buffers the stream piped into it and re-emits a fixed-length window on
-each line. It is what gives a layout file history, since tauler itself keeps only the
-latest line of a stream.
+A subprocess that buffers the stream piped into it and re-emits a window of the last N
+lines on each line. It is what gives a layout file history, since tauler itself keeps only
+the latest line of a stream.
 _Avoid_: buffer, history, retention, ring buffer
 _Elsewhere_: rolling window (pandas), range vector (Prometheus)
 
