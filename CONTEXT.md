@@ -106,7 +106,7 @@ A Display component that also emits intents. It never holds a value: it renders 
 it is given and remembers nothing.
 _Avoid_: input, interactive component, widget
 _Elsewhere_: controlled component (React). Observable's `viewof` is the opposite — see
-ADR 0007.
+ADR 0012.
 
 **Component kind**:
 Which of Data, Display or Control a component is. Exactly one applies, resolved by

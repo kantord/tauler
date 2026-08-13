@@ -20,7 +20,8 @@ already contain a pipe.
 `globals` is its only store — but the mechanics do not work.
 
 An incoming line is stored only when it *differs* from the stored one, and a tick fires when
-any stream changes (`src/app.rs`). So a `globals` accumulator would sample at tick rate
+any stream changes (`src/app.rs`, and ADR 0007 for why a tick is whole-tree). So a `globals`
+accumulator would sample at tick rate
 rather than at its source's rate, letting an unrelated clock decide a CPU graph's
 resolution; and it would drop every repeated reading, flattening a genuine plateau into a
 single point and lying about the time axis. A subprocess accumulating on its own clock has

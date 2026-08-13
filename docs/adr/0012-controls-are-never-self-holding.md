@@ -13,9 +13,9 @@ It would be a second source of truth beside stream values, so "where does this n
 from" would have two answers, and a widget could disagree with the process that owns its
 subject.
 
-And it would break the rule that nothing survives a tick except `globals`. The layout file
-is a stateless reducer over stream values; a control that remembers things is no longer part
-of that reduction.
+And it would break the rule that nothing survives a tick except `globals` (ADR 0007). The
+layout file is a stateless reducer over stream values; a control that remembers things is no
+longer part of that reduction.
 
 ## Consequences
 
