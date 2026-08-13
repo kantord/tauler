@@ -32,7 +32,6 @@ exclude = [
     "/assets",
     "/.cargo",
     "/CLAUDE.md",
-    "/spec.md",
     "/VISION.md",
     "/justfile",
     "/renovate.json",

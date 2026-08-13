@@ -1,3 +1,22 @@
+//! One X11 window per Panel.
+//!
+//! Responsibilities are narrow by design — everything above this module hands down
+//! finished BGRX buffers and knows nothing about X11 (ADR 0010):
+//!
+//! - create and configure the window, then blit buffers into it with `XPutImage`
+//! - report button presses up to the main loop
+//! - expose monitor geometry, so a layout can size itself via `ctx.screen_width` /
+//!   `ctx.screen_height`
+//!
+//! Panels are **override-redirect**, so the window manager does not manage them at all.
+//! That is what makes a bar sit exactly where the layout says, and it is also why no
+//! strut is set: `_NET_WM_STRUT_PARTIAL` on an unmanaged window is never read, and i3
+//! would not honour it for a sidebar anyway. Space is reserved by telling i3 directly —
+//! ADR 0001.
+//!
+//! Being unmanaged also means a Panel never appears in `i3-msg -t get_tree`; the X server
+//! is the only thing that knows where one is.
+
 use std::collections::HashMap;
 use std::sync::Arc;
 
