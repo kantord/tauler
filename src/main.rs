@@ -163,11 +163,25 @@ fn init_x11() -> Result<X11Init, Box<dyn std::error::Error>> {
     let dpi = i3_dpi(&conn, screen.root, &screen);
     let dpr = dpi / 96.0;
 
-    let primary_output = conn.randr_get_output_primary(screen.root)?.reply()?.output;
-    let output_info = conn.randr_get_output_info(primary_output, 0)?.reply()?;
-    let output_name = String::from_utf8_lossy(&output_info.name).into_owned();
-
     let output_map = tauler::x11::outputs::build_output_map(&conn, screen.root);
+
+    // RandR answers 0 when no output is marked primary, and `GetOutputInfo(0)`
+    // is a protocol error — so a bare X server (Xvfb, a session started by hand)
+    // used to take tauler down before it drew anything. The name is only used to
+    // look up a logical screen size below, which already has a fallback, so
+    // there is nothing here worth failing over.
+    let primary_output = conn.randr_get_output_primary(screen.root)?.reply()?.output;
+    let output_name = (primary_output != 0)
+        .then(|| {
+            conn.randr_get_output_info(primary_output, 0)
+                .ok()?
+                .reply()
+                .ok()
+        })
+        .flatten()
+        .map(|info| String::from_utf8_lossy(&info.name).into_owned())
+        .or_else(|| tauler::x11::outputs::fallback_output_name(&output_map))
+        .unwrap_or_default();
 
     let root_screen_width = screen.width_in_pixels as u32;
     let root_screen_height = screen.height_in_pixels as u32;

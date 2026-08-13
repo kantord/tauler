@@ -53,6 +53,25 @@ pub fn build_output_map(conn: &RustConnection, root: u32) -> HashMap<String, Out
     map
 }
 
+/// Which output to treat as the primary one when RandR names none.
+///
+/// A session started by a display manager always has a primary output, but a
+/// bare X server — Xvfb, an X session started by hand — has none, and RandR
+/// answers `GetOutputPrimary` with 0. Asking for that output's info is a
+/// protocol error, so tauler cannot simply trust the reply.
+///
+/// Prefers the output at the origin, since that is the one whose logical size
+/// matches the root window, and falls back to the first name in sorted order so
+/// that two runs against the same screen agree.
+pub fn fallback_output_name(outputs: &HashMap<String, OutputInfo>) -> Option<String> {
+    let at_origin = outputs
+        .values()
+        .filter(|o| o.x == 0 && o.y == 0)
+        .min_by(|a, b| a.name.cmp(&b.name));
+    let chosen = at_origin.or_else(|| outputs.values().min_by(|a, b| a.name.cmp(&b.name)))?;
+    Some(chosen.name.clone())
+}
+
 // Emits the current monitor layout as a JSON array of {name, x, y, width, height,
 // screen_width, screen_height, dpr} objects, where screen_* are logical-pixel dimensions.
 fn emit_outputs(conn: &RustConnection, root: u32, key: &str, tx: &mpsc::Sender<StreamItem>) {
@@ -78,6 +97,48 @@ fn emit_outputs(conn: &RustConnection, root: u32, key: &str, tx: &mpsc::Sender<S
         stream: StreamKind::Stdout,
         line,
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn output(name: &str, x: i16, y: i16) -> (String, OutputInfo) {
+        (
+            name.to_string(),
+            OutputInfo {
+                name: name.to_string(),
+                x,
+                y,
+                width: 1920,
+                height: 1080,
+                dpr: 1.0,
+            },
+        )
+    }
+
+    #[test]
+    fn no_outputs_means_no_fallback() {
+        assert_eq!(fallback_output_name(&HashMap::new()), None);
+    }
+
+    #[test]
+    fn prefers_the_output_at_the_origin() {
+        let outputs = HashMap::from([output("DP-2", 1920, 0), output("HDMI-1", 0, 0)]);
+        assert_eq!(
+            fallback_output_name(&outputs).as_deref(),
+            Some("HDMI-1"),
+            "the output at the origin is the one whose size matches the root window"
+        );
+    }
+
+    #[test]
+    fn picks_the_same_output_every_time() {
+        // HashMap iteration order varies per process, so an unordered pick would
+        // make the bar's logical size differ between two runs on one machine.
+        let outputs = HashMap::from([output("DP-2", 1920, 200), output("HDMI-1", 0, 400)]);
+        assert_eq!(fallback_output_name(&outputs).as_deref(), Some("DP-2"));
+    }
 }
 
 pub fn outputs_thread(tx: mpsc::Sender<StreamItem>, key: String, stop: Arc<AtomicBool>) {
