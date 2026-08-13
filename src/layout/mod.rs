@@ -1,7 +1,7 @@
 use takumi::prelude::Node;
 
-/// Which screen edge a panel is anchored to. Drives both window placement and EWMH strut
-/// reservation. Panels without an anchor are free-floating (no strut).
+/// Which screen edge a panel is anchored to. Drives window placement only — anchoring
+/// reserves no space (see `docs/adr/0001`). Panels without an anchor are free-floating.
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub enum PanelAnchor {
     Left,

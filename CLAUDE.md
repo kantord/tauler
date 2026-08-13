@@ -1,5 +1,16 @@
 # Development guidelines
 
+## Documents
+
+- `CONTEXT.md` — the glossary. Read it before naming anything; use its terms and avoid the
+  ones it lists under `_Avoid_`. Glossary only, no implementation detail.
+- `docs/adr/` — decisions that are hard to reverse and surprising without context. Check
+  here before "fixing" something that looks wrong.
+- `spec.md` — how it actually works. Implementation detail lives here, not in `CONTEXT.md`.
+
+`CONTEXT.md` and `docs/adr/` are maintained by the `domain-modeling` skill and are
+repo-internal — neither is published to the docs site.
+
 ## TDD
 
 Use "pragmatically strict" TDD: write tests for real behavior, skip tests for pure plumbing (struct fields, wiring, pass-through changes).

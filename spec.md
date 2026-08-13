@@ -368,9 +368,9 @@ reserves nothing, and outputs with no panel are revoked to zero regardless.
 ### Reserving space
 
 `anchor` places a panel; it does not reserve space for it. On X11 tauler creates panels
-as **override-redirect** windows, which the window manager does not manage at all — so
-the `_NET_WM_STRUT_PARTIAL` tauler sets on them is never read. i3 would not honour it
-anyway: it classifies dock clients as `W_DOCK_TOP` or `W_DOCK_BOTTOM` only
+as **override-redirect** windows, which the window manager does not manage at all — so a
+`_NET_WM_STRUT_PARTIAL` on them would never be read, and tauler does not set one. i3 would
+not honour it anyway: it classifies dock clients as `W_DOCK_TOP` or `W_DOCK_BOTTOM` only
 (`include/data.h`), and consults just the top/bottom struts (`src/manage.c`). There is no
 left/right dock, so a full-height sidebar can never reserve space via struts.
 
@@ -456,7 +456,7 @@ JSX evaluation, render pipeline, or data layer.
 ### X11 panel
 
 Current implementation. One `XPanel` struct per `<panel>` node. Responsibilities:
-- Create and configure the X11 window (override-redirect, strut properties)
+- Create and configure the X11 window (override-redirect; no struts — see ADR 0001)
 - Accept BGRX pixel buffers and put them to the window via `XPutImage`
 - Report button-press events up to the main loop
 - Expose monitor geometry so panels can size themselves via `ctx.screen_width` /
