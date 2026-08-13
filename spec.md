@@ -374,17 +374,24 @@ anyway: it classifies dock clients as `W_DOCK_TOP` or `W_DOCK_BOTTOM` only
 (`include/data.h`), and consults just the top/bottom struts (`src/manage.c`). There is no
 left/right dock, so a full-height sidebar can never reserve space via struts.
 
-Space is therefore reserved by declaring it, through `tauler-i3`'s `gaps` prop:
+Space is therefore reserved by declaring it, through `tauler-i3`'s `gaps` prop. Rather
+than writing both the panel sizes and the matching gaps by hand, use `<I3Layout>`, which
+derives one from the other:
 
 ```jsx
-const SIDEBAR_W = 272, BAR_H = 26;
-
-<Module bin="~/.cargo/bin/tauler-i3"
-        gaps={{ left: SIDEBAR_W, right: 60, top: BAR_H, bottom: BAR_H }}>
+<I3Layout module="~/.cargo/bin/tauler-i3">
+  <Panel id="sidebar" anchor="left" size={272}>…</Panel>
+  <Panel id="topbar"  anchor="top"  size={26}>…</Panel>
+</I3Layout>
 ```
 
-Use the same constants as the panel dimensions — tauler cannot derive the gaps for you,
-because "how much space should i3 reserve" is a decision, not a consequence of geometry.
+Each `<Panel>` eats from an edge of the remaining rectangle in document order, and the
+four amounts eaten become the gaps — so a size can never drift from its reservation. See
+"Edge layout" below.
+
+The `gaps` prop remains available directly for cases `<I3Layout>` does not cover; tauler
+never derives it, because "how much space should i3 reserve" is a decision, not a
+consequence of geometry.
 
 The values reach i3 unconverted. i3's own `cmd_gaps` opens with `logical_px(atoi(value))`
 (`src/commands.c`), and `logical_px` is `ceil(dpi/96 * value)` above a 1.25 DPI threshold,
@@ -392,6 +399,50 @@ identity below (`libi3/dpi.c`) — so **i3's gap unit is already logical pixels*
 unit a layout is written in. Scaling here would only have to be undone there, with
 different rounding. i3's grammar accepts a trailing `px` keyword, but it is discarded and
 `cmd_gaps` has no unit parameter; there is no physical-pixel path.
+
+### Edge layout (`<I3Layout>` / `<Panel>`)
+
+`<I3Layout>` positions panels around a screen and reports what they consumed, so the
+panel sizes and the i3 gaps cannot disagree.
+
+```jsx
+<I3Layout module="~/.cargo/bin/tauler-i3">
+  <Panel id="sidebar"   anchor="left"   size={272}>…</Panel>
+  <Panel id="topbar"    anchor="top"    size={26}>…</Panel>
+  <Panel id="dock"      anchor="left"   size={120}>…</Panel>
+  <Panel id="bottombar" anchor="bottom" size={26}>…</Panel>
+</I3Layout>
+```
+
+**Document order is the API.** Each `<Panel>` takes `size` logical pixels off one edge of
+what is left, then the next sees the smaller rectangle. Above, `topbar` starts to the
+right of `sidebar` rather than under it, and `dock` sits below `topbar`. Swapping two
+lines swaps which one owns the corner. The four running totals are the gaps.
+
+| prop | description |
+|---|---|
+| `id` | surface id, as on `<panel>` |
+| `anchor` | `"left" \| "right" \| "top" \| "bottom"`. An unrecognised value reserves nothing |
+| `size` | thickness along the anchored axis, logical px. The other axis fills what is left |
+| `output` | RandR output name; omit for primary |
+
+`<I3Layout>` takes one prop, `module` — the bin to send the computed gaps to, normally
+`tauler-i3`. Omit it and `<I3Layout>` is pure geometry, registering nothing.
+
+The panels it emits are ordinary `<panel>` nodes with explicit `x`/`y`/`width`/`height`
+and no `anchor` — `anchor` only pins a surface to a monitor edge, which cannot express
+"below the bar declared before me".
+
+Two implementation notes, because both look like bugs otherwise:
+
+- **`<I3Layout>` is a JS shim** (`JSX_GLOBALS_JS`) over a Rust component
+  (`ui::components::i3_layout`). The arithmetic is Rust and unit-tested; the shim only
+  dispatches. It has to be JS because registering the gaps is a JS-side call
+  (`useEvents`), and a Rust component receives serde data with no `Ctx` to call back with.
+- **The gaps are registered after the children.** `<I3Layout>` cannot know them until every
+  `<Panel>` has been evaluated, and children evaluate before their parent. That is why
+  `registerModule` merges registrations for a bin instead of keeping the first — see
+  `jsx::merge_missing`.
 
 ## Display backend
 

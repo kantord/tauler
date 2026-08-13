@@ -29,6 +29,10 @@ struct Component {
     shadcn_url: Option<String>,
     #[cfg_attr(not(test), allow(dead_code))]
     skip_snapshot: bool,
+    /// Registered for a JS shim to call, not for a layout to import. Excluded
+    /// from the generated docs: naming it would invite an import that returns
+    /// something other than what the matching JSX tag does.
+    internal: bool,
 }
 
 struct DocComments {
@@ -36,6 +40,7 @@ struct DocComments {
     jsx_block: Option<Vec<String>>,
     shadcn_url: Option<String>,
     skip_snapshot: bool,
+    internal: bool,
 }
 
 fn to_pascal_case(s: &str) -> String {
@@ -89,6 +94,7 @@ fn parse_doc_comments(raw: &[String]) -> DocComments {
     let mut jsx_block = None;
     let mut shadcn_url = None;
     let mut skip_snapshot = false;
+    let mut internal = false;
     let mut i = 0;
     while i < raw.len() {
         if raw[i].trim() == "# JSX" {
@@ -103,6 +109,9 @@ fn parse_doc_comments(raw: &[String]) -> DocComments {
         } else if raw[i].trim() == "# SkipSnapshot" {
             skip_snapshot = true;
             i += 1;
+        } else if raw[i].trim() == "# Internal" {
+            internal = true;
+            i += 1;
         } else {
             prose.push(raw[i].clone());
             i += 1;
@@ -113,6 +122,7 @@ fn parse_doc_comments(raw: &[String]) -> DocComments {
         jsx_block,
         shadcn_url,
         skip_snapshot,
+        internal,
     }
 }
 
@@ -165,6 +175,7 @@ fn extract_components(path: &Path) -> Result<Vec<Component>, std::io::Error> {
             jsx_block: doc.jsx_block,
             shadcn_url: doc.shadcn_url,
             skip_snapshot: doc.skip_snapshot,
+            internal: doc.internal,
         });
     }
     Ok(components)
@@ -212,6 +223,10 @@ fn load_all_components(components_dir: &Path) -> Vec<Component> {
             }
         })
         .collect();
+    // `# Internal` components exist for a JS shim to call; a layout author who
+    // imported one would get different behaviour from the JSX tag of the same
+    // name, so they are left out of the docs entirely.
+    components.retain(|c| !c.internal);
     components.sort_by(|a, b| a.export_name.cmp(&b.export_name));
     components
 }
@@ -538,6 +553,7 @@ mod tests {
             jsx_block: Some(vec!["<Card />".to_string()]),
             shadcn_url: None,
             skip_snapshot: false,
+            internal: false,
         };
         let all_components = vec![Component {
             module_path: "@ui/card".to_string(),
@@ -546,6 +562,7 @@ mod tests {
             jsx_block: None,
             shadcn_url: None,
             skip_snapshot: false,
+            internal: false,
         }];
 
         let result = render_screenshot(&component, &all_components, assets_dir);
@@ -554,6 +571,26 @@ mod tests {
         let path = result.unwrap();
         assert!(path.exists(), "PNG file does not exist at {:?}", path);
         assert!(path.metadata().unwrap().len() > 0, "PNG file is empty");
+    }
+
+    /// A component registered only so a JS shim can call it is not something a
+    /// layout author should import — documenting it would hand them a name that
+    /// does the wrong thing.
+    #[test]
+    fn parse_doc_comments_sets_internal_when_marker_present() {
+        let raw = vec!["Some prose.".to_string(), "# Internal".to_string()];
+        let doc = parse_doc_comments(&raw);
+        assert!(doc.internal);
+        assert!(
+            !doc.prose.iter().any(|l| l.contains("# Internal")),
+            "the marker must not leak into the prose"
+        );
+    }
+
+    #[test]
+    fn parse_doc_comments_defaults_internal_to_false() {
+        let doc = parse_doc_comments(&["Some prose.".to_string()]);
+        assert!(!doc.internal);
     }
 
     #[test]

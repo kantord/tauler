@@ -126,6 +126,8 @@ pub fn lay_out(decls: &[PanelDecl], width: u32, height: u32) -> EdgeLayout {
 /// Returns data rather than nodes because the caller needs both halves: the
 /// panels go into the tree, the gaps go to the module. A component may return
 /// any serialisable type, not only `Node`.
+///
+/// # Internal
 #[component("@ui/i3-layout")]
 pub fn i3_layout(children: Vec<PanelDecl>, width: u32, height: u32) -> EdgeLayout {
     lay_out(&children, width, height)

@@ -59,6 +59,13 @@ workspace has had a notification since you last looked at it", for example.
 That kind of memory belongs in the data source itself, in a module process that
 tracks it, rather than in the render function.
 
+## Screen layout
+
+Panels are placed around a screen, and the space they occupy has to be reserved from
+the window manager explicitly — `anchor` alone does not do it. The
+[layout page](./layout/) covers `<I3Layout>`, which derives the reservation from the
+panels themselves.
+
 ## Components
 
 Tauler ships a set of built-in UI components. Every entry on the
