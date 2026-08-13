@@ -89,8 +89,6 @@ fn make_ctx(conn: RustConnection, screen_num: usize) -> X11PanelContext {
         conn: Arc::new(conn),
         dpr: 1.0,
         xrootpmap_atom: None,
-        strut_atom: 0,
-        strut_legacy_atom: 0,
         output_map: Arc::new(output_map),
         dpi: 96.0,
         output_name: "VIRT-1".to_string(),
