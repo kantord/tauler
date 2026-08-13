@@ -1,0 +1,15 @@
+#!/bin/sh
+# One dummy client window: xterm with a pinned Xft font and palette.
+#
+# xterm rather than kitty or alacritty because both of those want OpenGL, which
+# under Xvfb means dragging Mesa's software rasteriser into the image. Nothing
+# here reads as "xterm" once the bitmap font default is gone.
+set -eu
+
+exec xterm \
+    -fa "JetBrains Mono" -fs 11 \
+    -bg "#1e1e2e" -fg "#cdd6f4" \
+    -b 12 \
+    +sb \
+    -title "e2e-client-$1" \
+    -e e2e-pane "$1"

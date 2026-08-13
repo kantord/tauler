@@ -49,8 +49,10 @@ _Avoid_: transparency, blur, backdrop
 ### The layout file
 
 **Layout file**:
-The single `.jsx` file that declares everything. There is no other configuration.
-_Avoid_: config, config file, theme file
+The single `.jsx` file that declares everything a bar *is*. A sibling `config.yaml`
+carries theme mode and font choice — what to render with, never what to render. Anything
+describing a surface, its contents or its data belongs in the layout file.
+_Avoid_: config, config file, theme file (all three name the `.yaml`, not this)
 
 **Tick**:
 One full re-evaluation of the layout file, triggered by any stream value changing. Every
@@ -77,6 +79,12 @@ A `<Panel>` inside an `<I3Layout>` — an instruction to eat `size` off one edge
 a Panel; it *produces* one. Note the casing: lowercase `<panel>` is the surface, capital
 `<Panel>` is the declaration.
 _Avoid_: panel (unqualified — it is the collision this term exists to prevent)
+
+**Scenario**:
+One layout file plus the reservation it is supposed to produce, run on a desktop of its
+own. The expected numbers are part of the scenario, written by hand — a scenario that
+derives them is not checking anything.
+_Avoid_: test case, fixture (a fixture is only the layout file half), e2e test
 
 ### Data
 

@@ -1,0 +1,19 @@
+#!/bin/sh
+# Static terminal content, so two runs of the same scenario look the same.
+set -eu
+
+case "$1" in
+    1)
+        printf '\033[38;5;117m~/repos/tauler\033[0m $ cargo build --release\n'
+        printf '   \033[38;5;114mCompiling\033[0m tauler v0.1.2\n'
+        printf '    \033[38;5;114mFinished\033[0m `release` profile in 41.2s\n'
+        printf '\033[38;5;117m~/repos/tauler\033[0m $ \n'
+        ;;
+    *)
+        printf '\033[38;5;117m~\033[0m $ tauler --version\n'
+        printf 'tauler 0.1.2\n'
+        printf '\033[38;5;117m~\033[0m $ \n'
+        ;;
+esac
+
+exec sleep infinity

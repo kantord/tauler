@@ -26,23 +26,23 @@ The output is a static tree, not a live component hierarchy.
 
 ## Scripting language: JavaScript (JSX via rquickjs + OXC)
 
-Layout files are `.jsx` files evaluated by **QuickJS** (via `rquickjs`) with JSX syntax
-transformed by **OXC** (`oxc_transformer`). No custom parser or preprocessor — two maintained
-Rust crates, both available on crates.io. Requires a C compiler at build time (QuickJS is
-vendored via `rquickjs-sys`, no system libraries needed).
+Layout files are `.jsx` files evaluated by **QuickJS** (via `rquickjs`), with the JSX
+transform reached through **`optative-script`**, which wraps OXC. tauler does not depend on
+`oxc_transformer` directly. No custom parser or preprocessor. Requires a C compiler at build
+time (QuickJS is vendored via `rquickjs-sys`, no system libraries needed).
 
 ### How it works
 
-1. **On layout file load or change**: OXC parses the JSX source and locates the last
-   top-level `ExpressionStatement` via the AST. Everything before it becomes the body of
-   `globalThis._render`; the final expression becomes its return value. OXC then transforms
-   JSX syntax to `_jsx(...)` calls and emits plain JS.
+1. **On layout file load or change**: `optative-script` transforms the JSX source, turning
+   JSX syntax into `_jsx(...)` calls, and QuickJS declares the result as an ES module. The
+   module's **default export is the render function** — a layout file that exports nothing
+   fails to load.
 2. **On each data tick**: The QuickJS `Runtime` and `Context` are kept alive between ticks
-   (created once, reused forever). Stream values are updated in a shared map, then
-   `_render()` is called. No reparse, no recompile. Returns a JS object tree. Rust walks
-   the tree to extract panels and build takumi node trees.
+   (created once, reused forever). Stream values are updated in a shared map, then the
+   render function is called. No reparse, no recompile. Returns a JS object tree. Rust
+   walks the tree to extract panels and build takumi node trees.
 
-OXC transform + wrap: **<1ms** (layout-file-change only). QuickJS `_render()` call:
+Transform and declare: **<1ms** (layout-file-change only). QuickJS render call:
 **~100–200μs**. Dominant cost is always takumi + skia rasterization.
 
 ### Sandbox
@@ -66,16 +66,20 @@ function TimeCard() {
   );
 }
 
-<root>
-  <panel anchor="left" width={250} height={ctx.screen_height}>
-    <container tw="flex flex-col h-full w-full px-4 py-4">
-      <Module bin="/home/kantord/.cargo/bin/tauler-i3">
-        {(data, events) => <WorkspaceList workspaces={data?.workspaces} events={events} />}
-      </Module>
-      <TimeCard />
-    </container>
-  </panel>
-</root>
+export default function render() {
+  return (
+    <root>
+      <panel anchor="left" width={250} height={ctx.screen_height}>
+        <container tw="flex flex-col h-full w-full px-4 py-4">
+          <Module bin="/home/kantord/.cargo/bin/tauler-i3">
+            {(data, events) => <WorkspaceList workspaces={data?.workspaces} events={events} />}
+          </Module>
+          <TimeCard />
+        </container>
+      </panel>
+    </root>
+  );
+}
 ```
 
 Components are plain JS functions. No framework, no hooks protocol.
@@ -83,14 +87,17 @@ Components are plain JS functions. No framework, no hooks protocol.
 
 ## Layout file
 
-The layout file is the single source of configuration. There is no `config.yaml`. If
-future top-level settings are needed they go as props on `<root>`.
+The layout file declares everything a bar *is*: surfaces, contents and where the data comes
+from. A sibling `config.yaml` (`src/config.rs`) carries theme mode and font choice — what to
+render with, never what to render. Anything else belongs in the layout file, or as a prop on
+`<root>`.
 
-The file is watched for changes and hot-reloaded. On reload all subprocesses are restarted
-and stream values are cleared.
+Both files are watched for changes and hot-reloaded. On reload all subprocesses are
+restarted and stream values are cleared.
 
-The file is re-evaluated on every data tick (stream value change). Re-evaluation is cheap
-(~100–200μs) because `_render()` is pre-compiled and the QuickJS context is reused.
+The layout is re-evaluated on every data tick (stream value change). Re-evaluation is cheap
+(~100–200μs) because the render function is already compiled and the QuickJS context is
+reused.
 
 
 ## Nodes
@@ -240,7 +247,7 @@ Components are plain JS functions that take props and return a node tree. JSX ha
 the only mechanism for accumulating state across renders — for example, tracking which
 workspaces have unread notifications across a stream of notification events.
 
-Use it sparingly. Because `globals` is mutated as a side effect during `_render()`, the
+Use it sparingly. Because `globals` is mutated as a side effect during a render, the
 layout function is no longer pure when it uses `globals`. Prefer deriving everything from
 the current stream values when possible; reach for `globals` only when you genuinely need
 to accumulate state over time.

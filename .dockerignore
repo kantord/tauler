@@ -1,0 +1,6 @@
+# The e2e image builds from the repo root. Without this, the build context is
+# several gigabytes of local build output that the image then discards.
+target/
+docs/node_modules/
+docs/dist/
+.git/

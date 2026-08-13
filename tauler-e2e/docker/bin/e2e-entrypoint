@@ -1,0 +1,82 @@
+#!/bin/sh
+# Bring up one scenario: X, then i3, then clients, then tauler.
+#
+# Each step waits for the previous one to actually answer rather than sleeping.
+# Everything here only *launches* the desktop — deciding it is ready to
+# photograph is the harness's job, because "mapped" is not "painted".
+set -eu
+
+: "${SCENARIO:?SCENARIO must name a directory under /fixtures}"
+
+FIXTURE="/fixtures/${SCENARIO}"
+[ -d "$FIXTURE" ] || { echo "e2e: no such fixture: $FIXTURE" >&2; exit 1; }
+
+LOGS="/out/${SCENARIO}"
+mkdir -p "$LOGS"
+
+# -noreset is load-bearing. Without it the server resets the moment its last
+# client disconnects, and everything set up by a command that then exits — the
+# X resources below, the primary output — is silently discarded. It comes back
+# as a setting that "worked" (exit 0) and did nothing.
+Xvfb "$DISPLAY" -screen 0 "$SCREEN" -dpi "$DPI" -noreset >"$LOGS/xvfb.log" 2>&1 &
+
+# xdpyinfo is the cheapest "is the server answering" probe there is.
+i=0
+until xdpyinfo >/dev/null 2>&1; do
+    i=$((i + 1))
+    [ "$i" -lt 100 ] || { echo "e2e: X server never came up" >&2; exit 1; }
+    sleep 0.1
+done
+
+# Everything below is what a session's .xinitrc does before it execs a window
+# manager: state the DPI, name a primary output, paint the desktop.
+#
+# State the DPI rather than letting it be derived. Xvfb reports the screen's
+# physical size in whole millimetres, so 1920x1080 at 96dpi comes back as
+# 508x286mm, from which tauler recomputes 95.9dpi — a DPR of 1.0009, enough to
+# round every panel a pixel larger than it was declared. Xft.dpi takes
+# precedence over the physical dimensions, and a real session sets it.
+printf 'Xft.dpi: %s\n' "$DPI" | xrdb -merge
+xrdb -query | grep -q "^Xft.dpi" || { echo "e2e: Xft.dpi did not stick" >&2; exit 1; }
+
+# Xvfb marks no output primary; tauler asks RandR for the primary one at startup
+# and cannot start without it. Any display manager sets this.
+xrandr --output "$(xrandr --query | awk '/ connected/ { print $1; exit }')" --primary
+xrandr --query | grep -q " connected primary" \
+    || { echo "e2e: no output could be made primary" >&2; exit 1; }
+
+mkdir -p "$HOME/.config/tauler"
+cp "$FIXTURE/layout.jsx" "$HOME/.config/tauler/layout.jsx"
+# An `&&` here would take the shell down with `set -e` whenever the fixture has
+# no config.yaml, which is most of them.
+if [ -f "$FIXTURE/config.yaml" ]; then
+    cp "$FIXTURE/config.yaml" "$HOME/.config/tauler/config.yaml"
+fi
+
+# A flat desktop colour: it makes an unpainted panel obvious rather than
+# camouflaged against black.
+xsetroot -solid "#181825"
+
+i3 -c /usr/local/share/e2e/i3.config >"$LOGS/i3.log" 2>&1 &
+
+i=0
+until i3-msg -t get_version >/dev/null 2>&1; do
+    i=$((i + 1))
+    [ "$i" -lt 100 ] || { echo "e2e: i3 never answered IPC" >&2; exit 1; }
+    sleep 0.1
+done
+
+# Two managed clients, so the screenshot shows the reservation pushing real
+# windows aside rather than an empty workspace.
+e2e-client 1 &
+e2e-client 2 &
+
+# Deliberately launched with the same environment a real session gives it: the
+# bug class this suite exists for is the one where a spawned child cannot find
+# something the parent could.
+tauler >"$LOGS/tauler.log" 2>&1 &
+
+echo "e2e: desktop up"
+
+# testcontainers keeps the container for as long as PID 1 lives.
+exec tail -f /dev/null

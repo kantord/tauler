@@ -1,0 +1,12 @@
+#!/bin/sh
+# A frozen stand-in for a real status module.
+#
+# It emits one line of fixed JSON and then holds the pipe open, so the bar looks
+# populated and looks the same on every run — while still going through the real
+# subprocess, stdout-stream and JSON-parse path. A live clock here would make
+# every PR's screenshot differ for no reason.
+set -eu
+
+printf '{"time":"09:41","battery":73,"host":"tauler-e2e"}\n'
+
+exec sleep infinity
