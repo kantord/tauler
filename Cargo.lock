@@ -5668,6 +5668,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "tauler-accumulate"
+version = "0.1.2"
+dependencies = [
+ "clap",
+ "serde_json",
+]
+
+[[package]]
 name = "tauler-docgen"
 version = "0.1.2"
 dependencies = [

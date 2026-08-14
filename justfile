@@ -30,8 +30,10 @@ install:
     cargo install --path . --locked
     cargo install --path tauler-i3 --locked
     cargo install --path tauler-notify --locked
+    cargo install --path tauler-accumulate --locked
 
 install-fast:
     cargo install --path . --locked --debug
     cargo install --path tauler-i3 --locked --debug
     cargo install --path tauler-notify --locked --debug
+    cargo install --path tauler-accumulate --locked --debug

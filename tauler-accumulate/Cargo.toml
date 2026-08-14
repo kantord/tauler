@@ -1,0 +1,29 @@
+[package]
+name = "tauler-accumulate"
+description = "Buffers a line-oriented stream and re-emits the last N values as a JSON array, so a naive script can feed a tauler widget that needs history"
+keywords = ["tauler", "statusbar", "stream", "buffer", "jsonl"]
+categories = ["command-line-utilities"]
+edition = "2021"
+version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+rust-version.workspace = true
+
+[package.metadata.binstall]
+pkg-url = "{ repo }/releases/download/{ name }-v{ version }/{ name }-{ target }{ archive-suffix }"
+pkg-fmt = "tgz"
+bin-dir = "{ bin }{ binary-ext }"
+
+[package.metadata.binstall.signing]
+algorithm = "minisign"
+pubkey = "RWSIIxAW8MOpS1/+qA/KhHpVtPwT58dU4A4YY0sw+DN02POargT6PDM0"
+
+[[bin]]
+name = "tauler-accumulate"
+path = "src/main.rs"
+
+[dependencies]
+clap = { version = "4.6.6", features = ["derive"] }
+serde_json = "1.0.151"

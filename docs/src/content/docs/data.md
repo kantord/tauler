@@ -50,6 +50,108 @@ The same, but each stdout line is parsed as JSON and returned as an object.
 const data = useJSONStream("/usr/bin/myscript");
 ```
 
+## History: `tauler-accumulate`
+
+tauler keeps exactly one value per stream — the latest line. A widget that needs to show
+what happened *before* now gets it by piping the stream through `tauler-accumulate`, inside
+the script you are already writing:
+
+```jsx
+const recent = useJSONStream("/bin/sh", `
+  journalctl -f -o json | tauler-accumulate -n 5
+`);
+```
+
+`recent` is an array of the last five lines, **oldest first**. One array is written per
+input line, starting from the first one — the window grows to `-n` rather than staying
+blank until it fills, so the widget appears immediately.
+
+It is a ring buffer and nothing more. Each line is parsed as JSON if it parses, and kept as
+a string if it does not, so a bare number arrives as a number and an error message arrives
+as a string:
+
+```
+$ printf '0.41\n0.52\noops\n' | tauler-accumulate -n 2
+[0.41]
+[0.41,0.52]
+[0.52,"oops"]
+```
+
+There is no query or filter option, because both sides of it already have one. To trim fat
+lines before they are buffered, put `jq` in the pipe:
+
+```sh
+journalctl -f -o json | jq -c .MESSAGE | tauler-accumulate -n 5
+```
+
+To reshape the window afterwards, do it in the layout file, which is JavaScript:
+
+```jsx
+const load = useJSONStream("/bin/sh", `
+  while :; do cut -d' ' -f1 /proc/loadavg; sleep 1; done | tauler-accumulate -n 60
+`);
+
+const average = load.reduce((a, b) => a + b, 0) / load.length;
+const newestFirst = [...load].reverse();
+```
+
+Two things to know. Numbers are re-serialized, so `0.60` comes back as `0.6` — accumulate
+strings if the exact text matters. And a stream is never restarted once its subprocess
+exits, which a pipe makes twice as likely, so a dead source keeps rendering its last window
+indefinitely.
+
+### A complete widget
+
+The window is an ordinary array, so an existing component consumes it with no glue:
+
+```jsx
+import { DataTable } from "@ui/datatable";
+
+function RecentLogs() {
+  const lines = useJSONStream("/bin/sh", `
+    journalctl -f -o json --output-fields=MESSAGE,_COMM | tauler-accumulate -n 5
+  `) ?? [];
+
+  return (
+    <container tw="flex flex-col gap-2 rounded-lg border px-3 py-3">
+      <text tw="text-[10px] text-foreground opacity-60">RECENT</text>
+      <DataTable
+        columns={[{ key: "_COMM", label: "UNIT" }, { key: "MESSAGE", label: "MESSAGE" }]}
+        rows={[...lines].reverse()}
+      />
+    </container>
+  );
+}
+```
+
+And the window is what makes "peak over the last minute" expressible at all — the latest
+line on its own cannot say it:
+
+```jsx
+function Load() {
+  const load = useJSONStream("/bin/sh", `
+    while :; do cut -d' ' -f1 /proc/loadavg; sleep 1; done | tauler-accumulate -n 60
+  `) ?? [];
+
+  const now  = load.length ? load[load.length - 1] : 0;
+  const peak = load.length ? Math.max(...load) : 0;
+  const mean = load.length ? load.reduce((a, b) => a + b, 0) / load.length : 0;
+
+  return (
+    <container tw="flex flex-col gap-1 rounded-lg border px-3 py-2">
+      <text tw="text-[10px] text-foreground opacity-60">LOAD</text>
+      <text tw="text-[18px] text-foreground">{now.toFixed(2)}</text>
+      <text tw="text-[11px] text-foreground opacity-70">
+        {`peak ${peak.toFixed(2)} · avg ${mean.toFixed(2)} · ${load.length} samples`}
+      </text>
+    </container>
+  );
+}
+```
+
+Both guard against an empty window with `?? []`, because a stream has no value until its
+first line arrives.
+
 ## `useEvents(bin)`
 
 Registers the subprocess and returns a proxy for addressing it. Every property is a

@@ -24,6 +24,10 @@ name = "tauler-screenshot"
 version_group = "tauler"
 
 [[package]]
+name = "tauler-accumulate"
+version_group = "tauler"
+
+[[package]]
 name = "tauler-ui-macro"
 version_group = "tauler"
 

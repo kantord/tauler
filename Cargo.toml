@@ -1,5 +1,5 @@
 [workspace]
-members = [".", "tauler-i3", "tauler-notify", "tauler-ui-macro", "tauler-docgen", "tauler-screenshot", "tauler-e2e"]
+members = [".", "tauler-i3", "tauler-notify", "tauler-ui-macro", "tauler-docgen", "tauler-screenshot", "tauler-accumulate", "tauler-e2e"]
 resolver = "2"
 
 [workspace.package]
