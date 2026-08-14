@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.3](https://github.com/kantord/tauler/compare/tauler-v0.1.2...tauler-v0.1.3) - 2026-08-14
+
+### Added
+
+- add accumulator tool ([#379](https://github.com/kantord/tauler/pull/379))
+
+### Other
+
+- add a showcase scenario + small fixes ([#378](https://github.com/kantord/tauler/pull/378))
+- add component kinds ([#374](https://github.com/kantord/tauler/pull/374))
+- retire spec.md into ADRs, the docs site and module docs ([#373](https://github.com/kantord/tauler/pull/373))
+- run tauler against real desktop in container ([#368](https://github.com/kantord/tauler/pull/368))
+
 ## [0.1.2](https://github.com/kantord/tauler/compare/tauler-v0.1.1...tauler-v0.1.2) - 2026-08-13
 
 ### Added
