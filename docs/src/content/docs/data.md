@@ -100,6 +100,58 @@ strings if the exact text matters. And a stream is never restarted once its subp
 exits, which a pipe makes twice as likely, so a dead source keeps rendering its last window
 indefinitely.
 
+### A complete widget
+
+The window is an ordinary array, so an existing component consumes it with no glue:
+
+```jsx
+import { DataTable } from "@ui/datatable";
+
+function RecentLogs() {
+  const lines = useJSONStream("/bin/sh", `
+    journalctl -f -o json --output-fields=MESSAGE,_COMM | tauler-accumulate -n 5
+  `) ?? [];
+
+  return (
+    <container tw="flex flex-col gap-2 rounded-lg border px-3 py-3">
+      <text tw="text-[10px] text-foreground opacity-60">RECENT</text>
+      <DataTable
+        columns={[{ key: "_COMM", label: "UNIT" }, { key: "MESSAGE", label: "MESSAGE" }]}
+        rows={[...lines].reverse()}
+      />
+    </container>
+  );
+}
+```
+
+And the window is what makes "peak over the last minute" expressible at all — the latest
+line on its own cannot say it:
+
+```jsx
+function Load() {
+  const load = useJSONStream("/bin/sh", `
+    while :; do cut -d' ' -f1 /proc/loadavg; sleep 1; done | tauler-accumulate -n 60
+  `) ?? [];
+
+  const now  = load.length ? load[load.length - 1] : 0;
+  const peak = load.length ? Math.max(...load) : 0;
+  const mean = load.length ? load.reduce((a, b) => a + b, 0) / load.length : 0;
+
+  return (
+    <container tw="flex flex-col gap-1 rounded-lg border px-3 py-2">
+      <text tw="text-[10px] text-foreground opacity-60">LOAD</text>
+      <text tw="text-[18px] text-foreground">{now.toFixed(2)}</text>
+      <text tw="text-[11px] text-foreground opacity-70">
+        {`peak ${peak.toFixed(2)} · avg ${mean.toFixed(2)} · ${load.length} samples`}
+      </text>
+    </container>
+  );
+}
+```
+
+Both guard against an empty window with `?? []`, because a stream has no value until its
+first line arrives.
+
 ## `useEvents(bin)`
 
 Registers the subprocess and returns a proxy for addressing it. Every property is a

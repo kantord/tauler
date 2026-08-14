@@ -16,6 +16,8 @@ A small inline label for status, category, or count.
 ### Usage
 
 ```jsx
+import { Badge } from "@ui/badge";
+
 <container tw="flex flex-row gap-[8px]">
   <Badge><text>Default</text></Badge>
   <Badge variant="secondary"><text>Secondary</text></Badge>
@@ -38,6 +40,8 @@ Wraps arbitrary child nodes and accepts an optional `tw` prop for Tailwind overr
 ### Usage
 
 ```jsx
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@ui/card";
+
 <Card tw="flex flex-col gap-[6px]">
   <CardHeader>
     <CardTitle><text>System Status</text></CardTitle>
@@ -88,6 +92,8 @@ For full compositional control, use the `Table`, `TableHeader`, `TableBody`,
 ### Usage
 
 ```jsx
+import { DataTable } from "@ui/datatable";
+
 <DataTable
   columns={[{key:"service", label:"SERVICE"}, {key:"status", label:"STATUS"}, {key:"uptime", label:"UPTIME"}]}
   rows={[
@@ -115,6 +121,8 @@ Unknown names render as `?`.
 ### Usage
 
 ```jsx
+import { Icon } from "@ui/icon";
+
 <container tw="flex flex-col gap-[16px] p-[12px]">
   <container tw="flex flex-row items-end gap-[20px]">
     <container tw="flex flex-col items-center gap-[4px]">
@@ -202,6 +210,8 @@ fill colour; `tw` applies extra Tailwind classes to the track.
 ### Usage
 
 ```jsx
+import { Progress } from "@ui/progress";
+
 <container tw="flex flex-col gap-[6px] w-[200px]">
   <container tw="flex flex-row justify-between">
     <text tw="text-muted-foreground text-[11px]">Memory</text>
@@ -225,6 +235,8 @@ For a data-driven table, use `DataTable` from `@ui/datatable` instead.
 ### Usage
 
 ```jsx
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@ui/table";
+
 <Table>
   <TableHeader>
     <TableRow>
