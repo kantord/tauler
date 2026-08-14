@@ -1,0 +1,58 @@
+#!/bin/sh
+# Static terminal content, ASCII and box-drawing only.
+#
+# Sparse on purpose: the point of these three windows is the background they
+# share, so the foreground stays out of its way.
+set -eu
+
+PEAK=221
+HOT=173
+WARM=132
+COOL=97
+TEXT=224
+DIM=103
+
+c() { printf '\033[38;5;%sm%s\033[0m' "$1" "$2"; }
+
+case "$1" in
+    1)
+        printf '\n'
+        printf '  %s\n' "$(c $PEAK 'THERMAL — one field')"
+        printf '  %s\n' "$(c $DIM '──────────────────────────────')"
+        printf '  %s\n' "$(c $TEXT 'this window paints no')"
+        printf '  %s\n' "$(c $TEXT 'background of its own.')"
+        printf '\n'
+        printf '  %s\n' "$(c $DIM 'urxvt -tr reads')"
+        printf '  %s\n' "$(c $COOL '_XROOTPMAP_ID')"
+        printf '  %s\n' "$(c $DIM 'and crops the wallpaper')"
+        printf '  %s\n' "$(c $DIM 'at its own coordinates.')"
+        printf '\n'
+        ;;
+    2)
+        printf '\n'
+        printf '  %s\n' "$(c $PEAK 'SEAMS')"
+        printf '  %s\n' "$(c $DIM '──────────────────────────────')"
+        printf '  %s\n' "$(c $TEXT 'look across the 20px gap.')"
+        printf '\n'
+        printf '  %s\n' "$(c $HOT 'the gradient continues.')"
+        printf '\n'
+        printf '  %s\n' "$(c $DIM 'no compositor. no ipc.')"
+        printf '  %s\n' "$(c $DIM 'no per-window paint.')"
+        printf '\n'
+        ;;
+    3)
+        printf '\n'
+        printf '  %s\n' "$(c $PEAK 'PROBE')"
+        printf '  %s\n' "$(c $DIM '──────────────────────────────')"
+        printf '  %s %s\n' "$(c $COOL 'cold ')" "$(c $DIM '2E244A')"
+        printf '  %s %s\n' "$(c $WARM 'warm ')" "$(c $DIM 'A83E60')"
+        printf '  %s %s\n' "$(c $HOT 'hot  ')" "$(c $DIM 'D6702C')"
+        printf '  %s %s\n' "$(c $PEAK 'peak ')" "$(c $DIM 'F4D660')"
+        printf '\n'
+        ;;
+    *)
+        printf '\n  %s\n\n' "$(c $DIM 'thermal')"
+        ;;
+esac
+
+exec sleep infinity

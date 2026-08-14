@@ -1,0 +1,43 @@
+#!/bin/sh
+# Static terminal content, ASCII and box-drawing only.
+set -eu
+
+SIGNAL=178
+SEA=67
+OXIDE=131
+BONE=253
+DIM=103
+
+c() { printf '\033[38;5;%sm%s\033[0m' "$1" "$2"; }
+
+case "$1" in
+    1)
+        printf '\n'
+        printf '  %s\n' "$(c $SIGNAL 'SIGNAL — code of the workspace')"
+        printf '  %s\n' "$(c $DIM '────────────────────────────────────')"
+        printf '  %s %s\n' "$(c $DIM 'seed  ')" "$(c $BONE 'ws number + sorted window names')"
+        printf '  %s %s\n' "$(c $DIM 'hash  ')" "$(c $BONE 'fnv-1a, 32 bit, Math.imul')"
+        printf '  %s %s\n' "$(c $DIM 'divide')" "$(c $BONE 'vert horiz quarter diag border')"
+        printf '  %s %s\n' "$(c $DIM 'colour')" "$(c $BONE 'two of bone oxide signal sea')"
+        printf '\n'
+        printf '  %s\n' "$(c $SEA 'no png. no cache. no daemon.')"
+        printf '\n'
+        ;;
+    2)
+        printf '\n'
+        printf '  %s\n' "$(c $SIGNAL 'HOIST')"
+        printf '  %s\n' "$(c $DIM '────────────────────────────────────')"
+        printf '  %s %s\n' "$(c $OXIDE 'B')" "$(c $BONE 'build running')"
+        printf '  %s %s\n' "$(c $SIGNAL 'O')" "$(c $BONE 'process killed')"
+        printf '  %s %s\n' "$(c $SEA 'P')" "$(c $BONE 'reboot pending')"
+        printf '\n'
+        printf '  %s\n' "$(c $DIM 'open a window here and the flag')"
+        printf '  %s\n' "$(c $DIM 'above changes shape.')"
+        printf '\n'
+        ;;
+    *)
+        printf '\n  %s\n\n' "$(c $DIM 'signal')"
+        ;;
+esac
+
+exec sleep infinity

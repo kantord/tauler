@@ -1,0 +1,62 @@
+# Monolith III — ink-dark, gold-ruled.
+#
+# base #221F2B · plate #2B2836 · gold #D8B25E · bone #E9E4DA
+#
+# The one inversion the design allows is the galley slip: a light paper surface
+# on a dark desktop. That is what `popover` carries here — every other surface
+# token stays in the ink.
+colors:
+  light: {}
+  dark:
+    background: "#221F2B"
+    foreground: "#E9E4DA"
+
+    # `card` is a plate. Alpha, so the panel paints it over its root-bg crop and
+    # the engraving in the wallpaper reads faintly through the plate above it.
+    card: "#2B2836d9"
+    card-foreground: "#E9E4DA"
+
+    # The galley slip: paper.
+    popover: "#E9E4DA"
+    popover-foreground: "#221F2B"
+
+    primary: "#D8B25E"
+    primary-foreground: "#1B1924"
+    secondary: "#2B2836"
+    secondary-foreground: "#E9E4DA"
+
+    muted: "#2B2836"
+    muted-foreground: "#8E86A0"
+    accent: "#D8B25E"
+    accent-foreground: "#1B1924"
+    destructive: "#B4674B"
+
+    border: "#D8B25E38"
+    input: "#D8B25E38"
+    ring: "#D8B25E"
+
+    chart-1: "#D8B25E"
+    chart-2: "#B4674B"
+    chart-3: "#8E86A0"
+    chart-4: "#E9E4DA"
+    chart-5: "#6C6478"
+
+    sidebar: "#1B1924"
+    sidebar-foreground: "#E9E4DA"
+    sidebar-primary: "#D8B25E"
+    sidebar-primary-foreground: "#1B1924"
+    sidebar-accent: "#2B2836"
+    sidebar-accent-foreground: "#E9E4DA"
+    sidebar-border: "#D8B25E38"
+    sidebar-ring: "#D8B25E"
+
+# No radius anywhere: an engraved plate has a square corner. Every token is 0 so
+# that a component reaching for `rounded-2xl` out of habit still comes out square.
+radius:
+  sm: "0px"
+  md: "0px"
+  lg: "0px"
+  xl: "0px"
+  2xl: "0px"
+  3xl: "0px"
+  4xl: "0px"

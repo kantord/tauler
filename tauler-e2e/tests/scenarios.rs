@@ -138,6 +138,176 @@ fn showcase_floats_a_bar_over_its_own_wallpaper() -> Result<()> {
     Ok(())
 }
 
+/// Monolith III: an engraved rail, plus a notification and a launcher that are
+/// ordinary free-floating panels.
+///
+/// The two floats are declared outside `<I3Layout>`, so they must appear at
+/// their stated geometry while reserving nothing — that is the claim worth
+/// checking, and `run` checks it by listing them as expected panels while the
+/// gaps stay at the rail's 60.
+#[test]
+#[ignore = "needs Docker and `just e2e-image`"]
+fn monolith_floats_a_launcher_and_a_slip_without_reserving_for_them() -> Result<()> {
+    let (_desktop, screenshot) = run(
+        "monolith",
+        Expected {
+            gaps: Gaps {
+                left: 60,
+                right: 0,
+                top: 0,
+                bottom: 0,
+            },
+            panels: vec![
+                rect(0, 0, 60, 1080),
+                rect(1480, 40, 400, 132),
+                rect(620, 300, 680, 360),
+            ],
+        },
+    )?;
+
+    // The rail is a ruled plate: a 1px gold rule every 6px over #1B1924. Two
+    // rows 3px apart inside the rail's empty lower margin must therefore differ.
+    // A rail that fell back to a flat fill — `repeating-linear-gradient`
+    // unparsed, or dropped — gives two equal samples and passes everything else.
+    let [ar, ag, ab, _] = pixel_at(&screenshot, 6, 900)?;
+    let [br, bg, bb, _] = pixel_at(&screenshot, 6, 903)?;
+    let spread = (ar as i32 - br as i32).abs()
+        + (ag as i32 - bg as i32).abs()
+        + (ab as i32 - bb as i32).abs();
+    assert!(
+        spread > 4,
+        "the rail is the same colour at y=900 and y=903 ({ar},{ag},{ab} vs \
+         {br},{bg},{bb}) — the ruled plate rendered as a flat fill"
+    );
+
+    Ok(())
+}
+
+/// Signal: one generative flag per workspace, seeded from that workspace's
+/// window names.
+///
+/// The claim worth checking is that the seed reaches the pixels — four
+/// workspaces with different contents must not fly four identical flags. A
+/// hash that collapsed (the `Math.imul` note in the fixture) renders a bar that
+/// looks deliberate and is telling you nothing.
+#[test]
+#[ignore = "needs Docker and `just e2e-image`"]
+fn signal_flies_a_different_flag_per_workspace() -> Result<()> {
+    let (_desktop, screenshot) = run(
+        "signal",
+        Expected {
+            gaps: Gaps {
+                left: 0,
+                right: 0,
+                top: 92,
+                bottom: 0,
+            },
+            panels: vec![rect(0, 0, 1920, 92)],
+        },
+    )?;
+
+    // Flags are 96 wide with a 12px gap, starting at the panel's 18px inset,
+    // and 64 tall starting 6px down. These four points sit well inside the
+    // upper-left quadrant of each flag, away from every division boundary.
+    let mut swatches = Vec::new();
+    for i in 0..4u32 {
+        let x = 18 + i * (96 + 12) + 20;
+        let [r, g, b, _] = pixel_at(&screenshot, x, 22)?;
+        swatches.push([r, g, b]);
+    }
+
+    let distinct: std::collections::HashSet<[u8; 3]> = swatches.iter().copied().collect();
+    assert!(
+        distinct.len() >= 3,
+        "the four flags show only {} distinct colours at their hoist corner \
+         ({swatches:?}) — the seed is not reaching the pixels",
+        distinct.len()
+    );
+
+    Ok(())
+}
+
+/// Thermal: one heat field across the whole screen, cropped per window.
+///
+/// Two claims beyond the contract. The measurement callout is a panel whose
+/// position comes from a subprocess, so it must be mapped at the focused
+/// client's own origin — a panel that ignored the module's geometry would still
+/// be mapped, painted and green. And the field must be continuous: the pixels
+/// either side of an i3 gap must match the wallpaper showing *in* that gap,
+/// which is only true if the terminals are cropping one image rather than each
+/// painting its own.
+#[test]
+#[ignore = "needs Docker and `just e2e-image`"]
+fn thermal_crops_one_field_across_every_window() -> Result<()> {
+    let (desktop, screenshot) = run(
+        "thermal",
+        Expected {
+            gaps: Gaps {
+                left: 0,
+                right: 76,
+                top: 58,
+                bottom: 0,
+            },
+            panels: vec![rect(0, 0, 1920, 58), rect(1844, 58, 76, 1022)],
+        },
+    )?;
+
+    // The callout is the only 26px-tall window on the root. Its origin has to
+    // be some client's origin, and the module reports the *focused* one.
+    let callout = wait_for("the measurement callout to be mapped", || {
+        desktop
+            .root_windows()?
+            .into_iter()
+            .find(|r| r.height == 26)
+            .ok_or_else(|| anyhow::anyhow!("no 26px-tall window on the root"))
+    })?;
+    // Within the 2px border, and not exactly on it: `_NET_ACTIVE_WINDOW` names
+    // the *client* window and `xwininfo` reports where that sits, while i3
+    // reports the frame it was reparented into. The two differ by
+    // `default_border pixel 2` on every side. The module cannot correct for it
+    // without knowing the border width, which is in the i3 config and not in
+    // any property it reads.
+    let clients = i3::focused_workspace_client_rects(&desktop)?;
+    assert!(
+        clients
+            .iter()
+            .any(|c| c.x.abs_diff(callout.x) <= 2 && c.y.abs_diff(callout.y) <= 2),
+        "the callout is at {callout} but no client on the focused workspace \
+         starts within 2px of there — the panel ignored the geometry module. \
+         clients: {}",
+        clients
+            .iter()
+            .map(Rect::to_string)
+            .collect::<Vec<_>>()
+            .join(", ")
+    );
+
+    // The left column ends at x=950 and the right one starts at x=970 (1920
+    // usable width minus the 76px scale, two 20px gaps, split in half). y=520
+    // is well inside both windows and inside no text. Written from the fixture,
+    // not computed: see the note at the top of this file.
+    let inside_left = pixel_at(&screenshot, 930, 520)?;
+    let in_the_gap = pixel_at(&screenshot, 960, 520)?;
+    let inside_right = pixel_at(&screenshot, 990, 520)?;
+
+    let step = |a: [u8; 4], b: [u8; 4]| {
+        (a[0] as i32 - b[0] as i32).abs()
+            + (a[1] as i32 - b[1] as i32).abs()
+            + (a[2] as i32 - b[2] as i32).abs()
+    };
+    let left_seam = step(inside_left, in_the_gap);
+    let right_seam = step(in_the_gap, inside_right);
+    assert!(
+        left_seam < 30 && right_seam < 30,
+        "the field jumps at the window edges (left seam {left_seam}, right \
+         seam {right_seam}, samples {inside_left:?} {in_the_gap:?} \
+         {inside_right:?}) — the terminals are painting their own backgrounds \
+         rather than cropping the wallpaper"
+    );
+
+    Ok(())
+}
+
 /// Assert the reservation contract, then hand back the desktop and its
 /// screenshot so a scenario can add claims of its own.
 fn run(scenario: &str, expected: Expected) -> Result<(Desktop, PathBuf)> {

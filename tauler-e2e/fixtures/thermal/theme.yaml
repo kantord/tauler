@@ -1,0 +1,58 @@
+# Thermal — false-colour heat.
+#
+# cold #2E244A · cool #5C3076 · warm #A83E60 · hot #D6702C · peak #F4D660 ·
+# ink #120F1C
+#
+# The ramp is `chart-1..5`, in temperature order, so a component that wants
+# "the next colour up" can index it rather than hard-coding.
+colors:
+  light: {}
+  dark:
+    background: "#120F1C"
+    foreground: "#F1E7E2"
+
+    # Near-opaque: the readout has to stay legible over whatever part of the
+    # heat field it happens to be sitting on.
+    card: "#120F1Cf2"
+    card-foreground: "#F1E7E2"
+    popover: "#1A1526"
+    popover-foreground: "#F1E7E2"
+
+    primary: "#F4D660"
+    primary-foreground: "#120F1C"
+    secondary: "#241C36"
+    secondary-foreground: "#F1E7E2"
+
+    muted: "#241C36"
+    muted-foreground: "#9A8FA8"
+    accent: "#D6702C"
+    accent-foreground: "#120F1C"
+    destructive: "#D6702C"
+
+    border: "#F4D6602e"
+    input: "#F4D6602e"
+    ring: "#F4D660"
+
+    chart-1: "#2E244A"
+    chart-2: "#5C3076"
+    chart-3: "#A83E60"
+    chart-4: "#D6702C"
+    chart-5: "#F4D660"
+
+    sidebar: "#120F1C"
+    sidebar-foreground: "#F1E7E2"
+    sidebar-primary: "#F4D660"
+    sidebar-primary-foreground: "#120F1C"
+    sidebar-accent: "#241C36"
+    sidebar-accent-foreground: "#F1E7E2"
+    sidebar-border: "#F4D6602e"
+    sidebar-ring: "#F4D660"
+
+radius:
+  sm: "1px"
+  md: "2px"
+  lg: "2px"
+  xl: "3px"
+  2xl: "3px"
+  3xl: "4px"
+  4xl: "4px"
