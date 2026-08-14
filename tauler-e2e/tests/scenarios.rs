@@ -19,6 +19,15 @@ use tauler_e2e::{pixel_at, wait_for, Desktop, Rect, Screen};
 struct Expected {
     gaps: Gaps,
     panels: Vec<Rect>,
+    /// How many managed clients belong on the focused workspace.
+    ///
+    /// `run` waits for exactly this many before photographing anything. A
+    /// fixture's clients start in the background — they have to, since they
+    /// wait on tauler and tauler starts after them — so "the panels are up"
+    /// does not mean "the desktop is populated". Without this, `capture_stable`
+    /// can settle on two consecutive identical frames of a half-built desktop
+    /// and every assertion afterwards is made against the wrong picture.
+    clients: usize,
 }
 
 fn rect(x: i32, y: i32, width: u32, height: u32) -> Rect {
@@ -43,6 +52,7 @@ fn sidebar_reserves_the_left_edge() -> Result<()> {
                 bottom: 0,
             },
             panels: vec![rect(0, 0, 272, 1080)],
+            clients: 2,
         },
     )?;
     Ok(())
@@ -67,6 +77,7 @@ fn three_edge_stack_reserves_each_edge_in_order() -> Result<()> {
                 rect(272, 0, 1648, 26),
                 rect(272, 1054, 1648, 26),
             ],
+            clients: 2,
         },
     )?;
     Ok(())
@@ -79,7 +90,7 @@ fn three_edge_stack_reserves_each_edge_in_order() -> Result<()> {
 #[test]
 #[ignore = "needs Docker and `just e2e-image`"]
 fn showcase_floats_a_bar_over_its_own_wallpaper() -> Result<()> {
-    let (desktop, screenshot) = run(
+    let (_desktop, screenshot) = run(
         "showcase",
         Expected {
             gaps: Gaps {
@@ -89,21 +100,12 @@ fn showcase_floats_a_bar_over_its_own_wallpaper() -> Result<()> {
                 bottom: 0,
             },
             panels: vec![rect(0, 0, 1920, 58)],
+            // These two start late by design: they wait for tauler to publish
+            // _XROOTPMAP_ID before launching, so that they have a wallpaper to
+            // read. `run` waits for them.
+            clients: 2,
         },
     )?;
-
-    // The clients start late by design: they wait for tauler to publish
-    // _XROOTPMAP_ID before launching, so that they have a wallpaper to read.
-    // Without waiting here, `assert_clients_respect` inside `run` can assert
-    // over an empty list and pass without checking anything.
-    wait_for("both clients on the focused workspace", || {
-        let count = i3::focused_workspace_client_rects(&desktop)?.len();
-        if count == 2 {
-            Ok(())
-        } else {
-            anyhow::bail!("{count} managed windows, expected 2")
-        }
-    })?;
 
     // The panel is 58px tall and its content is inset by 12, so y=6 is inside
     // the margin, where the only thing that can be showing is the root-bg crop.
@@ -162,6 +164,10 @@ fn monolith_floats_a_launcher_and_a_slip_without_reserving_for_them() -> Result<
                 rect(1480, 40, 400, 132),
                 rect(620, 300, 680, 360),
             ],
+            // Workspace 2 holds the two terminals. The launcher, the slip, the
+            // real rofi and the real dunst notification are not managed by i3
+            // and are not counted here.
+            clients: 2,
         },
     )?;
 
@@ -203,6 +209,7 @@ fn signal_flies_a_different_flag_per_workspace() -> Result<()> {
                 bottom: 0,
             },
             panels: vec![rect(0, 0, 1920, 92)],
+            clients: 2,
         },
     )?;
 
@@ -249,6 +256,11 @@ fn thermal_crops_one_field_across_every_window() -> Result<()> {
                 bottom: 0,
             },
             panels: vec![rect(0, 0, 1920, 58), rect(1844, 58, 76, 1022)],
+            // Three, and the third is kitty. It is the slowest thing on the
+            // desktop to appear, and a capture taken before it arrives shows a
+            // two-column workspace in which every sample below lands somewhere
+            // else entirely.
+            clients: 3,
         },
     )?;
 
@@ -368,7 +380,20 @@ fn run(scenario: &str, expected: Expected) -> Result<(Desktop, PathBuf)> {
         Ok(())
     })?;
 
-    i3::assert_clients_respect(gaps, screen, &i3::focused_workspace_client_rects(&desktop)?)?;
+    let clients = wait_for("every client to reach the focused workspace", || {
+        let clients = i3::focused_workspace_client_rects(&desktop)?;
+        if clients.len() == expected.clients {
+            Ok(clients)
+        } else {
+            anyhow::bail!(
+                "{} managed windows on the focused workspace, expected {}",
+                clients.len(),
+                expected.clients
+            )
+        }
+    })?;
+
+    i3::assert_clients_respect(gaps, screen, &clients)?;
 
     let screenshot = desktop.capture_stable()?;
 

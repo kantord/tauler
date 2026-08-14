@@ -21,20 +21,13 @@ client() {
 
     i3-msg "workspace $workspace" >/dev/null 2>&1
 
-    # Styling is in ~/.Xresources, merged by the entrypoint. This says
-    # only which window it is and what to run in it.
-    LC_ALL=C.UTF-8 urxvt -title "$title" -e "thermal-pane" "$pane" &
-
-    i=0
-    while [ "$i" -lt 100 ]; do
-        if i3-msg -t get_tree 2>/dev/null | grep -q "\"$title\""; then
-            return 0
-        fi
-        i=$((i + 1))
-        sleep 0.1
-    done
-    echo "e2e: client $title never mapped" >&2
-    return 1
+    # e2e-urxvt owns starting the terminal and proving it actually got the
+    # wallpaper: rxvt-unicode drops it intermittently when several start close
+    # together, and one that dropped it looks like a perfectly normal terminal.
+    #
+    # Sequentially, and waited for: i3 places a window on whatever workspace is
+    # focused when it maps, so launching these concurrently would be a race.
+    e2e-urxvt "$title" "thermal-pane" "$pane"
 }
 
 populate() {
@@ -66,12 +59,6 @@ populate() {
     # Focus the leftmost, so the callout lands on a known rect rather than on
     # whichever client mapped last.
     i3-msg "[title=\"field\"] focus" >/dev/null 2>&1
-
-    # Now that kitty is mapped and sized, drive its background over remote
-    # control and record how long the swap took. Level 3 is "hot" — the plate it
-    # started with is level 0, so the change is visible in the screenshot and a
-    # swap that silently did nothing cannot look like a success.
-    thermal-heat 3 || echo "e2e: kitty background swap failed" >&2
 }
 
 # kitty rather than urxvt, for the one window whose background has to change.
@@ -91,6 +78,7 @@ kitty_client() {
     i=0
     while [ "$i" -lt 200 ]; do
         if i3-msg -t get_tree 2>/dev/null | grep -q "\"$title\""; then
+            heat
             return 0
         fi
         i=$((i + 1))
@@ -98,6 +86,18 @@ kitty_client() {
     done
     echo "e2e: kitty client $title never mapped" >&2
     return 1
+}
+
+# Drive kitty's background over remote control, and record how long it took.
+#
+# Called from kitty_client the moment the window maps, and deliberately not at
+# the end of populate: the harness waits for the client count before it
+# photographs anything, so anything done after the last window maps is in a race
+# with the shutter. Level 3 is "hot" — the plate kitty started with is level 0,
+# so the change is visible and a swap that silently did nothing cannot look like
+# a success.
+heat() {
+    thermal-heat 3 || echo "e2e: kitty background swap failed" >&2
 }
 
 populate &
