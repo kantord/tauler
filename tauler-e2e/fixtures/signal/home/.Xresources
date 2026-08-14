@@ -1,0 +1,12 @@
+! Signal — terminal side of the rice.
+!
+! Navy ground, and the same pseudo-transparency every rice here uses: urxvt
+! reads _XROOTPMAP_ID and crops tauler's <wallpaper> at its own coordinates.
+
+URxvt.font:           xft:JetBrains Mono:pixelsize=14,xft:Symbols Nerd Font Mono:pixelsize=14
+URxvt.foreground:     #E9E7DC
+URxvt.background:     #10182C
+URxvt.internalBorder: 16
+URxvt.scrollBar:      false
+URxvt.transparent:    true
+URxvt.shading:        35

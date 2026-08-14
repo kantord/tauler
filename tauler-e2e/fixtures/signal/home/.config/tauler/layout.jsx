@@ -22,7 +22,7 @@
 //   hoist  1920×92 at 0,0  — anchored top, reserved
 
 const TAULER_I3 = "/usr/local/bin/tauler-i3";
-const SIGNALS = "/fixtures/signal/bin/signals";
+const SIGNALS = "~/.local/bin/signal-signals";
 
 const FLAG_W = 96;
 const FLAG_H = 64;

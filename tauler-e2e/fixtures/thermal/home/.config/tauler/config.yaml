@@ -3,7 +3,7 @@
 # this layout inherits it rather than asking for `monospace` node by node.
 theme:
   mode: dark
-  file: /fixtures/thermal/theme.yaml
+  file: ~/.config/tauler/theme.yaml
 
 fonts:
   primary: JetBrains Mono

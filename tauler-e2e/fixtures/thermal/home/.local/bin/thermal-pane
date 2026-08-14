@@ -22,10 +22,11 @@ case "$1" in
         printf '  %s\n' "$(c $TEXT 'this window paints no')"
         printf '  %s\n' "$(c $TEXT 'background of its own.')"
         printf '\n'
-        printf '  %s\n' "$(c $DIM 'urxvt -tr reads')"
-        printf '  %s\n' "$(c $COOL '_XROOTPMAP_ID')"
-        printf '  %s\n' "$(c $DIM 'and crops the wallpaper')"
-        printf '  %s\n' "$(c $DIM 'at its own coordinates.')"
+        printf '  %s\n' "$(c $DIM 'URxvt.transparent in')"
+        printf '  %s\n' "$(c $COOL '~/.Xresources')"
+        printf '  %s\n' "$(c $DIM 'reads _XROOTPMAP_ID and')"
+        printf '  %s\n' "$(c $DIM 'crops it at these')"
+        printf '  %s\n' "$(c $DIM 'coordinates.')"
         printf '\n'
         ;;
     2)
@@ -42,8 +43,16 @@ case "$1" in
         ;;
     3)
         printf '\n'
-        printf '  %s\n' "$(c $PEAK 'PROBE')"
+        printf '  %s\n' "$(c $PEAK 'PROBE — this one is kitty')"
         printf '  %s\n' "$(c $DIM '──────────────────────────────')"
+        printf '  %s\n' "$(c $TEXT 'the background here is not')"
+        printf '  %s\n' "$(c $TEXT 'the shared field. it is a')"
+        printf '  %s\n' "$(c $TEXT 'plate of its own, pushed in')"
+        printf '  %s\n' "$(c $TEXT 'over remote control:')"
+        printf '\n'
+        printf '  %s\n' "$(c $HOT 'kitty @ set-background-image')"
+        printf '  %s\n' "$(c $DIM '  --no-response --match id:1')"
+        printf '\n'
         printf '  %s %s\n' "$(c $COOL 'cold ')" "$(c $DIM '2E244A')"
         printf '  %s %s\n' "$(c $WARM 'warm ')" "$(c $DIM 'A83E60')"
         printf '  %s %s\n' "$(c $HOT 'hot  ')" "$(c $DIM 'D6702C')"

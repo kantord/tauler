@@ -282,27 +282,50 @@ fn thermal_crops_one_field_across_every_window() -> Result<()> {
             .join(", ")
     );
 
-    // The left column ends at x=950 and the right one starts at x=970 (1920
-    // usable width minus the 76px scale, two 20px gaps, split in half). y=520
-    // is well inside both windows and inside no text. Written from the fixture,
-    // not computed: see the note at the top of this file.
-    let inside_left = pixel_at(&screenshot, 930, 520)?;
-    let in_the_gap = pixel_at(&screenshot, 960, 520)?;
-    let inside_right = pixel_at(&screenshot, 990, 520)?;
-
     let step = |a: [u8; 4], b: [u8; 4]| {
         (a[0] as i32 - b[0] as i32).abs()
             + (a[1] as i32 - b[1] as i32).abs()
             + (a[2] as i32 - b[2] as i32).abs()
     };
+
+    // The three columns, measured off the capture rather than guessed at:
+    // borders sit at x=20..21 / 602..603, 624..625 / 1217..1218, and
+    // 1239..1240 / 1822..1823, so the first gap is x=604..623. These samples
+    // straddle it — inside the left window, in the gap, inside the right one —
+    // at a y with no text in either column.
+    //
+    // Straddling is the whole assertion. An earlier version of this test
+    // sampled 930/960/990, which are all *inside the middle window*: it
+    // compared three points of one continuous gradient with itself and would
+    // have passed against any wallpaper at all.
+    let inside_left = pixel_at(&screenshot, 595, 520)?;
+    let in_the_gap = pixel_at(&screenshot, 613, 520)?;
+    let inside_right = pixel_at(&screenshot, 632, 520)?;
+
     let left_seam = step(inside_left, in_the_gap);
     let right_seam = step(in_the_gap, inside_right);
     assert!(
-        left_seam < 30 && right_seam < 30,
+        left_seam < 15 && right_seam < 15,
         "the field jumps at the window edges (left seam {left_seam}, right \
          seam {right_seam}, samples {inside_left:?} {in_the_gap:?} \
          {inside_right:?}) — the terminals are painting their own backgrounds \
          rather than cropping the wallpaper"
+    );
+
+    // The third column is kitty, and it is the control: it carries a plate of
+    // its own, pushed over remote control, so it must *not* match the field
+    // beside it. If this ever gets as close as the seam above, the
+    // set-background-image call silently did nothing and the whole per-window
+    // half of the scenario is decoration.
+    let gap_before_kitty = pixel_at(&screenshot, 1228, 520)?;
+    let inside_kitty = pixel_at(&screenshot, 1500, 520)?;
+    let kitty_step = step(gap_before_kitty, inside_kitty);
+    assert!(
+        kitty_step > 25,
+        "kitty's interior ({inside_kitty:?}) matches the field beside it \
+         ({gap_before_kitty:?}, step {kitty_step}) — `kitty @ \
+         set-background-image` did not take, and the window is showing the \
+         shared wallpaper like its neighbours"
     );
 
     Ok(())

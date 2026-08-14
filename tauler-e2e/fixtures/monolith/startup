@@ -4,16 +4,12 @@
 # Four workspaces so the rail has four folios (I–IV), and two windows on the one
 # we land on so i3's 14px inner gap is visible.
 #
-# Terminals are urxvt with -tr: they read _XROOTPMAP_ID and show the engraved
-# wallpaper through their own background. tauler publishes that property after
-# blitting its <wallpaper> into the root, so the clients depend on tauler, which
-# the entrypoint starts *after* this script — hence the backgrounded `populate`
-# gated on the property appearing. Blocking here would deadlock.
+# The terminals are configured in ~/.Xresources, not here — including the
+# pseudo-transparency that lets them show the engraved wallpaper. That means they
+# depend on tauler having published _XROOTPMAP_ID, and the entrypoint starts
+# tauler *after* this script — hence the backgrounded `populate` gated on the
+# property appearing. Blocking here would deadlock.
 set -eu
-
-BIN="$(dirname "$0")/bin"
-
-FONT="xft:JetBrains Mono:pixelsize=14,xft:Symbols Nerd Font Mono:pixelsize=14"
 
 client() {
     workspace="$1"
@@ -24,15 +20,9 @@ client() {
 
     # C.UTF-8 is built into glibc, so it needs no locale generation — without it
     # urxvt decodes the pane's box-drawing characters as Latin-1.
-    LC_ALL=C.UTF-8 \
-    urxvt \
-        -tr -sh 30 \
-        -fn "$FONT" \
-        -fg "#E9E4DA" -bg "#221F2B" \
-        -b 18 \
-        +sb \
-        -title "$title" \
-        -e "$BIN/pane" "$pane" &
+    # Styling is in ~/.Xresources, merged by the entrypoint. This says
+    # only which window it is and what to run in it.
+    LC_ALL=C.UTF-8 urxvt -title "$title" -e "monolith-pane" "$pane" &
 
     # Sequentially, and waited for: i3 places a window on whatever workspace is
     # focused when it maps, so launching these concurrently is a race and the
@@ -69,6 +59,42 @@ populate() {
     # Land on the workspace with two windows: it shows the inner gap, and it
     # puts the lit folio in the middle of the four.
     i3-msg "workspace 2" >/dev/null 2>&1
+
+    comparison_surfaces
+}
+
+# The two surfaces tauler does not own, running for real alongside tauler's own
+# versions of them, so the screenshot is a comparison rather than a claim.
+#
+# Both need a session bus that nothing else in this image provides, so this
+# script starts one and exports it — dunst and dunstify are both children of
+# this script, so nothing else has to know about it.
+comparison_surfaces() {
+    DBUS_SESSION_BUS_ADDRESS="$(dbus-daemon --session --fork --print-address)"
+    export DBUS_SESSION_BUS_ADDRESS
+
+    dunst -config "$HOME/.config/dunst/dunstrc" &
+
+    # dunst has to own the name on the bus before a notification will reach it.
+    i=0
+    until dunstctl is-paused >/dev/null 2>&1; do
+        i=$((i + 1))
+        [ "$i" -lt 100 ] || { echo "e2e: dunst never came up" >&2; break; }
+        sleep 0.1
+    done
+
+    # dunstify, not notify-send: libnotify-bin is not installed and dunst ships
+    # its own sender.
+    dunstify "Plate cycle complete" "4 surfaces reseeded from palette hash" \
+        >/dev/null 2>&1 || true
+
+    # rofi in dmenu mode with a fixed list, rather than `-show drun`: the entry
+    # list then comes from this file instead of from whatever .desktop files the
+    # base image happens to carry, so two runs photograph the same.
+    printf 'plate-cycle\nplate-regen\nfolio-index\ngalley-replay\n' \
+        | rofi -dmenu -p RUN -mesg "4 entries · seed 8f3c1a" \
+               -theme "$HOME/.config/rofi/monolith.rasi" \
+               >/dev/null 2>&1 &
 }
 
 populate &

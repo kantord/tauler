@@ -28,9 +28,55 @@ until xdpyinfo >/dev/null 2>&1; do
     sleep 0.1
 done
 
-# Everything below is what a session's .xinitrc does before it execs a window
-# manager: state the DPI, name a primary output, paint the desktop.
+# ─── Install the fixture's dotfiles ───────────────────────────────────────
 #
+# A fixture comes in one of two shapes.
+#
+# A *rice* is a dotfiles repo: a `home/` tree copied over $HOME wholesale, so
+# `~/.config/tauler/layout.jsx`, `~/.config/i3/config`, `~/.Xresources` and
+# `~/.local/bin` sit exactly where they would on a real machine. Everything the
+# rice configures that tauler does not own — the window manager, the terminal,
+# the notifier, the launcher — lives there rather than being smuggled in as
+# command-line flags. The whole directory can be copied onto a real $HOME.
+#
+# A *contract scenario* is a bare `layout.jsx` plus, optionally, `config.yaml`
+# and `i3.config`. That shape is the point of those fixtures: they demonstrate
+# that a tauler desktop needs one file. It keeps working.
+#
+# `cp -a` so the mode bits on ~/.local/bin survive; the bind mount is read-only
+# from the fixture's side and $HOME is not, which is also why this copies rather
+# than symlinks.
+mkdir -p "$HOME/.config/tauler"
+if [ -d "$FIXTURE/home" ]; then
+    cp -a "$FIXTURE/home/." "$HOME/"
+else
+    cp "$FIXTURE/layout.jsx" "$HOME/.config/tauler/layout.jsx"
+    # An `&&` here would take the shell down with `set -e` whenever the fixture
+    # has no config.yaml, which is most of them.
+    if [ -f "$FIXTURE/config.yaml" ]; then
+        cp "$FIXTURE/config.yaml" "$HOME/.config/tauler/config.yaml"
+    fi
+fi
+
+[ -f "$HOME/.config/tauler/layout.jsx" ] \
+    || { echo "e2e: fixture $SCENARIO installed no layout.jsx" >&2; exit 1; }
+
+# Everything below is what a session's .xinitrc does before it execs a window
+# manager: merge the user's X resources, state the DPI, name a primary output,
+# paint the desktop.
+#
+# The fixture's resources go in first so that the DPI below wins over anything
+# a rice happens to set — the harness owns the DPI and the rice does not.
+#
+# `-nocpp` because xrdb runs its input through the C preprocessor by default,
+# and an apostrophe in a `!` comment then comes back as
+# `warning: missing terminating ' character`. The resources still load, so it is
+# noise rather than breakage — but it is noise on every run, and no rice here
+# uses a cpp macro.
+if [ -f "$HOME/.Xresources" ]; then
+    xrdb -merge -nocpp "$HOME/.Xresources"
+fi
+
 # State the DPI rather than letting it be derived. Xvfb reports the screen's
 # physical size in whole millimetres, so 1920x1080 at 96dpi comes back as
 # 508x286mm, from which tauler recomputes 95.9dpi — a DPR of 1.0009, enough to
@@ -45,23 +91,18 @@ xrandr --output "$(xrandr --query | awk '/ connected/ { print $1; exit }')" --pr
 xrandr --query | grep -q " connected primary" \
     || { echo "e2e: no output could be made primary" >&2; exit 1; }
 
-mkdir -p "$HOME/.config/tauler"
-cp "$FIXTURE/layout.jsx" "$HOME/.config/tauler/layout.jsx"
-# An `&&` here would take the shell down with `set -e` whenever the fixture has
-# no config.yaml, which is most of them.
-if [ -f "$FIXTURE/config.yaml" ]; then
-    cp "$FIXTURE/config.yaml" "$HOME/.config/tauler/config.yaml"
-fi
-
 # A flat desktop colour: it makes an unpainted panel obvious rather than
 # camouflaged against black.
 xsetroot -solid "#181825"
 
 # A scenario whose looks are the point needs settings the contract scenarios
-# have no business carrying — inner gaps, a palette, hairline borders. It brings
-# its own config rather than the shared one growing a taste.
+# have no business carrying — inner gaps, a palette, hairline borders. A rice
+# keeps them where i3 itself would look; an older fixture may drop an
+# `i3.config` beside its layout; everything else gets the shared one.
 I3_CONFIG=/usr/local/share/e2e/i3.config
-if [ -f "$FIXTURE/i3.config" ]; then
+if [ -f "$HOME/.config/i3/config" ]; then
+    I3_CONFIG="$HOME/.config/i3/config"
+elif [ -f "$FIXTURE/i3.config" ]; then
     I3_CONFIG="$FIXTURE/i3.config"
 fi
 

@@ -12,7 +12,7 @@
 # serif at all — see the report for what that costs the design.
 theme:
   mode: dark
-  file: /fixtures/monolith/theme.yaml
+  file: ~/.config/tauler/theme.yaml
 
 fonts:
   primary: Nimbus Roman

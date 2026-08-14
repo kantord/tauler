@@ -19,7 +19,7 @@
 // here wanted one.
 
 const TAULER_I3 = "/usr/local/bin/tauler-i3";
-const STATUS = "/fixtures/monolith/bin/status";
+const STATUS = "~/.local/bin/monolith-status";
 
 // ── Plates ──────────────────────────────────────────────────────────────────
 //

@@ -46,7 +46,11 @@ pub fn spawn_module(bin: &str, script: Option<&str>) -> SpawnedModule {
     use std::io::{BufRead, Write as IoWrite};
 
     let (tx, rx) = mpsc::channel();
-    let mut cmd = std::process::Command::new(bin);
+    // `~/` is expanded here and nowhere else: a module's identity stays the
+    // `bin` string as written (ADR 0009), so only the spawn sees the real path.
+    // A layout file that ships as part of a dotfiles tree has to be able to say
+    // `~/.local/bin/status` and mean it.
+    let mut cmd = std::process::Command::new(crate::config::expand_tilde(bin));
 
     // If a script is provided, write it to a temp file and pass the path as argument.
     let script_file = if let Some(content) = script {

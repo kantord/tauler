@@ -34,8 +34,8 @@
 //   measure    live             — free-floating, above, over the focused window
 
 const TAULER_I3 = "/usr/local/bin/tauler-i3";
-const SCENE = "/fixtures/thermal/bin/scene";
-const GEOMETRY = "/fixtures/thermal/bin/geometry";
+const SCENE = "~/.local/bin/thermal-scene";
+const GEOMETRY = "~/.local/bin/thermal-geometry";
 
 // Temperature order, cold to peak. Used for the scale, the ramp and the
 // callout, so the three cannot drift apart.

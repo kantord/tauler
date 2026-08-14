@@ -1,0 +1,22 @@
+! Monolith III — terminal side of the rice.
+!
+! These were command-line flags on urxvt until the fixture became a home
+! directory. They belong here: a rice's terminal is configured, not invoked, and
+! `startup` should only have to say which pane to run.
+!
+! internalBorder is generous on purpose. The engraved wallpaper shows through
+! (transparent: true), and the margin is where the plate is at full strength —
+! the legibility rule says texture stays under ~0.2 alpha behind body text.
+
+URxvt.font:           xft:JetBrains Mono:pixelsize=14,xft:Symbols Nerd Font Mono:pixelsize=14
+URxvt.foreground:     #E9E4DA
+URxvt.background:     #221F2B
+URxvt.internalBorder: 18
+URxvt.scrollBar:      false
+
+! Pseudo-transparency: read _XROOTPMAP_ID and paint this window's slice of it.
+! tauler publishes that property after blitting its <wallpaper> into the root.
+! Without a compositor this is the only transparency there is. xterm cannot do
+! it; urxvt can.
+URxvt.transparent:    true
+URxvt.shading:        30

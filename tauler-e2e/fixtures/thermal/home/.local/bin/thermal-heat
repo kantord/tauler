@@ -1,0 +1,84 @@
+#!/bin/sh
+# Set the kitty window's own background plate, and time it.
+#
+# This is the brief's §3 question 1 and its open question 05, asked directly:
+# can `kitty @ set-background-image` address a specific OS-window, how fast is
+# the swap, and does it flash? Both numbers go to /out so they survive the
+# container.
+#
+# `--to` rather than $KITTY_LISTEN_ON: this runs from the session script, not
+# from inside the terminal, so there is no inherited environment to read — and
+# that is the realistic case, since a heat daemon is not a child of the window
+# it repaints.
+#
+# Two things about talking to kitty that cost an hour between them:
+#
+#   · The socket is discovered, not named. `listen_on unix:/tmp/kitty-thermal`
+#     does not create `/tmp/kitty-thermal` — kitty appends its own PID.
+#   · The socket exists before kitty will answer on it. The first request after
+#     startup blocks for kitty's built-in 10s timeout and then fails, which
+#     reads exactly like remote control being broken. It is not; it is early.
+#
+# And one about the command itself: `set-background-image` in kitty 0.26.5
+# never sends a reply. The swap *works* — the pixels change, per OS-window,
+# exactly as asked — but the client waits out its 10s timeout and then reports
+# `Timed out after 10.0 seconds waiting for response from kitty`, so a working
+# command looks like a broken one. `--no-response` is the fix and it is
+# mandatory here, not an optimisation. `kitty @ set-colors` on the same socket
+# answers normally, which is how the two were told apart.
+set -eu
+
+LEVEL="${1:-3}"
+PLATE="$HOME/.local/share/thermal/heat-${LEVEL}.png"
+OUT="/out/${SCENARIO:-thermal}"
+mkdir -p "$OUT"
+
+log() { printf '%s\n' "$1" | tee -a "$OUT/timings.txt" >&2; }
+
+[ -f "$PLATE" ] || { echo "e2e: no plate $PLATE" >&2; exit 1; }
+
+SOCK=""
+i=0
+while [ "$i" -lt 200 ]; do
+    for candidate in /tmp/kitty-thermal-*; do
+        if [ -S "$candidate" ]; then
+            SOCK="unix:$candidate"
+            break
+        fi
+    done
+    [ -z "$SOCK" ] || break
+    i=$((i + 1))
+    sleep 0.1
+done
+[ -n "$SOCK" ] || { echo "e2e: kitty never created a control socket" >&2; exit 1; }
+
+# Readiness, measured rather than slept through. `ls` is the cheapest request
+# there is and it returns the OS-window list we need anyway.
+ready_start=$(date +%s%N)
+WINDOWS=""
+i=0
+while [ "$i" -lt 60 ]; do
+    if WINDOWS=$(timeout 2 kitty @ --to "$SOCK" ls 2>/dev/null); then
+        [ -n "$WINDOWS" ] && break
+    fi
+    i=$((i + 1))
+    sleep 0.25
+done
+ready_end=$(date +%s%N)
+[ -n "$WINDOWS" ] || { echo "e2e: kitty never answered on $SOCK" >&2; exit 1; }
+log "kitty remote control ready after $(( (ready_end - ready_start) / 1000000 ))ms of polling"
+
+# The first "id" in the reply is the OS-window's. Addressing it explicitly, and
+# not `--all`, is the part of the question worth answering: the brief asks
+# whether a *specific* OS-window can be named.
+OSWIN=$(printf '%s' "$WINDOWS" | sed -n 's/.*"id": *\([0-9][0-9]*\).*/\1/p' | head -1)
+[ -n "$OSWIN" ] || { echo "e2e: could not read an OS-window id from kitty ls" >&2; exit 1; }
+
+start=$(date +%s%N)
+kitty @ --to "$SOCK" set-background-image --no-response --match "id:${OSWIN}" "$PLATE"
+end=$(date +%s%N)
+
+# The client cost, not the repaint: with --no-response nothing waits for kitty
+# to have drawn. The repaint itself lands well inside the harness's stability
+# capture, which is the only evidence available without a video.
+log "kitty @ set-background-image --match id:${OSWIN} (level ${LEVEL}), client side: $(( (end - start) / 1000000 ))ms"
