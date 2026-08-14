@@ -496,6 +496,13 @@ fn preload_layout_images_impl(layout: &serde_json::Value, global: &mut RenderCon
         if src == ROOT_BG_KEY {
             continue;
         }
+        // Called on every tick, so an already-loaded path must not be re-read
+        // and re-decoded. Keyed by src alone: a file that changes on disk keeps
+        // its first contents until tauler restarts, which is the same bargain
+        // as the font set and cheaper than stat-ing every image every tick.
+        if global.images.contains_key(src.as_str()) {
+            continue;
+        }
         if let Ok(bytes) = std::fs::read(&src) {
             if let Ok(image) = ImageSource::from_bytes(&bytes) {
                 global.images.insert(src.into(), image);

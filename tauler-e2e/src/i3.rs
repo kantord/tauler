@@ -55,6 +55,24 @@ pub fn client_rects(desktop: &Desktop) -> Result<Vec<Rect>> {
     Ok(out)
 }
 
+/// The managed windows on the focused workspace alone.
+///
+/// This, not [`client_rects`], is what the reservation contract is about.
+/// Runtime `gaps` can only target `current` or `all` — per-workspace targeting
+/// does not exist over IPC — so tauler-i3 writes to whichever workspace is
+/// focused, and a workspace that has never been focused since tauler started
+/// carries no gaps at all. Checking every window in the tree against the
+/// focused workspace's gaps therefore fails on a perfectly correct desktop as
+/// soon as a second workspace exists.
+pub fn focused_workspace_client_rects(desktop: &Desktop) -> Result<Vec<Rect>> {
+    let tree = get_tree(desktop)?;
+    let workspace =
+        focused_workspace(&tree).ok_or_else(|| anyhow!("no focused workspace in the i3 tree"))?;
+    let mut out = Vec::new();
+    collect_clients(workspace, &mut out);
+    Ok(out)
+}
+
 fn get_tree(desktop: &Desktop) -> Result<Value> {
     let raw = desktop.exec(&["i3-msg", "-t", "get_tree"])?;
     serde_json::from_str(&raw).map_err(|e| anyhow!("i3 get_tree returned unparseable JSON: {e}"))

@@ -1,0 +1,16 @@
+Symbols Nerd Font Mono
+https://github.com/ryanoasis/nerd-fonts
+
+The Nerd Fonts project is MIT licensed. This file is the symbols-only font:
+it carries the icon codepoint ranges and no text glyphs, so it can be
+registered as a last-resort fallback without shadowing any real font.
+
+The individual icon sets aggregated into it carry their own licences (MIT,
+SIL OFL 1.1 and CC BY 4.0 among them); see the upstream repository's
+LICENSE and the per-set attribution in its README.
+
+Why it is vendored here rather than installed from a package: Debian does not
+package a Nerd Font, and `append_symbol_fallback` in src/render/mod.rs probes
+fontconfig for exactly this family name. Without it every <Icon> renders as
+tofu in any environment that does not already have one — which included the
+e2e desktop image.

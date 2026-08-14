@@ -9,6 +9,8 @@
 //! them from the edge-stack arithmetic would make the test agree with the
 //! implementation by construction, including when the implementation is wrong.
 
+use std::path::PathBuf;
+
 use anyhow::Result;
 use tauler_e2e::i3::{self, Gaps};
 use tauler_e2e::{pixel_at, wait_for, Desktop, Rect, Screen};
@@ -42,7 +44,8 @@ fn sidebar_reserves_the_left_edge() -> Result<()> {
             },
             panels: vec![rect(0, 0, 272, 1080)],
         },
-    )
+    )?;
+    Ok(())
 }
 
 #[test]
@@ -65,10 +68,79 @@ fn three_edge_stack_reserves_each_edge_in_order() -> Result<()> {
                 rect(272, 1054, 1648, 26),
             ],
         },
-    )
+    )?;
+    Ok(())
 }
 
-fn run(scenario: &str, expected: Expected) -> Result<()> {
+/// The showcase: one floating bar over a wallpaper tauler painted itself.
+///
+/// Held to exactly the same contract as the two above — the extra assertions
+/// after `run` are additions, not a substitute. See docs/adr/0015.
+#[test]
+#[ignore = "needs Docker and `just e2e-image`"]
+fn showcase_floats_a_bar_over_its_own_wallpaper() -> Result<()> {
+    let (desktop, screenshot) = run(
+        "showcase",
+        Expected {
+            gaps: Gaps {
+                left: 0,
+                right: 0,
+                top: 58,
+                bottom: 0,
+            },
+            panels: vec![rect(0, 0, 1920, 58)],
+        },
+    )?;
+
+    // The clients start late by design: they wait for tauler to publish
+    // _XROOTPMAP_ID before launching, so that they have a wallpaper to read.
+    // Without waiting here, `assert_clients_respect` inside `run` can assert
+    // over an empty list and pass without checking anything.
+    wait_for("both clients on the focused workspace", || {
+        let count = i3::focused_workspace_client_rects(&desktop)?.len();
+        if count == 2 {
+            Ok(())
+        } else {
+            anyhow::bail!("{count} managed windows, expected 2")
+        }
+    })?;
+
+    // The panel is 58px tall and its content is inset by 12, so y=6 is inside
+    // the margin, where the only thing that can be showing is the root-bg crop.
+    //
+    // These two points are chosen against fixtures/showcase/wallpaper.png,
+    // whose top band runs from near-black on the left to a lit iris on the
+    // right — change the art and these change with it. A panel that painted a
+    // flat tint, or never bound root-bg at all, gives two equal samples.
+    let [lr, lg, lb, _] = pixel_at(&screenshot, 100, 6)?;
+    let [rr, rg, rb, _] = pixel_at(&screenshot, 1800, 6)?;
+    let spread = (lr as i32 - rr as i32).abs()
+        + (lg as i32 - rg as i32).abs()
+        + (lb as i32 - rb as i32).abs();
+    assert!(
+        spread > 60,
+        "the panel's margin is the same colour at x=100 and x=1800 \
+         ({lr},{lg},{lb} vs {rr},{rg},{rb}) — root-bg is showing a flat fill \
+         rather than a crop of the wallpaper"
+    );
+
+    // An unreadable `theme.file` is a warning, not an error: tauler falls back
+    // to the shipped greyscale default and renders a perfectly correct grey
+    // bar. Every other assertion in this file would still pass.
+    let [br, bg, bb, _] = pixel_at(&screenshot, 960, 29)?;
+    let chroma = br.abs_diff(bg).max(bg.abs_diff(bb)).max(br.abs_diff(bb));
+    assert!(
+        chroma >= 6,
+        "the bar's own pixel is neutral ({br},{bg},{bb}) — theme.file did not \
+         load and the default greyscale palette is being used"
+    );
+
+    Ok(())
+}
+
+/// Assert the reservation contract, then hand back the desktop and its
+/// screenshot so a scenario can add claims of its own.
+fn run(scenario: &str, expected: Expected) -> Result<(Desktop, PathBuf)> {
     let screen = Screen::default();
     let desktop = Desktop::start(scenario, screen)?;
 
@@ -103,7 +175,7 @@ fn run(scenario: &str, expected: Expected) -> Result<()> {
         Ok(())
     })?;
 
-    i3::assert_clients_respect(gaps, screen, &i3::client_rects(&desktop)?)?;
+    i3::assert_clients_respect(gaps, screen, &i3::focused_workspace_client_rects(&desktop)?)?;
 
     let screenshot = desktop.capture_stable()?;
 
@@ -122,5 +194,5 @@ fn run(scenario: &str, expected: Expected) -> Result<()> {
     }
 
     eprintln!("e2e: {scenario} → {}", screenshot.display());
-    Ok(())
+    Ok((desktop, screenshot))
 }

@@ -1,0 +1,17 @@
+# An absolute path into the bind-mounted fixture directory, not a `~` path:
+# the entrypoint copies layout.jsx and this file into ~/.config/tauler, but the
+# theme is read from where it lies.
+#
+# Note that an unreadable `theme.file` is a warning, not an error — tauler falls
+# back to the default grey palette and carries on. The scenario samples the bar's
+# own pixel to catch that, because nothing else would.
+theme:
+  mode: dark
+  file: /fixtures/showcase/theme.yaml
+
+# The family name fontconfig actually reports, not the one on the tin: the file
+# is InterVariable.ttf and `fc-list Inter` matches nothing. The image also makes
+# this the default sans-serif, so naming it here is belt and braces — and a
+# worked example of the field.
+fonts:
+  primary: Inter Variable

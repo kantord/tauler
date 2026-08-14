@@ -1,0 +1,65 @@
+#!/bin/sh
+# Static terminal content, so two runs of the same scenario look the same.
+#
+# Deliberately ASCII and box-drawing only, no Nerd Font glyphs. The bar can rely
+# on icons because tauler loads its own font stack and this image now ships the
+# symbols font; a terminal relies on urxvt's fallback list instead, and a
+# missing glyph there is a row of tofu in the largest element of the frame.
+# Box-drawing is covered by JetBrains Mono, which is pinned in the image.
+set -eu
+
+# Rose Pine Moon, approximated in 256 colours: urxvt 9.30 as Debian builds it
+# has no truecolour.
+IRIS=183
+FOAM=152
+GOLD=222
+ROSE=174
+PINE=67
+LOVE=204
+TEXT=189
+MUTED=103
+
+c() { printf '\033[38;5;%sm%s\033[0m' "$1" "$2"; }
+row() { printf '  %s  %s\n' "$(c $MUTED "$(printf '%-8s' "$1")")" "$(c $TEXT "$2")"; }
+
+case "$1" in
+    1)
+        printf '\n'
+        printf '  %s%s%s\n' "$(c $IRIS kantord)" "$(c $MUTED @)" "$(c $FOAM tauler)"
+        printf '  %s\n' "$(c $MUTED '──────────────────────────────────')"
+        row os     'Debian 12 · bookworm'
+        row kernel '6.1.0 · x86_64'
+        row wm     'i3 4.25'
+        row bar    'tauler 0.1.2'
+        row term   'rxvt-unicode 9.30'
+        row theme  'Rosé Pine Moon'
+        row fonts  'Inter · JetBrains Mono'
+        printf '\n  '
+        for n in $IRIS $FOAM $GOLD $ROSE $PINE $LOVE; do
+            printf '%s ' "$(c "$n" '███')"
+        done
+        printf '\n\n'
+        ;;
+    2)
+        printf '\n'
+        printf '  %s\n' "$(c $MUTED 'tauler')"
+        printf '  %s %s\n' "$(c $MUTED '├──')" "$(c $FOAM 'src')"
+        printf '  %s %s %s\n' "$(c $MUTED '│')" "$(c $MUTED '├──')" "$(c $TEXT 'layout')"
+        printf '  %s %s %s\n' "$(c $MUTED '│')" "$(c $MUTED '├──')" "$(c $TEXT 'render')"
+        printf '  %s %s %s\n' "$(c $MUTED '│')" "$(c $MUTED '├──')" "$(c $TEXT 'surface')"
+        printf '  %s %s %s\n' "$(c $MUTED '│')" "$(c $MUTED '└──')" "$(c $TEXT 'x11')"
+        printf '  %s %s\n' "$(c $MUTED '├──')" "$(c $FOAM 'tauler-i3')"
+        printf '  %s %s\n' "$(c $MUTED '├──')" "$(c $FOAM 'tauler-e2e')"
+        printf '  %s %s\n' "$(c $MUTED '└──')" "$(c $FOAM 'docs')"
+        printf '\n'
+        printf '  %s %s\n' "$(c $GOLD '●')" "$(c $TEXT 'reserve space with i3 gaps')"
+        printf '  %s %s\n' "$(c $IRIS '●')" "$(c $TEXT 'wallpaper is ordinary layout')"
+        printf '  %s %s\n' "$(c $PINE '●')" "$(c $TEXT 'panels are override-redirect')"
+        printf '\n'
+        ;;
+    *)
+        printf '\n  %s\n\n' "$(c $MUTED 'tauler')"
+        ;;
+esac
+
+exec sleep infinity
