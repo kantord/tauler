@@ -9,7 +9,7 @@
 # Build context is the repo root, not this directory:
 #   docker build -f tauler-e2e/Dockerfile .
 
-FROM rust:1.97.1-bookworm AS builder
+FROM rust:1.97.1-bookworm@sha256:0e2bcaef56d041a486784e54104a81aebe0da44bd03019bd70bc0401e42e4a97 AS builder
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
         libwayland-dev libxkbcommon-dev libfontconfig-dev libxcb1-dev pkg-config \
