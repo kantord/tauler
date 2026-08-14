@@ -75,10 +75,10 @@ populate() {
 
     # Workspaces 1 and 3 exist only so the bar has more than one pill; what is
     # in them is never photographed.
-    client 1 2 showcase-ws1
-    client 3 2 showcase-ws3
-    client 2 1 showcase-1
-    client 2 2 showcase-2
+    client 1 2 tauler-docs
+    client 3 2 tauler-build
+    client 2 1 fetch
+    client 2 2 tree
 
     # Land on the workspace holding two windows: it is the one that shows i3's
     # inner gaps, and it puts the focused pill in the middle of the three.

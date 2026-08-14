@@ -25,19 +25,33 @@ import { Icon } from "@ui/icon";
 const TAULER_I3 = "/usr/local/bin/tauler-i3";
 const STATUS = "/fixtures/showcase/bin/status";
 
-// One workspace pill. Focused is a filled lozenge; everything else is a dim
-// glyph, so the eye finds the current workspace without reading anything.
+// One workspace pill.
+//
+// Fixed width and `justify-center`, never horizontal padding. A padded flex
+// container does not size to its text: `px-[10px]` around a single "2" produces
+// a 40px box with 11px of space on the left and 23px on the right, and the same
+// 40px box for "22" — the text node inside a padded container measures 20px
+// wide whatever it contains. The glyph then sits visibly left of centre. Giving
+// the pill its own width sidesteps the measurement entirely, and uniform pills
+// are what a workspace strip wants anyway.
+const PILL = "flex flex-row items-center justify-center w-[24px] h-[22px] rounded-2xl";
+
 function Workspace({ ws }) {
   if (ws.focused) {
     return (
-      <container tw="flex flex-row items-center rounded-2xl bg-primary px-[10px] h-[22px]">
+      <container tw={`${PILL} bg-primary`}>
         <text tw="text-[12px] text-primary-foreground">{ws.name}</text>
       </container>
     );
   }
+  // Occupied but unfocused reads brighter than empty, so the strip shows where
+  // the work is, not just where the cursor is.
+  const tone = (ws.focused_windows ?? []).length
+    ? "text-foreground"
+    : "text-muted-foreground";
   return (
-    <container tw="flex flex-row items-center rounded-2xl px-[10px] h-[22px]">
-      <text tw="text-[12px] text-muted-foreground">{ws.name}</text>
+    <container tw={`${PILL} bg-secondary`}>
+      <text tw={`text-[12px] ${tone}`}>{ws.name}</text>
     </container>
   );
 }
@@ -95,31 +109,54 @@ export default function render() {
               }}
             />
             <container tw="flex h-full w-full p-[12px]" style={{ position: "relative" }}>
-              <container tw="flex flex-row h-full w-full items-center justify-between rounded-2xl border border-border bg-card pl-[8px] pr-[16px]">
-                {/* Left: real workspaces. The same subprocess <I3Layout>
-                    registers above — one bin, one process, union of props. */}
+              <container tw="flex flex-row h-full w-full items-center justify-between rounded-2xl border border-border bg-card pl-[10px] pr-[10px]">
+                {/* Left: real workspaces, and the real title of the focused
+                    window. The same subprocess <I3Layout> registers above — one
+                    bin, one process, union of props. */}
                 <Module bin={TAULER_I3}>
-                  {(data) => (
-                    <container tw="flex flex-row items-center gap-[2px]">
-                      {(data?.workspaces ?? []).map((ws) => (
-                        <Workspace ws={ws} />
-                      ))}
-                    </container>
-                  )}
+                  {(data) => {
+                    const wss = data?.workspaces ?? [];
+                    const focused = wss.filter((w) => w.focused)[0];
+                    const title = (focused?.focused_windows ?? [])[0];
+                    return (
+                      <container tw="flex flex-row items-center gap-[10px]">
+                        <Icon name="md-layers_triple" tw="text-[15px] text-primary" />
+                        <Divider />
+                        <container tw="flex flex-row items-center gap-[4px]">
+                          {wss.map((ws) => (
+                            <Workspace ws={ws} />
+                          ))}
+                        </container>
+                        {title ? (
+                          <text tw="text-[12px] text-muted-foreground">{title}</text>
+                        ) : null}
+                      </container>
+                    );
+                  }}
                 </Module>
 
                 {/* Right: frozen numbers. Structure is real here, cosmetics are
                     not — a live clock would make every pull request's
-                    screenshot differ for no reason. */}
+                    screenshot differ for no reason.
+                    The readout sits on its own inset surface so the bar reads as
+                    two groups rather than one long row of loose text. */}
                 <Module bin={STATUS}>
                   {(data) => (
-                    <container tw="flex flex-row items-center gap-[14px]">
-                      <Stat icon="md-chip" value={data?.cpu ?? "--"} tone="text-[#c4a7e7]" />
-                      <Stat icon="md-memory" value={data?.mem ?? "--"} tone="text-[#9ccfd8]" />
-                      <Stat icon="md-volume_high" value={data?.vol ?? "--"} tone="text-[#f6c177]" />
-                      <Stat icon="md-battery_70" value={data?.bat ?? "--"} tone="text-[#ea9a97]" />
-                      <Divider />
-                      <text tw="text-[13px] text-foreground">{data?.time ?? "--:--"}</text>
+                    <container tw="flex flex-row items-center gap-[10px]">
+                      <container tw="flex flex-row items-center gap-[14px] rounded-2xl bg-secondary h-[26px] pl-[12px] pr-[12px]">
+                        {/* The glyph names are the wrong way round: md-memory
+                            draws a processor die and md-chip draws a RAM
+                            stick. Matched to what they look like, not to what
+                            they are called. */}
+                        <Stat icon="md-memory" value={data?.cpu ?? "--"} tone="text-[#c4a7e7]" />
+                        <Stat icon="md-chip" value={data?.mem ?? "--"} tone="text-[#9ccfd8]" />
+                        <Stat icon="md-volume_high" value={data?.vol ?? "--"} tone="text-[#f6c177]" />
+                        <Stat icon="md-battery_70" value={data?.bat ?? "--"} tone="text-[#ea9a97]" />
+                      </container>
+                      <container tw="flex flex-row items-center gap-[6px]">
+                        <Icon name="md-clock_outline" tw="text-[13px] text-primary" />
+                        <text tw="text-[13px] text-foreground">{data?.time ?? "--:--"}</text>
+                      </container>
                     </container>
                   )}
                 </Module>
