@@ -6,6 +6,12 @@ So a rice's fixture is a `home/` tree — `~/.config/tauler`, `~/.config/i3`,
 `$HOME` before the session starts, rather than a layout file with a few settings smuggled
 in beside it. Contract scenarios keep the one-file shape; the entrypoint understands both.
 
+It is *shaped* like a dotfiles repo. It is not one you could install. The rofi theme
+hard-codes `/root/.config/rofi/plate.png` because rofi will not expand `~` inside a
+`url()`, kitty's config hard-codes its plate for the same reason, and every data module
+emits frozen JSON so that two runs photograph the same. Making one of these genuinely
+installable is worthwhile and is not what this decision claims.
+
 ## Why not one shape for everything
 
 Two shapes is a cost, and the alternative was to convert all six fixtures. It was
