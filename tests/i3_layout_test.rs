@@ -24,10 +24,10 @@ const LAYOUT: &str = r#"export default function render() {
   return <root>
     <I3Layout module="/usr/bin/tauler-i3">
       <Panel id="sidebar" anchor="left" size={300}>
-        <container tw="side" />
+        <div class="side" />
       </Panel>
       <Panel id="topbar" anchor="top" size={50}>
-        <container tw="top" />
+        <div class="top" />
       </Panel>
     </I3Layout>
   </root>;
@@ -56,8 +56,8 @@ fn emitted_panels_are_real_surfaces_with_computed_geometry() {
 #[test]
 fn the_gaps_reach_the_module_even_though_they_are_registered_last() {
     let out = eval(&LAYOUT.replace(
-        r#"<container tw="side" />"#,
-        r#"<Module bin="/usr/bin/tauler-i3">{(d, e) => <container tw="side" />}</Module>"#,
+        r#"<div class="side" />"#,
+        r#"<Module bin="/usr/bin/tauler-i3">{(d, e) => <div class="side" />}</Module>"#,
     ));
     let (_, props) = out
         .module_calls
@@ -73,7 +73,7 @@ fn the_gaps_reach_the_module_even_though_they_are_registered_last() {
 fn panel_children_survive_the_round_trip() {
     let specs = tauler::parse_root_node(&eval(LAYOUT).layout).unwrap();
     let sidebar = specs.iter().find(|s| s.id == "sidebar").unwrap();
-    assert_eq!(sidebar.content["tw"], "side");
+    assert_eq!(sidebar.content["class"], "side");
 }
 
 /// Without `module`, `<I3Layout>` is pure geometry and registers nothing.

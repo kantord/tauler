@@ -18,12 +18,12 @@ A small inline label for status, category, or count.
 ```jsx
 import { Badge } from "@ui/badge";
 
-<container tw="flex flex-row gap-[8px]">
-  <Badge><text>Default</text></Badge>
-  <Badge variant="secondary"><text>Secondary</text></Badge>
-  <Badge variant="destructive"><text>Destructive</text></Badge>
-  <Badge variant="outline"><text>Outline</text></Badge>
-</container>
+<div class="flex flex-row gap-[8px]">
+  <Badge><span>Default</span></Badge>
+  <Badge variant="secondary"><span>Secondary</span></Badge>
+  <Badge variant="destructive"><span>Destructive</span></Badge>
+  <Badge variant="outline"><span>Outline</span></Badge>
+</div>
 ```
 
 ## Card
@@ -35,20 +35,20 @@ import { Badge } from "@ui/badge";
 ![Card screenshot](../../assets/card.png)
 
 A styled container with rounded corners, a border, and card background colour.
-Wraps arbitrary child nodes and accepts an optional `tw` prop for Tailwind overrides.
+Wraps arbitrary child nodes and accepts an optional `class` attribute for Tailwind overrides.
 
 ### Usage
 
 ```jsx
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@ui/card";
 
-<Card tw="flex flex-col gap-[6px]">
+<Card class="flex flex-col gap-[6px]">
   <CardHeader>
-    <CardTitle><text>System Status</text></CardTitle>
-    <CardDescription><text>All services operational</text></CardDescription>
+    <CardTitle><span>System Status</span></CardTitle>
+    <CardDescription><span>All services operational</span></CardDescription>
   </CardHeader>
   <CardContent>
-    <text tw="text-foreground text-[12px]">nginx · postgres · redis</text>
+    <span class="text-foreground text-[12px]">nginx · postgres · redis</span>
   </CardContent>
 </Card>
 ```
@@ -123,76 +123,76 @@ Unknown names render as `?`.
 ```jsx
 import { Icon } from "@ui/icon";
 
-<container tw="flex flex-col gap-[16px] p-[12px]">
-  <container tw="flex flex-row items-end gap-[20px]">
-    <container tw="flex flex-col items-center gap-[4px]">
-      <Icon name="md-star" tw="text-[12px]" />
-      <text tw="text-[9px] text-muted-foreground">12px</text>
-    </container>
-    <container tw="flex flex-col items-center gap-[4px]">
-      <Icon name="md-star" tw="text-[16px]" />
-      <text tw="text-[9px] text-muted-foreground">16px</text>
-    </container>
-    <container tw="flex flex-col items-center gap-[4px]">
-      <Icon name="md-star" tw="text-[20px]" />
-      <text tw="text-[9px] text-muted-foreground">20px</text>
-    </container>
-    <container tw="flex flex-col items-center gap-[4px]">
-      <Icon name="md-star" tw="text-[28px]" />
-      <text tw="text-[9px] text-muted-foreground">28px</text>
-    </container>
-    <container tw="flex flex-col items-center gap-[4px]">
-      <Icon name="md-star" tw="text-[36px]" />
-      <text tw="text-[9px] text-muted-foreground">36px</text>
-    </container>
-  </container>
-  <container tw="flex flex-row flex-wrap gap-x-[20px] gap-y-[12px]">
-    <container tw="flex flex-col items-center gap-[4px]">
-      <Icon name="md-home" tw="text-[20px]" />
-      <text tw="text-[9px] text-muted-foreground">md-home</text>
-    </container>
-    <container tw="flex flex-col items-center gap-[4px]">
-      <Icon name="md-heart" tw="text-[20px]" />
-      <text tw="text-[9px] text-muted-foreground">md-heart</text>
-    </container>
-    <container tw="flex flex-col items-center gap-[4px]">
-      <Icon name="fa-github" tw="text-[20px]" />
-      <text tw="text-[9px] text-muted-foreground">fa-github</text>
-    </container>
-    <container tw="flex flex-col items-center gap-[4px]">
-      <Icon name="cod-terminal" tw="text-[20px]" />
-      <text tw="text-[9px] text-muted-foreground">cod-terminal</text>
-    </container>
-    <container tw="flex flex-col items-center gap-[4px]">
-      <Icon name="oct-git_branch" tw="text-[20px]" />
-      <text tw="text-[9px] text-muted-foreground">oct-git_branch</text>
-    </container>
-    <container tw="flex flex-col items-center gap-[4px]">
-      <Icon name="dev-linux" tw="text-[20px]" />
-      <text tw="text-[9px] text-muted-foreground">dev-linux</text>
-    </container>
-    <container tw="flex flex-col items-center gap-[4px]">
-      <Icon name="md-folder" tw="text-[20px]" />
-      <text tw="text-[9px] text-muted-foreground">md-folder</text>
-    </container>
-    <container tw="flex flex-col items-center gap-[4px]">
-      <Icon name="fa-star" tw="text-[20px]" />
-      <text tw="text-[9px] text-muted-foreground">fa-star</text>
-    </container>
-    <container tw="flex flex-col items-center gap-[4px]">
-      <Icon name="oct-repo" tw="text-[20px]" />
-      <text tw="text-[9px] text-muted-foreground">oct-repo</text>
-    </container>
-    <container tw="flex flex-col items-center gap-[4px]">
-      <Icon name="cod-search" tw="text-[20px]" />
-      <text tw="text-[9px] text-muted-foreground">cod-search</text>
-    </container>
-    <container tw="flex flex-col items-center gap-[4px]">
-      <Icon name="md-wifi" tw="text-[20px]" />
-      <text tw="text-[9px] text-muted-foreground">md-wifi</text>
-    </container>
-  </container>
-</container>
+<div class="flex flex-col gap-[16px] p-[12px]">
+  <div class="flex flex-row items-end gap-[20px]">
+    <div class="flex flex-col items-center gap-[4px]">
+      <Icon name="md-star" class="text-[12px]" />
+      <span class="text-[9px] text-muted-foreground">12px</span>
+    </div>
+    <div class="flex flex-col items-center gap-[4px]">
+      <Icon name="md-star" class="text-[16px]" />
+      <span class="text-[9px] text-muted-foreground">16px</span>
+    </div>
+    <div class="flex flex-col items-center gap-[4px]">
+      <Icon name="md-star" class="text-[20px]" />
+      <span class="text-[9px] text-muted-foreground">20px</span>
+    </div>
+    <div class="flex flex-col items-center gap-[4px]">
+      <Icon name="md-star" class="text-[28px]" />
+      <span class="text-[9px] text-muted-foreground">28px</span>
+    </div>
+    <div class="flex flex-col items-center gap-[4px]">
+      <Icon name="md-star" class="text-[36px]" />
+      <span class="text-[9px] text-muted-foreground">36px</span>
+    </div>
+  </div>
+  <div class="flex flex-row flex-wrap gap-x-[20px] gap-y-[12px]">
+    <div class="flex flex-col items-center gap-[4px]">
+      <Icon name="md-home" class="text-[20px]" />
+      <span class="text-[9px] text-muted-foreground">md-home</span>
+    </div>
+    <div class="flex flex-col items-center gap-[4px]">
+      <Icon name="md-heart" class="text-[20px]" />
+      <span class="text-[9px] text-muted-foreground">md-heart</span>
+    </div>
+    <div class="flex flex-col items-center gap-[4px]">
+      <Icon name="fa-github" class="text-[20px]" />
+      <span class="text-[9px] text-muted-foreground">fa-github</span>
+    </div>
+    <div class="flex flex-col items-center gap-[4px]">
+      <Icon name="cod-terminal" class="text-[20px]" />
+      <span class="text-[9px] text-muted-foreground">cod-terminal</span>
+    </div>
+    <div class="flex flex-col items-center gap-[4px]">
+      <Icon name="oct-git_branch" class="text-[20px]" />
+      <span class="text-[9px] text-muted-foreground">oct-git_branch</span>
+    </div>
+    <div class="flex flex-col items-center gap-[4px]">
+      <Icon name="dev-linux" class="text-[20px]" />
+      <span class="text-[9px] text-muted-foreground">dev-linux</span>
+    </div>
+    <div class="flex flex-col items-center gap-[4px]">
+      <Icon name="md-folder" class="text-[20px]" />
+      <span class="text-[9px] text-muted-foreground">md-folder</span>
+    </div>
+    <div class="flex flex-col items-center gap-[4px]">
+      <Icon name="fa-star" class="text-[20px]" />
+      <span class="text-[9px] text-muted-foreground">fa-star</span>
+    </div>
+    <div class="flex flex-col items-center gap-[4px]">
+      <Icon name="oct-repo" class="text-[20px]" />
+      <span class="text-[9px] text-muted-foreground">oct-repo</span>
+    </div>
+    <div class="flex flex-col items-center gap-[4px]">
+      <Icon name="cod-search" class="text-[20px]" />
+      <span class="text-[9px] text-muted-foreground">cod-search</span>
+    </div>
+    <div class="flex flex-col items-center gap-[4px]">
+      <Icon name="md-wifi" class="text-[20px]" />
+      <span class="text-[9px] text-muted-foreground">md-wifi</span>
+    </div>
+  </div>
+</div>
 ```
 
 ## Progress
@@ -205,20 +205,20 @@ import { Icon } from "@ui/icon";
 
 A horizontal progress bar. Renders a muted track with a filled segment
 proportional to `value` (0–100). An optional `color` prop overrides the
-fill colour; `tw` applies extra Tailwind classes to the track.
+fill colour; `class` applies extra Tailwind classes to the track.
 
 ### Usage
 
 ```jsx
 import { Progress } from "@ui/progress";
 
-<container tw="flex flex-col gap-[6px] w-[200px]">
-  <container tw="flex flex-row justify-between">
-    <text tw="text-muted-foreground text-[11px]">Memory</text>
-    <text tw="text-foreground text-[11px]">72%</text>
-  </container>
+<div class="flex flex-col gap-[6px] w-[200px]">
+  <div class="flex flex-row justify-between">
+    <span class="text-muted-foreground text-[11px]">Memory</span>
+    <span class="text-foreground text-[11px]">72%</span>
+  </div>
   <Progress value={72} />
-</container>
+</div>
 ```
 
 ## Table
@@ -240,16 +240,16 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 <Table>
   <TableHeader>
     <TableRow>
-      <TableHead><text>SERVICE</text></TableHead>
-      <TableHead><text>STATUS</text></TableHead>
-      <TableHead><text>UPTIME</text></TableHead>
+      <TableHead><span>SERVICE</span></TableHead>
+      <TableHead><span>STATUS</span></TableHead>
+      <TableHead><span>UPTIME</span></TableHead>
     </TableRow>
   </TableHeader>
   <TableBody>
     <TableRow>
-      <TableCell><text>nginx</text></TableCell>
-      <TableCell tw="text-green-500"><text>running</text></TableCell>
-      <TableCell><text>14d</text></TableCell>
+      <TableCell><span>nginx</span></TableCell>
+      <TableCell class="text-green-500"><span>running</span></TableCell>
+      <TableCell><span>14d</span></TableCell>
     </TableRow>
   </TableBody>
 </Table>

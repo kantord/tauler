@@ -15,8 +15,11 @@ fn eval_card(inner_jsx: &str) -> serde_json::Value {
 }
 
 fn assert_tw_prop_appended(component_jsx: &str, base: &str) {
-    let with_extra = component_jsx.replace(" />", r#" tw="extra" />"#);
-    let tw = eval_card(&with_extra)["tw"].as_str().unwrap().to_string();
+    let with_extra = component_jsx.replace(" />", r#" class="extra" />"#);
+    let tw = eval_card(&with_extra)["class"]
+        .as_str()
+        .unwrap()
+        .to_string();
     assert_eq!(tw, format!("{base} extra"));
 }
 
@@ -25,12 +28,12 @@ mod card_header {
 
     #[test]
     fn renders_as_container() {
-        assert_eq!(eval_card("<CardHeader />")["type"], "container");
+        assert_eq!(eval_card("<CardHeader />")["type"], "div");
     }
 
     #[test]
     fn has_base_tw() {
-        assert_eq!(eval_card("<CardHeader />")["tw"], HEADER_BASE_TW);
+        assert_eq!(eval_card("<CardHeader />")["class"], HEADER_BASE_TW);
     }
 
     #[test]
@@ -44,12 +47,12 @@ mod card_title {
 
     #[test]
     fn renders_as_container() {
-        assert_eq!(eval_card("<CardTitle />")["type"], "container");
+        assert_eq!(eval_card("<CardTitle />")["type"], "div");
     }
 
     #[test]
     fn has_base_tw() {
-        assert_eq!(eval_card("<CardTitle />")["tw"], TITLE_BASE_TW);
+        assert_eq!(eval_card("<CardTitle />")["class"], TITLE_BASE_TW);
     }
 
     #[test]
@@ -63,12 +66,15 @@ mod card_description {
 
     #[test]
     fn renders_as_container() {
-        assert_eq!(eval_card("<CardDescription />")["type"], "container");
+        assert_eq!(eval_card("<CardDescription />")["type"], "div");
     }
 
     #[test]
     fn has_base_tw() {
-        assert_eq!(eval_card("<CardDescription />")["tw"], DESCRIPTION_BASE_TW);
+        assert_eq!(
+            eval_card("<CardDescription />")["class"],
+            DESCRIPTION_BASE_TW
+        );
     }
 
     #[test]
@@ -82,12 +88,12 @@ mod card_content {
 
     #[test]
     fn renders_as_container() {
-        assert_eq!(eval_card("<CardContent />")["type"], "container");
+        assert_eq!(eval_card("<CardContent />")["type"], "div");
     }
 
     #[test]
     fn has_base_tw() {
-        assert_eq!(eval_card("<CardContent />")["tw"], CONTENT_BASE_TW);
+        assert_eq!(eval_card("<CardContent />")["class"], CONTENT_BASE_TW);
     }
 
     #[test]
@@ -101,12 +107,12 @@ mod card_footer {
 
     #[test]
     fn renders_as_container() {
-        assert_eq!(eval_card("<CardFooter />")["type"], "container");
+        assert_eq!(eval_card("<CardFooter />")["type"], "div");
     }
 
     #[test]
     fn has_base_tw() {
-        assert_eq!(eval_card("<CardFooter />")["tw"], FOOTER_BASE_TW);
+        assert_eq!(eval_card("<CardFooter />")["class"], FOOTER_BASE_TW);
     }
 
     #[test]

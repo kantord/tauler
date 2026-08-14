@@ -20,8 +20,8 @@ mod node_shape {
     use super::*;
 
     #[test]
-    fn renders_as_container_node() {
-        assert_eq!(eval_badge("<Badge />")["type"], "container");
+    fn renders_as_a_div() {
+        assert_eq!(eval_badge("<Badge />")["type"], "div");
     }
 }
 
@@ -31,7 +31,7 @@ mod variant_classes {
     fn assert_variant(variant: &str, expected_variant_tw: &str) {
         let expected = format!("{BASE_TW} {expected_variant_tw}");
         assert_eq!(
-            eval_badge(&format!(r#"<Badge variant="{variant}" />"#))["tw"],
+            eval_badge(&format!(r#"<Badge variant="{variant}" />"#))["class"],
             expected
         );
     }
@@ -39,7 +39,7 @@ mod variant_classes {
     #[test]
     fn default_variant_applies_base_and_default_classes() {
         assert_eq!(
-            eval_badge("<Badge />")["tw"],
+            eval_badge("<Badge />")["class"],
             format!("{BASE_TW} {DEFAULT_VARIANT_TW}")
         );
     }
@@ -61,7 +61,10 @@ mod variant_classes {
 
     #[test]
     fn unknown_variant_value_produces_base_classes_only() {
-        assert_eq!(eval_badge(r#"<Badge variant="garbage" />"#)["tw"], BASE_TW);
+        assert_eq!(
+            eval_badge(r#"<Badge variant="garbage" />"#)["class"],
+            BASE_TW
+        );
     }
 }
 
@@ -69,8 +72,11 @@ mod tw_prop {
     use super::*;
 
     #[test]
-    fn extra_tw_is_appended_after_variant_classes() {
+    fn extra_classes_are_appended_after_variant_classes() {
         let expected = format!("{BASE_TW} {DEFAULT_VARIANT_TW} extra-class");
-        assert_eq!(eval_badge(r#"<Badge tw="extra-class" />"#)["tw"], expected);
+        assert_eq!(
+            eval_badge(r#"<Badge class="extra-class" />"#)["class"],
+            expected
+        );
     }
 }

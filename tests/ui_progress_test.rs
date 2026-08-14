@@ -10,11 +10,8 @@ fn eval_progress(inner_jsx: &str) -> serde_json::Value {
 // --- node shape ---
 
 #[test]
-fn progress_renders_as_container_node() {
-    assert_eq!(
-        eval_progress("<Progress value={50} />")["type"],
-        "container"
-    );
+fn progress_renders_as_a_div() {
+    assert_eq!(eval_progress("<Progress value={50} />")["type"], "div");
 }
 
 #[test]
@@ -22,8 +19,8 @@ fn progress_has_fill_and_remainder_children() {
     let node = eval_progress("<Progress value={50} />");
     let children = node["children"].as_array().expect("children");
     assert_eq!(children.len(), 2);
-    assert_eq!(children[0]["type"], "container");
-    assert_eq!(children[1]["type"], "container");
+    assert_eq!(children[0]["type"], "div");
+    assert_eq!(children[1]["type"], "div");
 }
 
 // --- value → fill flex ---
@@ -69,7 +66,7 @@ fn progress_clamps_value_below_0() {
 #[test]
 fn progress_fill_uses_primary_tw_by_default() {
     let node = eval_progress("<Progress value={50} />");
-    let fill_tw = node["children"][0]["tw"].as_str().expect("fill tw");
+    let fill_tw = node["children"][0]["class"].as_str().expect("fill tw");
     assert!(
         fill_tw.contains("bg-primary"),
         "expected bg-primary in '{fill_tw}'"
@@ -80,7 +77,7 @@ fn progress_fill_uses_primary_tw_by_default() {
 fn progress_color_prop_sets_background_color_style() {
     let node = eval_progress(r##"<Progress value={50} color="#f38ba8" />"##);
     assert_eq!(node["children"][0]["style"]["backgroundColor"], "#f38ba8");
-    let fill_tw = node["children"][0]["tw"].as_str().unwrap_or("");
+    let fill_tw = node["children"][0]["class"].as_str().unwrap_or("");
     assert!(!fill_tw.contains("bg-primary"));
 }
 
@@ -89,7 +86,7 @@ fn progress_color_prop_sets_background_color_style() {
 #[test]
 fn progress_track_includes_muted_background() {
     let node = eval_progress("<Progress value={50} />");
-    let track_tw = node["tw"].as_str().expect("track tw");
+    let track_tw = node["class"].as_str().expect("track tw");
     assert!(
         track_tw.contains("bg-muted"),
         "expected bg-muted in '{track_tw}'"
@@ -98,8 +95,8 @@ fn progress_track_includes_muted_background() {
 
 #[test]
 fn progress_tw_prop_extends_track() {
-    let node = eval_progress(r#"<Progress value={50} tw="mt-2" />"#);
-    let track_tw = node["tw"].as_str().expect("track tw");
+    let node = eval_progress(r#"<Progress value={50} class="mt-2" />"#);
+    let track_tw = node["class"].as_str().expect("track tw");
     assert!(track_tw.contains("mt-2"), "expected mt-2 in '{track_tw}'");
     assert!(
         track_tw.contains("bg-muted"),

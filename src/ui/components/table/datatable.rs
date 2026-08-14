@@ -13,11 +13,11 @@ pub struct ColumnDef {
 fn header_row(columns: &[ColumnDef]) -> Node {
     let cells: Vec<Node> = columns
         .iter()
-        .map(|col| rsx! { <text tw="flex-1">{col.label.clone()}</text> })
+        .map(|col| rsx! { <span class="flex-1">{col.label.clone()}</span> })
         .collect();
     TableRow::render(TableRowProps {
         children: cells,
-        tw: Some("text-muted-foreground border-border uppercase".to_string()),
+        class: Some("text-muted-foreground border-border uppercase".to_string()),
     })
 }
 
@@ -34,7 +34,7 @@ fn cell_value(row: &serde_json::Value, key: &str) -> String {
 fn data_row(columns: &[ColumnDef], row: &serde_json::Value, index: usize) -> Node {
     let cells: Vec<Node> = columns
         .iter()
-        .map(|col| rsx! { <text tw="flex-1">{cell_value(row, &col.key)}</text> })
+        .map(|col| rsx! { <span class="flex-1">{cell_value(row, &col.key)}</span> })
         .collect();
     let bg = if index.is_multiple_of(2) {
         "bg-card text-foreground"
@@ -43,7 +43,7 @@ fn data_row(columns: &[ColumnDef], row: &serde_json::Value, index: usize) -> Nod
     };
     TableRow::render(TableRowProps {
         children: cells,
-        tw: Some(bg.to_string()),
+        class: Some(bg.to_string()),
     })
 }
 
@@ -79,6 +79,6 @@ pub fn data_table(columns: Vec<ColumnDef>, rows: Option<serde_json::Value>) -> N
     }
     Table::render(TableProps {
         children: all_children,
-        tw: None,
+        class: None,
     })
 }

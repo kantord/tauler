@@ -18,7 +18,7 @@ fn measure_node(node: &serde_json::Value, width: u32, dpr: f32) -> MeasuredNode 
 
 fn measure(tw: &str, width: u32, dpr: f32) -> f32 {
     measure_node(
-        &serde_json::json!({"type": "container", "tw": tw, "children": []}),
+        &serde_json::json!({"type": "div", "class": tw, "children": []}),
         width,
         dpr,
     )
@@ -47,9 +47,9 @@ fn w_full_fills_viewport_at_dpr_1_46() {
 fn padded_root_children_with_w_full_fill_content_box() {
     let root = measure_node(
         &serde_json::json!({
-            "type": "container",
-            "tw": "flex flex-col w-full h-full px-3",
-            "children": [{"type": "container", "tw": "w-full", "children": []}]
+            "type": "div",
+            "class": "flex flex-col w-full h-full px-3",
+            "children": [{"type": "div", "class": "w-full", "children": []}]
         }),
         146,
         1.46,
@@ -67,12 +67,12 @@ fn padded_root_children_with_w_full_fill_content_box() {
 fn rendered_child_width_matches_layout_at_dpr_1_46() {
     init_global_ctx(FontConfig::default());
     let content = serde_json::json!({
-        "type": "container",
-        "tw": "flex flex-col h-full w-full",
+        "type": "div",
+        "class": "flex flex-col h-full w-full",
         "style": {"backgroundColor": "red"},
         "children": [{
-            "type": "container",
-            "tw": "flex-1 w-full",
+            "type": "div",
+            "class": "flex-1 w-full",
             "style": {"backgroundColor": "blue"},
             "children": []
         }]

@@ -9,30 +9,30 @@ const PROGRESS_VARIANTS: Cva = Cva {
 
 /// A horizontal progress bar. Renders a muted track with a filled segment
 /// proportional to `value` (0–100). An optional `color` prop overrides the
-/// fill colour; `tw` applies extra Tailwind classes to the track.
+/// fill colour; `class` applies extra Tailwind classes to the track.
 ///
 /// # JSX
 /// ```jsx
-/// <container tw="flex flex-col gap-[6px] w-[200px]">
-///   <container tw="flex flex-row justify-between">
-///     <text tw="text-muted-foreground text-[11px]">Memory</text>
-///     <text tw="text-foreground text-[11px]">72%</text>
-///   </container>
+/// <div class="flex flex-col gap-[6px] w-[200px]">
+///   <div class="flex flex-row justify-between">
+///     <span class="text-muted-foreground text-[11px]">Memory</span>
+///     <span class="text-foreground text-[11px]">72%</span>
+///   </div>
 ///   <Progress value={72} />
-/// </container>
+/// </div>
 /// ```
 ///
 /// # Shadcn
 /// https://ui.shadcn.com/docs/components/progress
 #[component("@ui/progress")]
-pub fn progress(value: f32, color: Option<String>, tw: Option<String>) -> Node {
+pub fn progress(value: f32, color: Option<String>, class: Option<String>) -> Node {
     let value = value.clamp(0.0, 100.0);
-    let track_tw = PROGRESS_VARIANTS.resolve(&[], tw.as_deref().unwrap_or(""));
+    let track_tw = PROGRESS_VARIANTS.resolve(&[], class.as_deref().unwrap_or(""));
     rsx! {
-        <container tw={track_tw}>
+        <div class={track_tw}>
             <Fill value={value} color={color} />
             <Remainder value={value} />
-        </container>
+        </div>
     }
 }
 
@@ -50,7 +50,7 @@ fn fill(value: f32, color: Option<String>) -> Node {
         style.insert("backgroundColor".into(), Value::String(c));
     }
     let fill_style = Some(style);
-    rsx! { <container tw={fill_tw} style={fill_style} /> }
+    rsx! { <div class={fill_tw} style={fill_style} /> }
 }
 
 #[component]
@@ -58,5 +58,5 @@ fn remainder(value: f32) -> Node {
     let mut style = Map::new();
     style.insert("flex".into(), Value::from((100.0 - value) as f64));
     let remainder_style = Some(style);
-    rsx! { <container style={remainder_style} /> }
+    rsx! { <div style={remainder_style} /> }
 }

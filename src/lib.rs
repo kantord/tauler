@@ -15,7 +15,6 @@ pub mod windowing;
 pub mod x11;
 
 pub use render::RenderContext;
-pub use takumi::prelude::MeasuredNode;
 
 // layout
 pub use layout::{
@@ -114,7 +113,7 @@ mod tests {
                 "width": 250,
                 "height": 2160,
                 "outer_gap": 8,
-                "children": [{ "type": "container" }]
+                "children": [{ "type": "div" }]
             }]
         });
         let panels = parse_root_node(&root).unwrap();
@@ -135,7 +134,7 @@ mod tests {
                 "type": "wallpaper",
                 "id": "bg",
                 "output": "DP-2",
-                "children": [{ "type": "container" }]
+                "children": [{ "type": "div" }]
             }]
         });
         let specs = parse_root_node(&root).unwrap();
@@ -208,7 +207,7 @@ mod tests {
 
     #[test]
     fn parse_root_node_rejects_non_root_type() {
-        let node = serde_json::json!({ "type": "container" });
+        let node = serde_json::json!({ "type": "div" });
         assert!(parse_root_node(&node).is_err());
     }
 

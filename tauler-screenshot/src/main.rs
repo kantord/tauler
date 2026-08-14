@@ -81,13 +81,13 @@ fn main() {
     // width (render_w - 2×PAD), giving consistent screenshot widths regardless of
     // whether the component itself uses w-full.
     let frame = serde_json::json!({
-        "type": "container",
-        "tw": "w-full flex flex-col",
+        "type": "div",
+        "class": "w-full flex flex-col",
         "children": [layout]
     });
     let mut canvas = serde_json::json!({
-        "type": "container",
-        "tw": "bg-background w-full flex flex-col p-[16px]",
+        "type": "div",
+        "class": "bg-background w-full flex flex-col p-[16px]",
         "children": [frame]
     });
     resolve_tw_in_json(&mut canvas, &theme, args.theme);

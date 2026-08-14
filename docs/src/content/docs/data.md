@@ -113,13 +113,13 @@ function RecentLogs() {
   `) ?? [];
 
   return (
-    <container tw="flex flex-col gap-2 rounded-lg border px-3 py-3">
-      <text tw="text-[10px] text-foreground opacity-60">RECENT</text>
+    <div class="flex flex-col gap-2 rounded-lg border px-3 py-3">
+      <span class="text-[10px] text-foreground opacity-60">RECENT</span>
       <DataTable
         columns={[{ key: "_COMM", label: "UNIT" }, { key: "MESSAGE", label: "MESSAGE" }]}
         rows={[...lines].reverse()}
       />
-    </container>
+    </div>
   );
 }
 ```
@@ -138,13 +138,13 @@ function Load() {
   const mean = load.length ? load.reduce((a, b) => a + b, 0) / load.length : 0;
 
   return (
-    <container tw="flex flex-col gap-1 rounded-lg border px-3 py-2">
-      <text tw="text-[10px] text-foreground opacity-60">LOAD</text>
-      <text tw="text-[18px] text-foreground">{now.toFixed(2)}</text>
-      <text tw="text-[11px] text-foreground opacity-70">
+    <div class="flex flex-col gap-1 rounded-lg border px-3 py-2">
+      <span class="text-[10px] text-foreground opacity-60">LOAD</span>
+      <span class="text-[18px] text-foreground">{now.toFixed(2)}</span>
+      <span class="text-[11px] text-foreground opacity-70">
         {`peak ${peak.toFixed(2)} · avg ${mean.toFixed(2)} · ${load.length} samples`}
-      </text>
-    </container>
+      </span>
+    </div>
   );
 }
 ```

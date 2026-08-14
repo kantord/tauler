@@ -6,40 +6,39 @@ pub mod components;
 pub mod cva;
 pub mod registry;
 
+/// A node as a Rust-backed component builds it.
+///
+/// Two shapes, because the layout vocabulary has two: an element, named by its HTML
+/// tag, and a run of text. Text carries no styling of its own — style the element
+/// around it, as in HTML (see `docs/adr/0016`).
+///
+/// Untagged, so the JSON is the layout file's own shape: an element serializes to
+/// `{"type": "div", …}` and text serializes to a bare string.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "type", rename_all = "camelCase")]
+#[serde(untagged)]
 pub enum Node {
-    Container(ContainerNode),
-    Text(TextNode),
-    Image(ImageNode),
+    Element(ElementNode),
+    Text(String),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct ContainerNode {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub tw: Option<String>,
+pub struct ElementNode {
+    /// The HTML tag. Serialized as `type`, which is what the layout tree calls it.
+    #[serde(rename = "type")]
+    pub tag: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub class: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub style: Option<serde_json::Map<String, serde_json::Value>>,
+    /// `<img>` only.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub src: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub width: Option<f32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub height: Option<f32>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub children: Vec<Node>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TextNode {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub tw: Option<String>,
-    pub text: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ImageNode {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub tw: Option<String>,
-    pub src: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub width: Option<f32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub height: Option<f32>,
 }
 
 /// Merge two Tailwind class strings by appending `extra` after `base`.
@@ -68,6 +67,20 @@ impl IntoNodes for Node {
 impl IntoNodes for Vec<Node> {
     fn into_nodes(self) -> Vec<Node> {
         self
+    }
+}
+
+/// So `<span>{some_string}</span>` works: interpolating a value into an element makes
+/// a text node, exactly as writing the characters there would.
+impl IntoNodes for String {
+    fn into_nodes(self) -> Vec<Node> {
+        vec![Node::Text(self)]
+    }
+}
+
+impl IntoNodes for &str {
+    fn into_nodes(self) -> Vec<Node> {
+        vec![Node::Text(self.to_string())]
     }
 }
 

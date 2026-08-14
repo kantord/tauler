@@ -17,10 +17,10 @@ fn table_header_contains_column_labels() {
     );
     // Collect all text values from the node tree recursively.
     fn collect_texts(node: &serde_json::Value, out: &mut Vec<String>) {
-        if node["type"] == "text" {
-            if let Some(t) = node["text"].as_str() {
-                out.push(t.to_string());
-            }
+        // Text is a bare string child now, not a node of its own (ADR 0016).
+        if let Some(t) = node.as_str() {
+            out.push(t.to_string());
+            return;
         }
         if let Some(children) = node["children"].as_array() {
             for child in children {
@@ -48,7 +48,7 @@ fn table_header_has_text_muted_foreground_tw() {
     );
     // The header is expected to be the first child of the root Table container.
     let header = &node["children"][0];
-    let header_tw = header["tw"].as_str().unwrap_or("");
+    let header_tw = header["class"].as_str().unwrap_or("");
     assert!(
         header_tw.contains("text-muted-foreground"),
         "expected 'text-muted-foreground' in header tw; got: '{header_tw}'"
@@ -59,10 +59,10 @@ fn table_header_has_text_muted_foreground_tw() {
 
 /// Helper: collect all text node values from a tree recursively.
 fn collect_texts(node: &serde_json::Value, out: &mut Vec<String>) {
-    if node["type"] == "text" {
-        if let Some(t) = node["text"].as_str() {
-            out.push(t.to_string());
-        }
+    // Text is a bare string child now, not a node of its own (ADR 0016).
+    if let Some(t) = node.as_str() {
+        out.push(t.to_string());
+        return;
     }
     if let Some(children) = node["children"].as_array() {
         for child in children {
@@ -71,10 +71,10 @@ fn collect_texts(node: &serde_json::Value, out: &mut Vec<String>) {
     }
 }
 
-/// Helper: collect all `tw` values from container nodes whose tw contains the given class.
+/// Helper: collect all `class` values from element nodes whose class contains the given class.
 fn collect_containers_with_tw(node: &serde_json::Value, class: &str, out: &mut Vec<String>) {
-    if node["type"] != "text" {
-        if let Some(tw) = node["tw"].as_str() {
+    {
+        if let Some(tw) = node["class"].as_str() {
             if tw.contains(class) {
                 out.push(tw.to_string());
             }
@@ -133,7 +133,7 @@ fn table_row_containers_have_text_foreground_tw() {
 fn table_header_has_border_border_tw() {
     let node = eval_table(r#"<DataTable columns={[{key:"repo", label:"REPO"}]} rows={[]} />"#);
     let header = &node["children"][0];
-    let header_tw = header["tw"].as_str().unwrap_or("");
+    let header_tw = header["class"].as_str().unwrap_or("");
     assert!(
         header_tw.contains("border-border"),
         "expected 'border-border' in header tw; got: '{header_tw}'"
@@ -145,7 +145,7 @@ fn table_header_has_border_border_tw() {
 fn table_header_has_uppercase_tw() {
     let node = eval_table(r#"<DataTable columns={[{key:"repo", label:"REPO"}]} rows={[]} />"#);
     let header = &node["children"][0];
-    let header_tw = header["tw"].as_str().unwrap_or("");
+    let header_tw = header["class"].as_str().unwrap_or("");
     assert!(
         header_tw.contains("uppercase"),
         "expected 'uppercase' in header tw; got: '{header_tw}'"
@@ -154,7 +154,7 @@ fn table_header_has_uppercase_tw() {
 
 // --- alternating row backgrounds ---
 
-/// Helper: collect the `tw` value of each direct row child (children[1..]) of the root container.
+/// Helper: collect the `class` value of each direct row child (children[1..]) of the root element.
 fn collect_row_tws(node: &serde_json::Value) -> Vec<String> {
     let children = match node["children"].as_array() {
         Some(c) => c,
@@ -164,7 +164,7 @@ fn collect_row_tws(node: &serde_json::Value) -> Vec<String> {
     children
         .iter()
         .skip(1)
-        .map(|row| row["tw"].as_str().unwrap_or("").to_string())
+        .map(|row| row["class"].as_str().unwrap_or("").to_string())
         .collect()
 }
 

@@ -613,8 +613,8 @@ mod tests {
         // This content renders a solid red background — visually distinct from the
         // null/empty-container fallback that the old create_panel used.
         let content = serde_json::json!({
-            "type": "container",
-            "tw": "w-full h-full",
+            "type": "div",
+            "class": "w-full h-full",
             "style": {"backgroundColor": "red"},
             "children": []
         });

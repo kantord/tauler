@@ -41,16 +41,16 @@ const TABLE_CELL_VARIANTS: Cva = Cva {
 /// <Table>
 ///   <TableHeader>
 ///     <TableRow>
-///       <TableHead><text>SERVICE</text></TableHead>
-///       <TableHead><text>STATUS</text></TableHead>
-///       <TableHead><text>UPTIME</text></TableHead>
+///       <TableHead><span>SERVICE</span></TableHead>
+///       <TableHead><span>STATUS</span></TableHead>
+///       <TableHead><span>UPTIME</span></TableHead>
 ///     </TableRow>
 ///   </TableHeader>
 ///   <TableBody>
 ///     <TableRow>
-///       <TableCell><text>nginx</text></TableCell>
-///       <TableCell tw="text-green-500"><text>running</text></TableCell>
-///       <TableCell><text>14d</text></TableCell>
+///       <TableCell><span>nginx</span></TableCell>
+///       <TableCell class="text-green-500"><span>running</span></TableCell>
+///       <TableCell><span>14d</span></TableCell>
 ///     </TableRow>
 ///   </TableBody>
 /// </Table>
@@ -59,37 +59,37 @@ const TABLE_CELL_VARIANTS: Cva = Cva {
 /// # Shadcn
 /// https://ui.shadcn.com/docs/components/table
 #[component("@ui/table")]
-pub fn table(children: Vec<Node>, tw: Option<String>) -> Node {
-    let tw = TABLE_VARIANTS.resolve(&[], tw.as_deref().unwrap_or(""));
-    rsx! { <container tw={tw}>{children}</container> }
+pub fn table(children: Vec<Node>, class: Option<String>) -> Node {
+    let class = TABLE_VARIANTS.resolve(&[], class.as_deref().unwrap_or(""));
+    rsx! { <div class={class}>{children}</div> }
 }
 
 #[component("@ui/table")]
 pub fn table_header(children: Vec<Node>) -> Node {
-    let tw = TABLE_HEADER_VARIANTS.resolve(&[], "");
-    rsx! { <container tw={tw}>{children}</container> }
+    let class = TABLE_HEADER_VARIANTS.resolve(&[], "");
+    rsx! { <div class={class}>{children}</div> }
 }
 
 #[component("@ui/table")]
 pub fn table_body(children: Vec<Node>) -> Node {
-    let tw = TABLE_BODY_VARIANTS.resolve(&[], "");
-    rsx! { <container tw={tw}>{children}</container> }
+    let class = TABLE_BODY_VARIANTS.resolve(&[], "");
+    rsx! { <div class={class}>{children}</div> }
 }
 
 #[component("@ui/table")]
-pub fn table_row(children: Vec<Node>, tw: Option<String>) -> Node {
-    let tw = TABLE_ROW_VARIANTS.resolve(&[], tw.as_deref().unwrap_or(""));
-    rsx! { <container tw={tw}>{children}</container> }
+pub fn table_row(children: Vec<Node>, class: Option<String>) -> Node {
+    let class = TABLE_ROW_VARIANTS.resolve(&[], class.as_deref().unwrap_or(""));
+    rsx! { <div class={class}>{children}</div> }
 }
 
 #[component("@ui/table")]
-pub fn table_head(children: Vec<Node>, tw: Option<String>) -> Node {
-    let tw = TABLE_HEAD_VARIANTS.resolve(&[], tw.as_deref().unwrap_or(""));
-    rsx! { <container tw={tw}>{children}</container> }
+pub fn table_head(children: Vec<Node>, class: Option<String>) -> Node {
+    let class = TABLE_HEAD_VARIANTS.resolve(&[], class.as_deref().unwrap_or(""));
+    rsx! { <div class={class}>{children}</div> }
 }
 
 #[component("@ui/table")]
-pub fn table_cell(children: Vec<Node>, tw: Option<String>) -> Node {
-    let tw = TABLE_CELL_VARIANTS.resolve(&[], tw.as_deref().unwrap_or(""));
-    rsx! { <container tw={tw}>{children}</container> }
+pub fn table_cell(children: Vec<Node>, class: Option<String>) -> Node {
+    let class = TABLE_CELL_VARIANTS.resolve(&[], class.as_deref().unwrap_or(""));
+    rsx! { <div class={class}>{children}</div> }
 }

@@ -348,7 +348,7 @@ mod tests {
         let (mut tx, rx) = std::sync::mpsc::channel::<SurfaceCommand>();
         let mut state = make_state(make_spec_data("p1"));
         let mut next = make_spec_data("p1");
-        next.content = serde_json::json!({"type": "text", "text": "hello"});
+        next.content = serde_json::json!("hello");
         let spec = Surface(next);
         <Surface as Lifecycle>::reconcile_self(spec, &mut state, &mut (), &mut tx).unwrap();
         let cmds: Vec<SurfaceCommand> = rx.try_iter().collect();

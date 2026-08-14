@@ -47,9 +47,9 @@ export default function render() {
   return (
     <root>
       <panel anchor="top" height={32} width={ctx.screen_width}>
-        <container tw="flex h-full w-full items-center justify-end px-3">
-          <text tw="text-[13px] text-white">{time}</text>
-        </container>
+        <div class="flex h-full w-full items-center justify-end px-3">
+          <span class="text-[13px] text-white">{time}</span>
+        </div>
       </panel>
     </root>
   );
@@ -60,7 +60,7 @@ Then run `tauler`. Editing the file re-renders the bar immediately — no restar
 
 The module has to `export default` a render function. `ctx` is injected before each
 evaluation and carries `output`, `dpi`, `screen_width` and `screen_height`. Styling
-uses Tailwind-style classes in the `tw` prop.
+uses Tailwind-style classes in the `class` attribute.
 
 `~/.config/tauler/config.yaml` is optional and holds the theme and font settings:
 

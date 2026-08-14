@@ -28,25 +28,25 @@ const BADGE_VARIANTS: Cva = Cva {
 ///
 /// # JSX
 /// ```jsx
-/// <container tw="flex flex-row gap-[8px]">
-///   <Badge><text>Default</text></Badge>
-///   <Badge variant="secondary"><text>Secondary</text></Badge>
-///   <Badge variant="destructive"><text>Destructive</text></Badge>
-///   <Badge variant="outline"><text>Outline</text></Badge>
-/// </container>
+/// <div class="flex flex-row gap-[8px]">
+///   <Badge><span>Default</span></Badge>
+///   <Badge variant="secondary"><span>Secondary</span></Badge>
+///   <Badge variant="destructive"><span>Destructive</span></Badge>
+///   <Badge variant="outline"><span>Outline</span></Badge>
+/// </div>
 /// ```
 ///
 /// # Shadcn
 /// https://ui.shadcn.com/docs/components/badge
 #[component("@ui/badge")]
-pub fn badge(children: Vec<Node>, variant: Option<String>, tw: Option<String>) -> Node {
-    let tw = BADGE_VARIANTS.resolve(
+pub fn badge(children: Vec<Node>, variant: Option<String>, class: Option<String>) -> Node {
+    let class = BADGE_VARIANTS.resolve(
         &[("variant", variant.as_deref())],
-        tw.as_deref().unwrap_or(""),
+        class.as_deref().unwrap_or(""),
     );
     rsx! {
-        <container tw={tw}>
+        <div class={class}>
             {children}
-        </container>
+        </div>
     }
 }
