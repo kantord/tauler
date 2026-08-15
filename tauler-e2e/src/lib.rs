@@ -17,6 +17,11 @@ use testcontainers::runners::SyncRunner;
 use testcontainers::{Container, GenericImage, ImageExt};
 
 pub mod i3;
+pub mod motion;
+
+/// The display the container's Xvfb serves, matching the image's `DISPLAY`.
+/// ffmpeg's `x11grab` needs it spelled out; it does not read the environment.
+const DISPLAY: &str = ":99";
 
 pub const IMAGE_NAME: &str = "tauler-e2e";
 pub const IMAGE_TAG: &str = "local";
@@ -132,6 +137,43 @@ impl Desktop {
         self.screen
     }
 
+    /// Record the screen as PNG frames while the fixture's `motion` script
+    /// drives it.
+    ///
+    /// Both halves run inside one `exec` so the recorder is definitely up
+    /// before anything is driven and definitely still up when the last event
+    /// lands: ffmpeg is started, the script runs against a screen that is
+    /// already being watched, and the exec returns when ffmpeg has written its
+    /// last frame.
+    ///
+    /// `seconds` bounds the recording. Make it longer than the script, or the
+    /// last event happens off camera.
+    pub fn record_motion(&self, seconds: u32) -> Result<motion::Motion> {
+        const FPS: u32 = 30;
+
+        let script = format!("/fixtures/{}/motion", self.scenario);
+        let out = format!("/out/{}", self.scenario);
+
+        // `-draw_mouse 0`: the pointer is at 0,0 under Xvfb and its cursor would
+        // sit inside the top-left of any region sampled there, changing pixels
+        // for reasons that have nothing to do with the desktop.
+        let recorder = format!(
+            "mkdir -p {out}/motion && rm -f {out}/motion/*.png && \
+             ffmpeg -loglevel error -y -f x11grab -draw_mouse 0 \
+                    -framerate {FPS} -video_size {}x{} -i {} -t {seconds} \
+                    {out}/motion/%04d.png",
+            self.screen.width, self.screen.height, DISPLAY
+        );
+
+        // The script drives; the recorder decides when this is over.
+        let both = format!("{recorder} & FF=$!; sleep 0.6; {script}; wait $FF");
+
+        self.exec_for(seconds + 30, &["sh", "-c", &both])
+            .context("recording motion")?;
+
+        motion::collect(&self.out_dir.join(&self.scenario), FPS)
+    }
+
     /// Run a command inside the desktop and return its stdout.
     ///
     /// Bounded by coreutils `timeout` on the container side rather than by a
@@ -140,8 +182,16 @@ impl Desktop {
     /// Killed commands come back as an error, which the polling loops treat as
     /// "not ready yet" and retry.
     pub fn exec(&self, argv: &[&str]) -> Result<String> {
+        self.exec_for(EXEC_TIMEOUT.as_secs() as u32, argv)
+    }
+
+    /// As [`Desktop::exec`], with a longer leash.
+    ///
+    /// Recording outlives the default timeout by design, and a recording that
+    /// is killed halfway leaves a frame directory that looks merely short.
+    pub fn exec_for(&self, secs: u32, argv: &[&str]) -> Result<String> {
         let bounded = std::iter::once("timeout".to_string())
-            .chain(std::iter::once(EXEC_TIMEOUT.as_secs().to_string()))
+            .chain(std::iter::once(secs.to_string()))
             .chain(argv.iter().map(|s| s.to_string()));
 
         let mut result = self
@@ -154,7 +204,7 @@ impl Desktop {
 
         match result.exit_code()? {
             Some(0) | None => Ok(String::from_utf8_lossy(&stdout).into_owned()),
-            Some(124) => bail!("{argv:?} did not finish within {EXEC_TIMEOUT:?}"),
+            Some(124) => bail!("{argv:?} did not finish within {secs}s"),
             Some(code) => bail!("{argv:?} exited {code}"),
         }
     }

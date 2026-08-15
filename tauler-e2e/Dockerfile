@@ -37,6 +37,13 @@ FROM debian:bookworm-slim@sha256:abd67ffcfa541b485a3dff59865ab629aa048a6c613e639
 # what each of them can and cannot paint is answered from evidence rather than
 # from its documentation. Nothing outside a fixture's own `startup` runs them.
 #
+# xdotool and ffmpeg are the motion half of the harness. A settled screenshot is
+# structurally incapable of answering anything about latency or flicker — it is
+# defined as the frame after the screen stopped changing — so the questions round
+# one could not touch need a desktop that moves and a camera pointed at it.
+# ffmpeg writes PNG frames rather than a video: no encode, no yuv420p colour
+# conversion, and the analysis compares exact pixels.
+#
 # kitty needs OpenGL, hence `libgl1-mesa-dri`: under Xvfb that resolves to
 # llvmpipe. It was measured before being added — kitty maps in ~310ms on
 # llvmpipe, which is well inside the harness's stability budget. It is the only
@@ -54,6 +61,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         dunst \
         rofi \
         scrot \
+        xdotool \
+        ffmpeg \
         fontconfig \
         fonts-jetbrains-mono \
         libwayland-client0 libxkbcommon0 libfontconfig1 libxcb1 \

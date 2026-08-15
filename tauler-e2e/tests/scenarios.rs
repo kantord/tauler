@@ -234,6 +234,95 @@ fn signal_flies_a_different_flag_per_workspace() -> Result<()> {
     Ok(())
 }
 
+/// Signal, moving: how long after a window opens does its band admit it?
+///
+/// This is the number a settled capture cannot produce, and the first one this
+/// suite has ever had. It is measured without aligning any clocks: the tiling
+/// area is the *trigger*, the band is the *readout*, and the answer is the
+/// frames between the first change in one and the first change in the other.
+/// That is also the number a person experiences — how long after the window
+/// appeared did the bar react — rather than how long after a key was pressed.
+///
+/// It prints rather than asserts a latency bound. A threshold here would be a
+/// number invented today and defended forever; the deliverable is the
+/// measurement, and the assertions below are only that the mechanism fired at
+/// all.
+#[test]
+#[ignore = "needs Docker and `just e2e-image`"]
+fn signal_reseeds_a_band_when_a_window_opens() -> Result<()> {
+    let (desktop, _) = run(
+        "signal",
+        Expected {
+            gaps: Gaps {
+                left: 0,
+                right: 0,
+                top: 92,
+                bottom: 0,
+            },
+            panels: vec![rect(0, 0, 1920, 92)],
+            clients: 2,
+        },
+    )?;
+
+    let motion = desktop.record_motion(11)?;
+
+    // Workspace 2's band. Flags are 96 wide with a 12px gap from an 18px inset,
+    // 64 tall starting 6px down, and workspace 2 is the second of them.
+    let readout = motion.series(rect(18 + 108, 6, 96, 64))?;
+    // A strip of the tiling area well below any text, where a retile is the
+    // only thing that changes anything.
+    let trigger = motion.series(rect(0, 780, 1920, 200))?;
+
+    // Threshold in mean absolute per-channel difference. Frames are exact PNGs
+    // with no codec between them, so an unchanged region differs by 0 — this is
+    // set well above nothing and well below any real repaint.
+    const CHANGED: f64 = 1.0;
+
+    let t_first = trigger
+        .first_change(0, CHANGED)
+        .ok_or_else(|| anyhow::anyhow!("the tiling area never changed — nothing was driven"))?;
+    let r_first = readout
+        .first_change(0, CHANGED)
+        .ok_or_else(|| anyhow::anyhow!("the band never changed — the hoist is not reactive"))?;
+
+    let lag = r_first.saturating_sub(t_first);
+    eprintln!(
+        "\n=== signal · event to repaint ===\n         frames captured      {}\n         window visible at    frame {t_first}\n         band reacted at      frame {r_first}\n         lag                  {lag} frames ({:.0}ms at 30fps)\n",
+        motion.frame_count(),
+        motion.ms(lag),
+    );
+    for (ms, label) in &motion.events {
+        eprintln!("  event {ms}  {label}");
+    }
+
+    // The map/unmap flash the brief asks about: across *one* reseed, is there
+    // any frame where the band is neither its old self nor its new one?
+    //
+    // The span has to stop while the probe window is still open. The script
+    // opens it and then closes it again, so the last frame of the recording is
+    // back in the *original* state — measuring to there would mark every frame
+    // of the open period as neither-old-nor-new, which is correct arithmetic
+    // and a useless answer. 45 frames is 1.5s after the window appeared, well
+    // inside the 3s it stays up.
+    let before = t_first.saturating_sub(1);
+    let settled = (t_first + 45).min(readout.last());
+    let flashes = readout.transitional(before, settled, CHANGED);
+    eprintln!(
+        "flash check · band across one reseed, frames {before}..{settled}\n\
+         frames matching neither old nor new: {} {:?}\n",
+        flashes.len(),
+        &flashes[..flashes.len().min(12)],
+    );
+
+    assert!(
+        r_first >= t_first,
+        "the band changed at frame {r_first}, before the window was visible at \
+         {t_first} — the regions are not measuring what they claim to"
+    );
+
+    Ok(())
+}
+
 /// Thermal: one heat field across the whole screen, cropped per window.
 ///
 /// Two claims beyond the contract. The measurement callout is a panel whose

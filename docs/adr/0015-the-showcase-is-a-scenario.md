@@ -54,7 +54,7 @@ Two mechanisms exist that did not before, both following the pattern already set
 optional `config.yaml`: a fixture may carry its own `i3.config` and its own `startup`.
 Contract scenarios stay minimal; a scenario with taste keeps its taste to itself.
 
-> Partly superseded by [ADR 0016](./0016-a-rice-fixture-is-a-dotfiles-repo.md). A Rice's
+> Partly superseded by [ADR 0019](./0019-a-rice-fixture-is-a-dotfiles-repo.md). A Rice's
 > fixture is now a whole home directory, so its i3 config is one of the files in it rather
 > than an escape hatch beside the layout. The outer-gap warning below still applies
 > wherever that config lives, and contract scenarios still use the shape described here.

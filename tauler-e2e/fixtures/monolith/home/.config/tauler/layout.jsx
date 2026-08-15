@@ -4,7 +4,7 @@
 // eww/GTK3 and spends most of its questions on which paint primitives survive
 // there; tauler rasterizes with takumi, so the answers are different enough
 // that the design changes shape. Everything textured below is CSS on a
-// <container>. Nothing is a pre-rendered PNG, and the brief's plate-gen.py has
+// <div>. Nothing is a pre-rendered PNG, and the brief's plate-gen.py has
 // no equivalent here at all.
 //
 // Geometry, which tauler-e2e/tests/scenarios.rs states by hand:
@@ -24,7 +24,7 @@ const STATUS = "~/.local/bin/monolith-status";
 // ── Plates ──────────────────────────────────────────────────────────────────
 //
 // Four textures, each a `style` object rather than a class, because none of
-// them is expressible in the `tw` subset and all of them are the point.
+// them is expressible in the `class` subset and all of them are the point.
 //
 // The alphas follow the brief's legibility rule: texture never exceeds ~0.2
 // under body text, full strength only in margins, meters and empty plate.
@@ -92,16 +92,16 @@ function roman(name) {
 function Folio({ ws }) {
   const focused = ws.focused;
   return (
-    <container
-      tw="flex flex-row items-center justify-center w-full h-[34px]"
+    <div
+      class="flex flex-row items-center justify-center w-full h-[34px]"
       style={focused ? { backgroundColor: "#D8B25E" } : {}}
     >
-      <text
-        tw={`text-[19px] ${focused ? "text-primary-foreground" : "text-muted-foreground"}`}
+      <span
+        class={`text-[19px] ${focused ? "text-primary-foreground" : "text-muted-foreground"}`}
       >
         {roman(ws.name)}
-      </text>
-    </container>
+      </span>
+    </div>
   );
 }
 
@@ -115,7 +115,7 @@ function Moire({ load }) {
     // 0.20 — the 87°/93° pair below bled across the full 60px rail and 390px
     // down it, straight over the load figure and the clock. Clipping it in a
     // parent is the fix, and it costs nothing.
-    <container
+    <div
       style={{
         display: "flex",
         width: "34px",
@@ -123,45 +123,45 @@ function Moire({ load }) {
         overflow: "hidden",
       }}
     >
-      <container
-        tw="flex flex-col w-full h-full border border-border"
+      <div
+        class="flex flex-col w-full h-full border border-border"
         style={MOIRE}
       >
-        <container
+        <div
           style={{ width: "100%", height: `${height}px`, backgroundColor: "#1B1924" }}
         />
-      </container>
-    </container>
+      </div>
+    </div>
   );
 }
 
 function Rail({ ws, status }) {
   const load = status?.load ?? 0;
   return (
-    <container
-      tw="flex flex-col items-center w-full h-full pt-[14px] pb-[14px]"
+    <div
+      class="flex flex-col items-center w-full h-full pt-[14px] pb-[14px]"
       style={{ ...RULED, borderRight: "1px solid rgba(216,178,94,0.22)" }}
     >
-      <text tw="text-[26px] text-primary">M</text>
+      <span class="text-[26px] text-primary">M</span>
 
-      <container tw="flex flex-col items-center w-full mt-[18px]" style={EMBOSS}>
+      <div class="flex flex-col items-center w-full mt-[18px]" style={EMBOSS}>
         {ws.map((w) => (
           <Folio ws={w} />
         ))}
-      </container>
+      </div>
 
-      <container tw="flex flex-col grow" />
+      <div class="flex flex-col grow" />
 
       <Moire load={load} />
-      <text tw="text-[9px] text-muted-foreground mt-[6px]" style={MONO}>
+      <span class="text-[9px] text-muted-foreground mt-[6px]" style={MONO}>
         {`${Math.round(load * 100)}%`}
-      </text>
+      </span>
 
-      <container tw="flex flex-col items-center mt-[14px]">
-        <text tw="text-[17px] text-foreground">{status?.hh ?? "--"}</text>
-        <text tw="text-[17px] text-muted-foreground">{status?.mm ?? "--"}</text>
-      </container>
-    </container>
+      <div class="flex flex-col items-center mt-[14px]">
+        <span class="text-[17px] text-foreground">{status?.hh ?? "--"}</span>
+        <span class="text-[17px] text-muted-foreground">{status?.mm ?? "--"}</span>
+      </div>
+    </div>
   );
 }
 
@@ -182,29 +182,29 @@ const PERFORATION = {
 
 function Slip() {
   return (
-    <container tw="flex flex-row w-full h-full" style={{ backgroundColor: "#E9E4DA" }}>
-      <container tw="flex w-[14px] h-full" style={PERFORATION} />
-      <container tw="flex flex-col grow pl-[18px] pr-[18px] pt-[14px] pb-[14px]">
-        <container tw="flex flex-row items-center justify-between">
-          <text tw="text-[10px]" style={{ ...MONO, color: "#6C6478", letterSpacing: "1.5px" }}>
+    <div class="flex flex-row w-full h-full" style={{ backgroundColor: "#E9E4DA" }}>
+      <div class="flex w-[14px] h-full" style={PERFORATION} />
+      <div class="flex flex-col grow pl-[18px] pr-[18px] pt-[14px] pb-[14px]">
+        <div class="flex flex-row items-center justify-between">
+          <span class="text-[10px]" style={{ ...MONO, color: "#6C6478", letterSpacing: "1.5px" }}>
             GALLEY
-          </text>
-          <text tw="text-[10px]" style={{ ...MONO, color: "#6C6478" }}>
+          </span>
+          <span class="text-[10px]" style={{ ...MONO, color: "#6C6478" }}>
             09:41
-          </text>
-        </container>
-        <container
-          tw="w-full h-[1px] mt-[8px] mb-[10px]"
+          </span>
+        </div>
+        <div
+          class="w-full h-[1px] mt-[8px] mb-[10px]"
           style={{ backgroundColor: "#B9B2A4" }}
         />
-        <text tw="text-[17px]" style={{ color: "#221F2B" }}>
+        <span class="text-[17px]" style={{ color: "#221F2B" }}>
           Plate cycle complete
-        </text>
-        <text tw="text-[11px] mt-[4px]" style={{ ...MONO, color: "#6C6478" }}>
+        </span>
+        <span class="text-[11px] mt-[4px]" style={{ ...MONO, color: "#6C6478" }}>
           4 surfaces reseeded from palette hash
-        </text>
-      </container>
-    </container>
+        </span>
+      </div>
+    </div>
   );
 }
 
@@ -216,62 +216,62 @@ function Slip() {
 
 function Entry({ mark, name, hint, selected }) {
   return (
-    <container
-      tw="flex flex-row items-center w-full h-[38px] pl-[16px] pr-[16px]"
+    <div
+      class="flex flex-row items-center w-full h-[38px] pl-[16px] pr-[16px]"
       style={selected ? { backgroundColor: "rgba(216,178,94,0.16)", ...EMBOSS } : {}}
     >
-      <text tw="text-[15px] text-primary w-[38px]">{mark}</text>
-      <text tw={`text-[15px] ${selected ? "text-foreground" : "text-muted-foreground"}`}>
+      <span class="text-[15px] text-primary w-[38px]">{mark}</span>
+      <span class={`text-[15px] ${selected ? "text-foreground" : "text-muted-foreground"}`}>
         {name}
-      </text>
-      <container tw="flex grow" />
-      <text tw="text-[10px] text-muted-foreground" style={MONO}>
+      </span>
+      <div class="flex grow" />
+      <span class="text-[10px] text-muted-foreground" style={MONO}>
         {hint}
-      </text>
-    </container>
+      </span>
+    </div>
   );
 }
 
 function Launcher() {
   return (
-    <container
-      tw="flex flex-col w-full h-full border border-border"
+    <div
+      class="flex flex-col w-full h-full border border-border"
       style={{ backgroundColor: "#221F2B" }}
     >
-      <container
-        tw="flex flex-row items-center w-full h-[64px] pl-[20px] pr-[20px]"
+      <div
+        class="flex flex-row items-center w-full h-[64px] pl-[20px] pr-[20px]"
         style={{ ...HALFTONE, ...EMBOSS }}
       >
-        <text tw="text-[13px] text-primary" style={{ ...MONO, letterSpacing: "3px" }}>
+        <span class="text-[13px] text-primary" style={{ ...MONO, letterSpacing: "3px" }}>
           RUN
-        </text>
-        <container
-          tw="w-[1px] h-[20px] ml-[16px] mr-[16px]"
+        </span>
+        <div
+          class="w-[1px] h-[20px] ml-[16px] mr-[16px]"
           style={{ backgroundColor: "rgba(216,178,94,0.35)" }}
         />
-        <text tw="text-[19px] text-foreground">plate</text>
-        <container tw="w-[1px] h-[21px] ml-[3px]" style={{ backgroundColor: "#D8B25E" }} />
-      </container>
+        <span class="text-[19px] text-foreground">plate</span>
+        <div class="w-[1px] h-[21px] ml-[3px]" style={{ backgroundColor: "#D8B25E" }} />
+      </div>
 
-      <container tw="flex flex-col w-full grow pt-[8px]" style={RULED}>
+      <div class="flex flex-col w-full grow pt-[8px]" style={RULED}>
         <Entry mark="I" name="plate-cycle" hint="mod+p" selected={true} />
         <Entry mark="II" name="plate-regen" hint="mod+shift+w" />
         <Entry mark="III" name="folio-index" hint="" />
         <Entry mark="IV" name="galley-replay" hint="" />
-      </container>
+      </div>
 
-      <container
-        tw="flex flex-row items-center justify-between w-full h-[30px] pl-[20px] pr-[20px]"
+      <div
+        class="flex flex-row items-center justify-between w-full h-[30px] pl-[20px] pr-[20px]"
         style={{ backgroundColor: "#1B1924", ...EMBOSS }}
       >
-        <text tw="text-[10px] text-muted-foreground" style={MONO}>
+        <span class="text-[10px] text-muted-foreground" style={MONO}>
           4 entries
-        </text>
-        <text tw="text-[10px] text-muted-foreground" style={MONO}>
+        </span>
+        <span class="text-[10px] text-muted-foreground" style={MONO}>
           seed 8f3c1a
-        </text>
-      </container>
-    </container>
+        </span>
+      </div>
+    </div>
   );
 }
 
@@ -286,11 +286,11 @@ export default function render() {
           wrote them to a PNG; here they are four declarations and they resize
           with the output. */}
       <wallpaper id="desktop">
-        <container
-          tw="flex flex-col w-full h-full"
+        <div
+          class="flex flex-col w-full h-full"
           style={{ backgroundColor: "#221F2B", position: "relative" }}
         >
-          <container
+          <div
             style={{
               position: "absolute",
               top: 0,
@@ -300,7 +300,7 @@ export default function render() {
               ...GUILLOCHE("78%", "18%", 0.1),
             }}
           />
-          <container
+          <div
             style={{
               position: "absolute",
               top: 0,
@@ -313,7 +313,7 @@ export default function render() {
               backgroundRepeat: "repeat",
             }}
           />
-          <container
+          <div
             style={{
               position: "absolute",
               top: "62%",
@@ -324,7 +324,7 @@ export default function render() {
                 "repeating-linear-gradient(0deg, rgba(216,178,94,0.09) 0px, rgba(216,178,94,0.09) 1px, transparent 1px, transparent 7px)",
             }}
           />
-          <container
+          <div
             style={{
               position: "absolute",
               bottom: "40px",
@@ -334,17 +334,17 @@ export default function render() {
               alignItems: "flex-end",
             }}
           >
-            <text tw="text-[92px]" style={{ color: "rgba(216,178,94,0.18)" }}>
+            <span class="text-[92px]" style={{ color: "rgba(216,178,94,0.18)" }}>
               MONOLITH
-            </text>
-            <text
-              tw="text-[13px]"
+            </span>
+            <span
+              class="text-[13px]"
               style={{ ...MONO, color: "rgba(233,228,218,0.20)", letterSpacing: "6px" }}
             >
               THIRD PLATE
-            </text>
-          </container>
-        </container>
+            </span>
+          </div>
+        </div>
       </wallpaper>
 
       <I3Layout module={TAULER_I3}>

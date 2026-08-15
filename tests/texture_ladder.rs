@@ -130,8 +130,8 @@ fn rungs(plate: &str) -> Vec<Rung> {
         },
         Rung {
             id: "I",
-            what: "<image src=\"root-bg\"> (the C-7 path)",
-            style: json!({ "__image": "root-bg" }),
+            what: "<img src=\"tauler:root-bg\"> (the C-7 path)",
+            style: json!({ "__image": "tauler:root-bg" }),
         },
         // Not in the brief's ladder. The layout-file docs state that the
         // background-image form of root-bg costs ~19ms against ~5ms for the
@@ -140,8 +140,8 @@ fn rungs(plate: &str) -> Vec<Rung> {
         // it does not.
         Rung {
             id: "J",
-            what: "backgroundImage: url(root-bg) (the documented slow path)",
-            style: json!({ "backgroundImage": "url(root-bg)" }),
+            what: "backgroundImage: url(tauler:root-bg) (the slow path the docs name)",
+            style: json!({ "backgroundImage": "url(tauler:root-bg)" }),
         },
     ]
 }
@@ -153,17 +153,17 @@ fn tree(rung: &Rung) -> Value {
     let fill =
         json!({ "position": "absolute", "top": 0, "left": 0, "width": "100%", "height": "100%" });
     let child = match rung.style.get("__image").and_then(Value::as_str) {
-        Some(src) => json!({ "type": "image", "src": src, "style": fill }),
+        Some(src) => json!({ "type": "img", "src": src, "style": fill }),
         None => {
             let mut style = fill;
             for (k, v) in rung.style.as_object().expect("rung style is an object") {
                 style[k] = v.clone();
             }
-            json!({ "type": "container", "style": style })
+            json!({ "type": "div", "style": style })
         }
     };
     json!({
-        "type": "container",
+        "type": "div",
         "style": { "position": "relative", "width": "100%", "height": "100%" },
         "children": [child],
     })
