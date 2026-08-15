@@ -85,7 +85,7 @@ contents — a `<style>` body would otherwise render as visible text.
 Utilities neither tauler's theme layer nor the renderer recognizes pass straight through,
 so an unknown class is inert rather than an error. Theme tokens — `bg-card`,
 `text-muted-foreground`, `border-border`, `rounded-lg` — are substituted for the values in
-your `config.yaml` before rendering. See [Screen layout](/tauler/layout/) for where those
+your `config.yaml` before rendering. See [Screen layout](/layout/) for where those
 come from.
 
 **`style` takes an object, not a CSS string.** That is what lets a value be computed per
@@ -107,7 +107,7 @@ same order CSS uses.
 `on_click` goes on the element you want clickable, and only fires on elements that have a
 box of their own — a `<div>`, or anything that is a flex or grid item. A `<span>` inside a
 run of text has no box, so a handler there never fires; the first click logs a warning
-naming the element. See [Data and interaction](/tauler/data/#on_click).
+naming the element. See [Data and interaction](/data/#on_click).
 
 ## Coming from `container` / `text` / `tw`
 

@@ -6,10 +6,8 @@ import starlightThemeFlexoki from 'starlight-theme-flexoki'
 
 // https://astro.build/config
 export default defineConfig({
-  // Project page on GitHub Pages. Swap `site` and drop `base` if a custom
-  // domain is added later; images are referenced relatively so they follow.
-  site: 'https://kantord.github.io',
-  base: '/tauler',
+  // Served from a custom domain at the root, so no `base` prefix.
+  site: 'https://tauler.dev',
   integrations: [
     // Must come before starlight so it can transform ```mermaid code blocks
     // before Starlight's syntax highlighting. Renders client-side.
