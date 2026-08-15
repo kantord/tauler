@@ -11,10 +11,12 @@ use std::time::{Duration, Instant};
 
 use tauler::data::data_loop::{DataLoop, StreamItem};
 use tauler::layout::{PanelAnchor, SurfaceSpec};
-use tauler::presentation::{PresenterEvent, SurfaceCommand, SurfaceFrame};
+use tauler::presentation::{
+    PointerEvent, PointerPhase, PresenterEvent, SurfaceCommand, SurfaceFrame,
+};
 use winit::application::ApplicationHandler;
 use winit::dpi::{LogicalPosition, LogicalSize};
-use winit::event::{ElementState, WindowEvent};
+use winit::event::{MouseButton, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
 use winit::window::{Window, WindowId, WindowLevel};
 
@@ -330,20 +332,27 @@ impl ApplicationHandler for MacPresenter {
                     panel.cursor = (position.x, position.y);
                 }
             }
-            WindowEvent::MouseInput {
-                state: ElementState::Pressed,
-                ..
-            } => {
+            // No motion is reported while a button is held, so a control here is
+            // click-to-set. The release still has to be sent: a press that started a
+            // capture nothing ever ends would pin a stale handler (`docs/adr/0020`).
+            WindowEvent::MouseInput { state, button, .. } => {
                 if let Some(panel) = self.panels.get(&id) {
                     let size = panel.window.inner_size();
-                    let _ = self.event_tx.send(PresenterEvent::Click {
+                    let pressed = state.is_pressed();
+                    let _ = self.event_tx.send(PresenterEvent::Pointer(PointerEvent {
                         panel_id: id.clone(),
                         x: panel.cursor.0 as f32,
                         y: panel.cursor.1 as f32,
                         phys_width: size.width,
                         phys_height: size.height,
                         dpr: panel.dpr,
-                    });
+                        phase: if pressed {
+                            PointerPhase::Press
+                        } else {
+                            PointerPhase::Release
+                        },
+                        buttons: if pressed { dom_button(button) } else { 0 },
+                    }));
                 }
             }
             WindowEvent::ScaleFactorChanged { .. } => {
@@ -352,6 +361,19 @@ impl ApplicationHandler for MacPresenter {
             WindowEvent::CloseRequested => elwt.exit(),
             _ => {}
         }
+    }
+}
+
+/// Which button this is, as a DOM `buttons` bit: 1 primary, 2 secondary, 4 auxiliary.
+///
+/// The same numbering the X11 presenter produces, so a handler sees one vocabulary
+/// whatever it is running on (`docs/adr/0020`).
+fn dom_button(button: MouseButton) -> u16 {
+    match button {
+        MouseButton::Left => 1,
+        MouseButton::Right => 2,
+        MouseButton::Middle => 4,
+        _ => 0,
     }
 }
 
