@@ -64,20 +64,27 @@ fn at(bearing: f64) -> (f64, f64) {
     (CENTRE + r * rad.sin(), CENTRE - r * rad.cos())
 }
 
-/// Press at one bearing, drag to another, and report the angle the module is sent.
-fn turn(e: &JsxEvaluator, id: i64, from: f64, to: f64) -> f64 {
-    let (px, py) = at(from);
-    let (x, y) = at(to);
+/// The angle the module is sent when the pointer goes from one point to another, or
+/// `None` when the drag reports nothing at all.
+fn drag(e: &JsxEvaluator, id: i64, press: (f64, f64), to: (f64, f64)) -> Option<f64> {
     let p = serde_json::json!({
-        "x": x, "y": y, "press_x": px, "press_y": py,
+        "x": to.0, "y": to.1, "press_x": press.0, "press_y": press.1,
         "width": 40.0, "height": 40.0, "buttons": 1,
     });
-    e.invoke_handler(id, &p).expect("intents")[0]["event"]["deg"]
-        .as_f64()
-        .expect("an angle")
+    let intents = e.invoke_handler(id, &p)?;
+    Some(
+        intents[0]["event"]["deg"]
+            .as_f64()
+            .expect("an angle in the intent"),
+    )
 }
 
-/// The reason the press point is in the payload at all: grabbing the dial anywhere is a
+/// Press at one bearing, drag to another, and report the angle the module is sent.
+fn turn(e: &JsxEvaluator, id: i64, from: f64, to: f64) -> f64 {
+    drag(e, id, at(from), at(to)).expect("a turn on the rim reports something")
+}
+
+/// The reason the press point is in the payload at all: pressing the dial anywhere is a
 /// turn of nothing, so the needle never jumps to meet the pointer (ADR 0022).
 #[test]
 fn pressing_anywhere_on_the_dial_turns_it_by_nothing() {
@@ -92,7 +99,7 @@ fn pressing_anywhere_on_the_dial_turns_it_by_nothing() {
 }
 
 /// The displacement is what counts, not where either point is: the same sweep from a
-/// different grip gives the same turn.
+/// different place on the dial gives the same turn.
 #[test]
 fn the_angle_moves_by_the_sweep_not_by_where_the_pointer_is() {
     let (e, _node, id) = wired(0.0, 1.0);
@@ -130,13 +137,78 @@ fn sweeping_past_the_far_side_stays_continuous() {
     assert_eq!(turn(&e, id, 0.0, 359.0), 359.0, "not -1");
 }
 
-/// `step` rounds the reported angle, which is also what keeps a turn from sending a
-/// message per pixel — repeats are skipped downstream (ADR 0020).
+/// `step` rounds the turn, which is also what keeps it from sending a message per pixel
+/// — repeats are skipped downstream (ADR 0020).
 #[test]
-fn the_reported_angle_is_rounded_to_the_step() {
+fn the_turn_is_rounded_to_the_step() {
     let (e, _node, id) = wired(0.0, 15.0);
     assert_eq!(turn(&e, id, 0.0, 22.0), 15.0);
     assert_eq!(turn(&e, id, 0.0, 23.0), 30.0);
+}
+
+/// The step rounds how far you turned, not where you land. Rounding the angle instead
+/// would move a knob nobody has turned, whenever its value sat off the step's grid.
+#[test]
+fn a_press_that_has_not_moved_reports_the_angle_it_was_drawn_at() {
+    for (value, step) in [(3.0, 5.0), (37.0, 15.0), (0.5, 10.0)] {
+        let (e, _node, id) = wired(value, step);
+        assert_eq!(
+            turn(&e, id, 40.0, 40.0),
+            value,
+            "value {value} with step {step} is not on the step's grid"
+        );
+    }
+}
+
+/// Same reason, one lap further on: a step that does not divide a circle would shift its
+/// grid a little every time round if the angle were what got rounded.
+#[test]
+fn a_step_that_does_not_divide_a_circle_does_not_drift() {
+    let (e, _node, id) = wired(353.0, 7.0);
+    assert_eq!(turn(&e, id, 0.0, 10.0), 0.0, "353 + one 7° step wraps to 0");
+    let (e, _node, id) = wired(0.0, 7.0);
+    assert_eq!(
+        turn(&e, id, 0.0, 10.0),
+        7.0,
+        "and the next lap starts clean"
+    );
+}
+
+/// A bearing about the centre is undefined *at* the centre and swings through tens of
+/// degrees per pixel near it, so the hub reports nothing rather than leaping — which is
+/// the "point-at" behaviour this design exists to avoid (ADR 0022).
+#[test]
+fn a_press_in_the_hub_reports_nothing_however_far_it_is_dragged() {
+    let (e, _node, id) = wired(30.0, 1.0);
+    let centre = (CENTRE, CENTRE);
+    assert_eq!(
+        drag(&e, id, centre, (CENTRE + 1.0, CENTRE)),
+        None,
+        "1px off"
+    );
+    assert_eq!(drag(&e, id, centre, at(90.0)), None, "dragged to the rim");
+    assert_eq!(
+        drag(&e, id, (CENTRE + 0.5, CENTRE), (CENTRE, CENTRE + 0.5)),
+        None,
+        "a sub-pixel move either side of the centre is not a quarter turn"
+    );
+}
+
+/// The other end of the same reading: a drag that starts on the rim and wanders into the
+/// hub holds still until it comes back out.
+#[test]
+fn a_drag_that_wanders_into_the_hub_reports_nothing_until_it_leaves() {
+    let (e, _node, id) = wired(0.0, 1.0);
+    assert_eq!(
+        drag(&e, id, at(0.0), (CENTRE, CENTRE)),
+        None,
+        "into the hub"
+    );
+    assert_eq!(
+        drag(&e, id, at(0.0), at(90.0)),
+        Some(90.0),
+        "and reports again on the way out"
+    );
 }
 
 #[test]

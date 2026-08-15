@@ -810,12 +810,7 @@ impl App {
         if capture.panel_id != event.panel_id {
             return;
         }
-        let pointer = capture.rect.pointer(
-            (event.x, event.y),
-            capture.press,
-            capture.dpr,
-            event.buttons,
-        );
+        let pointer = capture.pointer((event.x, event.y), event.buttons);
         let Some(intents) = self
             .jsx_evaluator
             .as_ref()

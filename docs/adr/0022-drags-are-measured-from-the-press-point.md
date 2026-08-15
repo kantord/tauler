@@ -18,7 +18,7 @@ A handler is a pure function of one event ([0021](0021-a-handler-is-intents-or-a
 a pointer goes in, intents come out, and nothing is kept between calls. That is enough for
 a control that reads a *position* — a slider asks what value is under the pointer, and the
 pointer alone answers it. It is not enough for a control that reads a *displacement*, which
-has to know where the drag started.
+has to know its press point.
 
 On a web page you keep that yourself, in a variable a `pointerdown` handler wrote. tauler
 has nowhere to put it. Every tick rebuilds the tree and every closure in it
@@ -56,6 +56,13 @@ over one. `<Knob>` was written without touching anything below it.
 zero, so pressing it anywhere leaves it where it was. A control reading position, like
 `<Slider>`, keeps jumping to the press — which is what a slider should do, and why this is
 the handler's choice rather than the runtime's.
+
+**Two points make that possible, not automatic.** The guarantee holds only where the
+mapping is well behaved across them. A mapping with a singularity has to defend it itself:
+`<Knob>` reads a bearing about the dial's centre, which is undefined *at* the centre and
+wildly sensitive near it, so a press near the middle would leap — the displacement is zero
+but the reading is not. It answers by refusing to report from inside its own hub. Any
+mapper with a pole, an asymptote or a fold owes the same defence.
 
 **Displacement is bounded by half a circle, and it does not matter.** Two points give an
 angle in −180°..180°; there is no reading of them that says "one and a half turns". For

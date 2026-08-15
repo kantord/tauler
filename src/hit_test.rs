@@ -55,7 +55,7 @@ impl Rect {
     ///
     /// `at` and `press` are both in physical pixels — where the pointer is now, and
     /// where the button went down. They come back as `x`/`y` and `press_x`/`press_y`
-    /// in the same frame, so a handler can subtract one from the other and get a
+    /// in the same coordinates, so a handler can subtract one from the other and get a
     /// displacement without keeping anything between calls (`docs/adr/0022`). On the
     /// press itself the two are the same point.
     pub fn pointer(
@@ -259,7 +259,7 @@ mod tests {
     use crate::config::FontConfig;
     use crate::init_global_ctx;
 
-    /// A drag is measured from where it started, and a handler that remembers nothing
+    /// A drag is measured from its press point, and a handler that remembers nothing
     /// between calls cannot keep that itself (`docs/adr/0022`).
     #[test]
     fn the_pointer_carries_where_the_press_landed() {
@@ -272,7 +272,7 @@ mod tests {
         let p = rect.pointer((130.0, 30.0), (110.0, 20.0), 1.0, 1);
         assert_eq!(p["x"], 30.0);
         assert_eq!(p["y"], 20.0);
-        assert_eq!(p["press_x"], 10.0, "in the same frame as x");
+        assert_eq!(p["press_x"], 10.0, "in the same coordinates as x");
         assert_eq!(p["press_y"], 10.0);
     }
 

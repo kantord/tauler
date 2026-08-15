@@ -116,6 +116,12 @@ const JSX_GLOBALS_JS: &str = r#"
     // A handler may return one intent or several; downstream only ever sees an array.
     globalThis.__tauler_intents = (out) =>
         out == null ? null : (Array.isArray(out) ? out : [out]);
+    // Rounding to a step is how a control keeps a drag to one message per distinct
+    // value instead of one per pixel: a motion producing what was just sent is
+    // skipped. `step` of 0 rounds nothing and only clears the float noise — binary
+    // floating point turns 0.1 steps into 0.30000000000000004.
+    globalThis.__tauler_snap = (v, step) =>
+        Math.round((step > 0 ? Math.round(v / step) * step : v) * 1e6) / 1e6;
     globalThis.__tauler_invoke_handler = (id, pointer) => {
         const fn = id < 0 ? __tauler_captured : __tauler_handlers[id];
         if (typeof fn !== "function") return null;

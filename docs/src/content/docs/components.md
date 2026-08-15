@@ -227,14 +227,24 @@ renders — it is simply not interactive.
 There is no `min` and no `max`, because the knob measures how far you have turned
 it rather than where on a scale you are pointing. Pressing it anywhere is a turn of
 zero, so it never jumps to meet the pointer, and a fast flick and a slow drag that
-end in the same place give the same angle. The reported angle wraps into 0–360, so
-one press can reach any angle and turning past the top comes round rather than
-running off. What it cannot report is how many whole turns you made — there is no
-scale for them to mean anything on.
+end in the same place give the same angle.
 
-`step` defaults to 1 and rounds the reported angle, which is also what keeps a turn
-from sending a message per pixel: a motion that produces the intents just sent is
-skipped.
+The inner third is a hub that reports nothing. A bearing taken there is meaningless
+— undefined at the exact centre, and swinging through tens of degrees per pixel
+around it — so a press that lands in the hub, or a drag that wanders into it, is
+ignored rather than allowed to leap. Turn it by the rim.
+
+`value` and the reported angle have deliberately different domains. `value` is drawn
+as given, so `450` and `-90` point where they say. What `on_change` reports is always
+wrapped into 0–360, so turning past the top comes round rather than running off and a
+module's stored number cannot drift out to thousands. What it cannot report is how
+many whole turns you made — there is no scale for them to mean anything on.
+
+`step` defaults to 1 and rounds the *turn*, not the angle it lands on. Rounding the
+angle would move a press that has not travelled at all, and would shift the grid a
+little further every lap for a step that does not divide a circle. Rounding is also
+what keeps a turn from sending a message per pixel: a motion that produces the
+intents just sent is skipped.
 
 ### Usage
 

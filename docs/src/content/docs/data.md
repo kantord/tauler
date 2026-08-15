@@ -319,12 +319,12 @@ The handler receives the pointer's position **relative to the element**, in CSS 
 | field | meaning |
 |---|---|
 | `p.x`, `p.y` | offset from the element's top-left. **Negative** above or left of it, and past `width`/`height` beyond it — clamp if you want clamping |
-| `p.press_x`, `p.press_y` | where the button went down, in the same frame. Subtract to get how far the drag has come; on the press itself it equals `p.x`, `p.y` |
+| `p.press_x`, `p.press_y` | where the button went down, in the same coordinates. Subtract to get how far the drag has come; on the press itself it equals `p.x`, `p.y` |
 | `p.width`, `p.height` | the element's own size |
 | `p.buttons` | bitmask of held buttons, `1` for primary |
 
-There is deliberately no speed and no per-event delta. Both would make the same gesture land
-somewhere different depending on how many movements X11 delivered; two points do not.
+There is no speed and no per-event delta — those two points are the whole story, so the same
+gesture always gives the same result however fast you made it.
 
 Nothing is dispatched when a movement produces the intents that were just sent, so a drag
 costs one message per distinct value, not one per pixel. Giving a control a `step` is what
