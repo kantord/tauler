@@ -1,0 +1,45 @@
+#!/bin/sh
+# Static terminal content: ASCII and box-drawing only, no Nerd Font glyphs.
+# urxvt resolves its own fallback list and a missing glyph there is tofu in the
+# largest element of the frame.
+set -eu
+
+GOLD=179
+BONE=253
+DIM=102
+OXIDE=131
+
+c() { printf '\033[38;5;%sm%s\033[0m' "$1" "$2"; }
+rule() { printf '  %s\n' "$(c $DIM '────────────────────────────────────────')"; }
+
+case "$1" in
+    1)
+        printf '\n'
+        printf '  %s\n' "$(c $GOLD 'MONOLITH III')"
+        rule
+        printf '  %s  %s\n' "$(c $DIM 'plate  ')" "$(c $BONE 'ruled · halftone · guilloche · emboss')"
+        printf '  %s  %s\n' "$(c $DIM 'folios ')" "$(c $BONE 'I II III IV — roman, serif')"
+        printf '  %s  %s\n' "$(c $DIM 'meter  ')" "$(c $BONE 'moire, two fields at 87/93 deg')"
+        printf '  %s  %s\n' "$(c $DIM 'icons  ')" "$(c $OXIDE 'none')"
+        rule
+        printf '  %s\n' "$(c $DIM 'every texture above is one css declaration')"
+        printf '\n'
+        ;;
+    2)
+        printf '\n'
+        printf '  %s\n' "$(c $GOLD 'PLATE INDEX')"
+        rule
+        printf '  %s %s %s\n' "$(c $GOLD 'I  ')" "$(c $BONE 'ruled     ')" "$(c $DIM 'repeating-linear-gradient')"
+        printf '  %s %s %s\n' "$(c $GOLD 'II ')" "$(c $BONE 'halftone  ')" "$(c $DIM 'radial tile + background-size')"
+        printf '  %s %s %s\n' "$(c $GOLD 'III')" "$(c $BONE 'guilloche ')" "$(c $DIM 'repeating-radial-gradient')"
+        printf '  %s %s %s\n' "$(c $GOLD 'IV ')" "$(c $BONE 'emboss    ')" "$(c $DIM 'box-shadow inset x2')"
+        rule
+        printf '  %s\n' "$(c $DIM 'no pre-rendered png anywhere in this rice')"
+        printf '\n'
+        ;;
+    *)
+        printf '\n  %s\n\n' "$(c $DIM 'monolith')"
+        ;;
+esac
+
+exec sleep infinity

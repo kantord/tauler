@@ -1,0 +1,57 @@
+# Signal — maritime code.
+#
+# navy #10182C · ground #1A2038 · bone #E9E7DC · oxide #B04A3A ·
+# signal #DFB22E · sea #3A74B0
+#
+# The flag colours are not theme tokens on purpose. A flag's two colours are
+# picked by a hash at render time, so they have to be values the layout file can
+# index — see INK in layout.jsx. The tokens here dress the bar around them.
+colors:
+  light: {}
+  dark:
+    background: "#10182C"
+    foreground: "#E9E7DC"
+
+    card: "#1A2038e6"
+    card-foreground: "#E9E7DC"
+    popover: "#1A2038"
+    popover-foreground: "#E9E7DC"
+
+    primary: "#DFB22E"
+    primary-foreground: "#10182C"
+    secondary: "#1A2038"
+    secondary-foreground: "#E9E7DC"
+
+    muted: "#1A2038"
+    muted-foreground: "#7F8AA6"
+    accent: "#3A74B0"
+    accent-foreground: "#E9E7DC"
+    destructive: "#B04A3A"
+
+    border: "#E9E7DC26"
+    input: "#E9E7DC26"
+    ring: "#DFB22E"
+
+    chart-1: "#DFB22E"
+    chart-2: "#3A74B0"
+    chart-3: "#B04A3A"
+    chart-4: "#E9E7DC"
+    chart-5: "#7F8AA6"
+
+    sidebar: "#1A2038"
+    sidebar-foreground: "#E9E7DC"
+    sidebar-primary: "#DFB22E"
+    sidebar-primary-foreground: "#10182C"
+    sidebar-accent: "#1A2038"
+    sidebar-accent-foreground: "#E9E7DC"
+    sidebar-border: "#E9E7DC26"
+    sidebar-ring: "#DFB22E"
+
+radius:
+  sm: "2px"
+  md: "3px"
+  lg: "4px"
+  xl: "5px"
+  2xl: "6px"
+  3xl: "8px"
+  4xl: "10px"

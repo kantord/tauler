@@ -1,0 +1,105 @@
+#!/bin/sh
+# Start one urxvt on the focused workspace and prove it got the wallpaper.
+#
+#   usage: e2e-urxvt <title> <command> [args...]
+#
+# Styling comes from ~/.Xresources, which the rice owns. This script owns one
+# thing the rice cannot: making sure the terminal is actually
+# pseudo-transparent.
+#
+# ─── Why this is not just `urxvt &` ────────────────────────────────────────
+#
+# rxvt-unicode 9.30 implements `URxvt.transparent` in a perl extension, and
+# that extension intermittently fails to read the root pixmap when several
+# instances start close together:
+#
+#   urxvt: Can't call method "clone" on an undefined value
+#          at /usr/lib/x86_64-linux-gnu/urxvt/perl/background line 781
+#
+# Measured: four terminals launched ~100ms apart produced two failures; six
+# launched ~400ms apart produced none. It is spacing, not wallpaper timing —
+# the failures happen just as readily long after `_XROOTPMAP_ID` has settled,
+# and the first terminal launched is as often fine as not.
+#
+# A terminal that fails this way does not look broken. It falls back to painting
+# its own opaque background, which is a perfectly ordinary-looking terminal —
+# so the desktop still photographs, and only a scenario that samples that
+# window's pixels notices. This is how it was found: Thermal asserts the heat
+# field is continuous across the gap between two windows, and CI failed with the
+# left sample reading #120F1C, urxvt's own background colour, where the field
+# should have been.
+#
+# So: launch, wait for it to map, read its stderr, and if the extension failed,
+# kill it and start again. Retrying is the whole point — a sleep long enough to
+# make it unlikely is still a race, and the failure is silent.
+set -eu
+
+[ "$#" -ge 2 ] || { echo "e2e-urxvt: usage: e2e-urxvt <title> <command> [args...]" >&2; exit 2; }
+
+title="$1"
+shift
+
+ATTEMPTS=5
+
+mapped() {
+    # Ask i3, not the X server: a managed client is reparented into an i3 frame,
+    # so `xwininfo -root -children` lists the frame's title and never the
+    # client's.
+    i3-msg -t get_tree 2>/dev/null | grep -q "\"$title\""
+}
+
+attempt=1
+while [ "$attempt" -le "$ATTEMPTS" ]; do
+    err="$(mktemp)"
+
+    # C.UTF-8 is built into glibc, so it needs no locale generation — without it
+    # urxvt decodes box-drawing characters as Latin-1 and draws three mojibake
+    # glyphs for every one of them.
+    LC_ALL=C.UTF-8 urxvt -title "$title" -e "$@" 2>"$err" &
+
+    i=0
+    while [ "$i" -lt 100 ]; do
+        mapped && break
+        i=$((i + 1))
+        sleep 0.1
+    done
+
+    if ! mapped; then
+        echo "e2e-urxvt: $title never mapped (attempt $attempt)" >&2
+        rm -f "$err"
+        attempt=$((attempt + 1))
+        continue
+    fi
+
+    # The extension reports its failure around map time, not always before it,
+    # so give it a moment to show up rather than reading the file once.
+    i=0
+    while [ "$i" -lt 8 ]; do
+        grep -q "background" "$err" 2>/dev/null && break
+        i=$((i + 1))
+        sleep 0.05
+    done
+
+    if ! grep -q "background" "$err" 2>/dev/null; then
+        rm -f "$err"
+        exit 0
+    fi
+
+    echo "e2e-urxvt: $title lost its root pixmap, restarting (attempt $attempt)" >&2
+    rm -f "$err"
+    i3-msg "[title=\"$title\"] kill" >/dev/null 2>&1 || true
+
+    # Wait for it to actually go, or the next attempt's `mapped` check matches
+    # the corpse and returns immediately.
+    i=0
+    while [ "$i" -lt 50 ]; do
+        mapped || break
+        i=$((i + 1))
+        sleep 0.1
+    done
+
+    attempt=$((attempt + 1))
+done
+
+echo "e2e-urxvt: $title never got the root pixmap in $ATTEMPTS attempts" >&2
+exit 1

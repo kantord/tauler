@@ -1,0 +1,8 @@
+#!/bin/sh
+# Frozen numbers for the rail. Structure is real (workspaces come from the
+# actual i3 via tauler-i3); cosmetics are not, so two runs photograph the same.
+set -eu
+
+printf '{"load":0.42,"hh":"09","mm":"41"}\n'
+
+exec sleep infinity

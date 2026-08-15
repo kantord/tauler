@@ -1,0 +1,13 @@
+#!/bin/sh
+# Flying signals and the last three struck, frozen.
+#
+# The flags themselves come from the real i3 through tauler-i3; these letters
+# are invented, so that two runs of the scenario photograph the same. Still goes
+# through the real subprocess, stdout-stream and JSON-parse path.
+#
+# B — a build is running. O — something was killed. P — a reboot is pending.
+set -eu
+
+printf '{"flying":["B","O"],"history":["P","B","O"],"time":"09:41","date":"14 AUG"}\n'
+
+exec sleep infinity

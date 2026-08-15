@@ -1,0 +1,103 @@
+#!/bin/sh
+# Populate the desktop for Thermal.
+#
+# Three windows on the photographed workspace, tiled, all pseudo-transparent.
+# Three rather than two on purpose: two windows lining up into one image could
+# be a coincidence of two similar gradients, three across two split axes could
+# not.
+#
+# The terminals are configured in ~/.Xresources, not here. `shading: 100` there
+# means "no shading": each one paints the root pixmap at full strength, so the
+# crop it shows is exactly the field's pixels and the seams across the 20px gaps
+# are as good as they will ever get. Text legibility is then entirely down to
+# the field being dark where the text sits, which is what the blob placement in
+# layout.jsx is for.
+set -eu
+
+client() {
+    workspace="$1"
+    pane="$2"
+    title="$3"
+
+    i3-msg "workspace $workspace" >/dev/null 2>&1
+
+    # e2e-urxvt owns starting the terminal and proving it actually got the
+    # wallpaper: rxvt-unicode drops it intermittently when several start close
+    # together, and one that dropped it looks like a perfectly normal terminal.
+    #
+    # Sequentially, and waited for: i3 places a window on whatever workspace is
+    # focused when it maps, so launching these concurrently would be a race.
+    e2e-urxvt "$title" "thermal-pane" "$pane"
+}
+
+populate() {
+    i=0
+    until xprop -root _XROOTPMAP_ID 2>/dev/null | grep -qv "not found"; do
+        i=$((i + 1))
+        [ "$i" -lt 300 ] || { echo "e2e: tauler never published _XROOTPMAP_ID" >&2; break; }
+        sleep 0.1
+    done
+
+    client 1 3 thermal-idle
+    client 2 1 field
+    client 2 2 seams
+
+    # The third column is kitty, not urxvt, and it is the whole point of the
+    # comparison: its two neighbours show crops of one shared field, while it
+    # carries a plate of its own that can be changed at runtime. Same screen,
+    # two completely different mechanisms for "a window with a background".
+    kitty_client 2 3 probe
+
+    i3-msg "workspace 2" >/dev/null 2>&1
+
+    # Three columns, not three rows. i3 picks a split orientation from the
+    # container's aspect ratio when a window maps, and on a 1844x1022 workspace
+    # it picks vertical — so the windows stack and there is no vertical seam to
+    # look across. Setting the layout after they exist re-flows all three.
+    i3-msg "layout splith" >/dev/null 2>&1
+
+    # Focus the leftmost, so the callout lands on a known rect rather than on
+    # whichever client mapped last.
+    i3-msg "[title=\"field\"] focus" >/dev/null 2>&1
+}
+
+# kitty rather than urxvt, for the one window whose background has to change.
+#
+# It reads ~/.config/kitty/kitty.conf for its font, its palette, its initial
+# plate and — load-bearing — `allow_remote_control` and `listen_on`, without
+# which `thermal-heat` has nothing to talk to.
+kitty_client() {
+    workspace="$1"
+    pane="$2"
+    title="$3"
+
+    i3-msg "workspace $workspace" >/dev/null 2>&1
+
+    LC_ALL=C.UTF-8 kitty --title "$title" thermal-pane "$pane" &
+
+    i=0
+    while [ "$i" -lt 200 ]; do
+        if i3-msg -t get_tree 2>/dev/null | grep -q "\"$title\""; then
+            heat
+            return 0
+        fi
+        i=$((i + 1))
+        sleep 0.1
+    done
+    echo "e2e: kitty client $title never mapped" >&2
+    return 1
+}
+
+# Drive kitty's background over remote control, and record how long it took.
+#
+# Called from kitty_client the moment the window maps, and deliberately not at
+# the end of populate: the harness waits for the client count before it
+# photographs anything, so anything done after the last window maps is in a race
+# with the shutter. Level 3 is "hot" — the plate kitty started with is level 0,
+# so the change is visible and a swap that silently did nothing cannot look like
+# a success.
+heat() {
+    thermal-heat 3 || echo "e2e: kitty background swap failed" >&2
+}
+
+populate &

@@ -1,0 +1,35 @@
+#!/bin/sh
+# Drive the hoist so the reseed can be timed.
+#
+# The band over each workspace is seeded from that workspace's window titles, so
+# opening and closing a window on the focused workspace is the event the design
+# is built around — and round one could only assert that the seeding was
+# deterministic, never that it reacted.
+#
+# Plain urxvt here, not e2e-urxvt: the launcher's retry can kill and relaunch a
+# terminal, which would put a second window event in the middle of the
+# measurement. This probe does not care whether it got the wallpaper; it only
+# has to appear once, at a moment nothing else is happening.
+set -eu
+
+OUT="/out/${SCENARIO:-signal}"
+mkdir -p "$OUT"
+: > "$OUT/events.tsv"
+
+ms()  { echo $(( $(date +%s%N) / 1000000 )); }
+log() { printf '%s\t%s\n' "$(ms)" "$1" >> "$OUT/events.tsv"; }
+
+# Let the recorder settle on a still desktop before anything moves, so frame 0
+# is a clean baseline for every region.
+log "baseline"
+sleep 1.5
+
+log "window::new — spawn motion-probe on the focused workspace"
+LC_ALL=C.UTF-8 urxvt -title motion-probe -e sleep 120 &
+sleep 3
+
+log "window::close — kill it again"
+i3-msg '[title="motion-probe"] kill' >/dev/null 2>&1 || true
+sleep 2.5
+
+log "done"

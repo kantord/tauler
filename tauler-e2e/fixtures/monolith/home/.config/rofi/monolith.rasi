@@ -1,0 +1,115 @@
+/* Monolith III — the launcher, as far as rofi can take it.
+ *
+ * tauler already draws a launcher as a panel (see layout.jsx). This file exists
+ * so the two can be photographed side by side. tauler's sits in the middle of
+ * the screen; rofi's sits bottom-left.
+ *
+ * The brief's open question 03 is whether .rasi can take a per-element
+ * background image, and whether it scales or tiles. rofi 1.7 does have
+ * `background-image`, and it takes `url(path, scaling)` — but there is no
+ * `repeating-linear-gradient` and no `background-size`, so a rule field cannot
+ * be written; it has to be handed over as a picture. `plate.png` beside this
+ * file is that picture, and generating it is exactly the step tauler removed.
+ *
+ * Alpha is written as 8-digit hex here, not as `@gold / 35%`: rofi 1.7.3
+ * rejects the percentage form outright, and a rejected theme is not a fallback
+ * — rofi replaces the launcher with a white error box listing the parse error.
+ *
+ * `both` scales the image to the element on both axes. That is the honest
+ * answer to "scale or tile": it scales, and a 6px rule field scaled to an
+ * arbitrary element height stops being a 6px rule field.
+ */
+
+* {
+    ink:    #221F2B;
+    plate:  #2B2836;
+    gold:   #D8B25E;
+    bone:   #E9E4DA;
+    dim:    #6C6478;
+
+    background-color: transparent;
+    text-color:       @bone;
+    font:             "JetBrains Mono 11";
+}
+
+window {
+    /* Bottom-left, clear of tauler's launcher in the middle of the screen. */
+    location:   south west;
+    anchor:     south west;
+    x-offset:   80px;
+    y-offset:   -60px;
+
+    width:      560px;
+    border:     1px;
+    border-color: @gold;
+    border-radius: 0;
+    background-color: @ink;
+    padding:    0;
+}
+
+mainbox {
+    children: [ inputbar, listview, message ];
+    padding:  0;
+    spacing:  0;
+}
+
+inputbar {
+    background-color: @plate;
+    padding:  14px 18px;
+    spacing:  12px;
+    children: [ prompt, entry ];
+    border:   0 0 1px 0;
+    border-color: #D8B25E59;
+}
+
+prompt {
+    text-color: @gold;
+    font:       "JetBrains Mono 10";
+}
+
+entry {
+    placeholder: "";
+    text-color:  @bone;
+}
+
+listview {
+    lines:   4;
+    padding: 6px 0;
+    spacing: 0;
+    scrollbar: false;
+
+    /* The ruled plate, as a picture. See the header. */
+    background-image: url("/root/.config/rofi/plate.png", both);
+}
+
+element {
+    padding: 8px 18px;
+    spacing: 14px;
+    children: [ element-text ];
+}
+
+element-text {
+    text-color: @dim;
+    background-color: transparent;
+}
+
+element selected {
+    background-color: #D8B25E29;
+}
+
+element selected element-text {
+    text-color: @bone;
+}
+
+message {
+    background-color: #1B1924;
+    padding: 7px 18px;
+    border:  1px 0 0 0;
+    border-color: #D8B25E38;
+}
+
+textbox {
+    text-color: @dim;
+    font:       "JetBrains Mono 9";
+    background-color: transparent;
+}

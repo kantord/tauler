@@ -1,0 +1,15 @@
+! Thermal — terminal side of the rice.
+!
+! shading 100 means "no shading": the terminal paints the root pixmap at full
+! strength, so what it shows is exactly the heat field's pixels and the seams
+! across i3's gaps are as good as they get. Legibility is then entirely down to
+! the field being dark where the text sits, which is what the blob placement in
+! layout.jsx is for.
+
+URxvt.font:           xft:JetBrains Mono:pixelsize=14,xft:Symbols Nerd Font Mono:pixelsize=14
+URxvt.foreground:     #F1E7E2
+URxvt.background:     #120F1C
+URxvt.internalBorder: 18
+URxvt.scrollBar:      false
+URxvt.transparent:    true
+URxvt.shading:        100

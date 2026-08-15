@@ -1,0 +1,9 @@
+# An instrument readout is monospace throughout: figures that change must not
+# change width. `fonts.primary` fills the sans-serif slot, and everything in
+# this layout inherits it rather than asking for `monospace` node by node.
+theme:
+  mode: dark
+  file: ~/.config/tauler/theme.yaml
+
+fonts:
+  primary: JetBrains Mono

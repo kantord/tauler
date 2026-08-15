@@ -1,0 +1,12 @@
+#!/bin/sh
+# The IR scene's own numbers: frozen.
+#
+# A real thermal readout would move every poll and make every pull request's
+# screenshot differ in six digits. Structure is real everywhere else — the
+# subject, the workspace and the callout's geometry all come from the live
+# desktop.
+set -eu
+
+printf '{"min":"21.4 C","max":"78.9 C","emissivity":"0.95","time":"09:41","stops":["78.9","64.2","49.6","35.0","21.4"]}\n'
+
+exec sleep infinity

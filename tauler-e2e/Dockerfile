@@ -32,6 +32,23 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
 
 FROM debian:bookworm-slim@sha256:abd67ffcfa541b485a3dff59865ab629aa048a6c613e639d36e7456b0b229241
 
+# dunst, rofi and kitty are here so that a rice can ship a real
+# `~/.config/dunst/dunstrc`, a real `.rasi` and a real `kitty.conf`, and so that
+# what each of them can and cannot paint is answered from evidence rather than
+# from its documentation. Nothing outside a fixture's own `startup` runs them.
+#
+# xdotool and ffmpeg are the motion half of the harness. A settled screenshot is
+# structurally incapable of answering anything about latency or flicker — it is
+# defined as the frame after the screen stopped changing — so the questions round
+# one could not touch need a desktop that moves and a camera pointed at it.
+# ffmpeg writes PNG frames rather than a video: no encode, no yuv420p colour
+# conversion, and the analysis compares exact pixels.
+#
+# kitty needs OpenGL, hence `libgl1-mesa-dri`: under Xvfb that resolves to
+# llvmpipe. It was measured before being added — kitty maps in ~310ms on
+# llvmpipe, which is well inside the harness's stability budget. It is the only
+# terminal here that can be told to change its own background at runtime, which
+# is the whole reason it is worth ~200MB of image.
 RUN apt-get update && apt-get install -y --no-install-recommends \
         i3-wm \
         xvfb \
@@ -39,7 +56,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         x11-xserver-utils \
         xterm \
         rxvt-unicode \
+        kitty \
+        libgl1-mesa-dri \
+        dunst \
+        rofi \
         scrot \
+        xdotool \
+        ffmpeg \
         fontconfig \
         fonts-jetbrains-mono \
         libwayland-client0 libxkbcommon0 libfontconfig1 libxcb1 \
@@ -61,7 +84,10 @@ RUN fc-cache -f
 COPY tauler-e2e/docker/ /usr/local/share/e2e/
 RUN chmod +x /usr/local/share/e2e/bin/*
 
-ENV PATH="/usr/local/share/e2e/bin:${PATH}" \
+# `~/.local/bin` is on PATH because a rice fixture installs its own scripts
+# there, the way a real dotfiles repo does — a `startup` then says
+# `monolith-pane 1` rather than naming a path under /fixtures.
+ENV PATH="/usr/local/share/e2e/bin:/root/.local/bin:${PATH}" \
     HOME=/root \
     DISPLAY=:99 \
     SCREEN=1920x1080x24 \

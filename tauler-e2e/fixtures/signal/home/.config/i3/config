@@ -1,0 +1,21 @@
+# i3 config file (v4)
+#
+# The v4 marker is load-bearing — see the shared config for why.
+#
+# No per-side outer gap here: tauler-e2e reads i3's `gaps` field as an absolute
+# and it is only absolute while the global default is zero (docs/adr/0015).
+# `smart_borders` is an i3-gaps directive that native i3 4.22 rejects outright,
+# which raises i3-nagbar over the top of the screenshot — see monolith/i3.config.
+
+font pango:JetBrains Mono 10
+
+gaps inner 10
+
+default_border pixel 2
+new_window pixel 2
+
+# border, background, text, indicator, child border.
+client.focused          #DFB22E #1A2038 #E9E7DC #DFB22E #DFB22E
+client.unfocused        #2A3350 #1A2038 #7F8AA6 #2A3350 #2A3350
+client.focused_inactive #2A3350 #1A2038 #7F8AA6 #2A3350 #2A3350
+client.urgent           #B04A3A #1A2038 #E9E7DC #B04A3A #B04A3A

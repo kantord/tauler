@@ -1,0 +1,30 @@
+# i3 config file (v4)
+#
+# The v4 marker is load-bearing — see the shared config for why.
+#
+# Do not set a per-side outer gap here: tauler-e2e reads i3's `gaps` field as an
+# absolute and it is only absolute while the global default is zero. See
+# docs/adr/0015. `gaps inner` is a different field and is safe.
+
+font pango:JetBrains Mono 10
+
+# 14, from the design brief. One spacing unit for the whole screen.
+gaps inner 14
+
+# 1px, always shown.
+#
+# The brief writes `smart_borders off` here. i3 4.22 — the native-gaps release
+# the brief itself names as the target — does not have that directive; it came
+# from the i3-gaps fork and was not merged with the gaps code. i3 rejects the
+# whole line, raises i3-nagbar, and the nagbar eats 34px off the top of the
+# screen for the rest of the session. Nothing in this suite fails when that
+# happens: the gap contract, the panel geometry and the painted-pixel checks all
+# still pass, and the only evidence is a red strip in the screenshot.
+default_border pixel 1
+new_window pixel 1
+
+# border, background, text, indicator, child border.
+client.focused          #D8B25E #2B2836 #E9E4DA #D8B25E #D8B25E
+client.unfocused        #6C6478 #2B2836 #6C6478 #6C6478 #3A3547
+client.focused_inactive #6C6478 #2B2836 #6C6478 #6C6478 #3A3547
+client.urgent           #B4674B #2B2836 #E9E4DA #B4674B #B4674B

@@ -95,11 +95,30 @@ a Panel; it *produces* one. Note the casing: lowercase `<panel>` is the surface,
 `<Panel>` is the declaration.
 _Avoid_: panel (unqualified — it is the collision this term exists to prevent)
 
+### Scenarios
+
 **Scenario**:
-One layout file plus the reservation it is supposed to produce, run on a desktop of its
-own. The expected numbers are part of the scenario, written by hand — a scenario that
-derives them is not checking anything.
-_Avoid_: test case, fixture (a fixture is only the layout file half), e2e test
+One fixture plus the reservation it is supposed to produce, run on a desktop of its own.
+The expected numbers are part of the scenario, written by hand — a scenario that derives
+them is not checking anything.
+_Avoid_: test case, e2e test
+
+**Fixture**:
+Everything a scenario installs onto its desktop before tauler starts. How much that is
+depends on the kind of scenario: a contract scenario's fixture is one layout file, a
+rice's is a home directory.
+_Avoid_: test data, config directory
+
+**Contract scenario**:
+A scenario that exists only to check the reservation contract. Its fixture is as small as
+a working desktop can be, and that minimality is itself the claim.
+_Avoid_: basic scenario, simple scenario, smoke test
+
+**Rice**:
+A scenario whose point is how it looks. Its fixture carries the configuration of every
+program on the desktop rather than tauler's alone, so what it demonstrates is a desktop
+and not a bar. Held to the same reservation contract as any other scenario.
+_Avoid_: demo, mockup, theme, example
 
 ### Components
 

@@ -322,15 +322,6 @@ pub(crate) struct App {
     presenter_thread: Option<thread::JoinHandle<()>>,
 }
 
-fn expand_tilde(path: &str) -> std::path::PathBuf {
-    if let Some(rest) = path.strip_prefix("~/") {
-        let home = std::env::var("HOME").unwrap_or_default();
-        std::path::PathBuf::from(home).join(rest)
-    } else {
-        std::path::PathBuf::from(path)
-    }
-}
-
 fn parse_config(config_path: &std::path::Path) -> TaulerConfig {
     std::fs::read_to_string(config_path)
         .ok()
@@ -342,7 +333,11 @@ fn load_theme_from_config(
     config_path: &std::path::Path,
 ) -> (Theme, ThemeMode, Option<std::path::PathBuf>) {
     let config = parse_config(config_path);
-    let theme_file_path = config.theme.file.as_deref().map(expand_tilde);
+    let theme_file_path = config
+        .theme
+        .file
+        .as_deref()
+        .map(tauler::config::expand_tilde);
     let theme = match theme_file_path.as_ref() {
         None => Theme::default_theme(),
         Some(p) => match std::fs::read_to_string(p) {

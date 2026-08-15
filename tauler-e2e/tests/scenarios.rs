@@ -19,6 +19,15 @@ use tauler_e2e::{pixel_at, wait_for, Desktop, Rect, Screen};
 struct Expected {
     gaps: Gaps,
     panels: Vec<Rect>,
+    /// How many managed clients belong on the focused workspace.
+    ///
+    /// `run` waits for exactly this many before photographing anything. A
+    /// fixture's clients start in the background — they have to, since they
+    /// wait on tauler and tauler starts after them — so "the panels are up"
+    /// does not mean "the desktop is populated". Without this, `capture_stable`
+    /// can settle on two consecutive identical frames of a half-built desktop
+    /// and every assertion afterwards is made against the wrong picture.
+    clients: usize,
 }
 
 fn rect(x: i32, y: i32, width: u32, height: u32) -> Rect {
@@ -43,6 +52,7 @@ fn sidebar_reserves_the_left_edge() -> Result<()> {
                 bottom: 0,
             },
             panels: vec![rect(0, 0, 272, 1080)],
+            clients: 2,
         },
     )?;
     Ok(())
@@ -67,6 +77,7 @@ fn three_edge_stack_reserves_each_edge_in_order() -> Result<()> {
                 rect(272, 0, 1648, 26),
                 rect(272, 1054, 1648, 26),
             ],
+            clients: 2,
         },
     )?;
     Ok(())
@@ -79,7 +90,7 @@ fn three_edge_stack_reserves_each_edge_in_order() -> Result<()> {
 #[test]
 #[ignore = "needs Docker and `just e2e-image`"]
 fn showcase_floats_a_bar_over_its_own_wallpaper() -> Result<()> {
-    let (desktop, screenshot) = run(
+    let (_desktop, screenshot) = run(
         "showcase",
         Expected {
             gaps: Gaps {
@@ -89,21 +100,12 @@ fn showcase_floats_a_bar_over_its_own_wallpaper() -> Result<()> {
                 bottom: 0,
             },
             panels: vec![rect(0, 0, 1920, 58)],
+            // These two start late by design: they wait for tauler to publish
+            // _XROOTPMAP_ID before launching, so that they have a wallpaper to
+            // read. `run` waits for them.
+            clients: 2,
         },
     )?;
-
-    // The clients start late by design: they wait for tauler to publish
-    // _XROOTPMAP_ID before launching, so that they have a wallpaper to read.
-    // Without waiting here, `assert_clients_respect` inside `run` can assert
-    // over an empty list and pass without checking anything.
-    wait_for("both clients on the focused workspace", || {
-        let count = i3::focused_workspace_client_rects(&desktop)?.len();
-        if count == 2 {
-            Ok(())
-        } else {
-            anyhow::bail!("{count} managed windows, expected 2")
-        }
-    })?;
 
     // The panel is 58px tall and its content is inset by 12, so y=6 is inside
     // the margin, where the only thing that can be showing is the root-bg crop.
@@ -133,6 +135,298 @@ fn showcase_floats_a_bar_over_its_own_wallpaper() -> Result<()> {
         chroma >= 6,
         "the bar's own pixel is neutral ({br},{bg},{bb}) — theme.file did not \
          load and the default greyscale palette is being used"
+    );
+
+    Ok(())
+}
+
+/// Monolith III: an engraved rail, plus a notification and a launcher that are
+/// ordinary free-floating panels.
+///
+/// The two floats are declared outside `<I3Layout>`, so they must appear at
+/// their stated geometry while reserving nothing — that is the claim worth
+/// checking, and `run` checks it by listing them as expected panels while the
+/// gaps stay at the rail's 60.
+#[test]
+#[ignore = "needs Docker and `just e2e-image`"]
+fn monolith_floats_a_launcher_and_a_slip_without_reserving_for_them() -> Result<()> {
+    let (_desktop, screenshot) = run(
+        "monolith",
+        Expected {
+            gaps: Gaps {
+                left: 60,
+                right: 0,
+                top: 0,
+                bottom: 0,
+            },
+            panels: vec![
+                rect(0, 0, 60, 1080),
+                rect(1480, 40, 400, 132),
+                rect(620, 300, 680, 360),
+            ],
+            // Workspace 2 holds the two terminals. The launcher, the slip, the
+            // real rofi and the real dunst notification are not managed by i3
+            // and are not counted here.
+            clients: 2,
+        },
+    )?;
+
+    // The rail is a ruled plate: a 1px gold rule every 6px over #1B1924. Two
+    // rows 3px apart inside the rail's empty lower margin must therefore differ.
+    // A rail that fell back to a flat fill — `repeating-linear-gradient`
+    // unparsed, or dropped — gives two equal samples and passes everything else.
+    let [ar, ag, ab, _] = pixel_at(&screenshot, 6, 900)?;
+    let [br, bg, bb, _] = pixel_at(&screenshot, 6, 903)?;
+    let spread = (ar as i32 - br as i32).abs()
+        + (ag as i32 - bg as i32).abs()
+        + (ab as i32 - bb as i32).abs();
+    assert!(
+        spread > 4,
+        "the rail is the same colour at y=900 and y=903 ({ar},{ag},{ab} vs \
+         {br},{bg},{bb}) — the ruled plate rendered as a flat fill"
+    );
+
+    Ok(())
+}
+
+/// Signal: one generative flag per workspace, seeded from that workspace's
+/// window names.
+///
+/// The claim worth checking is that the seed reaches the pixels — four
+/// workspaces with different contents must not fly four identical flags. A
+/// hash that collapsed (the `Math.imul` note in the fixture) renders a bar that
+/// looks deliberate and is telling you nothing.
+#[test]
+#[ignore = "needs Docker and `just e2e-image`"]
+fn signal_flies_a_different_flag_per_workspace() -> Result<()> {
+    let (_desktop, screenshot) = run(
+        "signal",
+        Expected {
+            gaps: Gaps {
+                left: 0,
+                right: 0,
+                top: 92,
+                bottom: 0,
+            },
+            panels: vec![rect(0, 0, 1920, 92)],
+            clients: 2,
+        },
+    )?;
+
+    // Flags are 96 wide with a 12px gap, starting at the panel's 18px inset,
+    // and 64 tall starting 6px down. These four points sit well inside the
+    // upper-left quadrant of each flag, away from every division boundary.
+    let mut swatches = Vec::new();
+    for i in 0..4u32 {
+        let x = 18 + i * (96 + 12) + 20;
+        let [r, g, b, _] = pixel_at(&screenshot, x, 22)?;
+        swatches.push([r, g, b]);
+    }
+
+    let distinct: std::collections::HashSet<[u8; 3]> = swatches.iter().copied().collect();
+    assert!(
+        distinct.len() >= 3,
+        "the four flags show only {} distinct colours at their hoist corner \
+         ({swatches:?}) — the seed is not reaching the pixels",
+        distinct.len()
+    );
+
+    Ok(())
+}
+
+/// Signal, moving: how long after a window opens does its band admit it?
+///
+/// This is the number a settled capture cannot produce, and the first one this
+/// suite has ever had. It is measured without aligning any clocks: the tiling
+/// area is the *trigger*, the band is the *readout*, and the answer is the
+/// frames between the first change in one and the first change in the other.
+/// That is also the number a person experiences — how long after the window
+/// appeared did the bar react — rather than how long after a key was pressed.
+///
+/// It prints rather than asserts a latency bound. A threshold here would be a
+/// number invented today and defended forever; the deliverable is the
+/// measurement, and the assertions below are only that the mechanism fired at
+/// all.
+#[test]
+#[ignore = "needs Docker and `just e2e-image`"]
+fn signal_reseeds_a_band_when_a_window_opens() -> Result<()> {
+    let (desktop, _) = run(
+        "signal",
+        Expected {
+            gaps: Gaps {
+                left: 0,
+                right: 0,
+                top: 92,
+                bottom: 0,
+            },
+            panels: vec![rect(0, 0, 1920, 92)],
+            clients: 2,
+        },
+    )?;
+
+    let motion = desktop.record_motion(11)?;
+
+    // Workspace 2's band. Flags are 96 wide with a 12px gap from an 18px inset,
+    // 64 tall starting 6px down, and workspace 2 is the second of them.
+    let readout = motion.series(rect(18 + 108, 6, 96, 64))?;
+    // A strip of the tiling area well below any text, where a retile is the
+    // only thing that changes anything.
+    let trigger = motion.series(rect(0, 780, 1920, 200))?;
+
+    // Threshold in mean absolute per-channel difference. Frames are exact PNGs
+    // with no codec between them, so an unchanged region differs by 0 — this is
+    // set well above nothing and well below any real repaint.
+    const CHANGED: f64 = 1.0;
+
+    let t_first = trigger
+        .first_change(0, CHANGED)
+        .ok_or_else(|| anyhow::anyhow!("the tiling area never changed — nothing was driven"))?;
+    let r_first = readout
+        .first_change(0, CHANGED)
+        .ok_or_else(|| anyhow::anyhow!("the band never changed — the hoist is not reactive"))?;
+
+    let lag = r_first.saturating_sub(t_first);
+    eprintln!(
+        "\n=== signal · event to repaint ===\n         frames captured      {}\n         window visible at    frame {t_first}\n         band reacted at      frame {r_first}\n         lag                  {lag} frames ({:.0}ms at 30fps)\n",
+        motion.frame_count(),
+        motion.ms(lag),
+    );
+    for (ms, label) in &motion.events {
+        eprintln!("  event {ms}  {label}");
+    }
+
+    // The map/unmap flash the brief asks about: across *one* reseed, is there
+    // any frame where the band is neither its old self nor its new one?
+    //
+    // The span has to stop while the probe window is still open. The script
+    // opens it and then closes it again, so the last frame of the recording is
+    // back in the *original* state — measuring to there would mark every frame
+    // of the open period as neither-old-nor-new, which is correct arithmetic
+    // and a useless answer. 45 frames is 1.5s after the window appeared, well
+    // inside the 3s it stays up.
+    let before = t_first.saturating_sub(1);
+    let settled = (t_first + 45).min(readout.last());
+    let flashes = readout.transitional(before, settled, CHANGED);
+    eprintln!(
+        "flash check · band across one reseed, frames {before}..{settled}\n\
+         frames matching neither old nor new: {} {:?}\n",
+        flashes.len(),
+        &flashes[..flashes.len().min(12)],
+    );
+
+    assert!(
+        r_first >= t_first,
+        "the band changed at frame {r_first}, before the window was visible at \
+         {t_first} — the regions are not measuring what they claim to"
+    );
+
+    Ok(())
+}
+
+/// Thermal: one heat field across the whole screen, cropped per window.
+///
+/// Two claims beyond the contract. The measurement callout is a panel whose
+/// position comes from a subprocess, so it must be mapped at the focused
+/// client's own origin — a panel that ignored the module's geometry would still
+/// be mapped, painted and green. And the field must be continuous: the pixels
+/// either side of an i3 gap must match the wallpaper showing *in* that gap,
+/// which is only true if the terminals are cropping one image rather than each
+/// painting its own.
+#[test]
+#[ignore = "needs Docker and `just e2e-image`"]
+fn thermal_crops_one_field_across_every_window() -> Result<()> {
+    let (desktop, screenshot) = run(
+        "thermal",
+        Expected {
+            gaps: Gaps {
+                left: 0,
+                right: 76,
+                top: 58,
+                bottom: 0,
+            },
+            panels: vec![rect(0, 0, 1920, 58), rect(1844, 58, 76, 1022)],
+            // Three, and the third is kitty. It is the slowest thing on the
+            // desktop to appear, and a capture taken before it arrives shows a
+            // two-column workspace in which every sample below lands somewhere
+            // else entirely.
+            clients: 3,
+        },
+    )?;
+
+    // The callout is the only 26px-tall window on the root. Its origin has to
+    // be some client's origin, and the module reports the *focused* one.
+    let callout = wait_for("the measurement callout to be mapped", || {
+        desktop
+            .root_windows()?
+            .into_iter()
+            .find(|r| r.height == 26)
+            .ok_or_else(|| anyhow::anyhow!("no 26px-tall window on the root"))
+    })?;
+    // Within the 2px border, and not exactly on it: `_NET_ACTIVE_WINDOW` names
+    // the *client* window and `xwininfo` reports where that sits, while i3
+    // reports the frame it was reparented into. The two differ by
+    // `default_border pixel 2` on every side. The module cannot correct for it
+    // without knowing the border width, which is in the i3 config and not in
+    // any property it reads.
+    let clients = i3::focused_workspace_client_rects(&desktop)?;
+    assert!(
+        clients
+            .iter()
+            .any(|c| c.x.abs_diff(callout.x) <= 2 && c.y.abs_diff(callout.y) <= 2),
+        "the callout is at {callout} but no client on the focused workspace \
+         starts within 2px of there — the panel ignored the geometry module. \
+         clients: {}",
+        clients
+            .iter()
+            .map(Rect::to_string)
+            .collect::<Vec<_>>()
+            .join(", ")
+    );
+
+    let step = |a: [u8; 4], b: [u8; 4]| {
+        (a[0] as i32 - b[0] as i32).abs()
+            + (a[1] as i32 - b[1] as i32).abs()
+            + (a[2] as i32 - b[2] as i32).abs()
+    };
+
+    // The three columns, measured off the capture rather than guessed at:
+    // borders sit at x=20..21 / 602..603, 624..625 / 1217..1218, and
+    // 1239..1240 / 1822..1823, so the first gap is x=604..623. These samples
+    // straddle it — inside the left window, in the gap, inside the right one —
+    // at a y with no text in either column.
+    //
+    // Straddling is the whole assertion. An earlier version of this test
+    // sampled 930/960/990, which are all *inside the middle window*: it
+    // compared three points of one continuous gradient with itself and would
+    // have passed against any wallpaper at all.
+    let inside_left = pixel_at(&screenshot, 595, 520)?;
+    let in_the_gap = pixel_at(&screenshot, 613, 520)?;
+    let inside_right = pixel_at(&screenshot, 632, 520)?;
+
+    let left_seam = step(inside_left, in_the_gap);
+    let right_seam = step(in_the_gap, inside_right);
+    assert!(
+        left_seam < 15 && right_seam < 15,
+        "the field jumps at the window edges (left seam {left_seam}, right \
+         seam {right_seam}, samples {inside_left:?} {in_the_gap:?} \
+         {inside_right:?}) — the terminals are painting their own backgrounds \
+         rather than cropping the wallpaper"
+    );
+
+    // The third column is kitty, and it is the control: it carries a plate of
+    // its own, pushed over remote control, so it must *not* match the field
+    // beside it. If this ever gets as close as the seam above, the
+    // set-background-image call silently did nothing and the whole per-window
+    // half of the scenario is decoration.
+    let gap_before_kitty = pixel_at(&screenshot, 1228, 520)?;
+    let inside_kitty = pixel_at(&screenshot, 1500, 520)?;
+    let kitty_step = step(gap_before_kitty, inside_kitty);
+    assert!(
+        kitty_step > 25,
+        "kitty's interior ({inside_kitty:?}) matches the field beside it \
+         ({gap_before_kitty:?}, step {kitty_step}) — `kitty @ \
+         set-background-image` did not take, and the window is showing the \
+         shared wallpaper like its neighbours"
     );
 
     Ok(())
@@ -175,7 +469,20 @@ fn run(scenario: &str, expected: Expected) -> Result<(Desktop, PathBuf)> {
         Ok(())
     })?;
 
-    i3::assert_clients_respect(gaps, screen, &i3::focused_workspace_client_rects(&desktop)?)?;
+    let clients = wait_for("every client to reach the focused workspace", || {
+        let clients = i3::focused_workspace_client_rects(&desktop)?;
+        if clients.len() == expected.clients {
+            Ok(clients)
+        } else {
+            anyhow::bail!(
+                "{} managed windows on the focused workspace, expected {}",
+                clients.len(),
+                expected.clients
+            )
+        }
+    })?;
+
+    i3::assert_clients_respect(gaps, screen, &clients)?;
 
     let screenshot = desktop.capture_stable()?;
 

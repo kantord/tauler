@@ -1,0 +1,43 @@
+# Monolith III — the galley slip, as far as dunst can take it.
+#
+# tauler already draws a galley slip as a panel (see layout.jsx). This file
+# exists so the two can be photographed side by side and the difference stated
+# from evidence rather than from dunst's manual. Both are on screen in the
+# scenario: tauler's at the top right, dunst's directly below it.
+#
+# What dunst gives you: a flat fill, a frame, a corner radius, a font, a size.
+# What it does not: any background image, so the perforated edge that makes the
+# slip look like paper has nowhere to live. The brief's fallbacks for that were
+# an icon PNG or a second always-on-top window drawn over dunst's own geometry.
+
+[global]
+    font = JetBrains Mono 10
+    markup = full
+    format = "<b>%s</b>\n%b"
+
+    origin = top-right
+    # 18 across, 190 down: clear of tauler's own slip, which is 132 tall at y=40.
+    offset = 18x190
+    width = 400
+    height = 132
+
+    padding = 16
+    horizontal_padding = 20
+    frame_width = 1
+    frame_color = "#1B1924"
+    separator_color = "#B9B2A4"
+
+    # Square, like every other corner in this rice.
+    corner_radius = 0
+
+    # No compositor, so this must be 0. Anything else is a no-op at best.
+    transparency = 0
+
+    icon_position = off
+
+[urgency_normal]
+    background = "#E9E4DA"
+    foreground = "#221F2B"
+    # Never expire: the screenshot is taken once the screen stops changing, and a
+    # notification that times out makes "stopped changing" a race.
+    timeout = 0

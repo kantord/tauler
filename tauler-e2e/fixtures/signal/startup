@@ -1,0 +1,52 @@
+#!/bin/sh
+# Populate the desktop for Signal.
+#
+# Four workspaces with deliberately different window sets, because the flags are
+# seeded from the window names: the point of the screenshot is four visibly
+# different flags, and identical workspaces would produce four flags that differ
+# only in the number under them.
+#
+# The terminals are configured in ~/.Xresources, not here — including the
+# pseudo-transparency that shows the navy ground through them. That depends on
+# tauler having published _XROOTPMAP_ID, and the entrypoint starts tauler *after*
+# this script — hence the backgrounded `populate` gated on the property.
+set -eu
+
+client() {
+    workspace="$1"
+    pane="$2"
+    title="$3"
+
+    i3-msg "workspace $workspace" >/dev/null 2>&1
+
+    # e2e-urxvt owns starting the terminal and proving it actually got the
+    # wallpaper: rxvt-unicode drops it intermittently when several start close
+    # together, and one that dropped it looks like a perfectly normal terminal.
+    #
+    # Sequentially, and waited for: i3 places a window on whatever workspace is
+    # focused when it maps. Concurrent launches make both the placement and the
+    # seed a race, and a racing seed means a flag that differs between runs.
+    e2e-urxvt "$title" "signal-pane" "$pane"
+}
+
+populate() {
+    i=0
+    until xprop -root _XROOTPMAP_ID 2>/dev/null | grep -qv "not found"; do
+        i=$((i + 1))
+        [ "$i" -lt 300 ] || { echo "e2e: tauler never published _XROOTPMAP_ID" >&2; break; }
+        sleep 0.1
+    done
+
+    client 1 3 alpha
+    client 3 3 charlie
+    client 3 3 charlie-two
+    client 4 3 delta
+    client 2 1 code
+    client 2 2 hoist
+
+    # Land on the workspace with two windows: it shows the inner gap, and it
+    # puts the flying flag second of four.
+    i3-msg "workspace 2" >/dev/null 2>&1
+}
+
+populate &

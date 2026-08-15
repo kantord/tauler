@@ -1,0 +1,54 @@
+#!/bin/sh
+# Where the focused window is, once a second.
+#
+# tauler-i3 publishes workspace names, focus flags and window *titles*, and
+# nothing at all about geometry — so the callout cannot be driven from it. This
+# reads the two things X itself will tell you:
+#
+#   _NET_ACTIVE_WINDOW on the root  → the focused client's id
+#   xwininfo -id <id>               → its absolute rect and its title
+#
+# xprop, not i3-msg: i3 reparents a managed client into a frame, so the tree
+# would have to be walked to find the leaf, and there is no JSON parser in this
+# image. Two properties and an awk are the whole of it.
+#
+# Emits one JSON line per poll and keeps stdout open, which is the module
+# contract. A poll that finds nothing focused reports a zero rect; the layout
+# renders no panel at all for that, rather than an empty one.
+set -eu
+
+emit_empty() { printf '{"x":0,"y":0,"w":0,"h":0,"label":""}\n'; }
+
+while :; do
+    id=$(xprop -root _NET_ACTIVE_WINDOW 2>/dev/null | sed -n 's/.*# *\(0x[0-9a-fA-F]*\).*/\1/p')
+
+    if [ -z "$id" ] || [ "$id" = "0x0" ]; then
+        emit_empty
+    else
+        info=$(xwininfo -id "$id" 2>/dev/null || true)
+        if [ -z "$info" ]; then
+            emit_empty
+        else
+            printf '%s\n' "$info" | awk '
+                /Absolute upper-left X/ { x = $NF }
+                /Absolute upper-left Y/ { y = $NF }
+                /^  Width:/             { w = $NF }
+                /^  Height:/            { h = $NF }
+                /Window id:/ {
+                    # `xwininfo: Window id: 0x2000005 "fetch"` — everything
+                    # between the first and last double quote is the title.
+                    if (match($0, /"/)) {
+                        t = substr($0, index($0, "\"") + 1)
+                        sub(/"[^"]*$/, "", t)
+                    }
+                }
+                END {
+                    if (w == "" || h == "") { exit 1 }
+                    printf "{\"x\":%d,\"y\":%d,\"w\":%d,\"h\":%d,\"label\":\"%d x %d  %s\"}\n", x, y, w, h, w, h, t
+                }
+            ' || emit_empty
+        fi
+    fi
+
+    sleep 1
+done
