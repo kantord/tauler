@@ -27,19 +27,56 @@ use std::sync::Mutex;
 use takumi::prelude::Viewport;
 use takumi_core::context::RenderContext as TakumiRenderContext;
 use takumi_core::geometry::transformed_rect_extents;
-use takumi_core::geometry::{NodeId, Point, Size};
+use takumi_core::geometry::{NodeId, Point};
 use takumi_core::layout::tree::{LayoutResults, LayoutTree, RenderNode};
 use takumi_core::scene::{build_stacking_contexts, NodePaint, PaintItemKind, StackingContextNode};
 use takumi_core::style::{Affine, ComputedStyle, SizingContext};
 
-use crate::layout::html::{build_tree, Handler, Handlers};
+use crate::layout::html::{build_tree, Binding, Bindings};
 
 /// Handlers already reported as unreachable, so the warning fires once rather than on
 /// every click for the lifetime of the process. Keyed by the node's own description,
 /// so an unreachable handler that moves in the tree is reported again.
 static WARNED: Mutex<Option<HashSet<String>>> = Mutex::new(None);
 
-/// Find the intents for a click at `(click_x, click_y)`, in physical pixels.
+/// Where an element is on screen, in physical pixels.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Rect {
+    pub x: f32,
+    pub y: f32,
+    pub width: f32,
+    pub height: f32,
+}
+
+impl Rect {
+    /// The pointer's position relative to this box, as a handler sees it: CSS pixels
+    /// from the top-left, unclamped, so it goes negative above or left and past
+    /// `width`/`height` beyond (`docs/adr/0020`).
+    pub fn pointer(&self, click_x: f32, click_y: f32, dpr: f32, buttons: u16) -> serde_json::Value {
+        let dpr = if dpr > 0.0 { dpr } else { 1.0 };
+        serde_json::json!({
+            "x": (click_x - self.x) / dpr,
+            "y": (click_y - self.y) / dpr,
+            "width": self.width / dpr,
+            "height": self.height / dpr,
+            "buttons": buttons,
+        })
+    }
+}
+
+/// What a pointer landed on.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Hit {
+    /// Fires on a press. An array of intents, or `{"$handler": n}`.
+    pub on_click: Option<serde_json::Value>,
+    /// Fires on a press and on every motion until release, and captures the pointer.
+    pub on_drag: Option<serde_json::Value>,
+    /// The element's box, kept so a drag can be measured against it after the tree
+    /// that produced it has been rebuilt (`docs/adr/0020`).
+    pub rect: Rect,
+}
+
+/// Find the handler for a pointer at `(click_x, click_y)`, in physical pixels.
 ///
 /// The topmost hit wins: the paint list runs bottom-to-top, so the last thing painted
 /// over a point is the first thing a click should reach.
@@ -50,7 +87,7 @@ pub fn hit_test(
     dpr: f32,
     click_x: f32,
     click_y: f32,
-) -> Option<serde_json::Value> {
+) -> Option<Hit> {
     let (node, handlers) = build_tree(layout)
         .map_err(|e| tracing::error!(error = %e, "layout parse error"))
         .ok()?;
@@ -127,10 +164,10 @@ fn collect_paints<'a>(
 fn topmost_hit(
     painted: &[&NodePaint],
     results: &LayoutResults,
-    handlers: &Handlers,
+    handlers: &Bindings,
     click_x: f32,
     click_y: f32,
-) -> (Option<serde_json::Value>, HashSet<Vec<usize>>) {
+) -> (Option<Hit>, HashSet<Vec<usize>>) {
     let mut reachable = HashSet::new();
     let mut hit = None;
 
@@ -148,29 +185,31 @@ fn topmost_hit(
         let Some(handler) = handlers.iter().find(|h| h.path == paint.path) else {
             continue;
         };
-        if contains(paint.transform, layout.size, click_x, click_y) {
-            // Overwrite rather than stop: the list runs bottom-to-top, so the last
-            // match is the one painted over all the others — which is the one a
-            // click lands on.
-            hit = Some(handler.on_click.clone());
+        // Axis-aligned against the *transformed* extents, so a rotated box is tested
+        // against its bounding rectangle rather than its true outline — generous at the
+        // corners, and the same approximation the paint bounds themselves use.
+        if let Some((left, top, right, bottom)) =
+            transformed_rect_extents(Point { x: 0.0, y: 0.0 }, layout.size, paint.transform)
+        {
+            if click_x >= left && click_x <= right && click_y >= top && click_y <= bottom {
+                // Overwrite rather than stop: the list runs bottom-to-top, so the last
+                // match is the one painted over all the others — which is the one a
+                // click lands on.
+                hit = Some(Hit {
+                    on_click: handler.on_click.clone(),
+                    on_drag: handler.on_drag.clone(),
+                    rect: Rect {
+                        x: left,
+                        y: top,
+                        width: right - left,
+                        height: bottom - top,
+                    },
+                });
+            }
         }
     }
 
     (hit, reachable)
-}
-
-/// Whether the point falls inside a node's border box once its transform is applied.
-///
-/// Axis-aligned against the *transformed* extents, so a rotated box is tested against
-/// its bounding rectangle rather than its true outline — generous at the corners, and
-/// the same approximation the paint bounds themselves use.
-fn contains(transform: Affine, size: Size<f32>, click_x: f32, click_y: f32) -> bool {
-    let Some((left, top, right, bottom)) =
-        transformed_rect_extents(Point { x: 0.0, y: 0.0 }, size, transform)
-    else {
-        return false;
-    };
-    click_x >= left && click_x <= right && click_y >= top && click_y <= bottom
 }
 
 /// Report handlers that no painted node can ever deliver, once each.
@@ -178,8 +217,8 @@ fn contains(transform: Affine, size: Size<f32>, click_x: f32, click_y: f32) -> b
 /// A handler on an inline `<span>` is the common case: it gets no layout node, so
 /// nothing in the paint list carries its path and the click silently goes nowhere.
 /// Saying so is the whole reason this is not a silent limit (`docs/adr/0018`).
-fn warn_unreachable(handlers: &Handlers, reachable: &HashSet<Vec<usize>>) {
-    let unreachable: Vec<&Handler> = handlers
+fn warn_unreachable(handlers: &Bindings, reachable: &HashSet<Vec<usize>>) {
+    let unreachable: Vec<&Binding> = handlers
         .iter()
         .filter(|h| !reachable.contains(&h.path))
         .collect();

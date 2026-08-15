@@ -142,6 +142,19 @@ _Avoid_: input, interactive component, widget
 _Elsewhere_: controlled component (React). Observable's `viewof` is the opposite — see
 ADR 0012.
 
+**Handler**:
+What an element does when the pointer reaches it: either an array of intents, or a function
+from the pointer to one. `on_click` and `on_drag` both take either — see ADR 0021.
+_Avoid_: callback, listener, action, binding
+_Elsewhere_: event handler (DOM), except that ours may be plain data
+
+**Pointer capture**:
+An element with `on_drag` taking every motion event until the button is released, whatever
+the pointer is over. What makes a drag address the control you grabbed rather than whatever
+you slid onto — see ADR 0020.
+_Avoid_: grab, drag mode, tracking, focus
+_Elsewhere_: `setPointerCapture` (DOM), implicit passive grab (X11)
+
 **Component kind**:
 Which of Data, Display or Control a component is. Exactly one applies, resolved by
 precedence: Data, then Control, then Display. Components that produce Shell nodes, like

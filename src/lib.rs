@@ -6,6 +6,7 @@ pub mod hit_test;
 pub mod jsx;
 pub mod layout;
 pub mod managed_set;
+pub mod pointer;
 pub mod presentation;
 pub mod render;
 pub mod surface;
@@ -37,7 +38,7 @@ pub use render::{
 };
 
 // hit_test
-pub use hit_test::hit_test;
+pub use hit_test::{hit_test, Hit};
 
 // data spawn functions
 pub use data::{

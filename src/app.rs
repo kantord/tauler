@@ -8,17 +8,18 @@ use tauler::config::TaulerConfig;
 use tauler::data::data_loop::{
     BuiltInSource, DataLoopHandle, ProcessIdentity, ProcessSpec, Resource, StreamSource,
 };
+use tauler::hit_test::hit_test;
 use tauler::layout::OutputInfo;
 use tauler::managed_set::{Lifecycle, OptativeSet, Reconcile};
+use tauler::pointer::{dispatch, read_handler, Capture, Handler};
 #[cfg(not(target_os = "macos"))]
 use tauler::presentation::PresentationThread;
-use tauler::presentation::{PresenterEvent, SurfaceCommand};
+use tauler::presentation::{PointerEvent, PointerPhase, PresenterEvent, SurfaceCommand};
 use tauler::surface::SurfaceSets;
 use tauler::theme::resolver::resolve_theme_tokens;
 use tauler::theme::{Theme, ThemeMode};
 #[cfg(target_os = "linux")]
 use tauler::windowing::wayland::WaylandDisplayServer;
-use tauler::x11::click::do_hit_test;
 #[cfg(not(target_os = "macos"))]
 use tauler::x11::panel::PanelContext;
 
@@ -319,6 +320,9 @@ pub(crate) struct App {
     command_tx: mpsc::Sender<SurfaceCommand>,
     event_rx: mpsc::Receiver<PresenterEvent>,
     module_event_txs: ModuleEventTxs,
+    /// The drag in progress, if any: the box it was pressed in and what it last sent
+    /// (`docs/adr/0020`). The handler itself lives in the JS capture slot.
+    capture: Option<Capture>,
     presenter_thread: Option<thread::JoinHandle<()>>,
 }
 
@@ -412,6 +416,7 @@ impl App {
             command_tx,
             event_rx,
             module_event_txs,
+            capture: None,
             presenter_thread: Some(presenter_thread),
         };
         state.initial_load();
@@ -474,6 +479,7 @@ impl App {
             command_tx,
             event_rx,
             module_event_txs,
+            capture: None,
             presenter_thread: Some(presenter_thread),
         };
         state.initial_load();
@@ -550,6 +556,7 @@ impl App {
             command_tx,
             event_rx,
             module_event_txs,
+            capture: None,
             presenter_thread: None,
         };
         state.initial_load();
@@ -702,6 +709,120 @@ impl App {
         true
     }
 
+    /// One pointer event, run through the capture state machine (`docs/adr/0020`).
+    ///
+    /// A press hit-tests, fires `on_click` and `on_drag`, and starts a capture if the
+    /// element has one. A motion never hit-tests: it measures against the box the press
+    /// snapshotted, which is what lets a drag outlive the ticks it spans. A release ends
+    /// the capture and dispatches nothing.
+    fn on_pointer(&mut self, event: PointerEvent) {
+        match event.phase {
+            PointerPhase::Release => self.end_capture(),
+            PointerPhase::Move => self.pointer_moved(&event),
+            PointerPhase::Press => {
+                self.end_capture();
+                self.pointer_pressed(&event);
+            }
+        }
+    }
+
+    fn end_capture(&mut self) {
+        if self.capture.take().is_some() {
+            if let Some(evaluator) = self.jsx_evaluator.as_ref() {
+                evaluator.release_handler();
+            }
+        }
+    }
+
+    /// Resolve a handler to the intents it wants sent, calling into JavaScript if it is
+    /// a function rather than an array (`docs/adr/0021`).
+    fn resolve(
+        &self,
+        value: &serde_json::Value,
+        pointer: &serde_json::Value,
+    ) -> Option<serde_json::Value> {
+        match read_handler(value)? {
+            Handler::Intents(intents) => Some(intents),
+            Handler::Function(id) => self.jsx_evaluator.as_ref()?.invoke_handler(id, pointer),
+        }
+    }
+
+    fn send(&self, intents: &serde_json::Value) {
+        let txs = self.module_event_txs.lock().unwrap();
+        dispatch(&txs, intents);
+    }
+
+    fn pointer_pressed(&mut self, event: &PointerEvent) {
+        let Some(spec) = self.surfaces.spec(&event.panel_id) else {
+            return;
+        };
+        if spec.content.is_null() {
+            return;
+        }
+        let content = spec.content.clone();
+        let Some(hit) = hit_test(
+            &content,
+            event.phys_width,
+            event.phys_height,
+            event.dpr,
+            event.x,
+            event.y,
+        ) else {
+            tracing::debug!(x = event.x, y = event.y, "pointer: nothing under the press");
+            return;
+        };
+        let pointer = hit.rect.pointer(event.x, event.y, event.dpr, event.buttons);
+
+        if let Some(intents) = hit
+            .on_click
+            .as_ref()
+            .and_then(|h| self.resolve(h, &pointer))
+        {
+            self.send(&intents);
+        }
+
+        // A press is the first drag event, so a plain click still sets a value and a
+        // control needs only the one handler (`docs/adr/0020`).
+        let Some(on_drag) = hit.on_drag.as_ref() else {
+            return;
+        };
+        if let (Some(Handler::Function(id)), Some(evaluator)) =
+            (read_handler(on_drag), self.jsx_evaluator.as_ref())
+        {
+            evaluator.capture_handler(id);
+        }
+        let mut capture = Capture::new(event.panel_id.clone(), hit.rect, event.dpr);
+        if let Some(intents) = self.resolve(on_drag, &pointer) {
+            self.send(&intents);
+            capture.seed(intents);
+        }
+        self.capture = Some(capture);
+    }
+
+    /// A motion during a capture. No hit test: the box was snapshotted at press, which is
+    /// both what makes this cheap and what lets it survive a tick.
+    fn pointer_moved(&mut self, event: &PointerEvent) {
+        let Some(capture) = self.capture.as_ref() else {
+            return;
+        };
+        if capture.panel_id != event.panel_id {
+            return;
+        }
+        let pointer = capture
+            .rect
+            .pointer(event.x, event.y, capture.dpr, event.buttons);
+        let Some(intents) = self
+            .jsx_evaluator
+            .as_ref()
+            .and_then(|e| e.invoke_captured_handler(&pointer))
+        else {
+            return;
+        };
+        if self.capture.as_mut().is_some_and(|c| c.is_new(&intents)) {
+            self.send(&intents);
+        }
+    }
+
     pub(crate) fn tick(&mut self) {
         self.last_tick.store(
             std::time::SystemTime::now()
@@ -793,24 +914,7 @@ impl App {
                         }
                     }
                 }
-                PresenterEvent::Click {
-                    panel_id,
-                    x,
-                    y,
-                    phys_width,
-                    phys_height,
-                    dpr,
-                } => {
-                    if let Some(spec) = self.surfaces.spec(&panel_id) {
-                        let raw_layout = if spec.content.is_null() {
-                            None
-                        } else {
-                            Some(spec.content.clone())
-                        };
-                        let txs = self.module_event_txs.lock().unwrap();
-                        do_hit_test(&raw_layout, &txs, phys_width, phys_height, dpr, x, y);
-                    }
-                }
+                PresenterEvent::Pointer(event) => self.on_pointer(event),
             }
         }
     }

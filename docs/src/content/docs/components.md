@@ -221,6 +221,56 @@ import { Progress } from "@ui/progress";
 </div>
 ```
 
+## Slider
+
+**Module:** `@ui/slider`
+
+**Shadcn reference:** https://ui.shadcn.com/docs/components/slider
+
+![Slider screenshot](../../assets/slider.png)
+
+A horizontal slider. Draws `value` within `min`–`max`, and reports where you
+press or drag.
+
+It never remembers anything. `value` is read every tick from whatever owns it,
+and `on_change` receives the value under the pointer and returns the intents to
+send — one, or an array of them. Pressing counts as the first drag event, so a
+plain click sets the value too.
+
+```jsx
+<Module bin="~/.cargo/bin/tauler-audio">
+  {(data, events) => (
+    <Slider
+      value={data?.volume ?? 0}
+      step={5}
+      on_change={v => events.setVolume({ volume: v })}
+    />
+  )}
+</Module>
+```
+
+The drag sets nothing locally: it sends intents, the module changes the volume,
+and the next tick brings the new `value` back. Omit `on_change` and the slider
+still renders — it is simply not interactive.
+
+`min` defaults to 0, `max` to 100, and `step` to 1. `step` rounds the reported
+value, which is also what keeps a drag from sending a message per pixel: a motion
+that produces the intents just sent is skipped.
+
+### Usage
+
+```jsx
+import { Slider } from "@ui/slider";
+
+<div class="flex flex-col gap-[6px] w-[200px]">
+  <div class="flex flex-row justify-between">
+    <span class="text-muted-foreground text-[11px]">Volume</span>
+    <span class="text-foreground text-[11px]">40%</span>
+  </div>
+  <Slider value={40} step={5} />
+</div>
+```
+
 ## Table
 
 **Module:** `@ui/table`

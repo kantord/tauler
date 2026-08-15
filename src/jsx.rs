@@ -83,6 +83,44 @@ const JSX_GLOBALS_JS: &str = r#"
         if (module) useEvents(module, { gaps: out.gaps });
         return out.panels;
     };
+    // Handlers that are functions cannot cross the JSON boundary, so they stay here
+    // and the tree carries `{$handler: n}` instead (ADR 0021). Rebuilt every tick;
+    // a drag holds its own reference in __tauler_captured, so clearing is safe
+    // mid-gesture.
+    globalThis.__tauler_handlers = [];
+    globalThis.__tauler_captured = null;
+    // Only real elements. A component's props are its own — turning `on_change` into
+    // a handler id would hand <Slider> an object where it expects a function.
+    // Park a function in the registry and hand back the reference the tree carries.
+    // Anything that is not a function passes through, so a plain intent array is left
+    // exactly as written. A JS shim that calls a Rust component directly has to use
+    // this itself — those props never pass through `h`.
+    globalThis.__tauler_handler_ref = (fn) =>
+        typeof fn === "function" ? { $handler: __tauler_handlers.push(fn) - 1 } : fn;
+    globalThis.__tauler_register_handlers = (type, props) => {
+        if (typeof type !== "string" || !props) return props;
+        let out = null;
+        for (const key in props) {
+            if (key.startsWith("on_") && typeof props[key] === "function") {
+                out = out ?? { ...props };
+                out[key] = __tauler_handler_ref(props[key]);
+            }
+        }
+        return out ?? props;
+    };
+    globalThis.__tauler_capture_handler = (id) => {
+        __tauler_captured = __tauler_handlers[id] ?? null;
+    };
+    globalThis.__tauler_release_handler = () => { __tauler_captured = null; };
+    // `id < 0` means the captured one, which outlives the tick it was registered in.
+    // A handler may return one intent or several; downstream only ever sees an array.
+    globalThis.__tauler_intents = (out) =>
+        out == null ? null : (Array.isArray(out) ? out : [out]);
+    globalThis.__tauler_invoke_handler = (id, pointer) => {
+        const fn = id < 0 ? __tauler_captured : __tauler_handlers[id];
+        if (typeof fn !== "function") return null;
+        return __tauler_intents(fn(pointer));
+    };
     globalThis.Module = ({ bin, children, ...rest }) => {
         const child = Array.isArray(children) ? children[0] : children;
         if (typeof child === 'function') return child(useJSONStream(bin), useEvents(bin, rest));
@@ -104,6 +142,23 @@ fn merge_missing(existing: &mut serde_json::Value, incoming: serde_json::Value) 
     };
     for (k, v) in source {
         target.entry(k).or_insert(v);
+    }
+}
+
+/// The id that reaches the handler a press captured rather than one in this tick's
+/// registry. Outside the range the registry issues, which only counts upward.
+const CAPTURED_HANDLER: i64 = -1;
+
+/// Handler ids already reported as throwing, so a failing mapper reports once rather
+/// than once per motion event.
+static WARNED_HANDLERS: std::sync::Mutex<Option<std::collections::HashSet<i64>>> =
+    std::sync::Mutex::new(None);
+
+fn warn_handler_once(id: i64, error: &impl std::fmt::Display) {
+    let mut warned = WARNED_HANDLERS.lock().unwrap();
+    let warned = warned.get_or_insert_with(std::collections::HashSet::new);
+    if warned.insert(id) {
+        tracing::error!(exception = %error, handler = id, "handler raised; it dispatches nothing");
     }
 }
 
@@ -210,7 +265,7 @@ impl JsxEvaluator {
                 // eagerly, mid-render, expecting the flat shape — so each node must be
                 // reshaped as soon as it's produced, not just once at the very end.
                 qjs_ctx.eval::<(), _>(format!(
-                    "globalThis.h = (type, props, ...children) => __tauler_flatten_node(__esto_h(type, props, ...children));
+                    "globalThis.h = (type, props, ...children) => __tauler_flatten_node(__esto_h(type, __tauler_register_handlers(type, props), ...children));
                     globalThis.Fragment = {{ {}: true }};",
                     optative_script::tags::ESTO_FRAGMENT
                 ))?;
@@ -277,6 +332,68 @@ impl JsxEvaluator {
         })
     }
 
+    /// Drop last tick's handler functions. The capture slot holds its own reference,
+    /// so a drag in progress is unaffected (ADR 0020).
+    fn reset_handlers(&self) {
+        self.context.with(|ctx| {
+            let _ = ctx.eval::<(), _>("__tauler_handlers.length = 0;");
+        });
+    }
+
+    /// Move handler `id` into the capture slot, where it survives the ticks a drag
+    /// spans. A handler that is a plain intent array has no id and needs no capture.
+    pub fn capture_handler(&self, id: i64) {
+        self.context.with(|ctx| {
+            if let Ok(f) = ctx.globals().get::<_, Function>("__tauler_capture_handler") {
+                let _ = f.call::<_, ()>((id,));
+            }
+        });
+    }
+
+    pub fn release_handler(&self) {
+        self.context.with(|ctx| {
+            if let Ok(f) = ctx.globals().get::<_, Function>("__tauler_release_handler") {
+                let _ = f.call::<_, ()>(());
+            }
+        });
+    }
+
+    /// Call a handler and return the intents it produced. `id` below zero means the
+    /// captured one. A handler that throws is reported and dispatches nothing — a
+    /// gesture that does nothing beats a bar that dies (ADR 0021).
+    /// Call the handler a press captured, whichever tick registered it.
+    pub fn invoke_captured_handler(
+        &self,
+        pointer: &serde_json::Value,
+    ) -> Option<serde_json::Value> {
+        self.invoke_handler(CAPTURED_HANDLER, pointer)
+    }
+
+    /// A handler that throws is reported and dispatches nothing — a gesture that does
+    /// nothing beats a bar that dies (ADR 0021). Reported once per handler, because this
+    /// sits on the input path: a mapper that throws would otherwise log on every motion
+    /// event, which is once a pixel.
+    pub fn invoke_handler(
+        &self,
+        id: i64,
+        pointer: &serde_json::Value,
+    ) -> Option<serde_json::Value> {
+        self.context.with(|ctx| {
+            let f = ctx
+                .globals()
+                .get::<_, Function>("__tauler_invoke_handler")
+                .ok()?;
+            let arg = rquickjs_serde::to_value(ctx.clone(), pointer).ok()?;
+            let out = f
+                .call::<_, rquickjs::Value>((id, arg))
+                .catch(&ctx)
+                .map_err(|e| warn_handler_once(id, &e))
+                .ok()?;
+            let intents: serde_json::Value = rquickjs_serde::from_value(out).ok()?;
+            (!intents.is_null()).then_some(intents)
+        })
+    }
+
     pub fn eval(
         &self,
         new_stream_values: &HashMap<(String, Option<String>), String>,
@@ -287,6 +404,7 @@ impl JsxEvaluator {
             .clone_from(new_stream_values);
         self.calls.lock().unwrap().clear();
         self.module_calls.lock().unwrap().clear();
+        self.reset_handlers();
 
         self.context.with(|qjs_ctx| {
             let globals_val =

@@ -178,7 +178,15 @@ fn create_panel(
         &CreateWindowAux::new()
             .background_pixel(ctx.black_pixel)
             .override_redirect(1)
-            .event_mask(EventMask::EXPOSURE | EventMask::BUTTON_PRESS),
+            // BUTTON1_MOTION, not POINTER_MOTION: motion is only reported while
+            // button 1 is held, so a bar nobody is dragging costs nothing (ADR 0020).
+            // BUTTON_RELEASE is what ends a capture.
+            .event_mask(
+                EventMask::EXPOSURE
+                    | EventMask::BUTTON_PRESS
+                    | EventMask::BUTTON_RELEASE
+                    | EventMask::BUTTON1_MOTION,
+            ),
     )?;
 
     let stack_mode = if spec.above {

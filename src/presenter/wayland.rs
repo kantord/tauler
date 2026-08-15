@@ -2,7 +2,9 @@ use std::sync::mpsc;
 
 use super::drain_commands;
 use tauler::layout::OutputInfo;
-use tauler::presentation::{PresentationThread, PresenterEvent, SurfaceCommand};
+use tauler::presentation::{
+    PointerEvent, PointerPhase, PresentationThread, PresenterEvent, SurfaceCommand,
+};
 use tauler::windowing::wayland::WaylandDisplayServer;
 use tauler::windowing::{DisplayServer, WindowEvent};
 
@@ -80,14 +82,27 @@ pub(crate) fn run_wayland_presenter_thread(
                                     panel.height,
                                     panel.dpr,
                                 );
-                                let _ = event_tx.send(PresenterEvent::Click {
+                                // Wayland reports no motion here, so a click is a
+                                // press immediately followed by a release. Sending
+                                // both matters: a press alone would start a capture
+                                // that nothing ever ends (`docs/adr/0020`).
+                                let press = PointerEvent {
                                     panel_id: id.clone(),
                                     x,
                                     y,
                                     phys_width,
                                     phys_height,
                                     dpr: panel.dpr,
-                                });
+                                    phase: PointerPhase::Press,
+                                    buttons: 1,
+                                };
+                                let release = PointerEvent {
+                                    phase: PointerPhase::Release,
+                                    buttons: 0,
+                                    ..press.clone()
+                                };
+                                let _ = event_tx.send(PresenterEvent::Pointer(press));
+                                let _ = event_tx.send(PresenterEvent::Pointer(release));
                             }
                         }
                     }
