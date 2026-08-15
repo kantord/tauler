@@ -315,6 +315,15 @@ fn get_style(el: &ParsedElement) -> TokenStream2 {
 fn gen_element_node(el: &ParsedElement, tag: &str) -> TokenStream2 {
     let class = get_class(el);
     let style = get_style(el);
+    // Each takes an `Option<serde_json::Value>` and boxes it, so a component never has
+    // to name the box. A Rust component only ever forwards handlers it was handed.
+    let handler = |name: &str| {
+        get_attr_expr(el, name)
+            .map(|e| quote! { (#e).map(::std::boxed::Box::new) })
+            .unwrap_or_else(|| quote! { None })
+    };
+    let on_click = handler("on_click");
+    let on_drag = handler("on_drag");
     let children = gen_children(&el.children);
     let src = get_attr_expr(el, "src")
         .map(|e| quote! { Some((#e).to_string()) })
@@ -331,6 +340,8 @@ fn gen_element_node(el: &ParsedElement, tag: &str) -> TokenStream2 {
             tag: #tag.to_string(),
             class: #class,
             style: #style,
+            on_click: #on_click,
+            on_drag: #on_drag,
             src: #src,
             width: #width,
             height: #height,

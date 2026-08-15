@@ -171,20 +171,31 @@ Calling with no argument yields just the type.
 
 ## Event handlers
 
-`on_click` is **always an array of intents** — never a bare object, and never a callback.
-Functions do not survive the JSON boundary at the end of evaluation, so a handler that is a
-function is silently dropped.
+A handler is **an array of intents**, or **a function returning one**. Both forms work on
+`on_click` and on `on_drag`.
 
 ```jsx
 on_click={[
   i3.switchWorkspace({ workspace: ws.name }),
   notify.dismiss({ id: n.id }),
 ]}
+
+// same thing, computed when the click happens
+on_click={p => [i3.switchWorkspace({ workspace: ws.name })]}
 ```
 
-On a click, tauler finds the **topmost element painted over that point** that carries an
-`on_click`, then delivers each intent's `event` object verbatim to that intent's channel
-over stdin — one JSON object per line, no wrapping envelope. No JavaScript runs on click.
+Reach for the array unless you need the pointer. The function form exists because a drag
+has to turn a position into a number, and it receives the same argument everywhere for
+consistency. A handler that throws is logged once and dispatches nothing.
+
+On a click, tauler finds the **topmost element painted over that point** that carries a
+handler, then delivers each intent's `event` object verbatim to that intent's channel over
+stdin — one JSON object per line, no wrapping envelope. A handler written as an array is
+sent as it stands; one written as a function is called first, and what it returns is sent.
+Either way nothing rewrites the intent on the way out.
+
+An element counts as carrying a handler if it has `on_click` **or** `on_drag`, so an
+element that only drags still shadows a clickable one beneath it.
 
 :::caution[Put handlers on block-level elements]
 `on_click` only fires on an element that has a box of its own — a `<div>`, or any element
@@ -218,6 +229,73 @@ naming an unknown channel is logged and skipped without affecting the others.
 
 Scroll wheel motion is not a click. X11 reports it as button presses 4–7, and those are
 discarded before hit-testing.
+
+## Controls
+
+A control — `<Slider>` is the one that ships — is a component that emits intents when you
+click it. It does not remember what you clicked. There is no `useState` behind it and no
+value store in the runtime: the value it shows is the value you pass in, read fresh from a
+stream on every tick, and a click only changes what you see once the process that owns the
+value has said so.
+
+```jsx
+import { Slider } from "@ui/slider";
+
+<Module bin="~/.cargo/bin/tauler-audio">
+  {(data, events) => (
+    <Slider
+      value={data?.volume ?? 0}
+      step={5}
+      on_change={v => events.setVolume({ volume: v })}
+    />
+  )}
+</Module>
+```
+
+The round trip is the whole design. `on_change` builds an intent, the intent reaches
+`tauler-audio` over stdin, `tauler-audio` changes the volume and emits the new one, and the
+next tick renders it. Nothing is optimistic, and there is never a second answer to "what is
+the volume".
+
+That also means a control needs somebody to talk to. A slider that only filtered a chart on
+screen would still need a Module, a stream or `globals` behind it, because it has nowhere
+of its own to keep the number.
+
+`on_change` takes the value the pointer is over and returns intents — one, or an array of
+them. `<Slider>` does the arithmetic from `min`, `max` and `step`, so a module receives a
+number in its own units and never sees a coordinate.
+
+### Dragging
+
+`<Slider>` is draggable: press and sweep, and the value follows. It works the way a slider
+on a web page works — pressing **captures** the pointer, so every movement until you let go
+goes to that slider whatever you slide over, and dragging off the panel and back on resumes
+where the pointer is.
+
+Nothing else drags unless you ask. Any element can, with `on_drag`:
+
+```jsx
+<div on_drag={p => [lights.setLevel({ level: Math.round(p.x / p.width * 100) })]} />
+```
+
+`on_drag` fires on the press as well as on every movement after it, so a plain click with no
+movement still does something and a control needs only one handler. Leave it off for
+buttons — a workspace switcher that answered a drag would switch to every workspace the
+pointer crossed.
+
+The handler receives the pointer's position **relative to the element**, in CSS pixels:
+
+| field | meaning |
+|---|---|
+| `p.x`, `p.y` | offset from the element's top-left. **Negative** above or left of it, and past `width`/`height` beyond it — clamp if you want clamping |
+| `p.width`, `p.height` | the element's own size |
+| `p.buttons` | bitmask of held buttons, `1` for primary |
+
+Nothing is dispatched when a movement produces the intents that were just sent, so a drag
+costs one message per distinct value, not one per pixel. Giving a control a `step` is what
+keeps that number small.
+
+Drag is X11-only for now; on Wayland a slider still works as click-to-set.
 
 ## `<Module>`
 

@@ -42,6 +42,12 @@ struct Args {
     #[arg(long, default_value_t = 400)]
     width: u32,
 
+    /// Device pixel ratio to render at. The image comes out `dpr` times larger, and
+    /// fractional values reproduce what a HiDPI display actually does to a layout —
+    /// sub-pixel seams between adjacent boxes show up here and nowhere else.
+    #[arg(long, default_value_t = 1.0)]
+    dpr: f32,
+
     /// Path to a TTF/OTF font file to use as the primary (sans-serif) font.
     #[arg(long)]
     font_path: Option<std::path::PathBuf>,
@@ -92,29 +98,36 @@ fn main() {
     });
     resolve_theme_tokens(&mut canvas, &theme, args.theme);
 
-    let bgrx = tauler::render_frame(&canvas, render_w, CANVAS_H, 1.0);
-    let measured = tauler::measure_layout_frame(&canvas, render_w, CANVAS_H, 1.0);
+    // Everything below is in physical pixels: `render_frame` takes the buffer size,
+    // and the dpr is what turns the layout's CSS pixels into those.
+    let dpr = args.dpr.max(0.1);
+    let phys_w = (render_w as f32 * dpr).round() as u32;
+    let phys_h = (CANVAS_H as f32 * dpr).round() as u32;
+    let pad = (PAD as f32 * dpr).round() as u32;
+
+    let bgrx = tauler::render_frame(&canvas, phys_w, phys_h, dpr);
+    let measured = tauler::measure_layout_frame(&canvas, phys_w, phys_h, dpr);
 
     let (obj_x, obj_y, obj_w, obj_h) = if let Some(child) = measured.children.first() {
         let (x, y) = translation_xy(&child.transform);
         (x, y, child.width.ceil() as u32, child.height.ceil() as u32)
     } else {
         (
-            PAD,
-            PAD,
-            render_w.saturating_sub(2 * PAD),
+            pad,
+            pad,
+            phys_w.saturating_sub(2 * pad),
             measured.height.ceil() as u32,
         )
     };
 
-    let x0 = obj_x.saturating_sub(PAD);
-    let y0 = obj_y.saturating_sub(PAD);
-    let x1 = (obj_x + obj_w + PAD).min(render_w);
-    let y1 = (obj_y + obj_h + PAD).min(CANVAS_H);
+    let x0 = obj_x.saturating_sub(pad);
+    let y0 = obj_y.saturating_sub(pad);
+    let x1 = (obj_x + obj_w + pad).min(phys_w);
+    let y1 = (obj_y + obj_h + pad).min(phys_h);
     let crop_w = x1 - x0;
     let crop_h = y1 - y0;
 
-    let src_row = (render_w * 4) as usize;
+    let src_row = (phys_w * 4) as usize;
     let mut rgba: Vec<u8> = Vec::with_capacity((crop_w * crop_h * 4) as usize);
     for y in y0..y1 {
         let row = y as usize * src_row;

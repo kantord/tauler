@@ -30,6 +30,25 @@ pub struct ElementNode {
     pub class: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub style: Option<serde_json::Map<String, serde_json::Value>>,
+    /// An array of intents, kept as raw JSON.
+    ///
+    /// Not typed as `Vec<Intent>`: components that take `children: Vec<Node>` round-trip
+    /// their children through this struct, and serde drops what it cannot name — so a
+    /// hand-written handler has to survive the trip malformed and reach the runtime,
+    /// which is the only place that can warn about it (see `hit_test`).
+    ///
+    /// Only block-level elements can be hit — see `docs/adr/0018`.
+    ///
+    /// Boxed to keep an element the same size as before it could carry one: every
+    /// node in the tree pays for this field on every tick, and almost none use it.
+    /// `rsx!` boxes for you — write `on_click={some_option}`. Either shape is legal:
+    /// an array of intents, or `{"$handler": n}` for a function (`docs/adr/0021`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub on_click: Option<Box<serde_json::Value>>,
+    /// Fires on a press and on every motion until release, and captures the pointer
+    /// while it does — see `docs/adr/0020`. Same two shapes as `on_click`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub on_drag: Option<Box<serde_json::Value>>,
     /// `<img>` only.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub src: Option<String>,

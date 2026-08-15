@@ -57,20 +57,43 @@ pub enum SurfaceCommand {
 }
 
 /// Events the presenter thread sends back to the pipeline.
+/// Where in a gesture a pointer event falls (`docs/adr/0020`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PointerPhase {
+    /// A button went down. Fires `on_click` and `on_drag`, and starts a capture.
+    Press,
+    /// The pointer moved with a button held. Only a capture answers these.
+    Move,
+    /// The button came up. Ends the capture; dispatches nothing.
+    Release,
+}
+
+/// A press, a motion or a release, with the surface it landed on.
+///
+/// One type rather than eight arguments: every stage from the presenter to the
+/// capture state machine needs the same set, and they only ever travel together.
+#[derive(Debug, Clone)]
+pub struct PointerEvent {
+    pub panel_id: String,
+    /// Physical pixels, relative to the panel.
+    pub x: f32,
+    pub y: f32,
+    pub phys_width: u32,
+    pub phys_height: u32,
+    pub dpr: f32,
+    pub phase: PointerPhase,
+    /// Which buttons are held, as a DOM `buttons` bitmask: 1 primary, 2 secondary,
+    /// 4 auxiliary. Handed to handlers untouched.
+    pub buttons: u16,
+}
+
 pub enum PresenterEvent {
     /// The pipeline should re-render all panels and flush.
     NeedsRender,
     /// The set of connected outputs (and their DPRs) has changed.
     OutputsChanged { outputs: Vec<OutputInfo> },
-    /// A click event, routed back for hit-testing in the pipeline.
-    Click {
-        panel_id: String,
-        x: f32,
-        y: f32,
-        phys_width: u32,
-        phys_height: u32,
-        dpr: f32,
-    },
+    /// A pointer event, routed back for hit-testing in the pipeline.
+    Pointer(PointerEvent),
 }
 
 /// Owns the window state: one `DM::Panel` per live panel id. Does NOT own the

@@ -13,7 +13,7 @@ const H: u32 = 100;
 
 fn hit(layout: &serde_json::Value, x: f32, y: f32) -> Option<serde_json::Value> {
     init_global_ctx(FontConfig::default());
-    hit_test(layout, W, H, 1.0, x, y)
+    hit_test(layout, W, H, 1.0, x, y).and_then(|h| h.on_click)
 }
 
 fn intent(name: &str) -> serde_json::Value {

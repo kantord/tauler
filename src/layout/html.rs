@@ -70,18 +70,25 @@ pub enum LayoutError {
     Style(serde_json::Error),
 }
 
-/// One `on_click`, and enough about the node to say which one it is.
+/// One node's handlers, bound to the render path they were found at.
+///
+/// Named for what it does rather than what it holds: `Handler` is the glossary's word
+/// for the intents-or-function a node carries, which is `pointer::Handler`.
 ///
 /// Recorded during the walk rather than recovered later, because there is no way to
 /// recover it: the tree takumi lays out is not index-comparable with the tree the
 /// layout file wrote (`docs/adr/0018`). The walk knows both at once, so it is the only
 /// place the two can be tied together without guessing.
 #[derive(Debug, Clone)]
-pub struct Handler {
+pub struct Binding {
     /// Child-index path from the root of the finished node tree.
     pub path: Vec<usize>,
-    /// The intents to dispatch, verbatim from the layout file.
-    pub on_click: Value,
+    /// Fires on a press. Either an array of intents or `{"$handler": n}`, verbatim
+    /// from the layout file (`docs/adr/0021`).
+    pub on_click: Option<Value>,
+    /// Fires on a press and on every motion until release, and captures the pointer
+    /// while it does (`docs/adr/0020`). Same two shapes as `on_click`.
+    pub on_drag: Option<Value>,
     /// How the node was written, for diagnostics — `<span id="close" class="…">`.
     ///
     /// A path of child indices is useless in a warning: nobody can map `[0, 3, 1]` back
@@ -90,7 +97,7 @@ pub struct Handler {
     pub label: String,
 }
 
-pub type Handlers = Vec<Handler>;
+pub type Bindings = Vec<Binding>;
 
 /// Describe a node the way its author wrote it, for a diagnostic.
 fn describe(tag: &str, obj: &Value) -> String {
@@ -117,9 +124,9 @@ pub fn build_node(value: &Value) -> Result<Node, LayoutError> {
 /// in a container, so a surface always has a single root to render. Paths are
 /// collected as though the wrapper were always there, then shortened by one when it
 /// turns out not to be.
-pub fn build_tree(value: &Value) -> Result<(Node, Handlers), LayoutError> {
+pub fn build_tree(value: &Value) -> Result<(Node, Bindings), LayoutError> {
     let mut nodes = Vec::new();
-    let mut handlers = Handlers::new();
+    let mut handlers = Bindings::new();
     let mut path = Vec::new();
     push_node(value, 0, &mut nodes, &mut path, &mut handlers)?;
 
@@ -138,7 +145,7 @@ fn push_node(
     depth: usize,
     out: &mut Vec<Node>,
     path: &mut Vec<usize>,
-    handlers: &mut Handlers,
+    handlers: &mut Bindings,
 ) -> Result<(), LayoutError> {
     match value {
         Value::String(s) => out.push(Node::text(s.clone())),
@@ -154,11 +161,14 @@ fn push_node(
             let built = build_element(value, depth, path, handlers);
             match built {
                 Ok(Some(node)) => {
-                    if let Some(on_click) = value.get("on_click") {
+                    let on_click = value.get("on_click").cloned();
+                    let on_drag = value.get("on_drag").cloned();
+                    if on_click.is_some() || on_drag.is_some() {
                         let tag = value.get("type").and_then(Value::as_str).unwrap_or("?");
-                        handlers.push(Handler {
+                        handlers.push(Binding {
                             path: path.clone(),
-                            on_click: on_click.clone(),
+                            on_click,
+                            on_drag,
                             label: describe(tag, value),
                         });
                     }
@@ -180,7 +190,7 @@ fn build_element(
     obj: &Value,
     depth: usize,
     path: &mut Vec<usize>,
-    handlers: &mut Handlers,
+    handlers: &mut Bindings,
 ) -> Result<Option<Node>, LayoutError> {
     if depth >= MAX_DEPTH {
         return Err(LayoutError::MaxDepthExceeded(MAX_DEPTH));
