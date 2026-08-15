@@ -1,22 +1,27 @@
 use super::{Theme, ThemeMode};
 use std::collections::HashMap;
 
-pub fn resolve_tw_in_json(value: &mut serde_json::Value, theme: &Theme, mode: ThemeMode) {
+/// Rewrite theme tokens in every `class` attribute in the tree.
+///
+/// Only tokens this project defines are touched — a colour, a radius. Everything else
+/// is passed through verbatim, which is what lets one attribute carry both theme
+/// tokens and plain Tailwind utilities takumi resolves on its own.
+pub fn resolve_theme_tokens(value: &mut serde_json::Value, theme: &Theme, mode: ThemeMode) {
     match value {
         serde_json::Value::Object(map) => {
-            if let Some(tw) = map.get_mut("tw") {
-                if let Some(s) = tw.as_str() {
+            if let Some(class) = map.get_mut("class") {
+                if let Some(s) = class.as_str() {
                     let resolved = resolve_tw(s, theme, mode);
-                    *tw = serde_json::Value::String(resolved);
+                    *class = serde_json::Value::String(resolved);
                 }
             }
             for v in map.values_mut() {
-                resolve_tw_in_json(v, theme, mode);
+                resolve_theme_tokens(v, theme, mode);
             }
         }
         serde_json::Value::Array(arr) => {
             for v in arr {
-                resolve_tw_in_json(v, theme, mode);
+                resolve_theme_tokens(v, theme, mode);
             }
         }
         _ => {}

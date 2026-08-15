@@ -19,12 +19,12 @@ cargo install tauler-i3
 <Module bin="/home/you/.cargo/bin/tauler-i3">
   {(data, events) =>
     data?.workspaces?.map(ws => (
-      <text
-        tw={ws.focused ? "text-white" : "text-white/50"}
+      <span
+        class={ws.focused ? "text-white" : "text-white/50"}
         on_click={events.switchWorkspace({ workspace: ws.name })}
       >
         {ws.name}
-      </text>
+      </span>
     ))
   }
 </Module>

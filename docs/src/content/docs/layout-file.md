@@ -11,9 +11,9 @@ export default function render() {
   return (
     <root>
       <panel anchor="left" width={272} height={ctx.screen_height}>
-        <container tw="flex flex-col h-full w-full px-4 py-4">
-          <text tw="text-[18px] text-foreground">hello</text>
-        </container>
+        <div class="flex flex-col h-full w-full px-4 py-4">
+          <span class="text-[18px] text-foreground">hello</span>
+        </div>
       </panel>
     </root>
   );
@@ -34,15 +34,21 @@ about *what* a bar contains lives in the layout file.
 
 ## Nodes
 
-Layout nodes describe content and get rasterized:
+Layout nodes describe content and get rasterized. **They are HTML elements** — `div`,
+`span`, `p`, `img` — and text is any bare value you write in the tree:
 
-| node | description |
-|---|---|
-| `container` | flex container |
-| `text` | text |
-| `image` | image |
+```jsx
+<div class="flex flex-col px-3 py-2">
+  <span class="text-[10px] text-muted-foreground">CPU</span>
+  <span class="text-[14px] text-foreground">{load}%</span>
+</div>
+```
 
-Shell nodes describe structure and never reach the rasterizer:
+[Elements and styling](/tauler/elements/) covers which tags exist, what each one's
+default styling is, and how `class` and `style` apply.
+
+Shell nodes describe structure and never reach the rasterizer. They are the only
+lowercase tags that are not HTML:
 
 | node | description |
 |---|---|
@@ -85,19 +91,19 @@ clicks — there are only pixels handed to the desktop background.
 ```jsx
 <root>
   <wallpaper id="desktop" output="DP-2">
-    <container tw="flex w-full h-full items-end justify-end p-12"
-               style={{ backgroundImage: "linear-gradient(160deg, #0b1020, #1c2b4a)" }}>
-      <text tw="text-[28px] text-white opacity-30">{time}</text>
-    </container>
+    <div class="flex w-full h-full items-end justify-end p-12"
+         style={{ backgroundImage: "linear-gradient(160deg, #0b1020, #1c2b4a)" }}>
+      <span class="text-[28px] text-white opacity-30">{time}</span>
+    </div>
   </wallpaper>
 </root>
 ```
 
-Everything a wallpaper does is ordinary layout. Scaling or cropping a photo is `<image>`
-plus `object-fit`; a solid colour or gradient is a `<container>` with a background. There
+Everything a wallpaper does is ordinary layout. Scaling or cropping a photo is `<img>`
+plus `object-fit`; a solid colour or gradient is a `<div>` with a background. There
 is no wallpaper-specific fitting, tiling or colour handling, and none is planned.
 
-**An `<image>` file must be a PNG.** The renderer is built with only PNG and ICO decoding
+**An `<img>` file must be a PNG.** The renderer is built with only PNG and ICO decoding
 enabled, so a JPEG decodes to nothing — and a file that cannot be decoded is
 indistinguishable from one that is not there, so the symptom is a surface that renders
 empty with nothing in the log.
@@ -109,29 +115,30 @@ warning.
 
 Each panel is rasterized into its own buffer, so there is nothing behind it to show
 through — a translucent background paints onto nothing. To give it something, tauler binds
-the slice of wallpaper that panel covers as an image named `root-bg`, for the duration of
-one render:
+the slice of wallpaper that panel covers as an image named `tauler:root-bg`, for the
+duration of one render. The `tauler:` scheme marks it as a resource tauler binds rather
+than a file to read, so no file on disk can shadow it:
 
 ```jsx
 <panel id="sidebar" anchor="left" width={272} height={ctx.screen_height}>
-  <container style={{ position: "relative", width: "100%", height: "100%" }}>
-    <image src="root-bg" style={{ position: "absolute", top: 0, left: 0,
-                                  width: "100%", height: "100%" }} />
-    <container tw="h-full w-full p-2" style={{ position: "relative" }}>
-      <container tw="h-full w-full rounded-2xl"
-                 style={{ backgroundColor: "rgba(20,20,24,0.55)" }}>
+  <div style={{ position: "relative", width: "100%", height: "100%" }}>
+    <img src="tauler:root-bg" style={{ position: "absolute", top: 0, left: 0,
+                                       width: "100%", height: "100%" }} />
+    <div class="h-full w-full p-2" style={{ position: "relative" }}>
+      <div class="h-full w-full rounded-2xl"
+           style={{ backgroundColor: "rgba(20,20,24,0.55)" }}>
         …
-      </container>
-    </container>
-  </container>
+      </div>
+    </div>
+  </div>
 </panel>
 ```
 
 Two things about that snippet are load-bearing:
 
-**Use an `<image>` node, not `backgroundImage: url(root-bg)`.** Both work, but the
+**Use an `<img>` node, not `backgroundImage: url(tauler:root-bg)`.** Both work, but the
 background-image path redoes per-pixel setup that does not depend on the pixel, and a
-full-height panel costs around 19ms per render against a ~6ms floor. The `<image>` node
+full-height panel costs around 19ms per render against a ~6ms floor. The `<img>` node
 hoists that work and costs about 5ms.
 
 **Keep the overlaying content `position: relative`, not `absolute`.** One out-of-flow
@@ -140,4 +147,4 @@ several absolutely-positioned siblings.
 
 The pixels come from tauler's own `<wallpaper>` node, matched by output. A wallpaper set
 by another program — `feh`, `xwallpaper` — is not visible here. A panel on an output with
-no `<wallpaper>` gets no `root-bg` at all, rather than borrowing its neighbour's.
+no `<wallpaper>` gets no backdrop at all, rather than borrowing its neighbour's.

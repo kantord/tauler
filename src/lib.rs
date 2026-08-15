@@ -2,10 +2,10 @@ pub mod backdrop;
 pub mod config;
 pub mod data;
 pub mod display_manager;
+pub mod hit_test;
 pub mod jsx;
 pub mod layout;
 pub mod managed_set;
-pub mod modules;
 pub mod presentation;
 pub mod render;
 pub mod surface;
@@ -15,7 +15,6 @@ pub mod windowing;
 pub mod x11;
 
 pub use render::RenderContext;
-pub use takumi::prelude::MeasuredNode;
 
 // layout
 pub use layout::{
@@ -37,8 +36,8 @@ pub use render::{
     render_frame_keyed, render_frame_rgba, with_global_ctx, with_global_ctx_mut,
 };
 
-// modules
-pub use modules::hit_test;
+// hit_test
+pub use hit_test::hit_test;
 
 // data spawn functions
 pub use data::{
@@ -114,7 +113,7 @@ mod tests {
                 "width": 250,
                 "height": 2160,
                 "outer_gap": 8,
-                "children": [{ "type": "container" }]
+                "children": [{ "type": "div" }]
             }]
         });
         let panels = parse_root_node(&root).unwrap();
@@ -135,7 +134,7 @@ mod tests {
                 "type": "wallpaper",
                 "id": "bg",
                 "output": "DP-2",
-                "children": [{ "type": "container" }]
+                "children": [{ "type": "div" }]
             }]
         });
         let specs = parse_root_node(&root).unwrap();
@@ -208,7 +207,7 @@ mod tests {
 
     #[test]
     fn parse_root_node_rejects_non_root_type() {
-        let node = serde_json::json!({ "type": "container" });
+        let node = serde_json::json!({ "type": "div" });
         assert!(parse_root_node(&node).is_err());
     }
 

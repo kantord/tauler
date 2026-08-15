@@ -7,10 +7,10 @@ fn both_exports_from_shared_module_path_are_available() {
     let source = r#"
 import { FooWidget, BarWidget } from '@ui/test-multi';
 export default function render() {
-    return <container>
+    return <div>
         <FooWidget />
         <BarWidget />
-    </container>;
+    </div>;
 }
 "#;
     let result = common::eval_jsx(source);
@@ -19,11 +19,11 @@ export default function render() {
         .expect("expected children array");
     assert_eq!(children.len(), 2, "expected two child nodes");
     assert_eq!(
-        children[0]["tw"], "foo-widget",
+        children[0]["class"], "foo-widget",
         "first child should be FooWidget"
     );
     assert_eq!(
-        children[1]["tw"], "bar-widget",
+        children[1]["class"], "bar-widget",
         "second child should be BarWidget"
     );
 }

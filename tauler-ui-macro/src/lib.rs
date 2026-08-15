@@ -153,16 +153,16 @@ type ParsedElement = NodeElement<Infallible>;
 
 /// JSX-like macro for building `tauler::ui::Node` trees.
 ///
-/// Supports `<container>`, `<text>`, and `<image>` tags with a `tw` attribute.
+/// Supports any lowercase HTML tag with a `class` attribute, and PascalCase components.
 /// Block expressions `{expr}` in children accept either a single `Node` or a
 /// `Vec<Node>` (spliced via `IntoNodes`).
 ///
 /// Example:
 /// ```ignore
 /// ui! {
-///     <container tw={tw}>
+///     <div class={class}>
 ///         {props.children}
-///     </container>
+///     </div>
 /// }
 /// ```
 #[proc_macro]
@@ -194,9 +194,7 @@ fn gen_node(node: &ParsedNode) -> TokenStream2 {
             if s.trim().is_empty() {
                 quote! {}
             } else {
-                quote! {
-                    crate::ui::Node::Text(crate::ui::TextNode { tw: None, text: #s.to_string() })
-                }
+                quote! { crate::ui::Node::Text(#s.to_string()) }
             }
         }
         _ => quote! {},
@@ -213,17 +211,7 @@ fn gen_element(el: &ParsedElement) -> TokenStream2 {
     {
         return gen_component_call(el);
     }
-    match name.as_str() {
-        "container" => gen_container(el),
-        "text" => gen_text_el(el),
-        "image" => gen_image_el(el),
-        _ => {
-            let msg = format!(
-                "unknown ui element <{name}>; use container, text, image, or a PascalCase component"
-            );
-            quote! { compile_error!(#msg) }
-        }
-    }
+    gen_element_node(el, &name)
 }
 
 fn gen_component_call(el: &ParsedElement) -> TokenStream2 {
@@ -253,10 +241,10 @@ fn gen_component_call(el: &ParsedElement) -> TokenStream2 {
     }
 }
 
-fn get_tw(el: &ParsedElement) -> TokenStream2 {
+fn get_class(el: &ParsedElement) -> TokenStream2 {
     for attr in el.attributes() {
         if let NodeAttribute::Attribute(kv) = attr {
-            if kv.key.to_string() == "tw" {
+            if kv.key.to_string() == "class" {
                 if let Some(expr) = kv.value() {
                     return quote! { Some((#expr).to_string()) };
                 }
@@ -294,10 +282,7 @@ fn gen_children(children: &[ParsedNode]) -> TokenStream2 {
                     None
                 } else {
                     Some(quote! {
-                        __children.push(crate::ui::Node::Text(crate::ui::TextNode {
-                            tw: None,
-                            text: #s.to_string(),
-                        }));
+                        __children.push(crate::ui::Node::Text(#s.to_string()));
                     })
                 }
             }
@@ -321,55 +306,19 @@ fn get_style(el: &ParsedElement) -> TokenStream2 {
     }
 }
 
-fn gen_container(el: &ParsedElement) -> TokenStream2 {
-    let tw = get_tw(el);
+/// One shape for every lowercase tag.
+///
+/// There is no per-tag branch here on purpose: an element is a tag name, some styling
+/// and some children, and which tags exist is the layout walker's business, not the
+/// macro's. `src`/`width`/`height` are read for every tag and simply stay `None` on
+/// the ones that never carry them.
+fn gen_element_node(el: &ParsedElement, tag: &str) -> TokenStream2 {
+    let class = get_class(el);
     let style = get_style(el);
     let children = gen_children(&el.children);
-    quote! {
-        crate::ui::Node::Container(crate::ui::ContainerNode {
-            tw: #tw,
-            style: #style,
-            children: #children,
-        })
-    }
-}
-
-fn gen_text_el(el: &ParsedElement) -> TokenStream2 {
-    let tw = get_tw(el);
-    let parts: Vec<TokenStream2> = el
-        .children
-        .iter()
-        .filter_map(|child| match child {
-            Node::Text(t) => {
-                let s = t.value_string();
-                if s.trim().is_empty() {
-                    None
-                } else {
-                    Some(quote! { __text.push_str(#s); })
-                }
-            }
-            Node::Block(block) => Some(quote! { __text.push_str(&format!("{}", #block)); }),
-            _ => None,
-        })
-        .collect();
-
-    quote! {
-        crate::ui::Node::Text(crate::ui::TextNode {
-            tw: #tw,
-            text: {
-                let mut __text = String::new();
-                #(#parts)*
-                __text
-            },
-        })
-    }
-}
-
-fn gen_image_el(el: &ParsedElement) -> TokenStream2 {
-    let tw = get_tw(el);
     let src = get_attr_expr(el, "src")
-        .map(|e| quote! { (#e).to_string() })
-        .unwrap_or_else(|| quote! { compile_error!("<image> requires a src attribute") });
+        .map(|e| quote! { Some((#e).to_string()) })
+        .unwrap_or_else(|| quote! { None });
     let width = get_attr_expr(el, "width")
         .map(|e| quote! { Some(#e as f32) })
         .unwrap_or_else(|| quote! { None });
@@ -378,11 +327,14 @@ fn gen_image_el(el: &ParsedElement) -> TokenStream2 {
         .unwrap_or_else(|| quote! { None });
 
     quote! {
-        crate::ui::Node::Image(crate::ui::ImageNode {
-            tw: #tw,
+        crate::ui::Node::Element(crate::ui::ElementNode {
+            tag: #tag.to_string(),
+            class: #class,
+            style: #style,
             src: #src,
             width: #width,
             height: #height,
+            children: #children,
         })
     }
 }

@@ -18,11 +18,11 @@ fn a_component_returning_a_vec_splices_its_nodes_into_the_parent() {
     let layout = eval(
         r#"import { PairWidget } from '@ui/test-multi';
 export default function render() {
-  return <container tw="host"><PairWidget /></container>;
+  return <div class="host"><PairWidget /></div>;
 }"#,
     );
     let kids = layout["children"].as_array().expect("children array");
-    let tws: Vec<&str> = kids.iter().filter_map(|c| c["tw"].as_str()).collect();
+    let tws: Vec<&str> = kids.iter().filter_map(|c| c["class"].as_str()).collect();
     assert_eq!(
         tws,
         vec!["pair-first", "pair-second"],

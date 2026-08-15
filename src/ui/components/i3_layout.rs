@@ -284,9 +284,9 @@ mod tests {
     #[test]
     fn children_are_carried_through_to_the_emitted_panel() {
         let mut d = decl("s", "left", 300);
-        d.children = vec![serde_json::json!({"type": "text", "text": "hi"})];
+        d.children = vec![serde_json::json!("hi")];
         let l = lay_out(&[d], 1920, 1080);
-        assert_eq!(l.panels[0]["children"][0]["text"], "hi");
+        assert_eq!(l.panels[0]["children"][0], "hi");
     }
 
     #[test]

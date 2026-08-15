@@ -32,80 +32,80 @@ static ICON_MAP: LazyLock<HashMap<String, String>> = LazyLock::new(|| {
 ///
 /// # JSX
 /// ```jsx
-/// <container tw="flex flex-col gap-[16px] p-[12px]">
-///   <container tw="flex flex-row items-end gap-[20px]">
-///     <container tw="flex flex-col items-center gap-[4px]">
-///       <Icon name="md-star" tw="text-[12px]" />
-///       <text tw="text-[9px] text-muted-foreground">12px</text>
-///     </container>
-///     <container tw="flex flex-col items-center gap-[4px]">
-///       <Icon name="md-star" tw="text-[16px]" />
-///       <text tw="text-[9px] text-muted-foreground">16px</text>
-///     </container>
-///     <container tw="flex flex-col items-center gap-[4px]">
-///       <Icon name="md-star" tw="text-[20px]" />
-///       <text tw="text-[9px] text-muted-foreground">20px</text>
-///     </container>
-///     <container tw="flex flex-col items-center gap-[4px]">
-///       <Icon name="md-star" tw="text-[28px]" />
-///       <text tw="text-[9px] text-muted-foreground">28px</text>
-///     </container>
-///     <container tw="flex flex-col items-center gap-[4px]">
-///       <Icon name="md-star" tw="text-[36px]" />
-///       <text tw="text-[9px] text-muted-foreground">36px</text>
-///     </container>
-///   </container>
-///   <container tw="flex flex-row flex-wrap gap-x-[20px] gap-y-[12px]">
-///     <container tw="flex flex-col items-center gap-[4px]">
-///       <Icon name="md-home" tw="text-[20px]" />
-///       <text tw="text-[9px] text-muted-foreground">md-home</text>
-///     </container>
-///     <container tw="flex flex-col items-center gap-[4px]">
-///       <Icon name="md-heart" tw="text-[20px]" />
-///       <text tw="text-[9px] text-muted-foreground">md-heart</text>
-///     </container>
-///     <container tw="flex flex-col items-center gap-[4px]">
-///       <Icon name="fa-github" tw="text-[20px]" />
-///       <text tw="text-[9px] text-muted-foreground">fa-github</text>
-///     </container>
-///     <container tw="flex flex-col items-center gap-[4px]">
-///       <Icon name="cod-terminal" tw="text-[20px]" />
-///       <text tw="text-[9px] text-muted-foreground">cod-terminal</text>
-///     </container>
-///     <container tw="flex flex-col items-center gap-[4px]">
-///       <Icon name="oct-git_branch" tw="text-[20px]" />
-///       <text tw="text-[9px] text-muted-foreground">oct-git_branch</text>
-///     </container>
-///     <container tw="flex flex-col items-center gap-[4px]">
-///       <Icon name="dev-linux" tw="text-[20px]" />
-///       <text tw="text-[9px] text-muted-foreground">dev-linux</text>
-///     </container>
-///     <container tw="flex flex-col items-center gap-[4px]">
-///       <Icon name="md-folder" tw="text-[20px]" />
-///       <text tw="text-[9px] text-muted-foreground">md-folder</text>
-///     </container>
-///     <container tw="flex flex-col items-center gap-[4px]">
-///       <Icon name="fa-star" tw="text-[20px]" />
-///       <text tw="text-[9px] text-muted-foreground">fa-star</text>
-///     </container>
-///     <container tw="flex flex-col items-center gap-[4px]">
-///       <Icon name="oct-repo" tw="text-[20px]" />
-///       <text tw="text-[9px] text-muted-foreground">oct-repo</text>
-///     </container>
-///     <container tw="flex flex-col items-center gap-[4px]">
-///       <Icon name="cod-search" tw="text-[20px]" />
-///       <text tw="text-[9px] text-muted-foreground">cod-search</text>
-///     </container>
-///     <container tw="flex flex-col items-center gap-[4px]">
-///       <Icon name="md-wifi" tw="text-[20px]" />
-///       <text tw="text-[9px] text-muted-foreground">md-wifi</text>
-///     </container>
-///   </container>
-/// </container>
+/// <div class="flex flex-col gap-[16px] p-[12px]">
+///   <div class="flex flex-row items-end gap-[20px]">
+///     <div class="flex flex-col items-center gap-[4px]">
+///       <Icon name="md-star" class="text-[12px]" />
+///       <span class="text-[9px] text-muted-foreground">12px</span>
+///     </div>
+///     <div class="flex flex-col items-center gap-[4px]">
+///       <Icon name="md-star" class="text-[16px]" />
+///       <span class="text-[9px] text-muted-foreground">16px</span>
+///     </div>
+///     <div class="flex flex-col items-center gap-[4px]">
+///       <Icon name="md-star" class="text-[20px]" />
+///       <span class="text-[9px] text-muted-foreground">20px</span>
+///     </div>
+///     <div class="flex flex-col items-center gap-[4px]">
+///       <Icon name="md-star" class="text-[28px]" />
+///       <span class="text-[9px] text-muted-foreground">28px</span>
+///     </div>
+///     <div class="flex flex-col items-center gap-[4px]">
+///       <Icon name="md-star" class="text-[36px]" />
+///       <span class="text-[9px] text-muted-foreground">36px</span>
+///     </div>
+///   </div>
+///   <div class="flex flex-row flex-wrap gap-x-[20px] gap-y-[12px]">
+///     <div class="flex flex-col items-center gap-[4px]">
+///       <Icon name="md-home" class="text-[20px]" />
+///       <span class="text-[9px] text-muted-foreground">md-home</span>
+///     </div>
+///     <div class="flex flex-col items-center gap-[4px]">
+///       <Icon name="md-heart" class="text-[20px]" />
+///       <span class="text-[9px] text-muted-foreground">md-heart</span>
+///     </div>
+///     <div class="flex flex-col items-center gap-[4px]">
+///       <Icon name="fa-github" class="text-[20px]" />
+///       <span class="text-[9px] text-muted-foreground">fa-github</span>
+///     </div>
+///     <div class="flex flex-col items-center gap-[4px]">
+///       <Icon name="cod-terminal" class="text-[20px]" />
+///       <span class="text-[9px] text-muted-foreground">cod-terminal</span>
+///     </div>
+///     <div class="flex flex-col items-center gap-[4px]">
+///       <Icon name="oct-git_branch" class="text-[20px]" />
+///       <span class="text-[9px] text-muted-foreground">oct-git_branch</span>
+///     </div>
+///     <div class="flex flex-col items-center gap-[4px]">
+///       <Icon name="dev-linux" class="text-[20px]" />
+///       <span class="text-[9px] text-muted-foreground">dev-linux</span>
+///     </div>
+///     <div class="flex flex-col items-center gap-[4px]">
+///       <Icon name="md-folder" class="text-[20px]" />
+///       <span class="text-[9px] text-muted-foreground">md-folder</span>
+///     </div>
+///     <div class="flex flex-col items-center gap-[4px]">
+///       <Icon name="fa-star" class="text-[20px]" />
+///       <span class="text-[9px] text-muted-foreground">fa-star</span>
+///     </div>
+///     <div class="flex flex-col items-center gap-[4px]">
+///       <Icon name="oct-repo" class="text-[20px]" />
+///       <span class="text-[9px] text-muted-foreground">oct-repo</span>
+///     </div>
+///     <div class="flex flex-col items-center gap-[4px]">
+///       <Icon name="cod-search" class="text-[20px]" />
+///       <span class="text-[9px] text-muted-foreground">cod-search</span>
+///     </div>
+///     <div class="flex flex-col items-center gap-[4px]">
+///       <Icon name="md-wifi" class="text-[20px]" />
+///       <span class="text-[9px] text-muted-foreground">md-wifi</span>
+///     </div>
+///   </div>
+/// </div>
 /// ```
 #[component("@ui/icon")]
-pub fn icon(name: String, tw: Option<String>) -> Node {
+pub fn icon(name: String, class: Option<String>) -> Node {
     let glyph = ICON_MAP.get(&name).map(|s| s.as_str()).unwrap_or("?");
-    let tw = ICON_VARIANTS.resolve(&[], tw.as_deref().unwrap_or(""));
-    rsx! { <text tw={tw}>{glyph}</text> }
+    let class = ICON_VARIANTS.resolve(&[], class.as_deref().unwrap_or(""));
+    rsx! { <span class={class}>{glyph}</span> }
 }

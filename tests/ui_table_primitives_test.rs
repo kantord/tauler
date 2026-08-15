@@ -17,29 +17,29 @@ mod table {
 
     #[test]
     fn has_base_tw() {
-        assert_eq!(node()["tw"], "flex flex-col w-full");
+        assert_eq!(node()["class"], "flex flex-col w-full");
     }
 
     #[test]
     fn renders_as_container() {
-        assert_eq!(node()["type"], "container");
+        assert_eq!(node()["type"], "div");
     }
 
     #[test]
     fn passes_children_through() {
-        let children = eval_table(r#"<Table><text tw="text-white">{"hello"}</text></Table>"#)
+        let children = eval_table(r#"<Table><span class="text-white">{"hello"}</span></Table>"#)
             ["children"]
             .as_array()
             .expect("children array")
             .clone();
         assert_eq!(children.len(), 1);
-        assert_eq!(children[0]["type"], "text");
-        assert_eq!(children[0]["tw"], "text-white");
+        assert_eq!(children[0]["type"], "span");
+        assert_eq!(children[0]["class"], "text-white");
     }
 
     #[test]
     fn merges_optional_tw_prop() {
-        let tw = eval_table(r#"<Table tw="my-extra" />"#)["tw"]
+        let tw = eval_table(r#"<Table class="my-extra" />"#)["class"]
             .as_str()
             .unwrap()
             .to_string();
@@ -55,7 +55,7 @@ mod table_header {
     use super::eval_table;
 
     fn tw() -> String {
-        eval_table("<TableHeader />")["tw"]
+        eval_table("<TableHeader />")["class"]
             .as_str()
             .unwrap()
             .to_string()
@@ -75,7 +75,7 @@ mod table_header {
 
     #[test]
     fn renders_as_container() {
-        assert_eq!(eval_table("<TableHeader />")["type"], "container");
+        assert_eq!(eval_table("<TableHeader />")["type"], "div");
     }
 }
 
@@ -84,12 +84,12 @@ mod table_body {
 
     #[test]
     fn has_base_tw() {
-        assert_eq!(eval_table("<TableBody />")["tw"], "flex flex-col w-full");
+        assert_eq!(eval_table("<TableBody />")["class"], "flex flex-col w-full");
     }
 
     #[test]
     fn renders_as_container() {
-        assert_eq!(eval_table("<TableBody />")["type"], "container");
+        assert_eq!(eval_table("<TableBody />")["type"], "div");
     }
 }
 
@@ -101,17 +101,17 @@ mod table_row {
 
     #[test]
     fn has_base_tw() {
-        assert_eq!(eval_table("<TableRow />")["tw"], BASE_TW);
+        assert_eq!(eval_table("<TableRow />")["class"], BASE_TW);
     }
 
     #[test]
     fn renders_as_container() {
-        assert_eq!(eval_table("<TableRow />")["type"], "container");
+        assert_eq!(eval_table("<TableRow />")["type"], "div");
     }
 
     #[test]
     fn merges_optional_tw_prop() {
-        let tw = eval_table(r#"<TableRow tw="row-extra" />"#)["tw"]
+        let tw = eval_table(r#"<TableRow class="row-extra" />"#)["class"]
             .as_str()
             .unwrap()
             .to_string();
@@ -121,14 +121,15 @@ mod table_row {
 
     #[test]
     fn passes_children_through() {
-        let children = eval_table(r#"<TableRow><text tw="cell-text">{"data"}</text></TableRow>"#)
-            ["children"]
-            .as_array()
-            .expect("children array")
-            .clone();
+        let children =
+            eval_table(r#"<TableRow><span class="cell-text">{"data"}</span></TableRow>"#)
+                ["children"]
+                .as_array()
+                .expect("children array")
+                .clone();
         assert_eq!(children.len(), 1);
-        assert_eq!(children[0]["type"], "text");
-        assert_eq!(children[0]["tw"], "cell-text");
+        assert_eq!(children[0]["type"], "span");
+        assert_eq!(children[0]["class"], "cell-text");
     }
 }
 
@@ -136,7 +137,7 @@ mod table_head {
     use super::eval_table;
 
     fn tw() -> String {
-        eval_table("<TableHead />")["tw"]
+        eval_table("<TableHead />")["class"]
             .as_str()
             .unwrap()
             .to_string()
@@ -171,12 +172,12 @@ mod table_head {
 
     #[test]
     fn renders_as_container() {
-        assert_eq!(eval_table("<TableHead />")["type"], "container");
+        assert_eq!(eval_table("<TableHead />")["type"], "div");
     }
 
     #[test]
     fn merges_optional_tw_prop() {
-        let tw = eval_table(r#"<TableHead tw="head-extra" />"#)["tw"]
+        let tw = eval_table(r#"<TableHead class="head-extra" />"#)["class"]
             .as_str()
             .unwrap()
             .to_string();
@@ -186,14 +187,15 @@ mod table_head {
 
     #[test]
     fn passes_children_through() {
-        let children = eval_table(r#"<TableHead><text tw="col-label">{"NAME"}</text></TableHead>"#)
-            ["children"]
-            .as_array()
-            .expect("children array")
-            .clone();
+        let children =
+            eval_table(r#"<TableHead><span class="col-label">{"NAME"}</span></TableHead>"#)
+                ["children"]
+                .as_array()
+                .expect("children array")
+                .clone();
         assert_eq!(children.len(), 1);
-        assert_eq!(children[0]["type"], "text");
-        assert_eq!(children[0]["tw"], "col-label");
+        assert_eq!(children[0]["type"], "span");
+        assert_eq!(children[0]["class"], "col-label");
     }
 }
 
@@ -201,7 +203,7 @@ mod table_cell {
     use super::eval_table;
 
     fn tw() -> String {
-        eval_table("<TableCell />")["tw"]
+        eval_table("<TableCell />")["class"]
             .as_str()
             .unwrap()
             .to_string()
@@ -236,12 +238,12 @@ mod table_cell {
 
     #[test]
     fn renders_as_container() {
-        assert_eq!(eval_table("<TableCell />")["type"], "container");
+        assert_eq!(eval_table("<TableCell />")["type"], "div");
     }
 
     #[test]
     fn merges_optional_tw_prop() {
-        let tw = eval_table(r#"<TableCell tw="cell-extra" />"#)["tw"]
+        let tw = eval_table(r#"<TableCell class="cell-extra" />"#)["class"]
             .as_str()
             .unwrap()
             .to_string();
@@ -251,13 +253,13 @@ mod table_cell {
 
     #[test]
     fn passes_children_through() {
-        let children = eval_table(r#"<TableCell><text tw="cell-val">{"42"}</text></TableCell>"#)
+        let children = eval_table(r#"<TableCell><span class="cell-val">{"42"}</span></TableCell>"#)
             ["children"]
             .as_array()
             .expect("children array")
             .clone();
         assert_eq!(children.len(), 1);
-        assert_eq!(children[0]["type"], "text");
-        assert_eq!(children[0]["tw"], "cell-val");
+        assert_eq!(children[0]["type"], "span");
+        assert_eq!(children[0]["class"], "cell-val");
     }
 }

@@ -14,8 +14,8 @@ fn preload_layout_images_loads_local_file_into_store() {
     let path = write_temp_png();
     let src = path.to_str().unwrap().to_string();
     let layout = serde_json::json!({
-        "type": "container",
-        "children": [{"type": "image", "src": src.clone()}]
+        "type": "div",
+        "children": [{"type": "img", "src": src.clone()}]
     });
     preload_layout_images(&layout);
     with_global_ctx(|global| {
@@ -26,7 +26,7 @@ fn preload_layout_images_loads_local_file_into_store() {
 #[test]
 fn preload_layout_images_ignores_missing_files() {
     init_global_ctx(FontConfig::default());
-    let layout = serde_json::json!({"type": "image", "src": "/nonexistent/image.png"});
+    let layout = serde_json::json!({"type": "img", "src": "/nonexistent/image.png"});
     preload_layout_images(&layout);
     with_global_ctx(|global| {
         assert!(!global.images.contains_key("/nonexistent/image.png"));
@@ -36,7 +36,7 @@ fn preload_layout_images_ignores_missing_files() {
 #[test]
 fn preload_layout_images_skips_http_urls() {
     init_global_ctx(FontConfig::default());
-    let layout = serde_json::json!({"type": "image", "src": "https://example.com/img.png"});
+    let layout = serde_json::json!({"type": "img", "src": "https://example.com/img.png"});
     preload_layout_images(&layout);
     with_global_ctx(|global| {
         assert!(!global.images.contains_key("https://example.com/img.png"));

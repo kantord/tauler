@@ -41,9 +41,10 @@ The four per-edge distances that express a reservation to i3. The unit is the lo
 pixel — see **Logical pixel**.
 _Avoid_: margins, padding, insets
 
-**root-bg**:
+**tauler:root-bg**:
 The slice of Wallpaper sitting behind one Panel, bound as an image for the duration of a
 single render. It is what makes a Panel look transparent; nothing is actually translucent.
+The scheme marks it as a resource tauler binds, never a file to read.
 _Avoid_: transparency, blur, backdrop
 
 ### The layout file
@@ -62,12 +63,26 @@ _Avoid_: frame, render pass, update, re-render
 
 **Shell node**:
 A node that describes structure rather than content: `root`, `panel`, `wallpaper`. Shell
-nodes never reach the rasterizer.
+nodes never reach the rasterizer, and they are the only lowercase names in a layout file
+that are not HTML elements.
 _Avoid_: top-level node, container node
 
 **Layout node**:
-A node that describes content and is rasterized: `container`, `text`, `image`.
-_Avoid_: leaf node, visual node, element
+A node that describes content and is rasterized. Layout nodes are named after the HTML
+element they are — `div`, `span`, `img` — and behave as that element does.
+_Avoid_: leaf node, visual node, tag (a tag is the name; the node is the thing)
+
+**Text node**:
+A Layout node holding a run of text. It has no element of its own: writing a bare value
+in the tree is what makes one, and the only thing that does.
+_Avoid_: label, string node, text element
+
+**Preset**:
+The style an element gets from its tag name alone — why a paragraph has margins and a
+heading is large. Presets sit under everything else, so anything written on the node
+wins.
+_Avoid_: default style, base style
+_Elsewhere_: user-agent stylesheet (browsers)
 
 **Edge layout**:
 Deriving both a set of Panels and the matching reservation from one ordered list of edge

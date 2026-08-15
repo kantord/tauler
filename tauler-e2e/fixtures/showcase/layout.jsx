@@ -39,9 +39,9 @@ const PILL = "flex flex-row items-center justify-center w-[24px] h-[22px] rounde
 function Workspace({ ws }) {
   if (ws.focused) {
     return (
-      <container tw={`${PILL} bg-primary`}>
-        <text tw="text-[12px] text-primary-foreground">{ws.name}</text>
-      </container>
+      <div class={`${PILL} bg-primary`}>
+        <span class="text-[12px] text-primary-foreground">{ws.name}</span>
+      </div>
     );
   }
   // Occupied but unfocused reads brighter than empty, so the strip shows where
@@ -50,9 +50,9 @@ function Workspace({ ws }) {
     ? "text-foreground"
     : "text-muted-foreground";
   return (
-    <container tw={`${PILL} bg-secondary`}>
-      <text tw={`text-[12px] ${tone}`}>{ws.name}</text>
-    </container>
+    <div class={`${PILL} bg-secondary`}>
+      <span class={`text-[12px] ${tone}`}>{ws.name}</span>
+    </div>
   );
 }
 
@@ -60,15 +60,15 @@ function Workspace({ ws }) {
 // status readout into a row of buttons.
 function Stat({ icon, value, tone }) {
   return (
-    <container tw="flex flex-row items-center gap-[6px]">
-      <Icon name={icon} tw={`text-[13px] ${tone}`} />
-      <text tw="text-[12px] text-foreground">{value}</text>
-    </container>
+    <div class="flex flex-row items-center gap-[6px]">
+      <Icon name={icon} class={`text-[13px] ${tone}`} />
+      <span class="text-[12px] text-foreground">{value}</span>
+    </div>
   );
 }
 
 function Divider() {
-  return <container tw="w-[1px] h-[14px] bg-border" />;
+  return <div class="w-[1px] h-[14px] bg-border" />;
 }
 
 export default function render() {
@@ -85,7 +85,7 @@ export default function render() {
       {/* `id` is required: omitting it fails the whole root parse, not just
           this node. */}
       <wallpaper id="desktop">
-        <image
+        <img
           src="/fixtures/showcase/wallpaper.png"
           style={{ width: "100%", height: "100%" }}
         />
@@ -93,13 +93,13 @@ export default function render() {
 
       <I3Layout module={TAULER_I3}>
         <Panel id="bar" anchor="top" size={58}>
-          {/* The sanctioned root-bg shape: one absolutely-positioned <image>
-              under content that stays `relative`. An <image> node rather than
+          {/* The sanctioned root-bg shape: one absolutely-positioned <img>
+              under content that stays `relative`. An <img> node rather than
               backgroundImage — see the layout-file docs, the background-image
               path redoes per-pixel setup and costs ~3× as much. */}
-          <container style={{ position: "relative", width: "100%", height: "100%" }}>
-            <image
-              src="root-bg"
+          <div style={{ position: "relative", width: "100%", height: "100%" }}>
+            <img
+              src="tauler:root-bg"
               style={{
                 position: "absolute",
                 top: 0,
@@ -108,8 +108,8 @@ export default function render() {
                 height: "100%",
               }}
             />
-            <container tw="flex h-full w-full p-[12px]" style={{ position: "relative" }}>
-              <container tw="flex flex-row h-full w-full items-center justify-between rounded-2xl border border-border bg-card pl-[10px] pr-[10px]">
+            <div class="flex h-full w-full p-[12px]" style={{ position: "relative" }}>
+              <div class="flex flex-row h-full w-full items-center justify-between rounded-2xl border border-border bg-card pl-[10px] pr-[10px]">
                 {/* Left: real workspaces, and the real title of the focused
                     window. The same subprocess <I3Layout> registers above — one
                     bin, one process, union of props. */}
@@ -119,18 +119,18 @@ export default function render() {
                     const focused = wss.filter((w) => w.focused)[0];
                     const title = (focused?.focused_windows ?? [])[0];
                     return (
-                      <container tw="flex flex-row items-center gap-[10px]">
-                        <Icon name="md-layers_triple" tw="text-[15px] text-primary" />
+                      <div class="flex flex-row items-center gap-[10px]">
+                        <Icon name="md-layers_triple" class="text-[15px] text-primary" />
                         <Divider />
-                        <container tw="flex flex-row items-center gap-[4px]">
+                        <div class="flex flex-row items-center gap-[4px]">
                           {wss.map((ws) => (
                             <Workspace ws={ws} />
                           ))}
-                        </container>
+                        </div>
                         {title ? (
-                          <text tw="text-[12px] text-muted-foreground">{title}</text>
+                          <span class="text-[12px] text-muted-foreground">{title}</span>
                         ) : null}
-                      </container>
+                      </div>
                     );
                   }}
                 </Module>
@@ -142,8 +142,8 @@ export default function render() {
                     two groups rather than one long row of loose text. */}
                 <Module bin={STATUS}>
                   {(data) => (
-                    <container tw="flex flex-row items-center gap-[10px]">
-                      <container tw="flex flex-row items-center gap-[14px] rounded-2xl bg-secondary h-[26px] pl-[12px] pr-[12px]">
+                    <div class="flex flex-row items-center gap-[10px]">
+                      <div class="flex flex-row items-center gap-[14px] rounded-2xl bg-secondary h-[26px] pl-[12px] pr-[12px]">
                         {/* The glyph names are the wrong way round: md-memory
                             draws a processor die and md-chip draws a RAM
                             stick. Matched to what they look like, not to what
@@ -152,17 +152,17 @@ export default function render() {
                         <Stat icon="md-chip" value={data?.mem ?? "--"} tone="text-[#9ccfd8]" />
                         <Stat icon="md-volume_high" value={data?.vol ?? "--"} tone="text-[#f6c177]" />
                         <Stat icon="md-battery_70" value={data?.bat ?? "--"} tone="text-[#ea9a97]" />
-                      </container>
-                      <container tw="flex flex-row items-center gap-[6px]">
-                        <Icon name="md-clock_outline" tw="text-[13px] text-primary" />
-                        <text tw="text-[13px] text-foreground">{data?.time ?? "--:--"}</text>
-                      </container>
-                    </container>
+                      </div>
+                      <div class="flex flex-row items-center gap-[6px]">
+                        <Icon name="md-clock_outline" class="text-[13px] text-primary" />
+                        <span class="text-[13px] text-foreground">{data?.time ?? "--:--"}</span>
+                      </div>
+                    </div>
                   )}
                 </Module>
-              </container>
-            </container>
-          </container>
+              </div>
+            </div>
+          </div>
         </Panel>
       </I3Layout>
     </root>

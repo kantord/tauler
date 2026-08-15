@@ -113,13 +113,13 @@ function RecentLogs() {
   `) ?? [];
 
   return (
-    <container tw="flex flex-col gap-2 rounded-lg border px-3 py-3">
-      <text tw="text-[10px] text-foreground opacity-60">RECENT</text>
+    <div class="flex flex-col gap-2 rounded-lg border px-3 py-3">
+      <span class="text-[10px] text-foreground opacity-60">RECENT</span>
       <DataTable
         columns={[{ key: "_COMM", label: "UNIT" }, { key: "MESSAGE", label: "MESSAGE" }]}
         rows={[...lines].reverse()}
       />
-    </container>
+    </div>
   );
 }
 ```
@@ -138,13 +138,13 @@ function Load() {
   const mean = load.length ? load.reduce((a, b) => a + b, 0) / load.length : 0;
 
   return (
-    <container tw="flex flex-col gap-1 rounded-lg border px-3 py-2">
-      <text tw="text-[10px] text-foreground opacity-60">LOAD</text>
-      <text tw="text-[18px] text-foreground">{now.toFixed(2)}</text>
-      <text tw="text-[11px] text-foreground opacity-70">
+    <div class="flex flex-col gap-1 rounded-lg border px-3 py-2">
+      <span class="text-[10px] text-foreground opacity-60">LOAD</span>
+      <span class="text-[18px] text-foreground">{now.toFixed(2)}</span>
+      <span class="text-[11px] text-foreground opacity-70">
         {`peak ${peak.toFixed(2)} · avg ${mean.toFixed(2)} · ${load.length} samples`}
-      </text>
-    </container>
+      </span>
+    </div>
   );
 }
 ```
@@ -182,9 +182,34 @@ on_click={[
 ]}
 ```
 
-On a click, tauler hit-tests the rendered tree for the deepest node carrying an `on_click`,
-then delivers each intent's `event` object verbatim to that intent's channel over stdin —
-one JSON object per line, no wrapping envelope. No JavaScript runs on click.
+On a click, tauler finds the **topmost element painted over that point** that carries an
+`on_click`, then delivers each intent's `event` object verbatim to that intent's channel
+over stdin — one JSON object per line, no wrapping envelope. No JavaScript runs on click.
+
+:::caution[Put handlers on block-level elements]
+`on_click` only fires on an element that has a box of its own — a `<div>`, or any element
+that is a flex or grid item. A plain inline element like a `<span>` sitting in a run of
+text has no box, so a handler on it never fires.
+
+```jsx
+// Nothing happens: the span is inline, so it has no box to click.
+<p>PRs: <span on_click={[gh.open({ repo })]}>{count}</span></p>
+
+// Works: the div is a flex item, so it has one.
+<div class="flex flex-row">
+  <div on_click={[gh.open({ repo })]}>{count}</div>
+</div>
+```
+
+You do not have to guess which case you are in. The first click on the surface logs a
+warning naming the element as you wrote it:
+
+```
+WARN on_click on a node that is never painted on its own — inline elements
+     cannot take clicks; move the handler to a block-level element
+     node=<span id="pr-count" class="text-[11px]">
+```
+:::
 
 A module therefore only ever sees its own vocabulary, and never learns that a click caused
 the message. Because a handler is a list, one gesture can address several subprocesses at

@@ -58,14 +58,14 @@ fn panel(id: &str, output: &str, x: i32) -> SurfaceSpec {
 
 /// A panel whose whole surface is the backdrop image.
 ///
-/// An `<image>` node, not `backgroundImage: url(root-bg)` — the image node is the
+/// An `<img>` node, not `backgroundImage: url(tauler:root-bg)` — the image node is the
 /// documented path (~5ms vs ~19ms), so that is the one worth covering.
 fn backdrop_content() -> serde_json::Value {
     serde_json::json!({
-        "type": "container",
+        "type": "div",
         "style": { "position": "relative", "width": "100%", "height": "100%" },
         "children": [{
-            "type": "image",
+            "type": "img",
             "src": ROOT_BG_KEY,
             "style": {
                 "position": "absolute",

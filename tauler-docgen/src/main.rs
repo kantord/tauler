@@ -389,7 +389,7 @@ fn render_prose(out: &mut String, prose: &[String]) {
 ///
 /// UI components are ES modules, not globals, so a usage example without its
 /// imports throws at eval rather than rendering. Tags that are not components —
-/// layout nodes like `<text>`, and globals like `<Module>` and `<I3Layout>` —
+/// layout nodes like `<span>`, and globals like `<Module>` and `<I3Layout>` —
 /// are left alone: an import for those would break the example it is meant to fix.
 fn components_used_in<'a>(block: &[String], all: &'a [Component]) -> Vec<&'a Component> {
     let mut used: Vec<&Component> = Vec::new();
@@ -734,14 +734,14 @@ mod tests {
         );
     }
 
-    /// Lowercase tags are layout nodes, not components — importing `<text>`
+    /// Lowercase tags are layout nodes, not components — importing `<span>`
     /// would be a name that does not resolve.
     #[test]
     fn layout_nodes_are_not_imported() {
         let comp = component(
             "@ui/card",
             "Card",
-            Some(vec!["<Card><text>hi</text></Card>"]),
+            Some(vec!["<Card><span>hi</span></Card>"]),
         );
         let out = render_component_section(&comp, &None, std::slice::from_ref(&comp));
         assert!(!out.contains("text }"), "layout node imported in:\n{out}");

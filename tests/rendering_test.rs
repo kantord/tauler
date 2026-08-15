@@ -19,7 +19,7 @@ fn render_frame_respects_different_width() {
 
 #[test]
 fn parse_layout_succeeds_for_valid_node_json() {
-    let json = serde_json::json!({"type": "container", "children": []});
+    let json = serde_json::json!({"type": "div", "children": []});
     assert!(parse_layout(&json).is_ok());
 }
 
@@ -27,8 +27,8 @@ fn parse_layout_succeeds_for_valid_node_json() {
 fn render_frame_with_layout_returns_correct_size() {
     init_global_ctx(FontConfig::default());
     let content = serde_json::json!({
-        "type": "container",
-        "children": [{"type": "text", "text": "from layout"}]
+        "type": "div",
+        "children": ["from layout"]
     });
     let bgrx = render_frame(&content, 100, 200, 1.0);
     assert_eq!(bgrx.len(), 100 * 200 * 4);
@@ -38,8 +38,8 @@ fn render_frame_with_layout_returns_correct_size() {
 fn render_frame_rgba_transparent_pixels_have_alpha_zero() {
     init_global_ctx(FontConfig::default());
     let content = serde_json::json!({
-        "type": "container",
-        "tw": "w-full h-full",
+        "type": "div",
+        "class": "w-full h-full",
         "children": []
     });
     let rgba = render_frame_rgba(&content, 10, 10, 1.0, None);

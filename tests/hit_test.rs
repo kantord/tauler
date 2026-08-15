@@ -1,143 +1,130 @@
+//! Clicks bind by render path (ADR 0018).
+//!
+//! Every test here goes through the real layout pipeline. The previous suite built
+//! `MeasuredNode` trees by hand, which let the walk agree with a tree takumi would
+//! never produce — and hid the fact that takumi replaces a node's measured children
+//! with inline boxes the moment it holds text.
+
 use tauler::config::FontConfig;
-use tauler::{hit_test, init_global_ctx, MeasuredNode};
+use tauler::{hit_test, init_global_ctx};
 
-fn node(x: f32, y: f32, w: f32, h: f32, children: Vec<MeasuredNode>) -> MeasuredNode {
-    MeasuredNode {
-        width: w,
-        height: h,
-        transform: [1.0, 0.0, 0.0, 1.0, x, y],
-        children,
-        runs: vec![],
-    }
+const W: u32 = 200;
+const H: u32 = 100;
+
+fn hit(layout: &serde_json::Value, x: f32, y: f32) -> Option<serde_json::Value> {
+    init_global_ctx(FontConfig::default());
+    hit_test(layout, W, H, 1.0, x, y)
+}
+
+fn intent(name: &str) -> serde_json::Value {
+    serde_json::json!([{"channel": "test", "event": {"type": name}}])
 }
 
 #[test]
-fn hit_within_root_with_on_click_returns_some() {
-    let measured = node(0.0, 0.0, 100.0, 100.0, vec![]);
-    let json =
-        serde_json::json!({"type": "container", "on_click": {"action": "test"}, "children": []});
-    let result = hit_test(&measured, &json, 50.0, 50.0);
-    assert!(result.is_some());
-    let (_, on_click) = result.unwrap();
-    assert_eq!(on_click["action"], "test");
-}
-
-#[test]
-fn miss_outside_bounds_returns_none() {
-    let measured = node(0.0, 0.0, 100.0, 100.0, vec![]);
-    let json = serde_json::json!({"on_click": {"action": "test"}, "children": []});
-    assert!(hit_test(&measured, &json, 150.0, 50.0).is_none());
-    assert!(hit_test(&measured, &json, 50.0, 150.0).is_none());
-    assert!(hit_test(&measured, &json, -1.0, 50.0).is_none());
-}
-
-#[test]
-fn node_without_on_click_returns_none() {
-    let measured = node(0.0, 0.0, 100.0, 100.0, vec![]);
-    let json = serde_json::json!({"type": "container", "children": []});
-    assert!(hit_test(&measured, &json, 50.0, 50.0).is_none());
-}
-
-#[test]
-fn hit_prefers_child_on_click_over_parent() {
-    let child = node(10.0, 10.0, 30.0, 30.0, vec![]);
-    let parent = node(0.0, 0.0, 100.0, 100.0, vec![child]);
-    let json = serde_json::json!({
-        "on_click": {"action": "parent"},
-        "children": [
-            {"on_click": {"action": "child"}, "children": []}
-        ]
+fn a_click_inside_a_handler_box_finds_it() {
+    let layout = serde_json::json!({
+        "type": "div",
+        "style": {"width": W, "height": H},
+        "on_click": intent("root"),
     });
-    let (_, on_click) = hit_test(&parent, &json, 20.0, 20.0).unwrap();
-    assert_eq!(on_click["action"], "child");
+    assert_eq!(hit(&layout, 50.0, 50.0), Some(intent("root")));
 }
 
 #[test]
-fn hit_falls_back_to_parent_when_child_has_no_on_click() {
-    let child = node(10.0, 10.0, 30.0, 30.0, vec![]);
-    let parent = node(0.0, 0.0, 100.0, 100.0, vec![child]);
-    let json = serde_json::json!({
-        "on_click": {"action": "parent"},
-        "children": [
-            {"children": []}
-        ]
+fn a_click_outside_every_box_finds_nothing() {
+    let layout = serde_json::json!({
+        "type": "div",
+        "style": {"width": 20, "height": 20},
+        "on_click": intent("root"),
     });
-    let (_, on_click) = hit_test(&parent, &json, 20.0, 20.0).unwrap();
-    assert_eq!(on_click["action"], "parent");
+    assert!(hit(&layout, 150.0, 80.0).is_none());
 }
 
 #[test]
-fn child_uses_absolute_transform_for_hit_detection() {
-    // Takumi stores absolute screen coords in transform[4/5].
-    // Child at absolute (60, 60) — i.e. parent at (50,50) + child offset (10,10).
-    let child = node(60.0, 60.0, 20.0, 20.0, vec![]);
-    let parent = node(50.0, 50.0, 100.0, 100.0, vec![child]);
-    let json = serde_json::json!({
-        "children": [{"on_click": {"action": "child"}, "children": []}]
+fn a_node_without_a_handler_finds_nothing() {
+    let layout = serde_json::json!({
+        "type": "div",
+        "style": {"width": W, "height": H},
     });
-    // Click at (65, 65) is inside child's absolute bounds (60..80, 60..80)
-    let result = hit_test(&parent, &json, 65.0, 65.0);
-    assert!(result.is_some());
-    assert_eq!(result.unwrap().1["action"], "child");
-
-    // Click at (55, 55) is inside parent but outside child
-    assert!(hit_test(&parent, &json, 55.0, 55.0).is_none());
+    assert!(hit(&layout, 50.0, 50.0).is_none());
 }
 
 #[test]
-fn path_reflects_tree_position() {
-    let child = node(0.0, 0.0, 50.0, 50.0, vec![]);
-    let parent = node(0.0, 0.0, 100.0, 100.0, vec![child]);
-    let json = serde_json::json!({
-        "children": [{"on_click": {"action": "x"}, "children": []}]
+fn the_innermost_handler_under_the_point_wins() {
+    let layout = serde_json::json!({
+        "type": "div",
+        "style": {"width": W, "height": H},
+        "on_click": intent("parent"),
+        "children": [{
+            "type": "div",
+            "style": {"width": 40, "height": 40},
+            "on_click": intent("child"),
+        }],
     });
-    let (path, _) = hit_test(&parent, &json, 25.0, 25.0).unwrap();
-    assert_eq!(path, "/children/0");
+    assert_eq!(hit(&layout, 20.0, 20.0), Some(intent("child")));
+    assert_eq!(hit(&layout, 150.0, 80.0), Some(intent("parent")));
 }
 
-/// A handler on a small LAST child (e.g. a dismiss "×" button) must be found when
-/// clicking it, and must NOT be found when clicking the large sibling next to it.
-/// Uses the real measurement pipeline rather than a hand-built tree.
 #[test]
-fn handler_on_small_last_child_is_hit_only_within_its_own_box() {
-    let json = serde_json::json!({
-        "type": "container",
-        "tw": "flex flex-row items-center h-full w-full",
+fn a_child_without_a_handler_falls_back_to_its_parent() {
+    let layout = serde_json::json!({
+        "type": "div",
+        "style": {"width": W, "height": H},
+        "on_click": intent("parent"),
+        "children": [{"type": "div", "style": {"width": 40, "height": 40}}],
+    });
+    assert_eq!(hit(&layout, 20.0, 20.0), Some(intent("parent")));
+}
+
+/// The regression ADR 0018 is about. A handler on a sibling of text used to be
+/// unreachable: the row holds inline content, so takumi replaced its measured
+/// children with inline boxes and the old index-paired walk compared a source node
+/// against a text box.
+#[test]
+fn a_handler_survives_a_sibling_that_holds_text() {
+    let layout = serde_json::json!({
+        "type": "div",
+        "class": "flex flex-row items-center",
+        "style": {"width": W, "height": H},
         "children": [
             {
-                "type": "container",
-                "tw": "flex flex-col flex-1 min-w-0",
-                "children": [
-                    {"type": "text", "tw": "text-[13px]", "text": "summary"},
-                    {"type": "text", "tw": "text-[12px]", "text": "body"}
-                ]
+                "type": "div",
+                "class": "flex flex-col",
+                "style": {"width": 150, "height": H},
+                "children": ["summary", "body"],
             },
             {
-                "type": "text",
-                "tw": "text-[15px] flex-shrink-0 px-3 py-2",
-                "text": "x",
-                "on_click": [{"channel": "notify", "event": {"type": "dismiss", "id": 7}}]
-            }
-        ]
+                "type": "div",
+                "style": {"width": 50, "height": H},
+                "on_click": intent("dismiss"),
+                "children": ["x"],
+            },
+        ],
     });
 
-    init_global_ctx(FontConfig::default());
-    // Real panel geometry: 340x72 logical at dpr 1.458 => 496x105 physical,
-    // and do_hit_test passes PHYSICAL click coordinates.
-    let measured = tauler::render::measure_layout_frame(&json, 496, 105, 1.458);
-
-    // Left side = the text column, which has no handler.
-    let body_hit = hit_test(&measured, &json, 150.0, 52.0);
-    assert!(
-        body_hit.is_none(),
-        "clicking the text column must NOT find the button's handler, got: {:?}",
-        body_hit
-    );
-
-    // Right side = the "×" itself.
-    let button_hit = hit_test(&measured, &json, 466.0, 52.0);
-    assert!(
-        button_hit.is_some(),
+    assert_eq!(
+        hit(&layout, 175.0, 50.0),
+        Some(intent("dismiss")),
         "clicking the button must find its handler"
     );
+    assert!(
+        hit(&layout, 40.0, 50.0).is_none(),
+        "clicking the text column must not find the button's handler"
+    );
+}
+
+/// Text is inline content, so a handler on a `<span>` has no layout node to bind to.
+/// It finds nothing rather than finding the wrong thing.
+#[test]
+fn a_handler_on_an_inline_element_is_not_found() {
+    let layout = serde_json::json!({
+        "type": "div",
+        "style": {"width": W, "height": H},
+        "children": [{
+            "type": "span",
+            "on_click": intent("inline"),
+            "children": ["click me"],
+        }],
+    });
+    assert!(hit(&layout, 20.0, 10.0).is_none());
 }

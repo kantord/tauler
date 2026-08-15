@@ -27,6 +27,7 @@ export default defineConfig({
       sidebar: [
         { slug: 'index' },
         { slug: 'layout-file' },
+        { slug: 'elements' },
         { slug: 'data' },
         { slug: 'layout' },
         { slug: 'components' },

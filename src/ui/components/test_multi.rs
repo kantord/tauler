@@ -5,12 +5,12 @@ use crate::ui::{component, rsx};
 
 #[component("@ui/test-multi")]
 pub fn foo_widget(_unused: Option<String>) -> Node {
-    rsx! { <container tw="foo-widget" /> }
+    rsx! { <div class="foo-widget" /> }
 }
 
 #[component("@ui/test-multi")]
 pub fn bar_widget(_unused: Option<String>) -> Node {
-    rsx! { <container tw="bar-widget" /> }
+    rsx! { <div class="bar-widget" /> }
 }
 
 /// Returns siblings rather than a single node — a Rust-side JSX fragment.
@@ -18,7 +18,7 @@ pub fn bar_widget(_unused: Option<String>) -> Node {
 #[component("@ui/test-multi")]
 pub fn pair_widget(_unused: Option<String>) -> Vec<Node> {
     vec![
-        rsx! { <container tw="pair-first" /> },
-        rsx! { <container tw="pair-second" /> },
+        rsx! { <div class="pair-first" /> },
+        rsx! { <div class="pair-second" /> },
     ]
 }

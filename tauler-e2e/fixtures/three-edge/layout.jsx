@@ -6,11 +6,11 @@ function Status() {
   return (
     <Module bin="/usr/local/share/e2e/bin/e2e-module-status">
       {(data) => (
-        <container tw="flex flex-col gap-1 rounded-lg border px-3 py-2">
-          <text tw="text-[10px] text-foreground opacity-60">STATUS</text>
-          <text tw="text-[15px] text-foreground">{data?.time ?? "--:--"}</text>
-          <text tw="text-[11px] text-foreground opacity-70">{data?.host ?? "no data"}</text>
-        </container>
+        <div class="flex flex-col gap-1 rounded-lg border px-3 py-2">
+          <span class="text-[10px] text-foreground opacity-60">STATUS</span>
+          <span class="text-[15px] text-foreground">{data?.time ?? "--:--"}</span>
+          <span class="text-[11px] text-foreground opacity-70">{data?.host ?? "no data"}</span>
+        </div>
       )}
     </Module>
   );
@@ -21,20 +21,20 @@ export default function render() {
     <root>
       <I3Layout module="/usr/local/bin/tauler-i3">
         <Panel id="sidebar" anchor="left" size={272}>
-          <container tw="flex flex-col h-full w-full gap-4 px-4 py-4 bg-background">
-            <text tw="text-[18px] text-foreground">tauler</text>
+          <div class="flex flex-col h-full w-full gap-4 px-4 py-4 bg-background">
+            <span class="text-[18px] text-foreground">tauler</span>
             <Status />
-          </container>
+          </div>
         </Panel>
         <Panel id="topbar" anchor="top" size={26}>
-          <container tw="flex flex-row h-full w-full items-center px-3 bg-background">
-            <text tw="text-[12px] text-foreground">workspace 1</text>
-          </container>
+          <div class="flex flex-row h-full w-full items-center px-3 bg-background">
+            <span class="text-[12px] text-foreground">workspace 1</span>
+          </div>
         </Panel>
         <Panel id="bottombar" anchor="bottom" size={26}>
-          <container tw="flex flex-row h-full w-full items-center px-3 bg-background">
-            <text tw="text-[12px] text-foreground opacity-70">tauler-e2e</text>
-          </container>
+          <div class="flex flex-row h-full w-full items-center px-3 bg-background">
+            <span class="text-[12px] text-foreground opacity-70">tauler-e2e</span>
+          </div>
         </Panel>
       </I3Layout>
     </root>

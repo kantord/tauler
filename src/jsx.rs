@@ -358,18 +358,6 @@ fn tauler_flatten_node<'js>(
     rquickjs_serde::to_value(ctx, &flattened).map_err(|_| rquickjs::Error::Unknown)
 }
 
-/// Converts a single (already recursively-processed) child value of a `text` node into
-/// its natural string representation, matching JS's old `flat.join('')` semantics for
-/// the primitive children `text` nodes actually receive (strings/numbers/booleans).
-fn text_child_to_string(value: &serde_json::Value) -> String {
-    match value {
-        serde_json::Value::String(s) => s.clone(),
-        serde_json::Value::Number(n) => n.to_string(),
-        serde_json::Value::Bool(b) => b.to_string(),
-        other => other.to_string(),
-    }
-}
-
 /// Bridges `optative_script::register_h`'s generic passthrough shape
 /// (`{ type, props: {...}, children }`) to the flat shape tauler's own downstream
 /// consumers expect (`{ type, ...props, children }`), recursively.
@@ -380,9 +368,8 @@ fn text_child_to_string(value: &serde_json::Value) -> String {
 /// `layout::parse_root_node`). The flip side is that the rule is global — any
 /// node given a `type` prop becomes that type instead.
 ///
-/// Also reproduces tauler's old `_jsx`-level special case for `type === "text"`
-/// nodes: their children are joined into a single `text: String` field (required,
-/// non-optional, by `takumi`'s `TextData`) rather than left as a `children` array.
+/// Text needs no special case: a string child stays a string child, and the layout
+/// walker is what turns it into a text node (`docs/adr/0016`).
 ///
 /// Applied twice: once per node via [`tauler_flatten_node`] (the `h` shim's hook, so
 /// each node is already flat by the time any Rust-backed component consumes it as a
@@ -417,23 +404,7 @@ fn flatten_passthrough(value: serde_json::Value) -> serde_json::Value {
                 }
             }
 
-            // Follow whatever `type` ended up as, not the tag it started from: a
-            // `type` prop may have overridden it just above. Testing the original
-            // tag here lets the two disagree — `<span type="text">` would reach
-            // takumi as a text node with no `text` field, which `TextData`
-            // requires and rejects.
-            let effective_type = flat.get("type").cloned().unwrap_or(serde_json::Value::Null);
-            if effective_type.as_str() == Some("text") {
-                let text = match &children {
-                    serde_json::Value::Array(items) => {
-                        items.iter().map(text_child_to_string).collect::<String>()
-                    }
-                    other => text_child_to_string(other),
-                };
-                flat.insert("text".to_string(), serde_json::Value::String(text));
-            } else {
-                flat.insert("children".to_string(), children);
-            }
+            flat.insert("children".to_string(), children);
 
             serde_json::Value::Object(flat)
         }
@@ -455,12 +426,12 @@ mod tests {
     #[test]
     fn jsx_evaluator_returns_tag_props_and_children() {
         let result = eval(
-            r#"export default function render() { return <text tw="flex">{"hello"}</text>; }"#,
+            r#"export default function render() { return <span class="flex">{"hello"}</span>; }"#,
         )
         .layout;
-        assert_eq!(result["type"], "text");
-        assert_eq!(result["tw"], "flex");
-        assert_eq!(result["text"], "hello");
+        assert_eq!(result["type"], "span");
+        assert_eq!(result["class"], "flex");
+        assert_eq!(result["children"][0], "hello");
     }
 
     /// A `type` prop overrides the tag name. `<surface type="wallpaper">` relies
@@ -479,18 +450,15 @@ mod tests {
         assert_eq!(result["id"], "bg");
     }
 
-    /// The `text` special-case must follow the overridden type too, or the node
-    /// claims to be text while missing the `text` field takumi requires.
+    /// A `type` prop wins over the tag for any tag, and the children survive it —
+    /// there is no tag whose children get folded into something else.
     #[test]
-    fn type_prop_overriding_to_text_still_joins_children() {
+    fn type_prop_overriding_a_tag_keeps_the_children() {
         let result =
-            eval(r#"export default function render() { return <span type="text">hi</span>; }"#)
+            eval(r#"export default function render() { return <span type="div">hi</span>; }"#)
                 .layout;
-        assert_eq!(result["type"], "text");
-        assert_eq!(
-            result["text"], "hi",
-            "children must be joined into `text` when the effective type is text"
-        );
+        assert_eq!(result["type"], "div");
+        assert_eq!(result["children"][0], "hi");
     }
 
     // Was `transform_jsx_self_closing_element_with_tw_prop`, exercising tauler's own
@@ -499,15 +467,15 @@ mod tests {
     // `pragma_is_h_not_jsx`/`self_closing_element` tests); this keeps a smoke test at
     // tauler's call site confirming it's wired up with the `h` pragma tauler now relies on.
     #[test]
-    fn transform_source_self_closing_element_with_tw_prop() {
-        let result = optative_script::jsx::transform_source(r#"<text tw="flex" />"#, "test.jsx");
+    fn transform_source_self_closing_element_with_class_prop() {
+        let result = optative_script::jsx::transform_source(r#"<span class="flex" />"#, "test.jsx");
         assert!(
             result.contains("h("),
             "expected 'h(' in output, got: {result}"
         );
         assert!(
-            result.contains("\"text\""),
-            "expected '\"text\"' in output, got: {result}"
+            result.contains("\"span\""),
+            "expected '\"span\"' in output, got: {result}"
         );
         assert!(
             result.contains("\"flex\""),
@@ -517,7 +485,7 @@ mod tests {
 
     #[test]
     fn jsx_evaluator_nested_tree_parses_to_node() {
-        let result = eval(r#"export default function render() { return <container tw="flex flex-col"><text tw="text-white">{"hello"}</text></container>; }"#).layout;
+        let result = eval(r#"export default function render() { return <div class="flex flex-col"><span class="text-white">{"hello"}</span></div>; }"#).layout;
         let node = crate::parse_layout(&result);
         assert!(node.is_ok(), "parse_layout failed: {:?}", node);
     }
@@ -530,11 +498,11 @@ mod tests {
             "hello".to_string(),
         );
         let result = JsxEvaluator::new(
-            r#"export default function render() { return <text tw="text-white">{useStringStream("/usr/bin/bash", "echo hi")}</text>; }"#,
+            r#"export default function render() { return <span class="text-white">{useStringStream("/usr/bin/bash", "echo hi")}</span>; }"#,
             serde_json::Value::Null,
             None,
         ).unwrap().eval(&streams).unwrap().layout;
-        assert_eq!(result["text"], "hello");
+        assert_eq!(result["children"][0], "hello");
     }
 
     #[test]
@@ -542,7 +510,7 @@ mod tests {
         let ctx =
             serde_json::json!({ "output": "DP-4", "dpi": 96.0, "width": 250, "outer_gap": 8 });
         let value = JsxEvaluator::new(
-            r#"export default function render() { return <text tw="text-white">{ctx.output}</text>; }"#,
+            r#"export default function render() { return <span class="text-white">{ctx.output}</span>; }"#,
             ctx,
             None,
         ).unwrap().eval(&std::collections::HashMap::new()).unwrap().layout;
@@ -553,7 +521,7 @@ mod tests {
     #[test]
     fn jsx_evaluator_records_stream_calls() {
         let streams_called = eval(
-            r#"export default function render() { return <text tw="text-white">{useStringStream("/bin/bash", "script1")}{useStringStream("/bin/bash", "script2")}</text>; }"#,
+            r#"export default function render() { return <span class="text-white">{useStringStream("/bin/bash", "script1")}{useStringStream("/bin/bash", "script2")}</span>; }"#,
         ).stream_calls;
         assert!(streams_called.contains(&("/bin/bash".to_string(), Some("script1".to_string()))));
         assert!(streams_called.contains(&("/bin/bash".to_string(), Some("script2".to_string()))));
@@ -562,9 +530,9 @@ mod tests {
     #[test]
     fn module_render_prop_exposes_channel_in_events() {
         let result = eval(
-            r#"export default function render() { return <Module bin="/usr/bin/test">{(data, events) => <text tw="text-white">{events.doThing().channel}</text>}</Module>; }"#,
+            r#"export default function render() { return <Module bin="/usr/bin/test">{(data, events) => <span class="text-white">{events.doThing().channel}</span>}</Module>; }"#,
         ).layout;
-        assert_eq!(result["text"], "/usr/bin/test");
+        assert_eq!(result["children"][0], "/usr/bin/test");
     }
 
     /// `useEvents(bin, props)` returns a proxy whose properties are *functions*:
@@ -576,7 +544,7 @@ mod tests {
         let result = eval(
             r#"export default function render() {
 const notify = useEvents("/usr/bin/notify", {});
-return <container tw="flex" on_click={[notify.dismiss({ id: 42 })]} />;
+return <div class="flex" on_click={[notify.dismiss({ id: 42 })]} />;
 }"#,
         )
         .layout;
@@ -596,7 +564,7 @@ return <container tw="flex" on_click={[notify.dismiss({ id: 42 })]} />;
         let result = eval(
             r#"export default function render() {
 const notify = useEvents("/usr/bin/notify", {});
-return <container tw="flex" on_click={[notify.dismiss()]} />;
+return <div class="flex" on_click={[notify.dismiss()]} />;
 }"#,
         )
         .layout;
@@ -617,7 +585,7 @@ return <container tw="flex" on_click={[notify.dismiss()]} />;
         let module_calls = eval(
             r#"export default function render() {
 const notify = useEvents("/usr/bin/notify-module", { limit: 5 });
-return <text tw="text-white">hi</text>;
+return <span class="text-white">hi</span>;
 }"#,
         )
         .module_calls;
@@ -642,7 +610,7 @@ return <text tw="text-white">hi</text>;
             r#"export default function render() {
 useEvents("/usr/bin/mod");
 useEvents("/usr/bin/mod", { gaps: { left: 272 } });
-return <text tw="text-white">hi</text>;
+return <span class="text-white">hi</span>;
 }"#,
         )
         .module_calls;
@@ -660,7 +628,7 @@ return <text tw="text-white">hi</text>;
             r#"export default function render() {
 useEvents("/usr/bin/mod", { a: 1 });
 useEvents("/usr/bin/mod", { b: 2 });
-return <text tw="text-white">hi</text>;
+return <span class="text-white">hi</span>;
 }"#,
         )
         .module_calls;
@@ -681,7 +649,7 @@ return <text tw="text-white">hi</text>;
             r#"export default function render() {
 useEvents("/usr/bin/mod", { gaps: "mine" });
 useEvents("/usr/bin/mod", { gaps: "theirs" });
-return <text tw="text-white">hi</text>;
+return <span class="text-white">hi</span>;
 }"#,
         )
         .module_calls;
@@ -697,7 +665,7 @@ return <text tw="text-white">hi</text>;
     #[test]
     fn module_render_prop_events_produce_same_intent_shape() {
         let result = eval(
-            r#"export default function render() { return <Module bin="/usr/bin/test">{(data, events) => <container tw="flex" on_click={[events.doThing({ id: 7 })]} />}</Module>; }"#,
+            r#"export default function render() { return <Module bin="/usr/bin/test">{(data, events) => <div class="flex" on_click={[events.doThing({ id: 7 })]} />}</Module>; }"#,
         )
         .layout;
         assert_eq!(
@@ -718,17 +686,17 @@ return <text tw="text-white">hi</text>;
             r#"{"name":"hello"}"#.to_string(),
         );
         let result = JsxEvaluator::new(
-            r#"export default function render() { return <text tw="text-white">{useJSONStream("/usr/bin/test").name}</text>; }"#,
+            r#"export default function render() { return <span class="text-white">{useJSONStream("/usr/bin/test").name}</span>; }"#,
             serde_json::Value::Null,
             None,
         ).unwrap().eval(&streams).unwrap().layout;
-        assert_eq!(result["text"], "hello");
+        assert_eq!(result["children"][0], "hello");
     }
 
     #[test]
     fn module_component_records_module_call() {
         let module_calls = eval(
-            r#"export default function render() { return <Module bin="/usr/bin/test-module">{(data, events) => <text tw="text-white">hi</text>}</Module>; }"#,
+            r#"export default function render() { return <Module bin="/usr/bin/test-module">{(data, events) => <span class="text-white">hi</span>}</Module>; }"#,
         ).module_calls;
         assert!(module_calls
             .iter()
@@ -741,7 +709,7 @@ return <text tw="text-white">hi</text>;
             r#"export default function render() {
 globals.count ??= 0;
 globals.count += 1;
-return <text tw="text-white">{String(globals.count)}</text>;
+return <span class="text-white">{String(globals.count)}</span>;
 }"#,
             serde_json::Value::Null,
             None,
@@ -750,19 +718,19 @@ return <text tw="text-white">{String(globals.count)}</text>;
 
         let streams = std::collections::HashMap::new();
         let r1 = evaluator.eval(&streams).unwrap().layout;
-        assert_eq!(r1["text"], "1");
+        assert_eq!(r1["children"][0], "1");
 
         let r2 = evaluator.eval(&streams).unwrap().layout;
-        assert_eq!(r2["text"], "2");
+        assert_eq!(r2["children"][0], "2");
 
         let r3 = evaluator.eval(&streams).unwrap().layout;
-        assert_eq!(r3["text"], "3");
+        assert_eq!(r3["children"][0], "3");
     }
 
     #[test]
     fn jsx_evaluator_reflects_updated_stream_values_on_second_call() {
         let evaluator = JsxEvaluator::new(
-            r#"export default function render() { return <text tw="text-white">{useStringStream("/bin/bash", "echo hi")}</text>; }"#,
+            r#"export default function render() { return <span class="text-white">{useStringStream("/bin/bash", "echo hi")}</span>; }"#,
             serde_json::Value::Null,
             None,
         ).unwrap();
@@ -773,7 +741,7 @@ return <text tw="text-white">{String(globals.count)}</text>;
             "first".to_string(),
         );
         let result1 = evaluator.eval(&streams1).unwrap().layout;
-        assert_eq!(result1["text"], "first");
+        assert_eq!(result1["children"][0], "first");
 
         let mut streams2 = std::collections::HashMap::new();
         streams2.insert(
@@ -781,7 +749,7 @@ return <text tw="text-white">{String(globals.count)}</text>;
             "second".to_string(),
         );
         let result2 = evaluator.eval(&streams2).unwrap().layout;
-        assert_eq!(result2["text"], "second");
+        assert_eq!(result2["children"][0], "second");
     }
 
     /// Regression: stream keys `(bin, None)` and `(bin, Some(""))` must be distinct.
@@ -805,7 +773,7 @@ return <text tw="text-white">{String(globals.count)}</text>;
     fn jsx_evaluator_supports_export_default_render_function() {
         let streams = std::collections::HashMap::new();
         let result = JsxEvaluator::new(
-            r#"export default function render() { return <text tw="text-white">hello</text>; }"#,
+            r#"export default function render() { return <span class="text-white">hello</span>; }"#,
             serde_json::Value::Null,
             None,
         )
@@ -814,13 +782,13 @@ return <text tw="text-white">{String(globals.count)}</text>;
         .unwrap()
         .layout;
         assert_eq!(
-            result["type"], "text",
-            "expected type=text, got: {:?}",
+            result["type"], "span",
+            "expected type=span, got: {:?}",
             result
         );
         assert_eq!(
-            result["text"], "hello",
-            "expected text=hello, got: {:?}",
+            result["children"][0], "hello",
+            "expected the text child 'hello', got: {:?}",
             result
         );
     }
@@ -837,7 +805,7 @@ return <text tw="text-white">{String(globals.count)}</text>;
         .expect("failed to write Foo.jsx");
 
         let layout_source = r#"import Foo from './Foo.jsx';
-export default function render() { return <text tw="text-white">{String(Foo())}</text>; }"#;
+export default function render() { return <span class="text-white">{String(Foo())}</span>; }"#;
 
         let streams = std::collections::HashMap::new();
         let result = JsxEvaluator::new(
@@ -851,8 +819,8 @@ export default function render() { return <text tw="text-white">{String(Foo())}<
         .layout;
 
         assert_eq!(
-            result["text"], "42",
-            "expected text=42 from imported Foo, got: {:?}",
+            result["children"][0], "42",
+            "expected the text child '42' from imported Foo, got: {:?}",
             result
         );
         let _ = std::fs::remove_dir_all(&tmp_dir);
@@ -870,7 +838,7 @@ export default function render() { return <text tw="text-white">{String(Foo())}<
         .expect("failed to write Comp.jsx");
 
         let layout_source = r#"import Comp from './Comp.jsx';
-export default function render() { return <text tw="text-white">{String(Comp())}</text>; }"#;
+export default function render() { return <span class="text-white">{String(Comp())}</span>; }"#;
 
         let evaluator = JsxEvaluator::new(
             layout_source,
@@ -897,7 +865,7 @@ export default function render() { return <text tw="text-white">{String(Comp())}
     #[test]
     fn loaded_paths_is_empty_when_no_imports() {
         let evaluator = JsxEvaluator::new(
-            r#"export default function render() { return <text tw="text-white">hi</text>; }"#,
+            r#"export default function render() { return <span class="text-white">hi</span>; }"#,
             serde_json::Value::Null,
             None,
         )
@@ -916,17 +884,17 @@ export default function render() { return <text tw="text-white">{String(Comp())}
         let result = eval(
             r#"export default function render() {
 const show = false;
-return <container tw="flex">
-  <text tw="text-white">visible</text>
-  {show && <text tw="text-white">hidden</text>}
+return <div class="flex">
+  <span class="text-white">visible</span>
+  {show && <span class="text-white">hidden</span>}
   {null}
-</container>;
+</div>;
 }"#,
         )
         .layout;
         let children = result["children"].as_array().unwrap();
         assert_eq!(children.len(), 1, "expected 1 child, got: {:?}", children);
-        assert_eq!(children[0]["text"], "visible");
+        assert_eq!(children[0]["children"][0], "visible");
     }
 
     /// Bonus: JSX fragment shorthand (`<>...</>`) now actually works and flattens its
@@ -936,12 +904,12 @@ return <container tw="flex">
     fn jsx_fragment_shorthand_flattens_into_parent_children() {
         let result = eval(
             r#"export default function render() {
-return <container tw="flex">
+return <div class="flex">
   <>
-    <text tw="a">{"first"}</text>
-    <text tw="b">{"second"}</text>
+    <span class="a">{"first"}</span>
+    <span class="b">{"second"}</span>
   </>
-</container>;
+</div>;
 }"#,
         )
         .layout;
@@ -952,7 +920,7 @@ return <container tw="flex">
             "expected 2 children, got: {:?}",
             children
         );
-        assert_eq!(children[0]["text"], "first");
-        assert_eq!(children[1]["text"], "second");
+        assert_eq!(children[0]["children"][0], "first");
+        assert_eq!(children[1]["children"][0], "second");
     }
 }

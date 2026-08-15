@@ -5,7 +5,7 @@
 //! This module closes that gap: when a `<wallpaper>` is rendered, its pixels are
 //! published here; when a panel on the same output is rendered, the slice of
 //! wallpaper it covers is handed to that render as the `root-bg` image, which the
-//! layout references as `<image src="root-bg">`.
+//! layout references as `<img src="tauler:root-bg">`.
 //!
 //! The crop is *returned*, not installed into a global: `root-bg` is a single
 //! key, so a module that installed it would make every render depend on which
@@ -28,8 +28,8 @@ use takumi_core::resources::image_buffer::ImageBuffer;
 
 use crate::layout::{surface_origin, Rect, SurfaceKind, SurfaceSpec};
 
-/// The image key a layout uses to reach its backdrop: `<image src="root-bg">`.
-pub const ROOT_BG_KEY: &str = "root-bg";
+/// The image key a layout uses to reach its backdrop: `<img src="tauler:root-bg">`.
+pub const ROOT_BG_KEY: &str = "tauler:root-bg";
 
 const RGBA_BYTES: usize = 4;
 

@@ -98,13 +98,12 @@ where
 }
 
 /// Update the global rendering context's font configuration at runtime.
-/// Clears the render and layout caches so subsequent calls use the new fonts.
+/// Clears the render cache so subsequent calls use the new fonts.
 pub fn reload_font_config(font_config: FontConfig) {
     if let Some(mutex) = GLOBAL_CTX.get() {
         let mut ctx = mutex.lock().unwrap();
         rebuild_font_context(&mut ctx, &font_config);
         RENDER_FRAME_CACHED.write().cache_clear();
-        MEASURE_LAYOUT_CACHED.write().cache_clear();
     }
 }
 
@@ -123,7 +122,7 @@ pub fn render_frame(
 }
 
 /// As [`render_frame`], but with the surface's slice of wallpaper bound as
-/// `root-bg` for the duration of the render.
+/// `tauler:root-bg` for the duration of the render.
 ///
 /// `backdrop` is part of the cache key by `(generation, rect)`: the generation
 /// catches a wallpaper that moved under an otherwise-unchanged panel, and the
@@ -182,7 +181,7 @@ fn render_frame_cached(
     })
 }
 
-/// Run `f` with `backdrop` bound as `root-bg` in the global context.
+/// Run `f` with `backdrop` bound as `tauler:root-bg` in the global context.
 ///
 /// `None` *removes* the key rather than leaving the previous surface's crop in
 /// place: a panel on an output with no wallpaper must render with no backdrop,
@@ -464,11 +463,11 @@ fn preload_layout_images_impl(layout: &serde_json::Value, global: &mut RenderCon
     fn walk(value: &serde_json::Value, srcs: &mut Vec<String>) {
         match value {
             serde_json::Value::Object(map) => {
-                if map.get("type").and_then(|t| t.as_str()) == Some("image") {
+                if map.get("type").and_then(|t| t.as_str()) == Some("img") {
                     if let Some(src) = map.get("src").and_then(|s| s.as_str()) {
                         srcs.push(src.to_string());
                     }
-                    return; // image nodes are terminal
+                    return; // <img> is terminal
                 }
                 for v in map.values() {
                     walk(v, srcs);
@@ -490,10 +489,10 @@ fn preload_layout_images_impl(layout: &serde_json::Value, global: &mut RenderCon
         if src.starts_with("http://") || src.starts_with("https://") || src.starts_with("data:") {
             continue;
         }
-        // Bound per render by `with_backdrop`, not loaded from disk. Skipping it
-        // explicitly also stops a file named `root-bg` in the cwd from shadowing
-        // the wallpaper crop.
-        if src == ROOT_BG_KEY {
+        // Resources tauler binds itself, not files to read — `tauler:root-bg` is
+        // bound per render by `with_backdrop`. The scheme is what makes it
+        // impossible for a file of that name to shadow one (ADR 0016).
+        if src.starts_with("tauler:") {
             continue;
         }
         // Called on every tick, so an already-loaded path must not be re-read
@@ -511,43 +510,24 @@ fn preload_layout_images_impl(layout: &serde_json::Value, global: &mut RenderCon
     }
 }
 
-/// Cached layout-only pass (no rasterization), so click handling does not pay
-/// for a re-layout after a render.
+/// A layout-only pass, for callers that need geometry without pixels.
 ///
-/// Keyed on content and geometry alone — deliberately *not* on the backdrop,
-/// unlike `render_frame`. The backdrop only ever changes pixels, never where a
-/// node lands, so folding it in here would evict this cache every time the
-/// wallpaper moved and buy nothing.
-#[cached(max_size = 6)]
-fn measure_layout_cached(
-    canonical: String,
-    width: u32,
-    height: u32,
-    dpr_bits: u32,
-) -> Arc<MeasuredNode> {
-    let dpr = f32::from_bits(dpr_bits);
-    let layout = serde_json::from_str::<serde_json::Value>(&canonical)
-        .ok()
-        .and_then(|v| {
-            parse_layout(&v)
-                .map_err(|e| tracing::error!(error = %e, "layout parse error"))
-                .ok()
-        });
-    with_global_ctx(|global| {
-        let node = layout.unwrap_or_else(|| Node::container(vec![]));
-        let options = frame_options(global, node, width, height, dpr);
-        Arc::new(takumi_measure_layout(options).expect("measure_layout"))
-    })
-}
-
+/// Uncached, and no longer on any hot path: click handling used to run through here
+/// and now builds its own layout to get render paths (ADR 0018), which leaves
+/// `tauler-screenshot`'s crop as the only caller — once per invocation.
 pub fn measure_layout_frame(
     content: &serde_json::Value,
     width: u32,
     height: u32,
     dpr: f32,
-) -> Arc<MeasuredNode> {
-    let canonical = json_canon::to_string(content).unwrap_or_default();
-    measure_layout_cached(canonical, width, height, dpr.to_bits())
+) -> MeasuredNode {
+    let node = parse_layout(content)
+        .map_err(|e| tracing::error!(error = %e, "layout parse error"))
+        .unwrap_or_else(|_| Node::container(vec![]));
+    with_global_ctx(|global| {
+        let options = frame_options(global, node, width, height, dpr);
+        takumi_measure_layout(options).expect("measure_layout")
+    })
 }
 
 #[cfg(test)]
@@ -584,12 +564,12 @@ mod tests {
         use takumi::render;
 
         let content = serde_json::json!({
-            "type": "container",
+            "type": "div",
             "style": {"width": 120, "height": 48},
             "children": [{
-                "type": "text",
-                "text": text,
-                "style": {"fontSize": 28, "color": "white", "fontWeight": weight}
+                "type": "span",
+                "style": {"fontSize": 28, "color": "white", "fontWeight": weight},
+                "children": [text]
             }]
         });
         let node = crate::layout::parse_layout(&content).expect("probe layout should parse");
@@ -966,13 +946,13 @@ mod tests {
 
         // Realistic bar scene: Latin + digits + emoji (stresses fallback path)
         let content = serde_json::json!({
-            "type": "container",
+            "type": "div",
             "style": { "flexDirection": "column", "width": 364, "height": 2159 },
             "children": [
-                { "type": "text", "text": "Mon 5  09:42" },
-                { "type": "text", "text": "main  fix/issue-113" },
-                { "type": "text", "text": "👋  🎉  ✅  🔵  🔴" },
-                { "type": "text", "text": "CPU 42%  MEM 8.1G" },
+                "Mon 5  09:42",
+                "main  fix/issue-113",
+                "👋  🎉  ✅  🔵  🔴",
+                "CPU 42%  MEM 8.1G",
             ]
         });
         let node = parse_layout(&content).expect("parse");

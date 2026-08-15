@@ -1,5 +1,8 @@
 use takumi::prelude::Node;
 
+pub mod html;
+mod presets;
+
 /// Which screen edge a panel is anchored to. Drives window placement only — anchoring
 /// reserves no space (see `docs/adr/0001`). Panels without an anchor are free-floating.
 #[derive(Debug, PartialEq, Eq, Clone)]
@@ -132,9 +135,8 @@ pub fn surface_origin(spec: &SurfaceSpec, phys: (u32, u32), output: Rect) -> (i1
     }
 }
 
-pub fn parse_layout(value: &serde_json::Value) -> Result<Node, serde_json::Error> {
-    use serde::Deserialize;
-    Node::deserialize(value)
+pub fn parse_layout(value: &serde_json::Value) -> Result<Node, html::LayoutError> {
+    html::build_node(value)
 }
 
 /// Parse the JSX evaluator's output into a list of surface specs.
