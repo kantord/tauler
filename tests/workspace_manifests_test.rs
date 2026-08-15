@@ -58,7 +58,10 @@ fn path_dependencies_require_the_current_workspace_version() {
             if line.starts_with('#') || !line.contains("path =") || !line.contains("version =") {
                 continue;
             }
-            let Some(required) = line.split("version =").nth(1).and_then(|v| v.split('"').nth(1))
+            let Some(required) = line
+                .split("version =")
+                .nth(1)
+                .and_then(|v| v.split('"').nth(1))
             else {
                 continue;
             };
