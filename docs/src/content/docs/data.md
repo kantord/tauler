@@ -232,8 +232,8 @@ discarded before hit-testing.
 
 ## Controls
 
-A control — `<Slider>` is the one that ships — is a component that emits intents when you
-click it. It does not remember what you clicked. There is no `useState` behind it and no
+A control — `<Slider>` and `<Knob>` are the two that ship — is a component that emits
+intents when you click it. It does not remember what you clicked. There is no `useState` behind it and no
 value store in the runtime: the value it shows is the value you pass in, read fresh from a
 stream on every tick, and a click only changes what you see once the process that owns the
 value has said so.
@@ -265,6 +265,37 @@ of its own to keep the number.
 them. `<Slider>` does the arithmetic from `min`, `max` and `step`, so a module receives a
 number in its own units and never sees a coordinate.
 
+### Position or displacement
+
+The two controls that ship read the pointer differently, and the difference is worth
+knowing before you write a third.
+
+`<Slider>` reads a **position**: what value is under the pointer. That needs a scale, which
+is what `min` and `max` are, and it means pressing a slider jumps it to where you pressed —
+which is what a slider should do.
+
+`<Knob>` reads a **displacement**: how far the pointer has come since the press. That needs
+no scale at all, which is why it has no `min` and no `max`, and it means pressing a knob
+anywhere turns it by nothing. It follows your hand instead of jumping to it.
+
+```jsx
+import { Knob } from "@ui/knob";
+
+<Module bin="~/.cargo/bin/tauler-audio">
+  {(data, events) => (
+    <Knob
+      value={data?.balance ?? 0}
+      step={5}
+      on_change={deg => events.setBalance({ deg })}
+    />
+  )}
+</Module>
+```
+
+`<Knob>` reports an angle in degrees — 0 points up, and it grows clockwise. The angle wraps
+into 0–360, so turning past the top comes round rather than running off the end. It does not
+count whole turns; there is no scale for them to mean anything on.
+
 ### Dragging
 
 `<Slider>` is draggable: press and sweep, and the value follows. It works the way a slider
@@ -288,14 +319,20 @@ The handler receives the pointer's position **relative to the element**, in CSS 
 | field | meaning |
 |---|---|
 | `p.x`, `p.y` | offset from the element's top-left. **Negative** above or left of it, and past `width`/`height` beyond it — clamp if you want clamping |
+| `p.press_x`, `p.press_y` | where the button went down, in the same coordinates. Subtract to get how far the drag has come; on the press itself it equals `p.x`, `p.y` |
 | `p.width`, `p.height` | the element's own size |
 | `p.buttons` | bitmask of held buttons, `1` for primary |
+
+There is no speed and no per-event delta — those two points are the whole story, so the same
+gesture always gives the same result however fast you made it.
 
 Nothing is dispatched when a movement produces the intents that were just sent, so a drag
 costs one message per distinct value, not one per pixel. Giving a control a `step` is what
 keeps that number small.
 
-Drag is X11-only for now; on Wayland a slider still works as click-to-set.
+Drag is X11-only for now. On Wayland and macOS no movement is reported, so a slider still
+works as click-to-set — and a knob, which has nothing to read but the movement, does
+nothing at all there.
 
 ## `<Module>`
 

@@ -146,7 +146,7 @@ fn the_pressed_box_is_what_the_position_is_measured_against() {
     assert!(hit.on_drag.is_some(), "the track captures");
     assert_eq!(hit.rect.width, 200.0, "the box is the whole track");
 
-    let pointer = hit.rect.pointer(150.0, 8.0, 1.0, 1);
+    let pointer = hit.rect.pointer((150.0, 8.0), (150.0, 8.0), 1.0, 1);
     assert_eq!(pointer["x"], 150.0, "measured from the track's left edge");
     assert_eq!(pointer["buttons"], 1);
 

@@ -2,6 +2,7 @@ pub mod badge;
 pub mod card;
 pub mod i3_layout;
 pub mod icon;
+pub mod knob;
 pub mod progress;
 pub mod slider;
 pub mod table;

@@ -8,9 +8,10 @@ use crate::ui::components::{
     },
     i3_layout::__UI_ENTRY_I3_LAYOUT,
     icon::__UI_ENTRY_ICON,
+    // The shims, not `__UI_ENTRY_KNOB`/`__UI_ENTRY_SLIDER`: each registers its own Rust
+    // half, and `on_change` has to be resolved in JavaScript before Rust sees any props.
+    knob::__UI_ENTRY_KNOB_SHIM,
     progress::__UI_ENTRY_PROGRESS,
-    // The shim, not `__UI_ENTRY_SLIDER`: it registers the Rust half itself, and
-    // `on_change` has to be resolved in JavaScript before Rust sees any props.
     slider::__UI_ENTRY_SLIDER_SHIM,
     table::datatable::__UI_ENTRY_DATA_TABLE,
     table::{
@@ -31,6 +32,7 @@ pub const UI_COMPONENTS: &[EsEntry] = &[
     __UI_ENTRY_CARD_CONTENT,
     __UI_ENTRY_CARD_FOOTER,
     __UI_ENTRY_DATA_TABLE,
+    __UI_ENTRY_KNOB_SHIM,
     __UI_ENTRY_PROGRESS,
     __UI_ENTRY_SLIDER_SHIM,
     __UI_ENTRY_TABLE,

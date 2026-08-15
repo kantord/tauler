@@ -42,20 +42,20 @@ fn flex(amount: f64) -> Option<Map<String, Value>> {
     Some(style)
 }
 
-/// Height of the track row, and the knob that rides on it.
+/// Height of the track row, and the thumb that rides on it.
 const TRACK_H: f64 = 16.0;
 const THUMB: f64 = 14.0;
 
-/// The knob, taken out of flow so the fill runs *under* it rather than stopping at
-/// it — a knob that is a flex item displaces the track by its own width, leaving a
-/// gap the width of the knob just before the value it marks.
+/// The thumb, taken out of flow so the fill runs *under* it rather than stopping at
+/// it — a thumb that is a flex item displaces the track by its own width, leaving a
+/// gap the width of the thumb just before the value it marks.
 ///
 /// The only out-of-flow node in the tree, deliberately: takumi blanks a whole parent
 /// subtree when it has two or more (`docs/takumi-absolute-sibling-bug-research.md`).
 ///
 /// It overhangs each end by half its width at the extremes. Insetting its travel, as
 /// Radix does, would put it up to 7px from where the pointer actually is — the drag
-/// handler maps position across the full width, so the knob has to agree with that
+/// handler maps position across the full width, so the thumb has to agree with that
 /// rather than with the track's edges.
 fn thumb(done: f64) -> Node {
     let mut style = Map::new();
@@ -122,7 +122,7 @@ pub fn slider(
     let done = filled(value, min, max);
     let root_class = SLIDER_VARIANTS.resolve(&[], class.as_deref().unwrap_or(""));
     // The two halves of the track tile the full width between them, so the fill runs
-    // right up to the value; the knob is painted over it (see `thumb`).
+    // right up to the value; the thumb is painted over it (see `thumb`).
     let mut root_style = Map::new();
     root_style.insert("position".into(), Value::from("relative"));
     let root_style = Some(root_style);
@@ -154,10 +154,7 @@ const SLIDER_SHIM_JS: &str = r#"
                 // The runtime reports an unclamped position on purpose. Dragging past
                 // either end of the track should pin to that end, not run off scale.
                 const along = p.width > 0 ? Math.min(Math.max(p.x / p.width, 0), 1) : 0;
-                let v = min + along * (max - min);
-                if (step > 0) v = Math.round(v / step) * step;
-                // Binary floating point turns 0.1 steps into 0.30000000000000004.
-                v = Math.round(v * 1e6) / 1e6;
+                const v = __tauler_snap(min + along * (max - min), step);
                 return __tauler_intents(on_change(Math.min(Math.max(v, min), max)));
             });
         }
@@ -248,8 +245,8 @@ mod tests {
         assert_eq!(grow(&parts(&rendered)[0]), 0.4);
     }
 
-    /// The bug this guards: a knob that is a flex item displaces the track, so the
-    /// fill stops a knob's width short of the value it is meant to mark.
+    /// The bug this guards: a thumb that is a flex item displaces the track, so the
+    /// fill stops a thumb's width short of the value it is meant to mark.
     #[test]
     fn the_fill_runs_under_the_thumb_rather_than_stopping_at_it() {
         let rendered = render(40.0, None);
@@ -258,11 +255,11 @@ mod tests {
         assert_eq!(
             grow(&parts[0]) + grow(&parts[1]),
             1.0,
-            "the two halves tile the whole width; the knob takes none of it"
+            "the two halves tile the whole width; the thumb takes none of it"
         );
         assert_eq!(
             parts[2]["style"]["position"], "absolute",
-            "the knob is painted over the track, not laid out in it"
+            "the thumb is painted over the track, not laid out in it"
         );
         assert_eq!(parts[2]["style"]["left"], "calc(40% - 7px)");
     }

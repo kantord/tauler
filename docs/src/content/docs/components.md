@@ -195,6 +195,70 @@ import { Icon } from "@ui/icon";
 </div>
 ```
 
+## Knob
+
+**Module:** `@ui/knob`
+
+![Knob screenshot](../../assets/knob.png)
+
+A rotary knob. Draws `value` as an angle in degrees — 0 points up, and the angle
+increases clockwise — and reports the angle you turn it to.
+
+It never remembers anything. `value` is read every tick from whatever owns it, and
+`on_change` receives the new angle and returns the intents to send — one, or an
+array of them.
+
+```jsx
+<Module bin="~/.cargo/bin/tauler-audio">
+  {(data, events) => (
+    <Knob
+      value={data?.balance ?? 0}
+      step={5}
+      on_change={deg => events.setBalance({ deg })}
+    />
+  )}
+</Module>
+```
+
+The turn sets nothing locally: it sends intents, the module changes the angle, and
+the next tick brings the new `value` back. Omit `on_change` and the knob still
+renders — it is simply not interactive.
+
+There is no `min` and no `max`, because the knob measures how far you have turned
+it rather than where on a scale you are pointing. Pressing it anywhere is a turn of
+zero, so it never jumps to meet the pointer, and a fast flick and a slow drag that
+end in the same place give the same angle.
+
+The inner third is a hub that reports nothing. A bearing taken there is meaningless
+— undefined at the exact centre, and swinging through tens of degrees per pixel
+around it — so a press that lands in the hub, or a drag that wanders into it, is
+ignored rather than allowed to leap. Turn it by the rim.
+
+`value` and the reported angle have deliberately different domains. `value` is drawn
+as given, so `450` and `-90` point where they say. What `on_change` reports is always
+wrapped into 0–360, so turning past the top comes round rather than running off and a
+module's stored number cannot drift out to thousands. What it cannot report is how
+many whole turns you made — there is no scale for them to mean anything on.
+
+`step` defaults to 1 and rounds the *turn*, not the angle it lands on. Rounding the
+angle would move a press that has not travelled at all, and would shift the grid a
+little further every lap for a step that does not divide a circle. Rounding is also
+what keeps a turn from sending a message per pixel: a motion that produces the
+intents just sent is skipped.
+
+### Usage
+
+```jsx
+import { Knob } from "@ui/knob";
+
+<div class="flex flex-row gap-[12px] items-center">
+  <Knob value={0} />
+  <Knob value={45} />
+  <Knob value={135} />
+  <Knob value={250} />
+</div>
+```
+
 ## Progress
 
 **Module:** `@ui/progress`

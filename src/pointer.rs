@@ -70,19 +70,34 @@ pub fn read_handler(value: &serde_json::Value) -> Option<Handler> {
 /// registered in, and there is no node identity to find it by again (`docs/adr/0020`).
 pub struct Capture {
     pub panel_id: String,
-    pub rect: crate::hit_test::Rect,
-    pub dpr: f32,
+    rect: crate::hit_test::Rect,
+    dpr: f32,
+    /// Where the button went down, in physical pixels. Every motion is reported
+    /// alongside it, which is what lets a handler that keeps nothing between calls
+    /// still measure how far the drag has come (`docs/adr/0022`).
+    press: (f32, f32),
     last: Option<serde_json::Value>,
 }
 
 impl Capture {
-    pub fn new(panel_id: String, rect: crate::hit_test::Rect, dpr: f32) -> Self {
+    pub fn new(panel_id: String, rect: crate::hit_test::Rect, dpr: f32, press: (f32, f32)) -> Self {
         Self {
             panel_id,
             rect,
             dpr,
+            press,
             last: None,
         }
+    }
+
+    /// The pointer as this capture's handler should see it.
+    ///
+    /// The box, the scale and the press point all come from the snapshot taken when the
+    /// drag began, so a motion only has to say where it is. Assembling it here rather
+    /// than at the call site is also what stops the two same-shaped points being passed
+    /// the wrong way round, which would measure the drag backwards and still compile.
+    pub fn pointer(&self, at: (f32, f32), buttons: u16) -> serde_json::Value {
+        self.rect.pointer(at, self.press, self.dpr, buttons)
     }
 
     /// Whether these intents are new, recording them if so.
@@ -154,6 +169,7 @@ mod capture_dedup {
                 height: 16.0,
             },
             1.0,
+            (0.0, 8.0),
         )
     }
 

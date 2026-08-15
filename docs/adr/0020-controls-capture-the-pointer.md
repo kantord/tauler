@@ -9,9 +9,11 @@ This is `setPointerCapture` and `pointermove`, which is how every slider on the 
 
 ## Why the position is 2D and unclamped
 
-The handler gets `{ x, y, width, height, buttons }`, in CSS pixels relative to the border
-box. `x` goes negative left of the box and past `width` to the right of it, and the same
-vertically — exactly what `offsetX`/`offsetY` do under capture in a browser.
+The handler gets `{ x, y, press_x, press_y, width, height, buttons }`, in CSS pixels
+relative to the border box. `x` goes negative left of the box and past `width` to the right
+of it, and the same vertically — exactly what `offsetX`/`offsetY` do under capture in a
+browser. `press_x`/`press_y` are where the button went down, for controls that read a
+displacement rather than a position ([0022](0022-drags-are-measured-from-the-press-point.md)).
 
 Not a fraction, and not a value: dragging is two-dimensional, and any single number is
 already wrong for an XY pad, a colour field or a two-axis pan. Clamping is a policy the
