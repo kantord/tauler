@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.5](https://github.com/kantord/tauler/compare/tauler-v0.1.4...tauler-v0.1.5) - 2026-08-15
+
+### Added
+
+- add rotary knob component ([#399](https://github.com/kantord/tauler/pull/399))
+- add slider component ([#396](https://github.com/kantord/tauler/pull/396))
+
+### Other
+
+- add more fixtures ([#386](https://github.com/kantord/tauler/pull/386))
+
 ## [0.1.3](https://github.com/kantord/tauler/compare/tauler-v0.1.2...tauler-v0.1.3) - 2026-08-14
 
 ### Added
