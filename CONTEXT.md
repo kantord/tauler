@@ -47,6 +47,29 @@ single render. It is what makes a Panel look transparent; nothing is actually tr
 The scheme marks it as a resource tauler binds, never a file to read.
 _Avoid_: transparency, blur, backdrop
 
+### Rendering
+
+**Repaint**:
+Redrawing a Panel that already exists, because its content, its scale or the Wallpaper
+under it changed. It is the only kind of render that leaves the tick thread.
+_Avoid_: redraw, refresh, frame
+
+**Render request**:
+One Repaint, described in full: what to draw, at what physical size, against which slice of
+Wallpaper. It is data on a channel, not a call — the tick thread hands it over and moves on.
+_Avoid_: render job, draw call, render task
+
+**Render worker**:
+The thread that turns Render requests into pixels. There is exactly one; it holds no state
+beyond what it has drawn and when.
+_Avoid_: render thread, rasterizer (that is takumi), render queue
+
+**Supersede**:
+What a newer Render request does to an older one for the same Panel that has not started
+drawing yet. A render already under way is never superseded — it finishes, and the newer
+request is drawn after it. See ADR 0020.
+_Avoid_: cancel, abort, debounce, throttle (all four claim work stops, and none of it does)
+
 ### The layout file
 
 **Layout file**:

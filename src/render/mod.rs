@@ -17,12 +17,19 @@
 //! from colliding on one entry and being served each other's slice of wallpaper — see
 //! [`crate::backdrop`].
 //!
+//! That cost is also why panel repaints are rasterized on a worker rather than on the tick
+//! thread — see [`worker`] and ADR 0020. Two renders therefore run at once, so a render
+//! takes an `Arc` snapshot of the context and lets the lock go rather than holding it for
+//! the 40–90ms it draws. The backdrop is bound into that render's own copy of the image
+//! map, which is what makes concurrent renders safe: there is no shared slot for one
+//! surface's slice of wallpaper to be read out of by another.
+//!
 //! Rendering is software only (takumi + tiny-skia), which is why this module is one of
 //! the two a second display backend did not have to touch (ADR 0010).
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, OnceLock, RwLock};
 
 use cached::macros::cached;
 use cached::Cached;
@@ -30,6 +37,8 @@ use takumi::prelude::{
     FontResource, Fonts, GenericFamily, ImageSource, MeasuredNode, Node, RenderOptions, Viewport,
 };
 use takumi::{measure as takumi_measure_layout, render};
+
+pub mod worker;
 
 use crate::backdrop::{Backdrop, ROOT_BG_KEY};
 use crate::config::FontConfig;
@@ -40,21 +49,26 @@ use crate::layout::{parse_layout, Rect};
 /// takumi has no global context of its own: fonts live in a [`Fonts`] handle and
 /// decoded images are handed to each render individually, so tauler owns both and
 /// passes them down per frame.
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct RenderContext {
     pub fonts: Fonts,
     /// Pre-decoded images keyed by the `src` a node references them by.
     pub images: HashMap<Arc<str>, ImageSource>,
 }
 
-static GLOBAL_CTX: OnceLock<Mutex<RenderContext>> = OnceLock::new();
+/// Behind an `Arc` so a render can take a snapshot and let go of the lock: the
+/// render worker and the tick thread rasterize concurrently, and a lock held for
+/// the length of a render would put one back in the other's way. Mutation is
+/// copy-on-write ([`Arc::make_mut`]), so a reload cannot pull the context out
+/// from under a render already using it.
+static GLOBAL_CTX: OnceLock<RwLock<Arc<RenderContext>>> = OnceLock::new();
 
 /// Initialize the global rendering context. Must be called once at startup.
 /// Loads fonts into the context before storing it.
 pub fn init_global_ctx(font_config: FontConfig) {
     let mut ctx = RenderContext::default();
     rebuild_font_context(&mut ctx, &font_config);
-    GLOBAL_CTX.set(Mutex::new(ctx)).ok();
+    GLOBAL_CTX.set(RwLock::new(Arc::new(ctx))).ok();
 }
 
 /// Rebuild `ctx`'s fonts from scratch for `config`.
@@ -72,37 +86,44 @@ pub(crate) fn rebuild_font_context(ctx: &mut RenderContext, config: &FontConfig)
     load
 }
 
+fn ctx_lock() -> &'static RwLock<Arc<RenderContext>> {
+    GLOBAL_CTX
+        .get()
+        .expect("call init_global_ctx before rendering")
+}
+
+/// The current context, with the lock released before the caller uses it.
+///
+/// A render holds its snapshot for as long as it takes; the lock is held only
+/// for the refcount bump.
+fn snapshot() -> Arc<RenderContext> {
+    Arc::clone(&ctx_lock().read().unwrap())
+}
+
 pub fn with_global_ctx<F, R>(f: F) -> R
 where
     F: FnOnce(&RenderContext) -> R,
 {
-    let g = GLOBAL_CTX
-        .get()
-        .expect("call init_global_ctx before rendering")
-        .lock()
-        .unwrap();
-    f(&g)
+    f(&snapshot())
 }
 
 /// As [`with_global_ctx`], for the paths that add images to the context.
+///
+/// Copy-on-write: if a render is holding a snapshot, this clones the context
+/// rather than mutating what that render is reading.
 pub fn with_global_ctx_mut<F, R>(f: F) -> R
 where
     F: FnOnce(&mut RenderContext) -> R,
 {
-    let mut g = GLOBAL_CTX
-        .get()
-        .expect("call init_global_ctx before rendering")
-        .lock()
-        .unwrap();
-    f(&mut g)
+    let mut g = ctx_lock().write().unwrap();
+    f(Arc::make_mut(&mut g))
 }
 
 /// Update the global rendering context's font configuration at runtime.
 /// Clears the render cache so subsequent calls use the new fonts.
 pub fn reload_font_config(font_config: FontConfig) {
-    if let Some(mutex) = GLOBAL_CTX.get() {
-        let mut ctx = mutex.lock().unwrap();
-        rebuild_font_context(&mut ctx, &font_config);
+    if GLOBAL_CTX.get().is_some() {
+        with_global_ctx_mut(|ctx| rebuild_font_context(ctx, &font_config));
         RENDER_FRAME_CACHED.write().cache_clear();
     }
 }
@@ -167,37 +188,17 @@ fn render_frame_cached(
                 .map_err(|e| tracing::error!(error = %e, "layout parse error"))
                 .ok()
         });
-    with_backdrop(backdrop.as_ref(), |global| {
-        let node = layout.unwrap_or_else(|| Node::container(vec![]));
-        let options = frame_options(global, node, width, height, dpr);
-        let t = std::time::Instant::now();
-        let rgba = render(options).expect("render").into_raw();
-        tracing::debug!(full_render_us = t.elapsed().as_micros(), "full render");
-        let mut bgrx = Vec::with_capacity(rgba.len());
-        for px in rgba.chunks_exact(4) {
-            bgrx.extend_from_slice(&[px[2], px[1], px[0], 0x00]);
-        }
-        Arc::new(bgrx)
-    })
-}
-
-/// Run `f` with `backdrop` bound as `tauler:root-bg` in the global context.
-///
-/// `None` *removes* the key rather than leaving the previous surface's crop in
-/// place: a panel on an output with no wallpaper must render with no backdrop,
-/// not with whatever the last panel installed. Binding and rendering happen
-/// under one lock, so surfaces cannot interleave.
-fn with_backdrop<F, R>(backdrop: Option<&Backdrop>, f: F) -> R
-where
-    F: FnOnce(&RenderContext) -> R,
-{
-    with_global_ctx_mut(|global| {
-        match backdrop {
-            Some(b) => global.images.insert(ROOT_BG_KEY.into(), b.image.clone()),
-            None => global.images.remove(ROOT_BG_KEY),
-        };
-        f(global)
-    })
+    let global = snapshot();
+    let node = layout.unwrap_or_else(|| Node::container(vec![]));
+    let options = frame_options(&global, backdrop.as_ref(), node, width, height, dpr);
+    let t = std::time::Instant::now();
+    let rgba = render(options).expect("render").into_raw();
+    tracing::debug!(full_render_us = t.elapsed().as_micros(), "full render");
+    let mut bgrx = Vec::with_capacity(rgba.len());
+    for px in rgba.chunks_exact(4) {
+        bgrx.extend_from_slice(&[px[2], px[1], px[0], 0x00]);
+    }
+    Arc::new(bgrx)
 }
 
 /// Render `content` into a raw RGBA framebuffer (no channel swap, alpha preserved).
@@ -219,28 +220,38 @@ pub fn render_frame_rgba(
                 .map_err(|e| tracing::error!(error = %e, "layout parse error"))
                 .ok()
         });
-    with_backdrop(backdrop, |global| {
-        let node = layout.unwrap_or_else(|| Node::container(vec![]));
-        let options = frame_options(global, node, width, height, dpr);
-        let rgba = render(options).expect("render").into_raw();
-        Arc::new(rgba)
-    })
+    let global = snapshot();
+    let node = layout.unwrap_or_else(|| Node::container(vec![]));
+    let options = frame_options(&global, backdrop, node, width, height, dpr);
+    let rgba = render(options).expect("render").into_raw();
+    Arc::new(rgba)
 }
 
 /// The options every frame is rendered or measured with: the shared fonts and
-/// decoded images, at `width × height` physical pixels with `dpr` scaling CSS `px`.
+/// decoded images, at `width × height` physical pixels with `dpr` scaling CSS `px`,
+/// plus `backdrop` bound as `tauler:root-bg` for this render alone.
 ///
 /// Cloning `images` is a per-entry `Arc` bump, not a pixel copy.
-fn frame_options(
-    ctx: &RenderContext,
+///
+/// The binding is render-local: takumi already takes the image map by value, so
+/// the crop goes into this render's copy and never into the shared context. A
+/// surface with no wallpaper under it simply renders without the key — there is
+/// no shared slot for the previous surface's crop to linger in.
+fn frame_options<'a>(
+    ctx: &'a RenderContext,
+    backdrop: Option<&Backdrop>,
     node: Node,
     width: u32,
     height: u32,
     dpr: f32,
-) -> RenderOptions<'_> {
+) -> RenderOptions<'a> {
+    let mut images = ctx.images.clone();
+    if let Some(b) = backdrop {
+        images.insert(ROOT_BG_KEY.into(), b.image.clone());
+    }
     RenderOptions::builder()
         .fonts(&ctx.fonts)
-        .images(ctx.images.clone())
+        .images(images)
         .viewport(Viewport::new((Some(width), Some(height))).with_device_pixel_ratio(dpr))
         .node(node)
         .build()
@@ -490,7 +501,7 @@ fn preload_layout_images_impl(layout: &serde_json::Value, global: &mut RenderCon
             continue;
         }
         // Resources tauler binds itself, not files to read — `tauler:root-bg` is
-        // bound per render by `with_backdrop`. The scheme is what makes it
+        // bound per render by `frame_options`. The scheme is what makes it
         // impossible for a file of that name to shadow one (ADR 0016).
         if src.starts_with("tauler:") {
             continue;
@@ -525,7 +536,7 @@ pub fn measure_layout_frame(
         .map_err(|e| tracing::error!(error = %e, "layout parse error"))
         .unwrap_or_else(|_| Node::container(vec![]));
     with_global_ctx(|global| {
-        let options = frame_options(global, node, width, height, dpr);
+        let options = frame_options(global, None, node, width, height, dpr);
         takumi_measure_layout(options).expect("measure_layout")
     })
 }
@@ -554,6 +565,17 @@ mod tests {
 
     fn ink(pixels: &[u8]) -> usize {
         pixels.chunks_exact(4).filter(|px| px[3] != 0).count()
+    }
+
+    /// Serializes the tests that read the process-global render cache against
+    /// the one that empties it. Renders no longer hold a lock for their
+    /// duration, so without this a font reload can clear the cache between a
+    /// cache test's two calls and the hit it is asserting never happens.
+    fn render_cache_guard() -> std::sync::MutexGuard<'static, ()> {
+        static GUARD: std::sync::Mutex<()> = std::sync::Mutex::new(());
+        GUARD
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
     /// Ink for `text` rendered against an explicit font set. Tests can't rely on
@@ -749,6 +771,7 @@ mod tests {
 
     #[test]
     fn render_frame_cache_hit_returns_same_arc() {
+        let _guard = render_cache_guard();
         init_global_ctx(FontConfig::default());
         let content = serde_json::json!({});
         let a1 = render_frame(&content, 10, 10, 1.0);
@@ -761,6 +784,7 @@ mod tests {
 
     #[test]
     fn render_frame_different_dims_returns_distinct_arc() {
+        let _guard = render_cache_guard();
         init_global_ctx(FontConfig::default());
         let content = serde_json::json!({});
         let a1 = render_frame(&content, 10, 10, 1.0);
@@ -845,6 +869,7 @@ mod tests {
 
     #[test]
     fn reload_font_config_updates_global_ctx_sans_serif_mapping() {
+        let _guard = render_cache_guard();
         fn fc_match_path(pattern: &str) -> Option<std::path::PathBuf> {
             let out = std::process::Command::new("fc-match")
                 .args(["--format", "%{file}", pattern])

@@ -15,7 +15,7 @@ use tauler::pointer::{dispatch, read_handler, Capture, Handler};
 #[cfg(not(target_os = "macos"))]
 use tauler::presentation::PresentationThread;
 use tauler::presentation::{PointerEvent, PointerPhase, PresenterEvent, SurfaceCommand};
-use tauler::surface::SurfaceSets;
+use tauler::surface::{SurfaceOutputs, SurfaceSets};
 use tauler::theme::resolver::resolve_theme_tokens;
 use tauler::theme::{Theme, ThemeMode};
 #[cfg(target_os = "linux")]
@@ -145,7 +145,7 @@ fn apply_eval_result(
     output_map: &HashMap<String, OutputInfo>,
     handle: &DataLoopHandle,
     surface_set: &mut SurfaceSets,
-    command_tx: &mut mpsc::Sender<SurfaceCommand>,
+    outputs: &mut SurfaceOutputs,
     mod_init_fn: &dyn Fn() -> serde_json::Value,
 ) -> bool {
     let mut specs = match tauler::parse_root_node(&out.layout) {
@@ -216,7 +216,7 @@ fn apply_eval_result(
     let combined: Vec<StreamSource> = stream_specs.into_iter().chain(module_specs).collect();
     handle.set_desired(combined);
 
-    let surface_errors = surface_set.reconcile_all(specs, command_tx);
+    let surface_errors = surface_set.reconcile_all(specs, outputs);
     log_lifecycle_errors(surface_errors);
     true
 }
@@ -317,13 +317,27 @@ pub(crate) struct App {
     layout_jsx_path: std::path::PathBuf,
     stop: Arc<AtomicBool>,
     last_tick: Arc<std::sync::atomic::AtomicU64>,
-    command_tx: mpsc::Sender<SurfaceCommand>,
+    outputs: SurfaceOutputs,
     event_rx: mpsc::Receiver<PresenterEvent>,
     module_event_txs: ModuleEventTxs,
     /// The drag in progress, if any: the box it was pressed in and what it last sent
     /// (`docs/adr/0020`). The handler itself lives in the JS capture slot.
     capture: Option<Capture>,
     presenter_thread: Option<thread::JoinHandle<()>>,
+}
+
+/// Start the render worker and return the two channels a reconciled surface
+/// writes to.
+///
+/// The worker is not joined on shutdown and holds nothing but memory: it may be
+/// part-way through a rasterization that no longer matters, and waiting for
+/// those pixels would only delay the re-exec. Dropping [`SurfaceOutputs`] closes
+/// its request channel, which is what tells it to stop.
+fn spawn_render_worker(command_tx: mpsc::Sender<SurfaceCommand>) -> SurfaceOutputs {
+    let (repaints, repaint_rx) = mpsc::channel();
+    let commands = command_tx.clone();
+    thread::spawn(move || tauler::render::worker::run(repaint_rx, command_tx));
+    SurfaceOutputs { commands, repaints }
 }
 
 fn parse_config(config_path: &std::path::Path) -> TaulerConfig {
@@ -413,7 +427,7 @@ impl App {
             layout_jsx_path,
             stop,
             last_tick,
-            command_tx,
+            outputs: spawn_render_worker(command_tx),
             event_rx,
             module_event_txs,
             capture: None,
@@ -476,7 +490,7 @@ impl App {
             layout_jsx_path,
             stop,
             last_tick,
-            command_tx,
+            outputs: spawn_render_worker(command_tx),
             event_rx,
             module_event_txs,
             capture: None,
@@ -553,7 +567,7 @@ impl App {
             layout_jsx_path,
             stop,
             last_tick,
-            command_tx,
+            outputs: spawn_render_worker(command_tx),
             event_rx,
             module_event_txs,
             capture: None,
@@ -595,7 +609,7 @@ impl App {
             &self.output_map,
             &self.handle,
             &mut self.surfaces,
-            &mut self.command_tx,
+            &mut self.outputs,
             &move || make_mod_init_value(&output_name, dpi, sw, sh),
         )
     }
@@ -922,8 +936,8 @@ impl App {
 
 impl Drop for App {
     fn drop(&mut self) {
-        log_lifecycle_errors(self.surfaces.clear(&mut self.command_tx));
-        let _ = self.command_tx.send(SurfaceCommand::Shutdown);
+        log_lifecycle_errors(self.surfaces.clear(&mut self.outputs));
+        let _ = self.outputs.commands.send(SurfaceCommand::Shutdown);
         if let Some(h) = self.presenter_thread.take() {
             let _ = h.join();
         }
@@ -942,7 +956,25 @@ mod tests {
     use tauler::data::data_loop::{DataLoop, StreamSource};
     use tauler::layout::OutputInfo;
     use tauler::presentation::SurfaceCommand;
-    use tauler::surface::SurfaceSets;
+    use tauler::render::worker::RenderRequest;
+    use tauler::surface::{SurfaceOutputs, SurfaceSets};
+
+    /// Outputs plus both receiving ends: repaint requests never reach the
+    /// presenter, so a test looking for pixels has to look at the other channel.
+    #[allow(clippy::type_complexity)]
+    fn test_outputs() -> (
+        SurfaceOutputs,
+        mpsc::Receiver<SurfaceCommand>,
+        mpsc::Receiver<RenderRequest>,
+    ) {
+        let (commands, command_rx) = mpsc::channel::<SurfaceCommand>();
+        let (repaints, repaint_rx) = mpsc::channel::<RenderRequest>();
+        (
+            SurfaceOutputs { commands, repaints },
+            command_rx,
+            repaint_rx,
+        )
+    }
 
     fn make_eval_output(layout: serde_json::Value) -> tauler::jsx::EvalOutput {
         tauler::jsx::EvalOutput {
@@ -978,7 +1010,7 @@ mod tests {
 
         let (_data_loop, handle) = DataLoop::new();
         let mut surface_set = SurfaceSets::new();
-        let (mut command_tx, command_rx) = mpsc::channel::<SurfaceCommand>();
+        let (mut outputs, command_rx, _repaints) = test_outputs();
 
         apply_eval_result(
             &out,
@@ -987,7 +1019,7 @@ mod tests {
             &output_map,
             &handle,
             &mut surface_set,
-            &mut command_tx,
+            &mut outputs,
             &noop_mod_init,
         );
 
@@ -1026,7 +1058,7 @@ mod tests {
 
         let (_data_loop, handle) = DataLoop::new();
         let mut surface_set = SurfaceSets::new();
-        let (mut command_tx, command_rx) = mpsc::channel::<SurfaceCommand>();
+        let (mut outputs, command_rx, _repaints) = test_outputs();
 
         // primary output "DP-1" is not in output_map, so the null-output spec must be excluded
         apply_eval_result(
@@ -1036,7 +1068,7 @@ mod tests {
             &output_map,
             &handle,
             &mut surface_set,
-            &mut command_tx,
+            &mut outputs,
             &noop_mod_init,
         );
 
@@ -1082,7 +1114,7 @@ mod tests {
 
         let (_data_loop, handle) = DataLoop::new();
         let mut surface_set = SurfaceSets::new();
-        let (mut command_tx, _command_rx) = mpsc::channel::<SurfaceCommand>();
+        let (mut outputs, _command_rx, _repaints) = test_outputs();
 
         apply_eval_result(
             &out,
@@ -1091,7 +1123,7 @@ mod tests {
             &output_map,
             &handle,
             &mut surface_set,
-            &mut command_tx,
+            &mut outputs,
             &noop_mod_init,
         );
 
@@ -1119,7 +1151,7 @@ mod tests {
 
         let (_data_loop, handle) = DataLoop::new();
         let mut surface_set = SurfaceSets::new();
-        let (mut command_tx, command_rx) = mpsc::channel::<SurfaceCommand>();
+        let (mut outputs, command_rx, _repaints) = test_outputs();
 
         apply_eval_result(
             &out,
@@ -1128,7 +1160,7 @@ mod tests {
             &output_map,
             &handle,
             &mut surface_set,
-            &mut command_tx,
+            &mut outputs,
             &noop_mod_init,
         );
 

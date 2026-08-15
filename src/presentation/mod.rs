@@ -104,6 +104,14 @@ pub enum PresenterEvent {
 /// everything the backend needs.
 pub struct Presenter<DM: DisplayManager> {
     pub panels: HashMap<String, DM::Panel>,
+    /// The physical size each panel's window currently has, as the last
+    /// `Create` or `Resize` set it.
+    ///
+    /// Repaints are rasterized off the tick thread ([`crate::render::worker`]),
+    /// so a frame can arrive for a size the window no longer has. `update_image`
+    /// chunks the buffer by the window's width, so painting a mismatched frame
+    /// garbles the panel. This is what a mismatch is measured against.
+    sizes: HashMap<String, (u32, u32)>,
 }
 
 /// Bundles `dm: DM` and `presenter: Presenter<DM>` so they travel together
@@ -127,6 +135,7 @@ impl<DM: DisplayManager> Default for Presenter<DM> {
     fn default() -> Self {
         Self {
             panels: HashMap::new(),
+            sizes: HashMap::new(),
         }
     }
 }
@@ -141,6 +150,7 @@ impl<DM: DisplayManager> Presenter<DM> {
             SurfaceCommand::Create { spec, frame } => {
                 let id = spec.id.clone();
                 let panel = dm.create_window(&spec, &frame)?;
+                self.sizes.insert(id.clone(), (frame.width, frame.height));
                 self.panels.insert(id, panel);
             }
             SurfaceCommand::Move(spec) => {
@@ -151,17 +161,33 @@ impl<DM: DisplayManager> Presenter<DM> {
             SurfaceCommand::Resize { spec, frame } => {
                 if let Some(panel) = self.panels.get_mut(&spec.id) {
                     dm.update_dimensions(panel, &spec)?;
+                    self.sizes
+                        .insert(spec.id.clone(), (frame.width, frame.height));
                     if let Err(e) = dm.update_image(panel, &frame.pixels[..]) {
                         tracing::error!(panel = %spec.id, error = %e, "presenter resize update_image failed");
                     }
                 }
             }
             SurfaceCommand::Delete { id } => {
+                self.sizes.remove(&id);
                 if let Some(panel) = self.panels.remove(&id) {
                     dm.delete_window(panel)?;
                 }
             }
             SurfaceCommand::UpdatePicture { id, frame } => {
+                // A repaint rendered for a size the window no longer has is
+                // stale by definition: the resize that changed the size
+                // repainted synchronously with a newer frame, so what is on
+                // screen is already ahead of this one.
+                if self.sizes.get(&id) != Some(&(frame.width, frame.height)) {
+                    tracing::debug!(
+                        panel = %id,
+                        frame = ?(frame.width, frame.height),
+                        window = ?self.sizes.get(&id),
+                        "dropping a repaint rendered for a stale size"
+                    );
+                    return Ok(());
+                }
                 if let Some(panel) = self.panels.get_mut(&id) {
                     if let Err(e) = dm.update_image(panel, &frame.pixels[..]) {
                         tracing::error!(panel = %id, error = %e, "presenter update_image failed");
@@ -262,6 +288,14 @@ mod tests {
             pixels: Arc::new(vec![0u8; 4]),
             width: 1,
             height: 1,
+        }
+    }
+
+    fn sized_frame(width: u32, height: u32) -> SurfaceFrame {
+        SurfaceFrame {
+            pixels: Arc::new(vec![0u8; (width * height * 4) as usize]),
+            width,
+            height,
         }
     }
 
@@ -420,6 +454,88 @@ mod tests {
         assert!(
             dm.calls.iter().any(|c| c.starts_with("image:")),
             "UpdatePicture must call dm.update_image immediately; got {:?}",
+            dm.calls
+        );
+    }
+
+    /// Repaints are rasterized off the tick thread, so a frame can arrive after
+    /// the panel it was rendered for has been resized. `update_image` chunks the
+    /// buffer by the *window's* width, so painting it would garble the panel.
+    /// Dropping it loses nothing: every resize repaints synchronously with a
+    /// correctly-sized frame, so the dropped frame is older than what is already
+    /// on screen.
+    #[test]
+    fn presenter_drops_a_frame_that_does_not_match_the_panels_current_size() {
+        let mut p: Presenter<MockDM> = Presenter::new();
+        let mut dm = MockDM::new();
+        p.apply(
+            SurfaceCommand::Create {
+                spec: spec("p1"),
+                frame: sized_frame(100, 30),
+            },
+            &mut dm,
+        )
+        .unwrap();
+        p.apply(
+            SurfaceCommand::Resize {
+                spec: spec("p1"),
+                frame: sized_frame(200, 60),
+            },
+            &mut dm,
+        )
+        .unwrap();
+        let images_before = dm.calls.iter().filter(|c| c.starts_with("image:")).count();
+        p.apply(
+            SurfaceCommand::UpdatePicture {
+                id: "p1".to_string(),
+                frame: sized_frame(100, 30),
+            },
+            &mut dm,
+        )
+        .unwrap();
+        assert_eq!(
+            dm.calls.iter().filter(|c| c.starts_with("image:")).count(),
+            images_before,
+            "a frame rendered for the pre-resize size must not reach the backend; got {:?}",
+            dm.calls
+        );
+    }
+
+    /// The guard must not swallow the frames it exists alongside: one matching
+    /// the current size still paints.
+    #[test]
+    fn presenter_applies_a_frame_that_matches_the_panels_current_size() {
+        let mut p: Presenter<MockDM> = Presenter::new();
+        let mut dm = MockDM::new();
+        p.apply(
+            SurfaceCommand::Create {
+                spec: spec("p1"),
+                frame: sized_frame(100, 30),
+            },
+            &mut dm,
+        )
+        .unwrap();
+        p.apply(
+            SurfaceCommand::Resize {
+                spec: spec("p1"),
+                frame: sized_frame(200, 60),
+            },
+            &mut dm,
+        )
+        .unwrap();
+        let images_before = dm.calls.iter().filter(|c| c.starts_with("image:")).count();
+        p.apply(
+            SurfaceCommand::UpdatePicture {
+                id: "p1".to_string(),
+                frame: sized_frame(200, 60),
+            },
+            &mut dm,
+        )
+        .unwrap();
+        assert_eq!(
+            dm.calls.iter().filter(|c| c.starts_with("image:")).count(),
+            images_before + 1,
+            "a frame matching the post-resize size must paint; got {:?}",
             dm.calls
         );
     }
