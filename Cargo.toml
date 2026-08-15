@@ -3,7 +3,7 @@ members = [".", "tauler-i3", "tauler-notify", "tauler-ui-macro", "tauler-docgen"
 resolver = "2"
 
 [workspace.package]
-version = "0.1.3"
+version = "0.1.4"
 authors = ["Dániel Kántor <github@daniel-kantor.com>"]
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/kantord/tauler"
@@ -73,7 +73,12 @@ thiserror = "2.0.20"
 json-canon = "0.1.3"
 anyhow = "1.0.104"
 serde_yaml = "0.9.34"
-tauler-ui-macro = { path = "tauler-ui-macro", version = "0.1.2" }
+# Must be the current workspace version, not a lower floor: `cargo publish
+# --dry-run` prefers a registry copy over the local package whenever the
+# requirement admits one, so a stale floor silently verifies `tauler` against
+# the *published* macro. That is invisible until the two disagree — which is
+# exactly what happened when the macro stopped hard-coding its tag list.
+tauler-ui-macro = { path = "tauler-ui-macro", version = "0.1.4" }
 optative = "0.1.4"
 optative-process-pool = "0.0.9"
 optative-derive = "0.0.4"
