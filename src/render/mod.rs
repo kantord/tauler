@@ -18,7 +18,7 @@
 //! [`crate::backdrop`].
 //!
 //! That cost is also why panel repaints are rasterized on a worker rather than on the tick
-//! thread — see [`worker`] and ADR 0020. Two renders therefore run at once, so a render
+//! thread — see [`worker`] and ADR 0023. Two renders therefore run at once, so a render
 //! takes an `Arc` snapshot of the context and lets the lock go rather than holding it for
 //! the 40–90ms it draws. The backdrop is bound into that render's own copy of the image
 //! map, which is what makes concurrent renders safe: there is no shared slot for one

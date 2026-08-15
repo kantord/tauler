@@ -67,7 +67,7 @@ _Avoid_: render thread, rasterizer (that is takumi), render queue
 **Supersede**:
 What a newer Render request does to an older one for the same Panel that has not started
 drawing yet. A render already under way is never superseded — it finishes, and the newer
-request is drawn after it. See ADR 0020.
+request is drawn after it. See ADR 0023.
 _Avoid_: cancel, abort, debounce, throttle (all four claim work stops, and none of it does)
 
 ### The layout file
