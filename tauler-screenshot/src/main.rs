@@ -15,7 +15,7 @@ use std::collections::HashMap;
 use clap::Parser;
 use image::RgbaImage;
 use tauler::jsx::{EvalOutput, JsxEvaluator};
-use tauler::theme::resolver::resolve_tw_in_json;
+use tauler::theme::resolver::resolve_theme_tokens;
 use tauler::theme::ThemeMode;
 
 fn parse_theme_mode(s: &str) -> Result<ThemeMode, String> {
@@ -70,7 +70,7 @@ fn main() {
         .expect("eval failed");
 
     let mut layout = eval_output.layout;
-    resolve_tw_in_json(&mut layout, &theme, args.theme);
+    resolve_theme_tokens(&mut layout, &theme, args.theme);
 
     const PAD: u32 = 16;
     // Large scratch height so auto-crop can handle any component without a pre-measurement pass.
@@ -90,7 +90,7 @@ fn main() {
         "class": "bg-background w-full flex flex-col p-[16px]",
         "children": [frame]
     });
-    resolve_tw_in_json(&mut canvas, &theme, args.theme);
+    resolve_theme_tokens(&mut canvas, &theme, args.theme);
 
     let bgrx = tauler::render_frame(&canvas, render_w, CANVAS_H, 1.0);
     let measured = tauler::measure_layout_frame(&canvas, render_w, CANVAS_H, 1.0);

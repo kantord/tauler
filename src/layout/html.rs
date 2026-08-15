@@ -29,13 +29,31 @@ use takumi::prelude::{ImageData, ImageSourceInput, Node, Style, TailwindValues};
 
 use super::presets::preset_for_tag;
 
-/// Cap on element nesting, guarding the recursive walk against a layout file that
-/// nests without bound. Matches Blink's limit, by way of takumi-html.
-pub const MAX_DEPTH: usize = 512;
+/// Cap on element nesting, guarding this recursive walk against a layout file that
+/// nests without bound.
+///
+/// Deliberately *not* Blink's 512, which takumi-html uses: measured against a debug
+/// build on a 2 MiB test thread, this walk overflows the stack at a nesting depth of
+/// 34, so a 512 cap could never fire and deep nesting aborted the process instead of
+/// returning an error. The frames are large because each level holds a `Node` and its
+/// `Vec<Node>` children by value.
+///
+/// 32 leaves roughly twice the depth any real bar uses. Raising it means making the
+/// walk iterative first — the constant is a symptom, not the fix.
+pub const MAX_DEPTH: usize = 32;
 
-/// Tags whose entire subtree is dropped. Distinct from the tags whose preset is
-/// `display: none` — those are laid out and hidden, these never exist.
-const VOID_TAGS: [&str; 5] = ["head", "meta", "link", "style", "script"];
+/// Tags whose entire subtree is dropped rather than laid out.
+///
+/// Not the same set as the tags whose preset is `display: none`, though every tag here
+/// carries that preset too: `title`, `noscript`, `datalist` and `template` are hidden
+/// but still measured, while these five never reach the tree at all. Document metadata
+/// has no content to lay out, and a `<style>` body would otherwise render as text.
+///
+// ─── vendored from takumi-html ─────────────────────────────────────────────────────
+// takumi-html 0.2.0 `VOID_TAGS` — Copyright (c) 2025 Kane Wang — MIT OR Apache-2.0
+// https://github.com/kane50613/takumi/blob/6d31b7c5feeefafc360e5b09500ebc4d849f6f27/takumi-html/src/lib.rs#L39
+const DROPPED_TAGS: [&str; 5] = ["head", "meta", "link", "style", "script"];
+// ─── end vendored ──────────────────────────────────────────────────────────────────
 
 /// Why a layout tree could not be turned into takumi nodes.
 #[derive(Debug, thiserror::Error)]
@@ -46,21 +64,47 @@ pub enum LayoutError {
     MaxDepthExceeded(usize),
     #[error("inline <svg> is not supported — put the SVG in a data URI on an <img src>")]
     InlineSvg,
-    #[error("expected an element or a string, found {0}")]
-    NotANode(&'static str),
     #[error("element has no tag name")]
     MissingTag,
     #[error("invalid style: {0}")]
     Style(serde_json::Error),
 }
 
-/// Where each `on_click` sits in the finished node tree, as a child-index path.
+/// One `on_click`, and enough about the node to say which one it is.
 ///
-/// Recorded here rather than recovered later, because there is no way to recover it:
-/// the tree takumi lays out is not index-comparable with the tree the layout file
-/// wrote (`docs/adr/0018`). The walk knows both at once, so it is the only place the
-/// two can be tied together without guessing.
-pub type Handlers = Vec<(Vec<usize>, Value)>;
+/// Recorded during the walk rather than recovered later, because there is no way to
+/// recover it: the tree takumi lays out is not index-comparable with the tree the
+/// layout file wrote (`docs/adr/0018`). The walk knows both at once, so it is the only
+/// place the two can be tied together without guessing.
+#[derive(Debug, Clone)]
+pub struct Handler {
+    /// Child-index path from the root of the finished node tree.
+    pub path: Vec<usize>,
+    /// The intents to dispatch, verbatim from the layout file.
+    pub on_click: Value,
+    /// How the node was written, for diagnostics — `<span id="close" class="…">`.
+    ///
+    /// A path of child indices is useless in a warning: nobody can map `[0, 3, 1]` back
+    /// to a line of JSX. The tag, `id` and `class` are all in hand here and cost one
+    /// string per handler, of which a bar has a handful.
+    pub label: String,
+}
+
+pub type Handlers = Vec<Handler>;
+
+/// Describe a node the way its author wrote it, for a diagnostic.
+fn describe(tag: &str, obj: &Value) -> String {
+    let attr = |key: &str| obj.get(key).and_then(Value::as_str);
+    let mut out = format!("<{tag}");
+    if let Some(id) = attr("id") {
+        out.push_str(&format!(" id=\"{id}\""));
+    }
+    if let Some(class) = attr("class") {
+        out.push_str(&format!(" class=\"{class}\""));
+    }
+    out.push('>');
+    out
+}
 
 /// Build the takumi node tree for one surface's contents.
 pub fn build_node(value: &Value) -> Result<Node, LayoutError> {
@@ -80,8 +124,8 @@ pub fn build_tree(value: &Value) -> Result<(Node, Handlers), LayoutError> {
     push_node(value, 0, &mut nodes, &mut path, &mut handlers)?;
 
     if nodes.len() == 1 {
-        for (path, _) in handlers.iter_mut() {
-            path.remove(0);
+        for handler in handlers.iter_mut() {
+            handler.path.remove(0);
         }
         Ok((nodes.remove(0), handlers))
     } else {
@@ -111,7 +155,12 @@ fn push_node(
             match built {
                 Ok(Some(node)) => {
                     if let Some(on_click) = value.get("on_click") {
-                        handlers.push((path.clone(), on_click.clone()));
+                        let tag = value.get("type").and_then(Value::as_str).unwrap_or("?");
+                        handlers.push(Handler {
+                            path: path.clone(),
+                            on_click: on_click.clone(),
+                            label: describe(tag, value),
+                        });
                     }
                     out.push(node);
                 }
@@ -142,7 +191,7 @@ fn build_element(
         .and_then(Value::as_str)
         .ok_or(LayoutError::MissingTag)?;
 
-    if VOID_TAGS.contains(&tag) {
+    if DROPPED_TAGS.contains(&tag) {
         return Ok(None);
     }
 

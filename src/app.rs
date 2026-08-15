@@ -14,7 +14,7 @@ use tauler::managed_set::{Lifecycle, OptativeSet, Reconcile};
 use tauler::presentation::PresentationThread;
 use tauler::presentation::{PresenterEvent, SurfaceCommand};
 use tauler::surface::SurfaceSets;
-use tauler::theme::resolver::resolve_tw_in_json;
+use tauler::theme::resolver::resolve_theme_tokens;
 use tauler::theme::{Theme, ThemeMode};
 #[cfg(target_os = "linux")]
 use tauler::windowing::wayland::WaylandDisplayServer;
@@ -564,7 +564,7 @@ impl App {
 
     fn apply_eval_result_dispatch(&mut self, out: &tauler::jsx::EvalOutput) -> bool {
         let mut layout = out.layout.clone();
-        resolve_tw_in_json(&mut layout, &self.theme, self.theme_mode);
+        resolve_theme_tokens(&mut layout, &self.theme, self.theme_mode);
         // An `<img src="…">` naming a file has to be read off disk and put in
         // the render context's image store before the frame is built; takumi
         // resolves `src` against that store and has no filesystem of its own.

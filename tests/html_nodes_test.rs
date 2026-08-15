@@ -131,3 +131,18 @@ fn class_carries_tailwind_utilities() {
     let root = measure_node(&serde_json::json!({"type": "div", "class": "w-[64px] h-[32px]"}));
     assert_eq!((root.width, root.height), (64.0, 32.0));
 }
+
+#[test]
+fn nesting_past_the_depth_limit_is_an_error() {
+    // Past the cap. The walk must stop here rather than recurse until the stack dies,
+    // which is what a cap above the real stack budget used to do.
+    let mut node = serde_json::json!({"type": "div"});
+    for _ in 0..40 {
+        node = serde_json::json!({"type": "div", "children": [node]});
+    }
+    let err = parse_layout(&node).unwrap_err();
+    assert!(
+        err.to_string().contains("nesting"),
+        "the error should name the depth limit, got: {err}"
+    );
+}

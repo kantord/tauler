@@ -1,7 +1,5 @@
 # takumi-html is vendored, not called
 
-Status: accepted, not yet implemented (issue #385).
-
 tauler converts its own tree to takumi nodes with its own walk. The `takumi-html` crate —
 which exists to do exactly this conversion — is not a dependency. Its Chromium preset
 table is copied into tauler behind an attribution fence, and nothing else of it is used.
@@ -63,3 +61,8 @@ the question.
 The fence carries a TODO: upstreaming a public `preset_for_tag` accessor would remove the
 copy entirely, and with it the one real cost of this decision — the table drifts silently
 when takumi corrects theirs, and only a manual diff against the permalink will say so.
+
+Two smaller constants came across with it. `DROPPED_TAGS` is `takumi-html`'s tag list and
+is covered by the same fence. The nesting cap is *not*: 512 was inherited, found to be
+twelve times higher than this walk's real stack budget, and replaced with a measured
+value of our own — see `layout::html::MAX_DEPTH`.

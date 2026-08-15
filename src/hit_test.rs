@@ -14,14 +14,15 @@
 //! Two consequences worth knowing:
 //!
 //! - **Layout runs here.** Hit-testing needs the geometry takumi computed, so this
-//!   builds the layout tree the same way a render does. It is the same cost the
-//!   measure pass used to be, and it happens on click, not on tick.
-//! - **Block-level only.** A `<span>` gets no layout node of its own, so a handler on
-//!   one can never be found. That is not silent: a handler whose path never appears in
-//!   the paint list is logged.
+//!   builds the layout tree the same way a render does. It happens on click, not on
+//!   tick, so it costs nothing until someone actually clicks.
+//! - **Block-level only.** A `<span>` that is not a flex or grid item gets no layout
+//!   node of its own, so a handler on one can never be found. That is not silent: the
+//!   first click on the surface logs the handler, naming it as its author wrote it.
 
 use std::collections::HashSet;
 use std::rc::Rc;
+use std::sync::Mutex;
 
 use takumi::prelude::Viewport;
 use takumi_core::context::RenderContext as TakumiRenderContext;
@@ -31,13 +32,17 @@ use takumi_core::layout::tree::{LayoutResults, LayoutTree, RenderNode};
 use takumi_core::scene::{build_stacking_contexts, NodePaint, PaintItemKind, StackingContextNode};
 use takumi_core::style::{Affine, ComputedStyle, SizingContext};
 
-use crate::layout::html::{build_tree, Handlers};
+use crate::layout::html::{build_tree, Handler, Handlers};
 
-/// Find the handler for a click at `(click_x, click_y)` in physical pixels.
+/// Handlers already reported as unreachable, so the warning fires once rather than on
+/// every click for the lifetime of the process. Keyed by the node's own description,
+/// so an unreachable handler that moves in the tree is reported again.
+static WARNED: Mutex<Option<HashSet<String>>> = Mutex::new(None);
+
+/// Find the intents for a click at `(click_x, click_y)`, in physical pixels.
 ///
-/// Returns the winning node's render path alongside its `on_click` value. The
-/// topmost hit wins: the paint list is in paint order, so the last thing painted over
-/// a point is the first thing a click should reach.
+/// The topmost hit wins: the paint list runs bottom-to-top, so the last thing painted
+/// over a point is the first thing a click should reach.
 pub fn hit_test(
     layout: &serde_json::Value,
     width: u32,
@@ -45,7 +50,7 @@ pub fn hit_test(
     dpr: f32,
     click_x: f32,
     click_y: f32,
-) -> Option<Hit> {
+) -> Option<serde_json::Value> {
     let (node, handlers) = build_tree(layout)
         .map_err(|e| tracing::error!(error = %e, "layout parse error"))
         .ok()?;
@@ -53,7 +58,7 @@ pub fn hit_test(
         return None;
     }
 
-    let hit = crate::render::with_global_ctx(|global| {
+    let (hit, reachable) = crate::render::with_global_ctx(|global| {
         let context = TakumiRenderContext::builder()
             .fonts(global.fonts.snapshot_with_fallbacks(None))
             .images(Rc::new(global.images.clone()))
@@ -87,8 +92,8 @@ pub fn hit_test(
         Some(topmost_hit(&painted, &results, &handlers, click_x, click_y))
     })?;
 
-    warn_unreachable(&handlers, &hit.1);
-    hit.0
+    warn_unreachable(&handlers, &reachable);
+    hit
 }
 
 /// Flatten the stacking contexts into one list, in paint order.
@@ -116,34 +121,38 @@ fn collect_paints<'a>(
     }
 }
 
-/// A resolved click: which node won, and what it wants dispatched.
-type Hit = (Vec<usize>, serde_json::Value);
-
 /// The last painted node under the point that carries a handler, plus every path that
-/// was painted at all (so unreachable handlers can be reported).
+/// was painted at all — the second half is what tells an unreachable handler from a
+/// reachable one that simply wasn't clicked.
 fn topmost_hit(
     painted: &[&NodePaint],
     results: &LayoutResults,
     handlers: &Handlers,
     click_x: f32,
     click_y: f32,
-) -> (Option<Hit>, HashSet<Vec<usize>>) {
+) -> (Option<serde_json::Value>, HashSet<Vec<usize>>) {
     let mut reachable = HashSet::new();
     let mut hit = None;
 
     for paint in painted {
-        reachable.insert(paint.path.clone());
-        let Some(handler) = handlers.iter().find(|(path, _)| *path == paint.path) else {
+        let Ok(layout) = results.layout(paint.node_id) else {
             continue;
         };
-        let Ok(layout) = results.layout(paint.node_id) else {
+        // Appearing in the paint list is not the same as being clickable: an inline
+        // element gets an entry with a zero-area box, which no point can ever fall
+        // inside. Counting that as reachable is what would make the warning silent
+        // in exactly the case it exists for.
+        if layout.size.width > 0.0 && layout.size.height > 0.0 {
+            reachable.insert(paint.path.clone());
+        }
+        let Some(handler) = handlers.iter().find(|h| h.path == paint.path) else {
             continue;
         };
         if contains(paint.transform, layout.size, click_x, click_y) {
             // Overwrite rather than stop: the list runs bottom-to-top, so the last
             // match is the one painted over all the others — which is the one a
             // click lands on.
-            hit = Some((paint.path.clone(), handler.1.clone()));
+            hit = Some(handler.on_click.clone());
         }
     }
 
@@ -164,19 +173,94 @@ fn contains(transform: Affine, size: Size<f32>, click_x: f32, click_y: f32) -> b
     click_x >= left && click_x <= right && click_y >= top && click_y <= bottom
 }
 
-/// Report handlers that no painted node can ever deliver.
+/// Report handlers that no painted node can ever deliver, once each.
 ///
-/// A handler on a `<span>` is the common case: inline elements get no layout node, so
-/// nothing in the paint list carries their path and the click silently goes nowhere.
+/// A handler on an inline `<span>` is the common case: it gets no layout node, so
+/// nothing in the paint list carries its path and the click silently goes nowhere.
 /// Saying so is the whole reason this is not a silent limit (`docs/adr/0018`).
 fn warn_unreachable(handlers: &Handlers, reachable: &HashSet<Vec<usize>>) {
-    for (path, _) in handlers {
-        if !reachable.contains(path) {
+    let unreachable: Vec<&Handler> = handlers
+        .iter()
+        .filter(|h| !reachable.contains(&h.path))
+        .collect();
+    if unreachable.is_empty() {
+        return;
+    }
+
+    let mut warned = WARNED.lock().unwrap();
+    let warned = warned.get_or_insert_with(HashSet::new);
+    for handler in unreachable {
+        if warned.insert(handler.label.clone()) {
             tracing::warn!(
-                path = ?path,
+                node = %handler.label,
                 "on_click on a node that is never painted on its own — inline elements \
-                 cannot receive clicks; put the handler on a block-level element"
+                 cannot take clicks; move the handler to a block-level element"
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::hit_test;
+    use crate::config::FontConfig;
+    use crate::init_global_ctx;
+
+    fn inline_handler(id: &str, class: &str) -> serde_json::Value {
+        serde_json::json!({
+            "type": "div",
+            "style": {"width": 200, "height": 100},
+            "children": [{
+                "type": "span",
+                "id": id,
+                "class": class,
+                "on_click": [{"channel": "t", "event": {"type": "x"}}],
+                "children": ["x"],
+            }],
+        })
+    }
+
+    /// ADR 0018 promises the inline limit is "not silent": the handler is named the
+    /// way its author wrote it, so a path of child indices never reaches a log line.
+    #[test]
+    #[tracing_test::traced_test]
+    fn an_unreachable_handler_is_named_in_a_warning() {
+        init_global_ctx(FontConfig::default());
+        hit_test(
+            &inline_handler("dismiss", "text-[11px]"),
+            200,
+            100,
+            1.0,
+            20.0,
+            10.0,
+        );
+
+        assert!(logs_contain("WARN"), "an unreachable handler warns");
+        assert!(
+            logs_contain(r#"<span id="dismiss" class="text-[11px]">"#),
+            "the warning names the node as it was written"
+        );
+    }
+
+    /// The warning fires per handler, not per click.
+    #[test]
+    #[tracing_test::traced_test]
+    fn an_unreachable_handler_warns_only_once() {
+        init_global_ctx(FontConfig::default());
+        let layout = inline_handler("warn-once-probe", "");
+        for _ in 0..5 {
+            hit_test(&layout, 200, 100, 1.0, 20.0, 10.0);
+        }
+
+        logs_assert(|lines: &[&str]| {
+            let n = lines
+                .iter()
+                .filter(|l| l.contains("warn-once-probe"))
+                .count();
+            match n {
+                1 => Ok(()),
+                _ => Err(format!("expected 1 warning across 5 clicks, got {n}")),
+            }
+        });
     }
 }

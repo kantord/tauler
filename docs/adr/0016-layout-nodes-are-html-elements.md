@@ -1,7 +1,5 @@
 # Layout nodes are HTML elements, presets and all
 
-Status: accepted, not yet implemented (issue #385).
-
 A layout node is named after the HTML element it is: `div`, `span`, `p`, `img`. The
 `container` / `text` / `image` vocabulary is removed rather than kept as aliases, the full
 Chromium user-agent preset table applies, `class` carries Tailwind utilities, and a bare

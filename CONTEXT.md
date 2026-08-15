@@ -73,8 +73,8 @@ element they are — `div`, `span`, `img` — and behave as that element does.
 _Avoid_: leaf node, visual node, tag (a tag is the name; the node is the thing)
 
 **Text node**:
-A Layout node holding a run of text. It has no element of its own: a bare string in the
-tree is one, and is the only way to make one.
+A Layout node holding a run of text. It has no element of its own: writing a bare value
+in the tree is what makes one, and the only thing that does.
 _Avoid_: label, string node, text element
 
 **Preset**:

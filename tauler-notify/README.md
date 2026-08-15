@@ -23,10 +23,10 @@ cargo install tauler-notify
 <Module bin="/home/you/.cargo/bin/tauler-notify">
   {(data, events) =>
     data?.notifications?.map(n => (
-      <container tw="flex flex-col px-2 py-1" on_click={events.dismiss({ id: n.id })}>
-        <text tw="text-[11px] opacity-60">{n.app_name}</text>
-        <text tw="text-[13px] text-white">{n.summary}</text>
-      </container>
+      <div class="flex flex-col px-2 py-1" on_click={events.dismiss({ id: n.id })}>
+        <span class="text-[11px] opacity-60">{n.app_name}</span>
+        <span class="text-[13px] text-white">{n.summary}</span>
+      </div>
     ))
   }
 </Module>

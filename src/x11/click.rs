@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::sync::mpsc;
 
-use crate::modules::hit_test;
+use crate::hit_test::hit_test;
 
 /// Dispatches a click's `on_click`: an array of intents, each
 /// `{"channel": "<bin>", "event": {...}}`. The `event` object goes to the
@@ -46,8 +46,7 @@ pub fn do_hit_test(
         return;
     };
     tracing::debug!(click_x, click_y, phys_width, phys_height, "hit test");
-    let Some((_hit_path, on_click)) =
-        hit_test(layout_json, phys_width, phys_height, dpr, click_x, click_y)
+    let Some(on_click) = hit_test(layout_json, phys_width, phys_height, dpr, click_x, click_y)
     else {
         tracing::debug!(click_x, click_y, "hit test: no clickable node found");
         return;

@@ -19,7 +19,7 @@ use crate::ui::{component, rsx, Node};
 /// A small inline label for status, category, or count.
 #[component("@ui/badge")]
 pub fn badge(children: Vec<Node>, variant: Option<String>, tw: Option<String>) -> Node {
-    rsx! { <container tw={resolved}>{children}</container> }
+    rsx! { <div class={resolved}>{children}</div> }
 }
 ```
 
@@ -28,7 +28,7 @@ The string argument is the module path the component is imported from in a layou
 ```jsx
 import { Badge } from '@ui/badge';
 
-<Badge variant="secondary"><text>Secondary</text></Badge>
+<Badge variant="secondary"><span>Secondary</span></Badge>
 ```
 
 The function name is converted to PascalCase for the JSX tag (`badge` → `Badge`), and

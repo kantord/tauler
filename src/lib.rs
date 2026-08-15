@@ -2,10 +2,10 @@ pub mod backdrop;
 pub mod config;
 pub mod data;
 pub mod display_manager;
+pub mod hit_test;
 pub mod jsx;
 pub mod layout;
 pub mod managed_set;
-pub mod modules;
 pub mod presentation;
 pub mod render;
 pub mod surface;
@@ -36,8 +36,8 @@ pub use render::{
     render_frame_keyed, render_frame_rgba, with_global_ctx, with_global_ctx_mut,
 };
 
-// modules
-pub use modules::hit_test;
+// hit_test
+pub use hit_test::hit_test;
 
 // data spawn functions
 pub use data::{

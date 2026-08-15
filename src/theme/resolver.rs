@@ -6,7 +6,7 @@ use std::collections::HashMap;
 /// Only tokens this project defines are touched — a colour, a radius. Everything else
 /// is passed through verbatim, which is what lets one attribute carry both theme
 /// tokens and plain Tailwind utilities takumi resolves on its own.
-pub fn resolve_tw_in_json(value: &mut serde_json::Value, theme: &Theme, mode: ThemeMode) {
+pub fn resolve_theme_tokens(value: &mut serde_json::Value, theme: &Theme, mode: ThemeMode) {
     match value {
         serde_json::Value::Object(map) => {
             if let Some(class) = map.get_mut("class") {
@@ -16,12 +16,12 @@ pub fn resolve_tw_in_json(value: &mut serde_json::Value, theme: &Theme, mode: Th
                 }
             }
             for v in map.values_mut() {
-                resolve_tw_in_json(v, theme, mode);
+                resolve_theme_tokens(v, theme, mode);
             }
         }
         serde_json::Value::Array(arr) => {
             for v in arr {
-                resolve_tw_in_json(v, theme, mode);
+                resolve_theme_tokens(v, theme, mode);
             }
         }
         _ => {}

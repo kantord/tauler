@@ -1,7 +1,5 @@
 # Clicks bind by render path, not by walking two trees in step
 
-Status: accepted, not yet implemented (issue #385).
-
 Hit-testing resolves a click to a node through takumi's scene walk — the paint list gives
 each painted node a path back into the render tree, and that path is what identifies the
 node that was hit. It does not walk the measured tree and the layout tree side by side,
@@ -35,9 +33,17 @@ binding a click to one means walking those runs and mirroring takumi's private i
 item collection. That mirror desynchronizes silently if takumi adds a node kind, which is
 too much fragility to carry for a capability nothing has asked for.
 
-**A handler that can never fire says so.** An `on_click` on a node with no entry in the
-paint list is a warning, once, naming the node. Silent non-response is the failure mode
-this decision would otherwise introduce, and it is the one nobody can debug.
+**A handler that can never fire says so.** An `on_click` whose node has no clickable box
+is warned about once — named as its author wrote it, `<span id="dismiss" class="…">`,
+because a path of child indices is not something anyone can map back to a line of JSX.
+
+"No clickable box" is the test, not "absent from the paint list". An inline element *does*
+get a paint entry, with a zero-area box that no point can fall inside; treating presence
+as reachability would silence the warning in precisely the case it exists for.
+
+The warning fires on the first click that reaches the surface, because that is when
+layout runs. A bar nobody clicks reports nothing — accepted, since a handler nobody
+clicks is also a handler nobody misses.
 
 **Lifting the limit later is one field, not a redesign.** takumi already threads a link
 target from an ancestor down to each glyph run for its PDF output; a source identifier

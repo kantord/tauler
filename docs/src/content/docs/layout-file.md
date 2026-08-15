@@ -34,40 +34,18 @@ about *what* a bar contains lives in the layout file.
 
 ## Nodes
 
-Layout nodes describe content and get rasterized. **They are HTML elements** — the tag
-you write is the tag you know, and it behaves the way that tag behaves:
-
-| node | description |
-|---|---|
-| `div`, `section`, `nav`, … | block elements |
-| `span`, `em`, `strong`, `code`, … | inline elements |
-| `p`, `h1`–`h6`, `ul`, `ol`, `li`, `hr` | with their usual margins and sizes |
-| `img` | image; `src` is required |
-| `br` | line break |
-
-There is no element that means "text". **Text is any bare string in the tree**, and style
-it by styling the element around it:
+Layout nodes describe content and get rasterized. **They are HTML elements** — `div`,
+`span`, `p`, `img` — and text is any bare value you write in the tree:
 
 ```jsx
-<p class="text-[13px] text-foreground">
-  cpu <span class="font-bold">{cpu}%</span>
-</p>
+<div class="flex flex-col px-3 py-2">
+  <span class="text-[10px] text-muted-foreground">CPU</span>
+  <span class="text-[14px] text-foreground">{load}%</span>
+</div>
 ```
 
-Tags carry their browser default styles, so a `<div>` stacks its children, a `<p>` has
-margins, and an `<h1>` is large and bold. A tag with no defaults — `<span>`, or any tag
-nothing has heard of — is inline. `<style>`, `<script>`, `<head>`, `<meta>` and `<link>`
-are dropped along with their contents.
-
-Not supported: inline `<svg>` (put the SVG in a `data:` URI on an `<img src>`), and
-anything needing `display: table` — `<table>` and friends lay out as plain blocks.
-
-Tailwind utilities go in `class`. `style` takes an **object**, not a CSS string, so a
-value can be computed:
-
-```jsx
-<div class="rounded-md px-2" style={{ backgroundColor: hot ? "#f38ba8" : "transparent" }}>
-```
+[Elements and styling](/tauler/elements/) covers which tags exist, what each one's
+default styling is, and how `class` and `style` apply.
 
 Shell nodes describe structure and never reach the rasterizer. They are the only
 lowercase tags that are not HTML:
