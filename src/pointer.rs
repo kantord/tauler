@@ -72,15 +72,20 @@ pub struct Capture {
     pub panel_id: String,
     pub rect: crate::hit_test::Rect,
     pub dpr: f32,
+    /// Where the button went down, in physical pixels. Every motion is reported
+    /// alongside it, which is what lets a handler that keeps nothing between calls
+    /// still measure how far the drag has come (`docs/adr/0022`).
+    pub press: (f32, f32),
     last: Option<serde_json::Value>,
 }
 
 impl Capture {
-    pub fn new(panel_id: String, rect: crate::hit_test::Rect, dpr: f32) -> Self {
+    pub fn new(panel_id: String, rect: crate::hit_test::Rect, dpr: f32, press: (f32, f32)) -> Self {
         Self {
             panel_id,
             rect,
             dpr,
+            press,
             last: None,
         }
     }
@@ -154,6 +159,7 @@ mod capture_dedup {
                 height: 16.0,
             },
             1.0,
+            (0.0, 8.0),
         )
     }
 

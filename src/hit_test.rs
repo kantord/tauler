@@ -52,11 +52,25 @@ impl Rect {
     /// The pointer's position relative to this box, as a handler sees it: CSS pixels
     /// from the top-left, unclamped, so it goes negative above or left and past
     /// `width`/`height` beyond (`docs/adr/0020`).
-    pub fn pointer(&self, click_x: f32, click_y: f32, dpr: f32, buttons: u16) -> serde_json::Value {
+    ///
+    /// `at` and `press` are both in physical pixels — where the pointer is now, and
+    /// where the button went down. They come back as `x`/`y` and `press_x`/`press_y`
+    /// in the same frame, so a handler can subtract one from the other and get a
+    /// displacement without keeping anything between calls (`docs/adr/0022`). On the
+    /// press itself the two are the same point.
+    pub fn pointer(
+        &self,
+        at: (f32, f32),
+        press: (f32, f32),
+        dpr: f32,
+        buttons: u16,
+    ) -> serde_json::Value {
         let dpr = if dpr > 0.0 { dpr } else { 1.0 };
         serde_json::json!({
-            "x": (click_x - self.x) / dpr,
-            "y": (click_y - self.y) / dpr,
+            "x": (at.0 - self.x) / dpr,
+            "y": (at.1 - self.y) / dpr,
+            "press_x": (press.0 - self.x) / dpr,
+            "press_y": (press.1 - self.y) / dpr,
             "width": self.width / dpr,
             "height": self.height / dpr,
             "buttons": buttons,
@@ -241,9 +255,40 @@ fn warn_unreachable(handlers: &Bindings, reachable: &HashSet<Vec<usize>>) {
 
 #[cfg(test)]
 mod tests {
-    use super::hit_test;
+    use super::{hit_test, Rect};
     use crate::config::FontConfig;
     use crate::init_global_ctx;
+
+    /// A drag is measured from where it started, and a handler that remembers nothing
+    /// between calls cannot keep that itself (`docs/adr/0022`).
+    #[test]
+    fn the_pointer_carries_where_the_press_landed() {
+        let rect = Rect {
+            x: 100.0,
+            y: 10.0,
+            width: 40.0,
+            height: 40.0,
+        };
+        let p = rect.pointer((130.0, 30.0), (110.0, 20.0), 1.0, 1);
+        assert_eq!(p["x"], 30.0);
+        assert_eq!(p["y"], 20.0);
+        assert_eq!(p["press_x"], 10.0, "in the same frame as x");
+        assert_eq!(p["press_y"], 10.0);
+    }
+
+    /// Both points are CSS pixels, so a mapper's arithmetic is free of the scale.
+    #[test]
+    fn the_press_point_is_scaled_like_the_pointer() {
+        let rect = Rect {
+            x: 0.0,
+            y: 0.0,
+            width: 80.0,
+            height: 80.0,
+        };
+        let p = rect.pointer((40.0, 40.0), (20.0, 20.0), 2.0, 1);
+        assert_eq!(p["x"], 20.0);
+        assert_eq!(p["press_x"], 10.0);
+    }
 
     fn inline_handler(id: &str, class: &str) -> serde_json::Value {
         serde_json::json!({

@@ -771,7 +771,9 @@ impl App {
             tracing::debug!(x = event.x, y = event.y, "pointer: nothing under the press");
             return;
         };
-        let pointer = hit.rect.pointer(event.x, event.y, event.dpr, event.buttons);
+        // On a press the pointer is the press, so the two points coincide.
+        let press = (event.x, event.y);
+        let pointer = hit.rect.pointer(press, press, event.dpr, event.buttons);
 
         if let Some(intents) = hit
             .on_click
@@ -791,7 +793,7 @@ impl App {
         {
             evaluator.capture_handler(id);
         }
-        let mut capture = Capture::new(event.panel_id.clone(), hit.rect, event.dpr);
+        let mut capture = Capture::new(event.panel_id.clone(), hit.rect, event.dpr, press);
         if let Some(intents) = self.resolve(on_drag, &pointer) {
             self.send(&intents);
             capture.seed(intents);
@@ -808,9 +810,12 @@ impl App {
         if capture.panel_id != event.panel_id {
             return;
         }
-        let pointer = capture
-            .rect
-            .pointer(event.x, event.y, capture.dpr, event.buttons);
+        let pointer = capture.rect.pointer(
+            (event.x, event.y),
+            capture.press,
+            capture.dpr,
+            event.buttons,
+        );
         let Some(intents) = self
             .jsx_evaluator
             .as_ref()

@@ -195,6 +195,60 @@ import { Icon } from "@ui/icon";
 </div>
 ```
 
+## Knob
+
+**Module:** `@ui/knob`
+
+![Knob screenshot](../../assets/knob.png)
+
+A rotary knob. Draws `value` as an angle in degrees — 0 points up, and the angle
+increases clockwise — and reports the angle you turn it to.
+
+It never remembers anything. `value` is read every tick from whatever owns it, and
+`on_change` receives the new angle and returns the intents to send — one, or an
+array of them.
+
+```jsx
+<Module bin="~/.cargo/bin/tauler-audio">
+  {(data, events) => (
+    <Knob
+      value={data?.balance ?? 0}
+      step={5}
+      on_change={deg => events.setBalance({ deg })}
+    />
+  )}
+</Module>
+```
+
+The turn sets nothing locally: it sends intents, the module changes the angle, and
+the next tick brings the new `value` back. Omit `on_change` and the knob still
+renders — it is simply not interactive.
+
+There is no `min` and no `max`, because the knob measures how far you have turned
+it rather than where on a scale you are pointing. Pressing it anywhere is a turn of
+zero, so it never jumps to meet the pointer, and a fast flick and a slow drag that
+end in the same place give the same angle. The reported angle wraps into 0–360, so
+one press can reach any angle and turning past the top comes round rather than
+running off. What it cannot report is how many whole turns you made — there is no
+scale for them to mean anything on.
+
+`step` defaults to 1 and rounds the reported angle, which is also what keeps a turn
+from sending a message per pixel: a motion that produces the intents just sent is
+skipped.
+
+### Usage
+
+```jsx
+import { Knob } from "@ui/knob";
+
+<div class="flex flex-row gap-[12px] items-center">
+  <Knob value={0} />
+  <Knob value={45} />
+  <Knob value={135} />
+  <Knob value={250} />
+</div>
+```
+
 ## Progress
 
 **Module:** `@ui/progress`

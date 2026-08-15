@@ -155,6 +155,13 @@ you slid onto — see ADR 0020.
 _Avoid_: grab, drag mode, tracking, focus
 _Elsewhere_: `setPointerCapture` (DOM), implicit passive grab (X11)
 
+**Press point**:
+Where a drag's button went down, reported beside every position that drag produces. What a
+control measures against when it reads how far the pointer has come rather than where the
+pointer is — see ADR 0022.
+_Avoid_: grab point, anchor, origin, drag start
+_Elsewhere_: nothing in the DOM — a web page keeps it in a `pointerdown` handler
+
 **Component kind**:
 Which of Data, Display or Control a component is. Exactly one applies, resolved by
 precedence: Data, then Control, then Display. Components that produce Shell nodes, like
