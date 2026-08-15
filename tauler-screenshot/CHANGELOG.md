@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.5](https://github.com/kantord/tauler/compare/tauler-screenshot-v0.1.4...tauler-screenshot-v0.1.5) - 2026-08-15
+
+### Added
+
+- add slider component ([#396](https://github.com/kantord/tauler/pull/396))
+
 ## [0.1.3](https://github.com/kantord/tauler/compare/tauler-screenshot-v0.1.2...tauler-screenshot-v0.1.3) - 2026-08-14
 
 ### Other
