@@ -405,6 +405,10 @@ fn spawn_worker(boot: MacBoot, mac: MacInit) -> thread::JoinHandle<()> {
             last_tick,
             watcher,
         );
+        // Whatever this returns, the subprocesses must be torn down before main
+        // re-execs: `exec` keeps the PID and runs no destructors, so anything
+        // still tracked becomes a child of the new image that nothing holds a
+        // handle to, and so can never be reaped.
         data_loop.run(
             stop,
             move |item: StreamItem| {
@@ -412,6 +416,7 @@ fn spawn_worker(boot: MacBoot, mac: MacInit) -> thread::JoinHandle<()> {
             },
             move || app.tick(),
         );
+        data_loop.shutdown();
     })
 }
 
