@@ -5,6 +5,9 @@
 //! pointer events. Doing that work inline means none of it happens while a panel
 //! draws — so repaints become jobs, and the thread that draws them is this one.
 //!
+//! A target may not be repainted more often than [`REPAINT_FLOOR`]. That is a
+//! delay and never a discard: the request waits in its slot.
+//!
 //! The scheduler is a slot per render target holding the latest frame nobody has
 //! painted yet. Sending a second [`RenderRequest`] for a target overwrites the
 //! first, and that overwrite is the entirety of what *superseding* means here:
@@ -14,11 +17,11 @@
 //! impossible: an endless stream of updates still draws one snapshot to
 //! completion, then the next-newest, and so on (ADR 0023).
 //!
-//! Everything rasterizes here, including the renders whose caller cannot carry
-//! on without the pixels — a window needs a picture before it can exist. Those
+//! Everything is drawn here, including the renders whose caller cannot carry on
+//! without the pixels — a window needs a picture before it can exist. Those
 //! arrive as [`RenderJob::Now`] and are answered on a reply channel while the
-//! tick thread waits, which it did anyway when it drew them itself. One
-//! rasterizer means one [`FrameCache`], with no lock around it and nothing else
+//! tick thread waits, which it did anyway when it drew them itself. One thread
+//! drawing means one [`FrameCache`], with no lock around it and nothing else
 //! able to evict from it.
 //!
 //! ## Where the order will come from
@@ -39,20 +42,19 @@ use super::cache::FrameCache;
 use crate::backdrop::Backdrop;
 use crate::presentation::{SurfaceCommand, SurfaceFrame};
 
-/// The shortest gap between two repaints of the same target.
+/// The shortest gap allowed between two repaints of one target.
 ///
 /// Above roughly 80 frames a second nothing reaches the eye, so a target cheap
 /// enough to draw faster than that is only burning CPU. Targets expensive enough
-/// to matter (a full-height 4K bar draws in 40–90ms) never come near this floor
-/// — drawing is its own rate limit there.
-pub const MIN_REPAINT_INTERVAL: Duration = Duration::from_micros(12_500);
+/// to matter (a full-height 4K bar draws in 40–90ms) never come near the floor —
+/// drawing is its own limit there.
+const REPAINT_FLOOR: Duration = Duration::from_micros(12_500);
 
 /// One target's picture, with everything needed to draw it.
 ///
 /// Self-contained on purpose: the backdrop is cropped by the tick thread and
 /// travels with the request, so the worker never consults the wallpaper registry
 /// and cannot draw against a wallpaper newer than the one the pipeline recorded.
-#[derive(Clone)]
 pub struct RenderRequest {
     pub id: String,
     pub content: serde_json::Value,
@@ -70,12 +72,16 @@ pub enum RenderJob {
     /// presenter. Superseded by a newer request for the same target.
     Repaint(RenderRequest),
     /// Draw this before anything pending and hand the frame back: the caller is
-    /// blocked on it. Never throttled and never superseded — the pixels are
-    /// going somewhere the pipeline needs them synchronously.
+    /// blocked on it. The floor does not apply and it is never superseded — the
+    /// pixels are going somewhere the pipeline needs them synchronously.
     Now {
         request: RenderRequest,
         reply: Sender<SurfaceFrame>,
     },
+    /// This target is gone. Everything the worker remembers about it — an
+    /// unpainted request, when it last drew — is about a target that will never
+    /// be asked for again.
+    Forget { id: String },
     /// The fonts were reloaded, so every cached frame was drawn with the wrong
     /// ones.
     FontsChanged,
@@ -83,22 +89,22 @@ pub enum RenderJob {
 
 /// What the worker should do with a target it is holding.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum RepaintDecision {
+enum RepaintDecision {
     /// Draw it now.
     RenderNow,
-    /// Hold it until this instant. The request is kept, never dropped: this
-    /// delays a repaint, it does not cancel one.
+    /// Hold it until this instant. The request is kept, never discarded: the
+    /// floor delays a repaint, it does not cancel one.
     WaitUntil(Instant),
 }
 
 /// Decide whether a target may be repainted, given when it last was.
 ///
-/// Pure and clock-free — the caller supplies `now`, as `tauler-i3`'s scheduler
-/// does.
-pub fn repaint_decision(now: Instant, last_render: Option<Instant>) -> RepaintDecision {
+/// Pure and clock-free: the caller supplies `now`, so the floor can be tested
+/// without waiting one out.
+fn repaint_decision(now: Instant, last_render: Option<Instant>) -> RepaintDecision {
     match last_render {
-        Some(last) if now < last + MIN_REPAINT_INTERVAL => {
-            RepaintDecision::WaitUntil(last + MIN_REPAINT_INTERVAL)
+        Some(last) if now < last + REPAINT_FLOOR => {
+            RepaintDecision::WaitUntil(last + REPAINT_FLOOR)
         }
         _ => RepaintDecision::RenderNow,
     }
@@ -146,8 +152,8 @@ impl Worker {
         }
     }
 
-    /// Take one job. Returns false once there is no one left to draw for.
-    fn accept(&mut self, job: RenderJob) -> bool {
+    /// Take one job.
+    fn accept(&mut self, job: RenderJob) {
         match job {
             RenderJob::Repaint(request) => {
                 self.pending.insert(request.id.clone(), request);
@@ -163,9 +169,12 @@ impl Worker {
                     tracing::debug!(target = %request.id, "nobody waiting for a Now render");
                 }
             }
+            RenderJob::Forget { id } => {
+                self.pending.remove(&id);
+                self.last_render.remove(&id);
+            }
             RenderJob::FontsChanged => self.cache.clear(),
         }
-        true
     }
 
     /// Draw the first target that is due.
@@ -225,9 +234,9 @@ pub fn run(jobs: Receiver<RenderJob>, commands: Sender<SurfaceCommand>) {
         match worker.draw_next() {
             Drawn::Done => {}
             Drawn::Disconnected => return,
-            // Held by the throttle: wait on the channel rather than sleeping, so
-            // a newer request can still supersede what is being held, and a
-            // `Now` still gets answered without waiting out the interval.
+            // Held by the floor: wait on the channel rather than sleeping, so a
+            // newer request can still supersede what is being held, and a `Now`
+            // still gets answered without waiting the floor out.
             Drawn::NothingUntil(deadline) => {
                 match jobs.recv_timeout(deadline.saturating_duration_since(Instant::now())) {
                     Ok(job) => {
@@ -275,7 +284,7 @@ mod tests {
         let base = Instant::now();
         assert_eq!(
             repaint_decision(base + Duration::from_millis(5), Some(base)),
-            RepaintDecision::WaitUntil(base + MIN_REPAINT_INTERVAL),
+            RepaintDecision::WaitUntil(base + REPAINT_FLOOR),
             "a repaint 5ms after the last one must be held, not dropped"
         );
     }
@@ -284,7 +293,7 @@ mod tests {
     fn a_panel_repaints_once_the_interval_has_elapsed() {
         let base = Instant::now();
         assert_eq!(
-            repaint_decision(base + MIN_REPAINT_INTERVAL, Some(base)),
+            repaint_decision(base + REPAINT_FLOOR, Some(base)),
             RepaintDecision::RenderNow,
             "the deadline itself is eligible"
         );
@@ -343,8 +352,39 @@ mod tests {
         );
     }
 
-    /// Drawing anything starts that target's interval, so the repaint that
-    /// follows a resize is throttled like any other.
+    /// A deleted surface never comes back, so the worker must not go on
+    /// remembering when it last drew one. This is the only removal path for
+    /// anything the worker holds.
+    #[test]
+    fn forgetting_a_target_leaves_nothing_behind() {
+        let mut w = worker();
+        let (reply, _frames) = std::sync::mpsc::channel();
+        w.accept(RenderJob::Now {
+            request: request("p1", "drawn"),
+            reply,
+        });
+        w.accept(RenderJob::Repaint(request("p1", "pending")));
+        w.accept(RenderJob::Repaint(request("p2", "untouched")));
+
+        w.accept(RenderJob::Forget { id: "p1".into() });
+
+        assert!(
+            !w.pending.contains_key("p1"),
+            "a forgotten target's unpainted request must go with it"
+        );
+        assert!(
+            !w.last_render.contains_key("p1"),
+            "a forgotten target's floor must go with it, or the map grows for the \
+             life of the process"
+        );
+        assert!(
+            w.pending.contains_key("p2"),
+            "other targets must not be disturbed"
+        );
+    }
+
+    /// Drawing anything starts that target's floor, so the repaint that follows
+    /// a resize waits like any other.
     #[test]
     fn drawing_a_target_starts_its_interval() {
         let mut w = worker();
@@ -355,7 +395,101 @@ mod tests {
         });
         assert_eq!(
             repaint_decision(Instant::now(), w.last_render.get("p1").copied()),
-            RepaintDecision::WaitUntil(w.last_render["p1"] + MIN_REPAINT_INTERVAL)
+            RepaintDecision::WaitUntil(w.last_render["p1"] + REPAINT_FLOOR)
         );
+    }
+
+    /// The loop itself, which is the only place a held request turns back into a
+    /// draw. Everything above tests a decision; these test that the decision is
+    /// acted on.
+    mod running {
+        use super::*;
+        use std::sync::mpsc::{channel, Receiver, Sender};
+        use std::time::Duration;
+
+        /// Long enough that a loaded machine cannot fail these by being slow,
+        /// short enough that a real hang still ends the test.
+        const PATIENCE: Duration = Duration::from_secs(5);
+
+        fn spawn_worker() -> (Sender<RenderJob>, Receiver<SurfaceCommand>) {
+            crate::render::init_global_ctx(crate::config::FontConfig::default());
+            let (jobs, job_rx) = channel();
+            let (commands, command_rx) = channel();
+            std::thread::spawn(move || run(job_rx, commands));
+            (jobs, command_rx)
+        }
+
+        fn painted(commands: &Receiver<SurfaceCommand>) -> Option<String> {
+            match commands.recv_timeout(PATIENCE) {
+                Ok(SurfaceCommand::UpdatePicture { id, .. }) => Some(id),
+                other => panic!("expected an UpdatePicture, got {:?}", other.is_ok()),
+            }
+        }
+
+        /// The guarantee issue #394 asks for: a repaint the floor is holding is
+        /// delayed, never discarded. Nothing arrives after it to wake the worker
+        /// — if the floor dropped held requests instead of keeping them, this
+        /// panel would sit on its old picture forever.
+        #[test]
+        fn a_repaint_held_by_the_floor_is_still_drawn_once_the_jobs_stop() {
+            let (jobs, commands) = spawn_worker();
+
+            jobs.send(RenderJob::Repaint(request("p1", "first")))
+                .unwrap();
+            assert_eq!(painted(&commands).as_deref(), Some("p1"));
+
+            // Straight after a draw, so the floor is certainly holding this one.
+            jobs.send(RenderJob::Repaint(request("p1", "second")))
+                .unwrap();
+
+            assert_eq!(
+                painted(&commands).as_deref(),
+                Some("p1"),
+                "the held repaint must be drawn when its floor lifts, with no \
+                 further job to prompt it"
+            );
+        }
+
+        /// Supersession, end to end: the requests that pile up behind a draw
+        /// collapse to the newest, and the ones they replaced are never drawn.
+        #[test]
+        fn repaints_that_pile_up_are_drawn_once() {
+            let (jobs, commands) = spawn_worker();
+            for content in ["a", "b", "c", "d"] {
+                jobs.send(RenderJob::Repaint(request("p1", content)))
+                    .unwrap();
+            }
+
+            assert_eq!(painted(&commands).as_deref(), Some("p1"));
+            // However the four landed, they cannot have produced four draws:
+            // one slot per target means at most the one being drawn plus the one
+            // waiting.
+            let mut drawn = 1;
+            while commands.recv_timeout(Duration::from_millis(200)).is_ok() {
+                drawn += 1;
+                assert!(
+                    drawn <= 2,
+                    "four requests for one target must not become {drawn} draws"
+                );
+            }
+        }
+
+        #[test]
+        fn a_forgotten_target_is_not_drawn() {
+            let (jobs, commands) = spawn_worker();
+            // p1 is forgotten before the worker can get to it; p2 is what tells
+            // us the worker got that far at all.
+            jobs.send(RenderJob::Repaint(request("p1", "doomed")))
+                .unwrap();
+            jobs.send(RenderJob::Forget { id: "p1".into() }).unwrap();
+            jobs.send(RenderJob::Repaint(request("p2", "wanted")))
+                .unwrap();
+
+            assert_eq!(
+                painted(&commands).as_deref(),
+                Some("p2"),
+                "a target forgotten before its request was drawn must not be drawn"
+            );
+        }
     }
 }

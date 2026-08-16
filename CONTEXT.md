@@ -56,9 +56,14 @@ scheduler and its own entry in the cache.
 _Avoid_: layer, texture, canvas
 
 **Repaint**:
-Redrawing a Render target that already exists, because its content, its scale or the
+Drawing a Render target that already exists again, because its content, its scale or the
 Wallpaper under it changed. Nobody waits for one.
-_Avoid_: redraw, refresh, frame
+_Avoid_: redraw, refresh; frame (those are the pixels, not the act — see **Frame**)
+
+**Frame**:
+The finished pixels of one Render target, at one physical size. What a Repaint produces
+and what the cache keeps.
+_Avoid_: buffer, bitmap, image
 
 **Render request**:
 What to draw, at what physical size, against which slice of Wallpaper. It carries
@@ -79,7 +84,13 @@ _Avoid_: render thread, rasterizer (that is takumi), render queue
 What a newer Render request does to the unpainted one in a target's slot. A render already
 under way is never superseded — it finishes, and the newer request is drawn after it. See
 ADR 0023.
-_Avoid_: cancel, abort, debounce, throttle (all four claim work stops, and none of it does)
+_Avoid_: cancel, abort, drop (all three claim work stops, and none of it does); debounce
+and throttle (they name a rate, not a replacement — see **Repaint floor**)
+
+**Repaint floor**:
+The shortest gap allowed between two Repaints of one target. It delays a Render request,
+never discards it: the request waits in its slot and is drawn when the floor lifts.
+_Avoid_: throttle, debounce, rate limit, frame cap
 
 ### The layout file
 

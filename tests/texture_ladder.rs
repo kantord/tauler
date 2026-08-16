@@ -4,10 +4,10 @@
 //! it costs, which for a surface that repaints on every tick is the number that
 //! decides the design. This produces that number.
 //!
-//! It measures `render_frame_rgba`, which is the whole path a tick pays —
-//! canonicalise, parse, lay out, rasterize — and, unlike `render_frame`, is
-//! **uncached**, so twenty calls are twenty renders rather than one render and
-//! nineteen `Arc` clones. Nothing in tauler had to change to make this
+//! It measures `render_frame_rgba`, which is the whole path a repaint pays —
+//! parse, lay out, rasterize. Everything in `render/mod.rs` draws fresh every
+//! call now that the cache belongs to the render worker (ADR 0023), so twenty
+//! calls really are twenty renders. Nothing in tauler had to change to make this
 //! measurable.
 //!
 //! Two costs are deliberately outside these numbers, and both are constant

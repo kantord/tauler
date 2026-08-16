@@ -37,6 +37,11 @@ impl SurfaceOutputs {
     /// cropped against it. Blocking here is what the tick thread did anyway when
     /// it drew these itself — the difference is that now there is one rasterizer
     /// and therefore one cache.
+    /// Tell the worker a target is gone, so it stops remembering one.
+    fn forget(&self, id: &str) {
+        let _ = self.jobs.send(RenderJob::Forget { id: id.to_string() });
+    }
+
     fn render_now(&self, request: RenderRequest) -> Result<SurfaceFrame, anyhow::Error> {
         let (reply, frames) = std::sync::mpsc::channel();
         self.jobs
@@ -238,6 +243,7 @@ impl Lifecycle for Surface {
         output: &mut SurfaceOutputs,
     ) -> Result<(), anyhow::Error> {
         crate::backdrop::forget(&state.spec);
+        output.forget(&state.spec.id);
         let _ = output
             .commands
             .send(SurfaceCommand::Delete { id: state.spec.id });
@@ -342,7 +348,7 @@ mod tests {
                     RenderJob::Repaint(request) => {
                         let _ = repaints.send(request);
                     }
-                    RenderJob::FontsChanged => {}
+                    RenderJob::Forget { .. } | RenderJob::FontsChanged => {}
                 }
             }
         });

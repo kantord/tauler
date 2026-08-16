@@ -143,15 +143,7 @@ pub fn render_frame_keyed(
     dpr: f32,
     backdrop: Option<&Backdrop>,
 ) -> Arc<Vec<u8>> {
-    let layout = parse_layout(content)
-        .map_err(|e| tracing::error!(error = %e, "layout parse error"))
-        .ok();
-    let global = snapshot();
-    let node = layout.unwrap_or_else(|| Node::container(vec![]));
-    let options = frame_options(&global, backdrop, node, width, height, dpr);
-    let t = std::time::Instant::now();
-    let rgba = render(options).expect("render").into_raw();
-    tracing::debug!(full_render_us = t.elapsed().as_micros(), "full render");
+    let rgba = raster(content, width, height, dpr, backdrop);
     let mut bgrx = Vec::with_capacity(rgba.len());
     for px in rgba.chunks_exact(4) {
         bgrx.extend_from_slice(&[px[2], px[1], px[0], 0x00]);
@@ -170,19 +162,28 @@ pub fn render_frame_rgba(
     dpr: f32,
     backdrop: Option<&Backdrop>,
 ) -> Arc<Vec<u8>> {
-    let canonical = json_canon::to_string(content).unwrap_or_default();
-    let layout = serde_json::from_str::<serde_json::Value>(&canonical)
-        .ok()
-        .and_then(|v| {
-            parse_layout(&v)
-                .map_err(|e| tracing::error!(error = %e, "layout parse error"))
-                .ok()
-        });
+    Arc::new(raster(content, width, height, dpr, backdrop))
+}
+
+/// The rasterizing itself: what both framebuffer shapes have in common, which is
+/// everything except the channel order they come out in.
+fn raster(
+    content: &serde_json::Value,
+    width: u32,
+    height: u32,
+    dpr: f32,
+    backdrop: Option<&Backdrop>,
+) -> Vec<u8> {
+    let layout = parse_layout(content)
+        .map_err(|e| tracing::error!(error = %e, "layout parse error"))
+        .ok();
     let global = snapshot();
     let node = layout.unwrap_or_else(|| Node::container(vec![]));
     let options = frame_options(&global, backdrop, node, width, height, dpr);
+    let t = std::time::Instant::now();
     let rgba = render(options).expect("render").into_raw();
-    Arc::new(rgba)
+    tracing::debug!(full_render_us = t.elapsed().as_micros(), "full render");
+    rgba
 }
 
 /// The options every frame is rendered or measured with: the shared fonts and

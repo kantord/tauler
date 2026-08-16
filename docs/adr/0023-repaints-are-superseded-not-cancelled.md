@@ -1,6 +1,6 @@
 # Repaints are superseded, not cancelled
 
-One thread rasterizes. Everything else asks it for pictures: a repaint is a request the
+One thread draws. Everything else asks it for pictures: a repaint is a request the
 worker draws when it gets to it, and the renders the pipeline cannot continue without —
 a window's first frame, a resize, a wallpaper paint — are the same request with a reply
 channel attached, drawn ahead of anything pending while the caller waits.
@@ -29,13 +29,16 @@ interruptible renderer must defend against cannot arise:
 
 The cost is wasted work: a superseded request was cropped for nothing. That is bounded by
 one crop per target, and the worker also holds a floor on how often a target may be
-redrawn (`MIN_REPAINT_INTERVAL`) — a delay, never a drop, because the request stays in its
+repainted (`REPAINT_FLOOR`) — a delay, never a discard, because the request stays in its
 slot until it is drawn.
 
-**One rasterizer, not two.** The blocking cases could have stayed on the tick thread, which
-is where they used to run. They did not, because a second rasterizer means a second frame
-cache, or a shared one behind a lock. The tick thread blocks on these renders either way;
-the only thing that changed is which thread holds the pixels while it does.
+**One thread drawing, not two.** The blocking cases could have stayed on the tick thread,
+which is where they used to run. They did not, because a second thread drawing means a
+second frame cache, or a shared one behind a lock. The tick thread blocked on these renders
+before and blocks on them now; what it did not do before is wait behind a repaint. A
+`Now` arriving mid-repaint pays up to one draw — 40–90ms — that it never used to. Bounded
+at one, and the alternative was a lock on the cache, but it is a real cost on exactly the
+paths this section calls unskippable.
 
 ## Consequences
 
@@ -47,9 +50,11 @@ static.
 
 Because a repaint's pixels arrive later than the reconciliation that asked for them, a frame
 could reach the presenter for a target that has since been resized. Two things prevent it: a
-blocking render drops whatever was pending for that target, and the presenter drops any
-frame whose dimensions disagree with the window's. The first makes it structural; the second
-is there because the invariant is quiet when it breaks.
+blocking render discards whatever was pending for that target, and the presenter drops any
+frame whose dimensions disagree with the window's. Neither alone is enough: the worker and
+the tick thread are two senders on one command channel, so a repaint that had *already*
+started when the resize arrived still lands its `UpdatePicture` with no ordering guarantee
+against the `Resize`. The size check is what catches that one.
 
 Two channels run from the pipeline: lifecycle commands to the presenter, render jobs to the
 worker. Sending everything through the worker would restore a single writer and with it a

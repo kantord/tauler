@@ -1,8 +1,8 @@
 //! The frames already drawn, kept so they need not be drawn again.
 //!
-//! Owned by the render worker rather than reachable from anywhere: the worker is
-//! the only thing that rasterizes, so a cache it owns needs no lock, and the
-//! entries cannot be evicted by a caller that has nothing to do with drawing.
+//! Owned by the render worker rather than reachable from anywhere: it is the only
+//! thing that draws, so a cache it owns needs no lock, and the entries cannot be
+//! evicted by a caller that has nothing to do with drawing.
 //!
 //! Keyed by what the pixels are, never by which surface asked for them (ADR
 //! 0011). Two structurally identical trees at the same size are the same picture,
@@ -22,7 +22,7 @@ use super::worker::RenderRequest;
 use crate::layout::Rect;
 
 /// How many frames to keep. A bar has a handful of panels and each entry is a
-/// whole framebuffer, so this trades memory for the redraws that repeat.
+/// whole framebuffer, so this trades memory for the repaints that repeat.
 const CAPACITY: usize = 6;
 
 /// What makes two renders the same render.
@@ -124,7 +124,7 @@ mod tests {
         let second = cache.frame(&request(10, 10));
         assert!(
             Arc::ptr_eq(&first, &second),
-            "an identical request must be served from the cache, not redrawn"
+            "an identical request must be served from the cache, not drawn again"
         );
     }
 
@@ -209,7 +209,7 @@ mod tests {
         let second = cache.frame(&request(10, 10));
         assert!(
             !Arc::ptr_eq(&first, &second),
-            "a cleared cache must redraw; the fonts it drew with are gone"
+            "a cleared cache must draw again; the fonts it drew with are gone"
         );
     }
 }

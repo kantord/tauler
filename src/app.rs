@@ -961,42 +961,34 @@ mod tests {
     use tauler::data::data_loop::{DataLoop, StreamSource};
     use tauler::layout::OutputInfo;
     use tauler::presentation::SurfaceCommand;
-    use tauler::render::worker::{RenderJob, RenderRequest};
+    use tauler::render::worker::RenderJob;
     use tauler::surface::{SurfaceOutputs, SurfaceSets};
 
-    /// Outputs wired to a stand-in for the worker: it answers a `Now` job with a
-    /// blank frame of the right size and hands repaint requests to the test.
-    #[allow(clippy::type_complexity)]
-    fn test_outputs() -> (
-        SurfaceOutputs,
-        mpsc::Receiver<SurfaceCommand>,
-        mpsc::Receiver<RenderRequest>,
-    ) {
+    /// Outputs wired to a stand-in for the worker, which answers a `Now` job with
+    /// a blank frame of the right size and swallows everything else.
+    ///
+    /// These tests are about which surfaces a layout produces, so the repaint
+    /// requests are of no interest here — `src/surface` is where what gets asked
+    /// for is checked.
+    fn test_outputs() -> (SurfaceOutputs, mpsc::Receiver<SurfaceCommand>) {
         let (commands, command_rx) = mpsc::channel::<SurfaceCommand>();
         let (jobs, job_rx) = mpsc::channel::<RenderJob>();
-        let (repaints, repaint_rx) = mpsc::channel::<RenderRequest>();
         std::thread::spawn(move || {
             while let Ok(job) = job_rx.recv() {
-                match job {
-                    RenderJob::Now { request, reply } => {
-                        let _ = reply.send(tauler::presentation::SurfaceFrame {
-                            pixels: std::sync::Arc::new(vec![
-                                0u8;
-                                (request.width * request.height * 4)
-                                    as usize
-                            ]),
-                            width: request.width,
-                            height: request.height,
-                        });
-                    }
-                    RenderJob::Repaint(request) => {
-                        let _ = repaints.send(request);
-                    }
-                    RenderJob::FontsChanged => {}
+                if let RenderJob::Now { request, reply } = job {
+                    let _ = reply.send(tauler::presentation::SurfaceFrame {
+                        pixels: std::sync::Arc::new(vec![
+                            0u8;
+                            (request.width * request.height * 4)
+                                as usize
+                        ]),
+                        width: request.width,
+                        height: request.height,
+                    });
                 }
             }
         });
-        (SurfaceOutputs { commands, jobs }, command_rx, repaint_rx)
+        (SurfaceOutputs { commands, jobs }, command_rx)
     }
 
     fn make_eval_output(layout: serde_json::Value) -> tauler::jsx::EvalOutput {
@@ -1033,7 +1025,7 @@ mod tests {
 
         let (_data_loop, handle) = DataLoop::new();
         let mut surface_set = SurfaceSets::new();
-        let (mut outputs, command_rx, _repaints) = test_outputs();
+        let (mut outputs, command_rx) = test_outputs();
 
         apply_eval_result(
             &out,
@@ -1081,7 +1073,7 @@ mod tests {
 
         let (_data_loop, handle) = DataLoop::new();
         let mut surface_set = SurfaceSets::new();
-        let (mut outputs, command_rx, _repaints) = test_outputs();
+        let (mut outputs, command_rx) = test_outputs();
 
         // primary output "DP-1" is not in output_map, so the null-output spec must be excluded
         apply_eval_result(
@@ -1137,7 +1129,7 @@ mod tests {
 
         let (_data_loop, handle) = DataLoop::new();
         let mut surface_set = SurfaceSets::new();
-        let (mut outputs, _command_rx, _repaints) = test_outputs();
+        let (mut outputs, _command_rx) = test_outputs();
 
         apply_eval_result(
             &out,
@@ -1174,7 +1166,7 @@ mod tests {
 
         let (_data_loop, handle) = DataLoop::new();
         let mut surface_set = SurfaceSets::new();
-        let (mut outputs, command_rx, _repaints) = test_outputs();
+        let (mut outputs, command_rx) = test_outputs();
 
         apply_eval_result(
             &out,
