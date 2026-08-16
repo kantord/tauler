@@ -256,7 +256,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let last_tick = Arc::new(std::sync::atomic::AtomicU64::new(0));
     spawn_freeze_watchdog(Arc::clone(&last_tick), log_path);
 
-    let (dl_wake_tx, dl_wake_rx) = mpsc::sync_channel::<()>(1);
+    // `mut` only on the platforms that call `run` on it here; macOS hands it to
+    // the presenter, which owns the main thread and runs the loop on a worker.
+    #[cfg_attr(target_os = "macos", allow(unused_mut))]
+    let (mut data_loop, handle) = DataLoop::new();
+    // Everything that has work for the loop holds one of these; it is what ends
+    // the loop's wait, so nothing sits in a channel until the supervision timer.
+    let notifier = data_loop.notifier();
 
     let (reload_tx, reload_rx) = mpsc::channel::<()>();
     let (bin_reload_tx, bin_reload_rx) = mpsc::channel::<()>();
@@ -266,11 +272,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         &exe_path,
         reload_tx,
         bin_reload_tx,
-        dl_wake_tx.clone(),
+        notifier.clone(),
     );
 
-    let (mut data_loop, handle) = DataLoop::new();
-    data_loop = data_loop.with_extra_rx(dl_wake_rx);
     let module_event_txs = data_loop.event_txs_handle();
 
     let (item_tx, item_rx) = mpsc::channel::<((String, Option<String>), String)>();
@@ -313,6 +317,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             Arc::clone(&stop),
             Arc::clone(&last_tick),
             Arc::clone(&_watcher),
+            notifier.clone(),
         );
         data_loop.run(
             Arc::clone(&stop),
@@ -334,6 +339,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             Arc::clone(&stop),
             Arc::clone(&last_tick),
             Arc::clone(&_watcher),
+            notifier.clone(),
         );
         data_loop.run(
             Arc::clone(&stop),

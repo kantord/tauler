@@ -7,6 +7,8 @@
 use std::collections::HashMap;
 use std::sync::mpsc;
 
+use crate::presentation::{PointerPhase, PresenterEvent};
+
 /// Dispatches a handler's intents: an array, each
 /// `{"channel": "<bin>", "event": {...}}`. The `event` object goes to the
 /// channel's sender verbatim. One bad intent never stops the others.
@@ -117,6 +119,149 @@ impl Capture {
     /// seeds what the drag that follows will compare against.
     pub fn seed(&mut self, intents: serde_json::Value) {
         self.last = Some(intents);
+    }
+}
+
+/// Reduce a drained batch of presenter events to the ones worth acting on.
+///
+/// A run of motions on one panel collapses to its last. Intermediate positions
+/// carry nothing the last one lacks: a handler maps the pointer to a value
+/// against the rect snapshotted at press (ADR 0022) and remembers nothing
+/// (ADR 0012), so replaying the ones in between can only produce intents that
+/// the last one supersedes anyway.
+///
+/// Only *consecutive* motions collapse, and only for one panel, so a press or a
+/// release between two motions keeps both of them and its own place in the
+/// order. Nothing but a motion is ever dropped.
+pub fn compress_motion(events: Vec<PresenterEvent>) -> Vec<PresenterEvent> {
+    let mut out: Vec<PresenterEvent> = Vec::with_capacity(events.len());
+    for event in events {
+        let replaces_previous = match (&event, out.last()) {
+            (PresenterEvent::Pointer(new), Some(PresenterEvent::Pointer(previous))) => {
+                new.phase == PointerPhase::Move
+                    && previous.phase == PointerPhase::Move
+                    && new.panel_id == previous.panel_id
+            }
+            _ => false,
+        };
+        if replaces_previous {
+            out.pop();
+        }
+        out.push(event);
+    }
+    out
+}
+
+#[cfg(test)]
+mod motion_compression {
+    use super::compress_motion;
+    use crate::presentation::{PointerEvent, PointerPhase, PresenterEvent};
+
+    fn pointer(panel: &str, phase: PointerPhase, x: f32) -> PresenterEvent {
+        PresenterEvent::Pointer(PointerEvent {
+            panel_id: panel.to_string(),
+            x,
+            y: 0.0,
+            phys_width: 100,
+            phys_height: 30,
+            dpr: 1.0,
+            phase,
+            buttons: 1,
+        })
+    }
+
+    fn describe(events: &[PresenterEvent]) -> Vec<(String, PointerPhase, f32)> {
+        events
+            .iter()
+            .filter_map(|e| match e {
+                PresenterEvent::Pointer(p) => Some((p.panel_id.clone(), p.phase, p.x)),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// The whole point: a thousand motions in one batch cost one handler call.
+    #[test]
+    fn a_run_of_motions_collapses_to_the_last() {
+        let batch = vec![
+            pointer("p1", PointerPhase::Move, 1.0),
+            pointer("p1", PointerPhase::Move, 2.0),
+            pointer("p1", PointerPhase::Move, 3.0),
+        ];
+        assert_eq!(
+            describe(&compress_motion(batch)),
+            vec![("p1".into(), PointerPhase::Move, 3.0)],
+            "only the newest position survives"
+        );
+    }
+
+    /// A press is not a motion and may never be swallowed by one — it is what
+    /// starts the capture the motions are measured against.
+    #[test]
+    fn a_press_survives_the_motions_around_it() {
+        let batch = vec![
+            pointer("p1", PointerPhase::Move, 1.0),
+            pointer("p1", PointerPhase::Press, 2.0),
+            pointer("p1", PointerPhase::Move, 3.0),
+            pointer("p1", PointerPhase::Move, 4.0),
+        ];
+        assert_eq!(
+            describe(&compress_motion(batch)),
+            vec![
+                ("p1".into(), PointerPhase::Move, 1.0),
+                ("p1".into(), PointerPhase::Press, 2.0),
+                ("p1".into(), PointerPhase::Move, 4.0),
+            ],
+            "the press keeps its place, and the motions each side stay separate"
+        );
+    }
+
+    #[test]
+    fn a_release_survives_and_ends_the_run() {
+        let batch = vec![
+            pointer("p1", PointerPhase::Move, 1.0),
+            pointer("p1", PointerPhase::Move, 2.0),
+            pointer("p1", PointerPhase::Release, 3.0),
+        ];
+        assert_eq!(
+            describe(&compress_motion(batch)),
+            vec![
+                ("p1".into(), PointerPhase::Move, 2.0),
+                ("p1".into(), PointerPhase::Release, 3.0),
+            ]
+        );
+    }
+
+    /// Two panels' motions are not the same run, however they interleave.
+    #[test]
+    fn motions_on_different_panels_do_not_collapse_into_each_other() {
+        let batch = vec![
+            pointer("p1", PointerPhase::Move, 1.0),
+            pointer("p2", PointerPhase::Move, 2.0),
+            pointer("p1", PointerPhase::Move, 3.0),
+        ];
+        assert_eq!(
+            describe(&compress_motion(batch)),
+            vec![
+                ("p1".into(), PointerPhase::Move, 1.0),
+                ("p2".into(), PointerPhase::Move, 2.0),
+                ("p1".into(), PointerPhase::Move, 3.0),
+            ],
+            "a motion may only replace one for the same panel"
+        );
+    }
+
+    /// Anything that is not a pointer event passes through untouched, and breaks
+    /// a run while it is at it.
+    #[test]
+    fn other_events_are_never_dropped() {
+        let batch = vec![
+            pointer("p1", PointerPhase::Move, 1.0),
+            PresenterEvent::NeedsRender,
+            pointer("p1", PointerPhase::Move, 2.0),
+        ];
+        let out = compress_motion(batch);
+        assert_eq!(out.len(), 3, "nothing but a motion may be dropped");
     }
 }
 

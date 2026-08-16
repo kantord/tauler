@@ -56,7 +56,37 @@ pub enum SurfaceCommand {
     Shutdown,
 }
 
-/// Events the presenter thread sends back to the pipeline.
+/// The presenter's end of the event channel, paired with the loop's notifier.
+///
+/// The loop does not wait on this channel — it waits on the notifier — so an
+/// event sent without a ping sits until something else wakes the loop. That is
+/// what made a pointer event wait up to a whole supervision interval. Every send
+/// pings, and the ping is `try_send` on a capacity-1 channel, so a flood of
+/// motion events costs one wakeup and the pass it wakes drains all of them.
+#[derive(Clone)]
+pub struct PresenterEvents {
+    tx: std::sync::mpsc::Sender<PresenterEvent>,
+    notify: std::sync::mpsc::SyncSender<()>,
+}
+
+impl PresenterEvents {
+    pub fn new(
+        tx: std::sync::mpsc::Sender<PresenterEvent>,
+        notify: std::sync::mpsc::SyncSender<()>,
+    ) -> Self {
+        PresenterEvents { tx, notify }
+    }
+
+    pub fn send(
+        &self,
+        event: PresenterEvent,
+    ) -> Result<(), std::sync::mpsc::SendError<PresenterEvent>> {
+        let sent = self.tx.send(event);
+        let _ = self.notify.try_send(());
+        sent
+    }
+}
+
 /// Where in a gesture a pointer event falls (`docs/adr/0020`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PointerPhase {
@@ -87,6 +117,7 @@ pub struct PointerEvent {
     pub buttons: u16,
 }
 
+/// Events the presenter thread sends back to the pipeline.
 pub enum PresenterEvent {
     /// The pipeline should re-render all panels and flush.
     NeedsRender,

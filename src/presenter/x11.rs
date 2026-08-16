@@ -2,7 +2,7 @@ use std::sync::{mpsc, Arc};
 
 use tauler::layout::OutputInfo;
 use tauler::presentation::{
-    PointerEvent, PointerPhase, PresentationThread, PresenterEvent, SurfaceCommand,
+    PointerEvent, PointerPhase, PresentationThread, PresenterEvent, PresenterEvents, SurfaceCommand,
 };
 use tauler::x11::outputs::build_output_map;
 use tauler::x11::panel::{put_image_chunked, resolve_panel_dpr, X11PanelContext};
@@ -50,7 +50,7 @@ fn dom_button(detail: u8) -> u16 {
 /// Press, motion and release differ only in `phase` — same geometry, same routing.
 /// What they mean apart is decided by the capture state machine in `app`.
 fn send_pointer(
-    event_tx: &mpsc::Sender<PresenterEvent>,
+    event_tx: &PresenterEvents,
     pt: &PresentationThread<X11PanelContext>,
     win: u32,
     x: i16,
@@ -92,7 +92,7 @@ fn is_dispatchable_button(detail: u8) -> bool {
 pub(crate) fn run_x11_presenter_thread(
     mut pt: PresentationThread<X11PanelContext>,
     command_rx: mpsc::Receiver<SurfaceCommand>,
-    event_tx: mpsc::Sender<PresenterEvent>,
+    event_tx: PresenterEvents,
 ) {
     let _ = pt
         .dm

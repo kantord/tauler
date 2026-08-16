@@ -3,7 +3,7 @@ use std::sync::mpsc;
 use super::drain_commands;
 use tauler::layout::OutputInfo;
 use tauler::presentation::{
-    PointerEvent, PointerPhase, PresentationThread, PresenterEvent, SurfaceCommand,
+    PointerEvent, PointerPhase, PresentationThread, PresenterEvent, PresenterEvents, SurfaceCommand,
 };
 use tauler::windowing::wayland::WaylandDisplayServer;
 use tauler::windowing::{DisplayServer, WindowEvent};
@@ -21,7 +21,7 @@ fn apply_wayland_cmd(pt: &mut PresentationThread<WaylandDisplayServer>, cmd: Sur
 pub(crate) fn run_wayland_presenter_thread(
     mut pt: PresentationThread<WaylandDisplayServer>,
     command_rx: mpsc::Receiver<SurfaceCommand>,
-    event_tx: mpsc::Sender<PresenterEvent>,
+    event_tx: PresenterEvents,
 ) {
     loop {
         if drain_commands(&command_rx, |cmd| apply_wayland_cmd(&mut pt, cmd)) {

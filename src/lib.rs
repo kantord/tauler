@@ -6,6 +6,7 @@ pub mod hit_test;
 pub mod jsx;
 pub mod layout;
 pub mod managed_set;
+pub mod outbox;
 pub mod pointer;
 pub mod presentation;
 pub mod render;
