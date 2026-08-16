@@ -92,6 +92,27 @@ The shortest gap allowed between two Repaints of one target. It delays a Render 
 never discards it: the request waits in its slot and is drawn when the floor lifts.
 _Avoid_: throttle, debounce, rate limit, frame cap
 
+### The loop
+
+**Pass**:
+One turn of the main loop: reconcile the subprocess set, drain every channel, re-evaluate if
+a value changed, then wait. Runs whether or not anything happened, which is what finds a
+crashed subprocess. Not to be confused with a **Tick**, which is the re-evaluation a pass
+may or may not do.
+_Avoid_: tick (that is the re-evaluation), frame, iteration, cycle
+
+**Notifier**:
+The one thing the loop waits on. Anything with work for the loop pings it, which is what
+ends the wait; a ping carries no information, because the pass it wakes drains everything.
+See ADR 0024.
+_Avoid_: waker, signal, event bus
+
+**Coalescing floor**:
+The shortest a Pass may take. It is what gives a burst a Pass to be batched in — without it
+the loop would present each event alone, with nothing to collapse against.
+_Avoid_: frame rate, tick rate, poll interval (it bounds how often the loop *may* run, not
+how often it does)
+
 ### The layout file
 
 **Layout file**:
@@ -103,8 +124,9 @@ _Avoid_: config, config file, theme file (all three name the `.yaml`, not this)
 **Tick**:
 One full re-evaluation of the layout file, triggered by any stream value changing. Every
 tick rebuilds the whole tree from scratch; nothing survives between ticks except
-`globals`.
-_Avoid_: frame, render pass, update, re-render
+`globals`. A **Pass** may happen without one, and usually does.
+_Avoid_: frame, render pass, update, re-render; pass (that is the loop turn, not the
+re-evaluation)
 
 **Shell node**:
 A node that describes structure rather than content: `root`, `panel`, `wallpaper`. Shell
@@ -266,3 +288,48 @@ _Avoid_: dip, point, scaled pixel
 A pixel on the actual panel. Appears only inside the display backend; a value in this unit
 should never cross back out into layout or gaps.
 _Avoid_: device pixel, real pixel, hardware pixel
+
+### Latency
+
+**Hop**:
+One delay between a cause and the frame that shows it — a sleep, a queue, a subprocess
+round-trip, a rasterization, a compositor's wait for vblank. The unit a latency class is
+stated in.
+_Avoid_: step, stage, leg
+
+**Stacked**:
+Every Hop on one path, added up. A path is classified by its stacked total, which has its
+own budget per class — always larger than one Hop's, and always stated rather than derived
+from it.
+_Avoid_: total, cumulative, end-to-end (say which path)
+
+**Negligible**:
+8ms per Hop, 20ms Stacked. Nothing a person can perceive.
+_Avoid_: instant, immediate, real-time, zero-cost
+
+**Minimal**:
+10ms per Hop, 24ms Stacked. Perceptible only next to something faster.
+_Avoid_: fast, quick, snappy
+
+**Slow**:
+100ms per Hop, 200ms Stacked. Felt, and acceptable only where the work earns it —
+rasterizing a full-height panel is the example.
+_Avoid_: sluggish, heavy, expensive
+
+**Non-interactive**:
+400ms per Hop, 1200ms Stacked. For what nobody is waiting on: restarting a dead
+subprocess, noticing a monitor was unplugged.
+_Avoid_: background, async, deferred, best-effort
+
+**Lagged**:
+Over 1200ms Stacked. A defect, never a budget. Nothing may be specified as Lagged; it is
+only ever a measurement.
+_Avoid_: janky, laggy, hang, freeze (a freeze is the watchdog's word for a stalled loop)
+
+**Latency claim**:
+Calling a Hop or a path by a class. A claim is only as good as what measured it: the
+measurement's uncertainty may be no worse than the per-Hop budget of the class one step
+faster. So a Minimal claim reading 10ms admits a true value anywhere in 2–18ms and stands;
+a Negligible claim needs measurement to within 1ms, which is what separates the two classes
+at all. Being faster than a budget never fails a claim — the numbers are ceilings.
+_Avoid_: benchmark, SLA, target

@@ -14,7 +14,9 @@ use tauler::managed_set::{Lifecycle, OptativeSet, Reconcile};
 use tauler::pointer::{dispatch, read_handler, Capture, Handler};
 #[cfg(not(target_os = "macos"))]
 use tauler::presentation::PresentationThread;
-use tauler::presentation::{PointerEvent, PointerPhase, PresenterEvent, SurfaceCommand};
+use tauler::presentation::{
+    PointerEvent, PointerPhase, PresenterEvent, PresenterEvents, SurfaceCommand,
+};
 use tauler::surface::{SurfaceOutputs, SurfaceSets};
 use tauler::theme::resolver::resolve_theme_tokens;
 use tauler::theme::{Theme, ThemeMode};
@@ -388,6 +390,7 @@ impl App {
         stop: Arc<AtomicBool>,
         last_tick: Arc<std::sync::atomic::AtomicU64>,
         watcher: SharedWatcher,
+        notifier: mpsc::SyncSender<()>,
     ) -> Self {
         let X11Init { panel_ctx, jsx_ctx } = x11;
         let dpr = panel_ctx.dpr;
@@ -398,9 +401,10 @@ impl App {
         let output_map: HashMap<String, OutputInfo> = (*panel_ctx.output_map).clone();
         let (command_tx, command_rx) = mpsc::channel();
         let (event_tx, event_rx) = mpsc::channel();
+        let events = PresenterEvents::new(event_tx, notifier);
         let pt = PresentationThread::new(panel_ctx);
         let presenter_thread = thread::spawn(move || {
-            run_x11_presenter_thread(pt, command_rx, event_tx);
+            run_x11_presenter_thread(pt, command_rx, events);
         });
         let (theme, theme_mode, theme_file_path) = load_theme_from_config(&config_path);
         let mut state = Self {
@@ -450,6 +454,7 @@ impl App {
         stop: Arc<AtomicBool>,
         last_tick: Arc<std::sync::atomic::AtomicU64>,
         watcher: SharedWatcher,
+        notifier: mpsc::SyncSender<()>,
     ) -> Self {
         let (screen_width, screen_height) = server.primary_output_size().unwrap_or((1920, 1080));
         let initial_dpr = server.primary_output_scale();
@@ -461,9 +466,10 @@ impl App {
         });
         let (command_tx, command_rx) = mpsc::channel();
         let (event_tx, event_rx) = mpsc::channel();
+        let events = PresenterEvents::new(event_tx, notifier);
         let pt = PresentationThread::new(server);
         let presenter_thread = thread::spawn(move || {
-            run_wayland_presenter_thread(pt, command_rx, event_tx);
+            run_wayland_presenter_thread(pt, command_rx, events);
         });
         let (theme, theme_mode, theme_file_path) = load_theme_from_config(&config_path);
         let mut state = Self {
@@ -515,6 +521,7 @@ impl App {
         stop: Arc<AtomicBool>,
         last_tick: Arc<std::sync::atomic::AtomicU64>,
         watcher: SharedWatcher,
+        notifier: mpsc::SyncSender<()>,
     ) -> Self {
         let MacInit {
             command_tx,
@@ -895,7 +902,12 @@ impl App {
 
         self.handle_layout_reload();
 
-        while let Ok(event) = self.event_rx.try_recv() {
+        // Collect before acting: a pass drains everything that arrived since the
+        // last one, and a run of motions in that batch is worth exactly one
+        // handler call. Acting event-by-event as they were drained is what made
+        // a fast drag cost a QuickJS invocation per motion event.
+        let events: Vec<PresenterEvent> = self.event_rx.try_iter().collect();
+        for event in tauler::pointer::compress_motion(events) {
             match event {
                 PresenterEvent::NeedsRender => {} // no-op: reconciler handles rendering
                 PresenterEvent::OutputsChanged { outputs } => {

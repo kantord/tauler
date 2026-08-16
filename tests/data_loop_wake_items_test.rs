@@ -1,11 +1,16 @@
+//! A ping and a pending line arriving together must still deliver the line.
+//!
+//! The original bug was specific to a mode that no longer exists: a wake signal
+//! put the loop into "awake", and that branch `continue`d before ever receiving
+//! an item, so the item was skipped. Items are now drained unconditionally at
+//! the top of every pass, which makes that shape unrepresentable — but the
+//! property is worth holding onto whatever the loop looks like inside.
+
 use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{mpsc, Arc, Mutex};
+use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
-/// Tests that DataLoop still calls on_item even when it is in "awake" mode
-/// (i.e. after extra_rx fires).  The bug: when `awake == true` the loop does
-/// `continue` before calling `recv_timeout`, so `on_item` is never invoked.
 use tauler::data::data_loop::{DataLoop, ProcessIdentity, ProcessSpec, StreamItem, StreamSource};
 
 fn echo_spec(msg: &str) -> ProcessSpec {
@@ -21,15 +26,10 @@ fn echo_spec(msg: &str) -> ProcessSpec {
     }
 }
 
-/// When `extra_rx` fires (putting the loop into awake mode) and there is also
-/// a pending `StreamItem` in `self.rx`, `on_item` must still be called for
-/// that item.
 #[test]
-fn awake_mode_still_delivers_stream_items() {
-    let (wake_tx, wake_rx) = mpsc::channel::<()>();
-
+fn a_ping_racing_a_stream_line_still_delivers_the_line() {
     let (mut data_loop, handle) = DataLoop::new();
-    data_loop = data_loop.with_extra_rx(wake_rx);
+    let wake_tx = data_loop.notifier();
 
     // Configure a spec that prints one line and then exits.
     handle.set_desired(vec![StreamSource::Process(echo_spec("hello_awake"))]);
@@ -49,9 +49,8 @@ fn awake_mode_still_delivers_stream_items() {
         );
     });
 
-    // Send a wake signal immediately so the loop enters awake mode before (or
-    // around the time) the subprocess output arrives.
-    let _ = wake_tx.send(());
+    // Ping immediately, so the ping and the subprocess's first line race.
+    let _ = wake_tx.try_send(());
 
     // Wait up to 3 s for the item to be delivered.
     let deadline = std::time::Instant::now() + Duration::from_secs(3);
@@ -61,7 +60,7 @@ fn awake_mode_still_delivers_stream_items() {
         }
         assert!(
             std::time::Instant::now() < deadline,
-            "timed out: on_item was never called while loop was in awake mode"
+            "timed out: on_item was never called for a line that raced a ping"
         );
         thread::sleep(Duration::from_millis(20));
     }
@@ -71,7 +70,7 @@ fn awake_mode_still_delivers_stream_items() {
     let items = collected.lock().unwrap();
     assert!(
         items.iter().any(|l| l == "hello_awake"),
-        "expected 'hello_awake' to be delivered via on_item while awake, got: {:?}",
+        "expected 'hello_awake' to be delivered, got: {:?}",
         *items
     );
 }
