@@ -26,16 +26,18 @@
       "rangeStrategy": "bump"
     },
     {
-      "description": "optative-script pins an rquickjs major, and tauler uses rquickjs types directly at the UI-component registration boundary (src/ui/registry.rs, src/jsx.rs). Two rquickjs versions in the graph make `Ctx`/`Error` fail to unify, so a lone bump of any one of these never compiles.",
+      "description": "optative-script pins an rquickjs major, and tauler uses rquickjs types directly at the UI-component registration boundary (src/ui/registry.rs, src/jsx.rs). Two rquickjs versions in the graph make `Ctx`/`Error` fail to unify, so a lone bump of any one of these never compiles. Pinned, not bumped: a caret range lets `cargo update` resolve past the version Renovate picked, which is how the two copies get in.",
       "matchManagers": ["cargo"],
       "matchPackageNames": ["/^optative/", "/^rquickjs/"],
-      "groupName": "optative + quickjs"
+      "groupName": "optative + quickjs",
+      "rangeStrategy": "pin"
     },
     {
-      "description": "takumi re-exports takumi-core types; a lone bump of either puts two takumi-core versions in the graph and the ImageSource/ImageBuffer types stop unifying.",
+      "description": "takumi re-exports takumi-core types; a lone bump of either puts two takumi-core versions in the graph and the ImageSource/ImageBuffer types stop unifying. Pinned for the same reason as the quickjs group — under `bump`, `minimumReleaseAge` held takumi at 2.7.3 while the lockfile update resolved 2.9.2, and the two takumi-core versions that pulled in did not compile.",
       "matchManagers": ["cargo"],
       "matchPackageNames": ["/^takumi/"],
-      "groupName": "takumi crates"
+      "groupName": "takumi crates",
+      "rangeStrategy": "pin"
     },
     {
       "description": "Starlight and its themes/integrations peer-depend on the Astro major.",
