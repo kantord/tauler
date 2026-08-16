@@ -47,6 +47,51 @@ single render. It is what makes a Panel look transparent; nothing is actually tr
 The scheme marks it as a resource tauler binds, never a file to read.
 _Avoid_: transparency, blur, backdrop
 
+### Rendering
+
+**Render target**:
+Something with pixels of its own. Today every target is a Surface; a `<BufferBoundary>`
+will make one out of a subtree. What makes it a target is having its own slot in the
+scheduler and its own entry in the cache.
+_Avoid_: layer, texture, canvas
+
+**Repaint**:
+Drawing a Render target that already exists again, because its content, its scale or the
+Wallpaper under it changed. Nobody waits for one.
+_Avoid_: redraw, refresh; frame (those are the pixels, not the act — see **Frame**)
+
+**Frame**:
+The finished pixels of one Render target, at one physical size. What a Repaint produces
+and what the cache keeps.
+_Avoid_: buffer, bitmap, image
+
+**Render request**:
+What to draw, at what physical size, against which slice of Wallpaper. It carries
+everything the drawing needs, so the Render worker consults nothing else.
+_Avoid_: draw call, render task
+
+**Render job**:
+A Render request plus what to do with the pixels: paint them (a Repaint) or hand them back
+to a caller that is waiting. Both are drawn by the same thread from the same cache.
+_Avoid_: message, command (a Surface command is the other channel)
+
+**Render worker**:
+The one thread that draws. Nothing else rasterizes, which is what lets the frame cache be
+its private state rather than a global behind a lock.
+_Avoid_: render thread, rasterizer (that is takumi), render queue
+
+**Supersede**:
+What a newer Render request does to the unpainted one in a target's slot. A render already
+under way is never superseded — it finishes, and the newer request is drawn after it. See
+ADR 0023.
+_Avoid_: cancel, abort, drop (all three claim work stops, and none of it does); debounce
+and throttle (they name a rate, not a replacement — see **Repaint floor**)
+
+**Repaint floor**:
+The shortest gap allowed between two Repaints of one target. It delays a Render request,
+never discards it: the request waits in its slot and is drawn when the floor lifts.
+_Avoid_: throttle, debounce, rate limit, frame cap
+
 ### The layout file
 
 **Layout file**:

@@ -1,9 +1,11 @@
 //! The wallpaper-behind-a-panel chain: publish a wallpaper, render a panel over
 //! it, and check the panel actually shows the pixels it covers.
 //!
-//! Every render here goes through [`render_frame_keyed`] — the cached path the
-//! pipeline uses. `render_frame_rgba` renders fresh every call, so it cannot
-//! catch a stale or colliding cache entry, which is where these bugs live.
+//! Every render here goes through [`render_frame_keyed`] — the same call the
+//! render worker makes, so what these check is the crop and the binding rather
+//! than the caching around them. Whether two panels can be served each other's
+//! slice is a question about the key, and lives with the key in
+//! `src/render/cache.rs`.
 //!
 //! Tests share one process-wide wallpaper registry, so each one uses its own
 //! output name and its own surface ids and stays independent under `cargo test`'s

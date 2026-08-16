@@ -15,7 +15,7 @@ use tauler::pointer::{dispatch, read_handler, Capture, Handler};
 #[cfg(not(target_os = "macos"))]
 use tauler::presentation::PresentationThread;
 use tauler::presentation::{PointerEvent, PointerPhase, PresenterEvent, SurfaceCommand};
-use tauler::surface::SurfaceSets;
+use tauler::surface::{SurfaceOutputs, SurfaceSets};
 use tauler::theme::resolver::resolve_theme_tokens;
 use tauler::theme::{Theme, ThemeMode};
 #[cfg(target_os = "linux")]
@@ -145,7 +145,7 @@ fn apply_eval_result(
     output_map: &HashMap<String, OutputInfo>,
     handle: &DataLoopHandle,
     surface_set: &mut SurfaceSets,
-    command_tx: &mut mpsc::Sender<SurfaceCommand>,
+    outputs: &mut SurfaceOutputs,
     mod_init_fn: &dyn Fn() -> serde_json::Value,
 ) -> bool {
     let mut specs = match tauler::parse_root_node(&out.layout) {
@@ -216,7 +216,7 @@ fn apply_eval_result(
     let combined: Vec<StreamSource> = stream_specs.into_iter().chain(module_specs).collect();
     handle.set_desired(combined);
 
-    let surface_errors = surface_set.reconcile_all(specs, command_tx);
+    let surface_errors = surface_set.reconcile_all(specs, outputs);
     log_lifecycle_errors(surface_errors);
     true
 }
@@ -317,13 +317,27 @@ pub(crate) struct App {
     layout_jsx_path: std::path::PathBuf,
     stop: Arc<AtomicBool>,
     last_tick: Arc<std::sync::atomic::AtomicU64>,
-    command_tx: mpsc::Sender<SurfaceCommand>,
+    outputs: SurfaceOutputs,
     event_rx: mpsc::Receiver<PresenterEvent>,
     module_event_txs: ModuleEventTxs,
     /// The drag in progress, if any: the box it was pressed in and what it last sent
     /// (`docs/adr/0020`). The handler itself lives in the JS capture slot.
     capture: Option<Capture>,
     presenter_thread: Option<thread::JoinHandle<()>>,
+}
+
+/// Start the render worker and return the two channels a reconciled surface
+/// writes to.
+///
+/// The worker is not joined on shutdown and holds nothing but memory: it may be
+/// part-way through a rasterization that no longer matters, and waiting for
+/// those pixels would only delay the re-exec. Dropping [`SurfaceOutputs`] closes
+/// its job channel, which is what tells it to stop.
+fn spawn_render_worker(command_tx: mpsc::Sender<SurfaceCommand>) -> SurfaceOutputs {
+    let (jobs, job_rx) = mpsc::channel();
+    let commands = command_tx.clone();
+    thread::spawn(move || tauler::render::worker::run(job_rx, command_tx));
+    SurfaceOutputs { commands, jobs }
 }
 
 fn parse_config(config_path: &std::path::Path) -> TaulerConfig {
@@ -413,7 +427,7 @@ impl App {
             layout_jsx_path,
             stop,
             last_tick,
-            command_tx,
+            outputs: spawn_render_worker(command_tx),
             event_rx,
             module_event_txs,
             capture: None,
@@ -476,7 +490,7 @@ impl App {
             layout_jsx_path,
             stop,
             last_tick,
-            command_tx,
+            outputs: spawn_render_worker(command_tx),
             event_rx,
             module_event_txs,
             capture: None,
@@ -553,7 +567,7 @@ impl App {
             layout_jsx_path,
             stop,
             last_tick,
-            command_tx,
+            outputs: spawn_render_worker(command_tx),
             event_rx,
             module_event_txs,
             capture: None,
@@ -595,7 +609,7 @@ impl App {
             &self.output_map,
             &self.handle,
             &mut self.surfaces,
-            &mut self.command_tx,
+            &mut self.outputs,
             &move || make_mod_init_value(&output_name, dpi, sw, sh),
         )
     }
@@ -667,6 +681,11 @@ impl App {
         }
         let config = parse_config(&self.config_path);
         tauler::reload_font_config(config.fonts);
+        // Every frame the worker has kept was drawn with the fonts just replaced.
+        let _ = self
+            .outputs
+            .jobs
+            .send(tauler::render::worker::RenderJob::FontsChanged);
         let (theme, mode, theme_file_path) = load_theme_from_config(&self.config_path);
         self.theme = theme;
         self.theme_mode = mode;
@@ -922,8 +941,8 @@ impl App {
 
 impl Drop for App {
     fn drop(&mut self) {
-        log_lifecycle_errors(self.surfaces.clear(&mut self.command_tx));
-        let _ = self.command_tx.send(SurfaceCommand::Shutdown);
+        log_lifecycle_errors(self.surfaces.clear(&mut self.outputs));
+        let _ = self.outputs.commands.send(SurfaceCommand::Shutdown);
         if let Some(h) = self.presenter_thread.take() {
             let _ = h.join();
         }
@@ -942,7 +961,35 @@ mod tests {
     use tauler::data::data_loop::{DataLoop, StreamSource};
     use tauler::layout::OutputInfo;
     use tauler::presentation::SurfaceCommand;
-    use tauler::surface::SurfaceSets;
+    use tauler::render::worker::RenderJob;
+    use tauler::surface::{SurfaceOutputs, SurfaceSets};
+
+    /// Outputs wired to a stand-in for the worker, which answers a `Now` job with
+    /// a blank frame of the right size and swallows everything else.
+    ///
+    /// These tests are about which surfaces a layout produces, so the repaint
+    /// requests are of no interest here — `src/surface` is where what gets asked
+    /// for is checked.
+    fn test_outputs() -> (SurfaceOutputs, mpsc::Receiver<SurfaceCommand>) {
+        let (commands, command_rx) = mpsc::channel::<SurfaceCommand>();
+        let (jobs, job_rx) = mpsc::channel::<RenderJob>();
+        std::thread::spawn(move || {
+            while let Ok(job) = job_rx.recv() {
+                if let RenderJob::Now { request, reply } = job {
+                    let _ = reply.send(tauler::presentation::SurfaceFrame {
+                        pixels: std::sync::Arc::new(vec![
+                            0u8;
+                            (request.width * request.height * 4)
+                                as usize
+                        ]),
+                        width: request.width,
+                        height: request.height,
+                    });
+                }
+            }
+        });
+        (SurfaceOutputs { commands, jobs }, command_rx)
+    }
 
     fn make_eval_output(layout: serde_json::Value) -> tauler::jsx::EvalOutput {
         tauler::jsx::EvalOutput {
@@ -978,7 +1025,7 @@ mod tests {
 
         let (_data_loop, handle) = DataLoop::new();
         let mut surface_set = SurfaceSets::new();
-        let (mut command_tx, command_rx) = mpsc::channel::<SurfaceCommand>();
+        let (mut outputs, command_rx) = test_outputs();
 
         apply_eval_result(
             &out,
@@ -987,7 +1034,7 @@ mod tests {
             &output_map,
             &handle,
             &mut surface_set,
-            &mut command_tx,
+            &mut outputs,
             &noop_mod_init,
         );
 
@@ -1026,7 +1073,7 @@ mod tests {
 
         let (_data_loop, handle) = DataLoop::new();
         let mut surface_set = SurfaceSets::new();
-        let (mut command_tx, command_rx) = mpsc::channel::<SurfaceCommand>();
+        let (mut outputs, command_rx) = test_outputs();
 
         // primary output "DP-1" is not in output_map, so the null-output spec must be excluded
         apply_eval_result(
@@ -1036,7 +1083,7 @@ mod tests {
             &output_map,
             &handle,
             &mut surface_set,
-            &mut command_tx,
+            &mut outputs,
             &noop_mod_init,
         );
 
@@ -1082,7 +1129,7 @@ mod tests {
 
         let (_data_loop, handle) = DataLoop::new();
         let mut surface_set = SurfaceSets::new();
-        let (mut command_tx, _command_rx) = mpsc::channel::<SurfaceCommand>();
+        let (mut outputs, _command_rx) = test_outputs();
 
         apply_eval_result(
             &out,
@@ -1091,7 +1138,7 @@ mod tests {
             &output_map,
             &handle,
             &mut surface_set,
-            &mut command_tx,
+            &mut outputs,
             &noop_mod_init,
         );
 
@@ -1119,7 +1166,7 @@ mod tests {
 
         let (_data_loop, handle) = DataLoop::new();
         let mut surface_set = SurfaceSets::new();
-        let (mut command_tx, command_rx) = mpsc::channel::<SurfaceCommand>();
+        let (mut outputs, command_rx) = test_outputs();
 
         apply_eval_result(
             &out,
@@ -1128,7 +1175,7 @@ mod tests {
             &output_map,
             &handle,
             &mut surface_set,
-            &mut command_tx,
+            &mut outputs,
             &noop_mod_init,
         );
 

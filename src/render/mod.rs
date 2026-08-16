@@ -2,59 +2,61 @@
 //!
 //! Rasterization is the whole cost of a tick: 40–90ms for a full-height panel at
 //! 365×2160, against under a millisecond for everything upstream of it — JSX evaluation,
-//! layout parsing, the cache-key check. So the cache is per surface, the smallest unit
-//! that maps to one rasterization, and it is keyed by the canonical JSON of that
-//! surface's subtree (`json_canon`) rather than by any notion of identity.
+//! layout parsing, the cache lookup. That is why none of it happens on the tick thread:
+//! [`worker`] owns the one thread that draws, and [`cache`] the frames it has drawn
+//! already (ADR 0023). The functions here draw unconditionally — the decision not to is
+//! the cache's, and the cache is the worker's.
 //!
-//! Keying on content is what lets every tick re-render everything (ADR 0007): two
-//! structurally identical trees produce the same key whether or not they came from the
-//! same component, so a full re-evaluation costs nothing when nothing actually changed.
-//! It also means a panel with a live clock rasterizes every second — the cache helps
-//! static panels, not ticking ones.
-//!
-//! Backdrops widen the key to `(generation, rect)`. The generation stops a stale hit once
-//! the wallpaper moves underneath, and the rect keeps two same-size, same-content panels
-//! from colliding on one entry and being served each other's slice of wallpaper — see
-//! [`crate::backdrop`].
+//! What stays global is the context a render needs and a hit-test also reads: fonts and
+//! decoded images. It sits behind an `Arc` a render snapshots rather than a lock a render
+//! holds, so measuring where a click landed does not wait out a 90ms draw. The backdrop
+//! is bound into each render's own copy of the image map, so there is no shared slot for
+//! one surface's slice of wallpaper to be read out of by another.
 //!
 //! Rendering is software only (takumi + tiny-skia), which is why this module is one of
 //! the two a second display backend did not have to touch (ADR 0010).
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, OnceLock, RwLock};
 
-use cached::macros::cached;
-use cached::Cached;
 use takumi::prelude::{
     FontResource, Fonts, GenericFamily, ImageSource, MeasuredNode, Node, RenderOptions, Viewport,
 };
 use takumi::{measure as takumi_measure_layout, render};
 
+pub mod cache;
+pub mod worker;
+
 use crate::backdrop::{Backdrop, ROOT_BG_KEY};
 use crate::config::FontConfig;
-use crate::layout::{parse_layout, Rect};
+use crate::layout::parse_layout;
 
 /// Everything a render needs that outlives a single frame.
 ///
 /// takumi has no global context of its own: fonts live in a [`Fonts`] handle and
 /// decoded images are handed to each render individually, so tauler owns both and
 /// passes them down per frame.
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct RenderContext {
     pub fonts: Fonts,
     /// Pre-decoded images keyed by the `src` a node references them by.
     pub images: HashMap<Arc<str>, ImageSource>,
 }
 
-static GLOBAL_CTX: OnceLock<Mutex<RenderContext>> = OnceLock::new();
+/// Behind an `Arc` so a render can take a snapshot and let go of the lock: the
+/// render worker and the tick thread rasterize concurrently, and a lock held for
+/// the length of a render would put one back in the other's way. Mutation is
+/// copy-on-write ([`Arc::make_mut`]), so a reload cannot pull the context out
+/// from under a render already using it.
+static GLOBAL_CTX: OnceLock<RwLock<Arc<RenderContext>>> = OnceLock::new();
 
 /// Initialize the global rendering context. Must be called once at startup.
 /// Loads fonts into the context before storing it.
 pub fn init_global_ctx(font_config: FontConfig) {
     let mut ctx = RenderContext::default();
     rebuild_font_context(&mut ctx, &font_config);
-    GLOBAL_CTX.set(Mutex::new(ctx)).ok();
+    GLOBAL_CTX.set(RwLock::new(Arc::new(ctx))).ok();
 }
 
 /// Rebuild `ctx`'s fonts from scratch for `config`.
@@ -72,46 +74,54 @@ pub(crate) fn rebuild_font_context(ctx: &mut RenderContext, config: &FontConfig)
     load
 }
 
+fn ctx_lock() -> &'static RwLock<Arc<RenderContext>> {
+    GLOBAL_CTX
+        .get()
+        .expect("call init_global_ctx before rendering")
+}
+
+/// The current context, with the lock released before the caller uses it.
+///
+/// A render holds its snapshot for as long as it takes; the lock is held only
+/// for the refcount bump.
+fn snapshot() -> Arc<RenderContext> {
+    Arc::clone(&ctx_lock().read().unwrap())
+}
+
 pub fn with_global_ctx<F, R>(f: F) -> R
 where
     F: FnOnce(&RenderContext) -> R,
 {
-    let g = GLOBAL_CTX
-        .get()
-        .expect("call init_global_ctx before rendering")
-        .lock()
-        .unwrap();
-    f(&g)
+    f(&snapshot())
 }
 
 /// As [`with_global_ctx`], for the paths that add images to the context.
+///
+/// Copy-on-write: if a render is holding a snapshot, this clones the context
+/// rather than mutating what that render is reading.
 pub fn with_global_ctx_mut<F, R>(f: F) -> R
 where
     F: FnOnce(&mut RenderContext) -> R,
 {
-    let mut g = GLOBAL_CTX
-        .get()
-        .expect("call init_global_ctx before rendering")
-        .lock()
-        .unwrap();
-    f(&mut g)
+    let mut g = ctx_lock().write().unwrap();
+    f(Arc::make_mut(&mut g))
 }
 
 /// Update the global rendering context's font configuration at runtime.
-/// Clears the render cache so subsequent calls use the new fonts.
+///
+/// Frames already drawn were drawn with the old fonts. Throwing them away is the
+/// worker's job, not this one's — the caller tells it with
+/// [`worker::RenderJob::FontsChanged`].
 pub fn reload_font_config(font_config: FontConfig) {
-    if let Some(mutex) = GLOBAL_CTX.get() {
-        let mut ctx = mutex.lock().unwrap();
-        rebuild_font_context(&mut ctx, &font_config);
-        RENDER_FRAME_CACHED.write().cache_clear();
+    if GLOBAL_CTX.get().is_some() {
+        with_global_ctx_mut(|ctx| rebuild_font_context(ctx, &font_config));
     }
 }
 
-/// Render `content` into a BGRX framebuffer with an internal LRU cache (capacity 6).
+/// Render `content` into a BGRX framebuffer.
 ///
 /// `width` and `height` are **physical** pixels. `dpr` scales CSS `px` units.
 /// The returned buffer is always `width × height × 4` bytes (BGRX).
-/// Identical calls (same content + dimensions) return a cloned Arc — no re-render.
 pub fn render_frame(
     content: &serde_json::Value,
     width: u32,
@@ -124,10 +134,8 @@ pub fn render_frame(
 /// As [`render_frame`], but with the surface's slice of wallpaper bound as
 /// `tauler:root-bg` for the duration of the render.
 ///
-/// `backdrop` is part of the cache key by `(generation, rect)`: the generation
-/// catches a wallpaper that moved under an otherwise-unchanged panel, and the
-/// rect tells two same-size, same-content panels apart — without it they collide
-/// on one entry and the second is served the first one's slice.
+/// Draws every time it is called. Deciding not to draw is [`cache`]'s job, and
+/// that is where the backdrop earns its place in the key.
 pub fn render_frame_keyed(
     content: &serde_json::Value,
     width: u32,
@@ -135,69 +143,12 @@ pub fn render_frame_keyed(
     dpr: f32,
     backdrop: Option<&Backdrop>,
 ) -> Arc<Vec<u8>> {
-    let canonical = json_canon::to_string(content).unwrap_or_default();
-    render_frame_cached(canonical, width, height, dpr.to_bits(), backdrop.cloned())
-}
-
-#[cached(
-    max_size = 6,
-    key = "(String, u32, u32, u32, Option<(u64, Rect)>)",
-    convert = r#"{
-        (
-            canonical.clone(),
-            width,
-            height,
-            dpr_bits,
-            backdrop.as_ref().map(|b| (b.generation, b.rect)),
-        )
-    }"#
-)]
-fn render_frame_cached(
-    canonical: String,
-    width: u32,
-    height: u32,
-    dpr_bits: u32,
-    backdrop: Option<Backdrop>,
-) -> Arc<Vec<u8>> {
-    let dpr = f32::from_bits(dpr_bits);
-    let layout = serde_json::from_str::<serde_json::Value>(&canonical)
-        .ok()
-        .and_then(|v| {
-            parse_layout(&v)
-                .map_err(|e| tracing::error!(error = %e, "layout parse error"))
-                .ok()
-        });
-    with_backdrop(backdrop.as_ref(), |global| {
-        let node = layout.unwrap_or_else(|| Node::container(vec![]));
-        let options = frame_options(global, node, width, height, dpr);
-        let t = std::time::Instant::now();
-        let rgba = render(options).expect("render").into_raw();
-        tracing::debug!(full_render_us = t.elapsed().as_micros(), "full render");
-        let mut bgrx = Vec::with_capacity(rgba.len());
-        for px in rgba.chunks_exact(4) {
-            bgrx.extend_from_slice(&[px[2], px[1], px[0], 0x00]);
-        }
-        Arc::new(bgrx)
-    })
-}
-
-/// Run `f` with `backdrop` bound as `tauler:root-bg` in the global context.
-///
-/// `None` *removes* the key rather than leaving the previous surface's crop in
-/// place: a panel on an output with no wallpaper must render with no backdrop,
-/// not with whatever the last panel installed. Binding and rendering happen
-/// under one lock, so surfaces cannot interleave.
-fn with_backdrop<F, R>(backdrop: Option<&Backdrop>, f: F) -> R
-where
-    F: FnOnce(&RenderContext) -> R,
-{
-    with_global_ctx_mut(|global| {
-        match backdrop {
-            Some(b) => global.images.insert(ROOT_BG_KEY.into(), b.image.clone()),
-            None => global.images.remove(ROOT_BG_KEY),
-        };
-        f(global)
-    })
+    let rgba = raster(content, width, height, dpr, backdrop);
+    let mut bgrx = Vec::with_capacity(rgba.len());
+    for px in rgba.chunks_exact(4) {
+        bgrx.extend_from_slice(&[px[2], px[1], px[0], 0x00]);
+    }
+    Arc::new(bgrx)
 }
 
 /// Render `content` into a raw RGBA framebuffer (no channel swap, alpha preserved).
@@ -211,36 +162,55 @@ pub fn render_frame_rgba(
     dpr: f32,
     backdrop: Option<&Backdrop>,
 ) -> Arc<Vec<u8>> {
-    let canonical = json_canon::to_string(content).unwrap_or_default();
-    let layout = serde_json::from_str::<serde_json::Value>(&canonical)
-        .ok()
-        .and_then(|v| {
-            parse_layout(&v)
-                .map_err(|e| tracing::error!(error = %e, "layout parse error"))
-                .ok()
-        });
-    with_backdrop(backdrop, |global| {
-        let node = layout.unwrap_or_else(|| Node::container(vec![]));
-        let options = frame_options(global, node, width, height, dpr);
-        let rgba = render(options).expect("render").into_raw();
-        Arc::new(rgba)
-    })
+    Arc::new(raster(content, width, height, dpr, backdrop))
+}
+
+/// The rasterizing itself: what both framebuffer shapes have in common, which is
+/// everything except the channel order they come out in.
+fn raster(
+    content: &serde_json::Value,
+    width: u32,
+    height: u32,
+    dpr: f32,
+    backdrop: Option<&Backdrop>,
+) -> Vec<u8> {
+    let layout = parse_layout(content)
+        .map_err(|e| tracing::error!(error = %e, "layout parse error"))
+        .ok();
+    let global = snapshot();
+    let node = layout.unwrap_or_else(|| Node::container(vec![]));
+    let options = frame_options(&global, backdrop, node, width, height, dpr);
+    let t = std::time::Instant::now();
+    let rgba = render(options).expect("render").into_raw();
+    tracing::debug!(full_render_us = t.elapsed().as_micros(), "full render");
+    rgba
 }
 
 /// The options every frame is rendered or measured with: the shared fonts and
-/// decoded images, at `width × height` physical pixels with `dpr` scaling CSS `px`.
+/// decoded images, at `width × height` physical pixels with `dpr` scaling CSS `px`,
+/// plus `backdrop` bound as `tauler:root-bg` for this render alone.
 ///
 /// Cloning `images` is a per-entry `Arc` bump, not a pixel copy.
-fn frame_options(
-    ctx: &RenderContext,
+///
+/// The binding is render-local: takumi already takes the image map by value, so
+/// the crop goes into this render's copy and never into the shared context. A
+/// surface with no wallpaper under it simply renders without the key — there is
+/// no shared slot for the previous surface's crop to linger in.
+fn frame_options<'a>(
+    ctx: &'a RenderContext,
+    backdrop: Option<&Backdrop>,
     node: Node,
     width: u32,
     height: u32,
     dpr: f32,
-) -> RenderOptions<'_> {
+) -> RenderOptions<'a> {
+    let mut images = ctx.images.clone();
+    if let Some(b) = backdrop {
+        images.insert(ROOT_BG_KEY.into(), b.image.clone());
+    }
     RenderOptions::builder()
         .fonts(&ctx.fonts)
-        .images(ctx.images.clone())
+        .images(images)
         .viewport(Viewport::new((Some(width), Some(height))).with_device_pixel_ratio(dpr))
         .node(node)
         .build()
@@ -490,7 +460,7 @@ fn preload_layout_images_impl(layout: &serde_json::Value, global: &mut RenderCon
             continue;
         }
         // Resources tauler binds itself, not files to read — `tauler:root-bg` is
-        // bound per render by `with_backdrop`. The scheme is what makes it
+        // bound per render by `frame_options`. The scheme is what makes it
         // impossible for a file of that name to shadow one (ADR 0016).
         if src.starts_with("tauler:") {
             continue;
@@ -525,17 +495,14 @@ pub fn measure_layout_frame(
         .map_err(|e| tracing::error!(error = %e, "layout parse error"))
         .unwrap_or_else(|_| Node::container(vec![]));
     with_global_ctx(|global| {
-        let options = frame_options(global, node, width, height, dpr);
+        let options = frame_options(global, None, node, width, height, dpr);
         takumi_measure_layout(options).expect("measure_layout")
     })
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        apply_font_config, init_global_ctx, render_frame, FontConfig, Fonts, RenderContext,
-    };
-    use std::sync::Arc;
+    use super::{apply_font_config, init_global_ctx, FontConfig, Fonts, RenderContext};
 
     // -----------------------------------------------------------------------
     // Font coverage: the registered set is deliberately tiny (see
@@ -744,30 +711,6 @@ mod tests {
         assert!(
             renders_distinct_symbol_glyphs(&ctx.fonts) || !any_font_covers("f015"),
             "the symbol fallback was lost when the font config was reloaded"
-        );
-    }
-
-    #[test]
-    fn render_frame_cache_hit_returns_same_arc() {
-        init_global_ctx(FontConfig::default());
-        let content = serde_json::json!({});
-        let a1 = render_frame(&content, 10, 10, 1.0);
-        let a2 = render_frame(&content, 10, 10, 1.0);
-        assert!(
-            Arc::ptr_eq(&a1, &a2),
-            "second call with identical args must return same Arc (cache hit)"
-        );
-    }
-
-    #[test]
-    fn render_frame_different_dims_returns_distinct_arc() {
-        init_global_ctx(FontConfig::default());
-        let content = serde_json::json!({});
-        let a1 = render_frame(&content, 10, 10, 1.0);
-        let a2 = render_frame(&content, 20, 20, 1.0);
-        assert!(
-            !Arc::ptr_eq(&a1, &a2),
-            "different dims must return a distinct Arc (cache miss)"
         );
     }
 
