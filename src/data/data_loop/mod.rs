@@ -207,6 +207,28 @@ impl DataLoop {
         (data_loop, handle)
     }
 
+    /// Tear down every subprocess, and wait for each one to actually die.
+    ///
+    /// Must be called before the process exits or re-execs. `exec` keeps the
+    /// PID and runs no destructors, so anything still tracked here survives into
+    /// the new image as a child nothing holds a handle to — and `Child`'s own
+    /// `Drop` never kills or reaps. Such a child cannot be waited on by anyone
+    /// afterwards, so it becomes a zombie the moment it exits and stays one for
+    /// the life of the process.
+    ///
+    /// Reconciling against an empty desired set is what does it: each process
+    /// goes through `Lifecycle::exit`, which is SIGTERM, then SIGKILL after a
+    /// grace period, then a wait.
+    pub fn shutdown(&mut self) {
+        log_lifecycle_errors(self.process_supervisor.shutdown_all());
+        log_lifecycle_errors(self.builtin_pool.reconcile(vec![]));
+    }
+
+    /// How many subprocesses are still tracked. Shutdown drives this to zero.
+    pub fn tracked_processes(&self) -> usize {
+        self.process_supervisor.iter().count()
+    }
+
     /// A handle anything can use to say "there is work for the loop".
     ///
     /// Holding one is what lets a source end the loop's wait instead of sitting
@@ -351,6 +373,49 @@ mod tests {
     use std::sync::{Arc, Mutex};
     use std::thread;
     use std::time::Duration;
+
+    /// Nothing may still be tracked after a shutdown, because the caller is
+    /// about to `exec` and anything left is a child the next image cannot reap.
+    #[test]
+    fn shutdown_leaves_no_process_tracked() {
+        let (mut data_loop, handle) = DataLoop::new();
+        handle.set_desired(vec![StreamSource::Process(ProcessSpec {
+            identity: ProcessIdentity {
+                bin: "/bin/sh".to_string(),
+                key: "/bin/sh:sleep".to_string(),
+            },
+            args: vec!["-c".into(), "sleep 30".into()],
+            env: BTreeMap::new(),
+            current_dir: None,
+            props: None,
+        })]);
+
+        let stop = Arc::new(AtomicBool::new(false));
+        let stop_for_run = Arc::clone(&stop);
+        let notifier = data_loop.notifier();
+        let run = thread::spawn(move || {
+            data_loop.run(stop_for_run, |_| {}, || {});
+            data_loop
+        });
+
+        // Give the pass that spawns it time to happen, then stop the loop.
+        thread::sleep(Duration::from_millis(200));
+        stop.store(true, Ordering::Relaxed);
+        let _ = notifier.try_send(());
+        let mut data_loop = run.join().expect("run thread");
+
+        assert_eq!(
+            data_loop.tracked_processes(),
+            1,
+            "the desired process should be running before shutdown"
+        );
+        data_loop.shutdown();
+        assert_eq!(
+            data_loop.tracked_processes(),
+            0,
+            "shutdown must leave nothing for the next image to inherit"
+        );
+    }
 
     #[test]
     fn data_loop_new_returns_tuple_with_handle() {

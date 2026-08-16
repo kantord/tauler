@@ -350,7 +350,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         );
     }
 
-    // run() returned because stop was set (binary reload). App::drop handles cleanup.
+    // run() returned because stop was set (binary reload). App::drop has taken
+    // the surfaces and the presenter down; the subprocesses are separate and
+    // have to go before `exec`, which keeps the PID and runs no destructors.
+    // Anything still tracked would survive into the new image as a child it
+    // holds no handle to, and so could never be reaped — a permanent zombie the
+    // moment it exits.
+    // macOS moved the loop into the presenter's worker thread, which shuts it
+    // down there instead — `data_loop` is not ours to touch by this point.
+    #[cfg(not(target_os = "macos"))]
+    data_loop.shutdown();
+
     use std::os::unix::process::CommandExt;
     let mut cmd = std::process::Command::new(&exe_path);
     cmd.env("TAULER_BACKEND", backend);
