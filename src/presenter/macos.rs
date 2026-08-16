@@ -12,7 +12,7 @@ use std::time::{Duration, Instant};
 use tauler::data::data_loop::{DataLoop, StreamItem};
 use tauler::layout::{PanelAnchor, SurfaceSpec};
 use tauler::presentation::{
-    PointerEvent, PointerPhase, PresenterEvent, SurfaceCommand, SurfaceFrame,
+    PointerEvent, PointerPhase, PresenterEvent, PresenterEvents, SurfaceCommand, SurfaceFrame,
 };
 use winit::application::ApplicationHandler;
 use winit::dpi::{LogicalPosition, LogicalSize};
@@ -103,7 +103,7 @@ struct PendingBoot {
 struct MacPresenter {
     panels: HashMap<String, MacPanel>,
     command_rx: mpsc::Receiver<SurfaceCommand>,
-    event_tx: mpsc::Sender<PresenterEvent>,
+    event_tx: PresenterEvents,
     stop: Arc<AtomicBool>,
     monitor: MonitorRect,
     pending: Option<PendingBoot>,
@@ -421,6 +421,10 @@ pub(crate) fn run(boot: MacBoot) -> Result<(), Box<dyn std::error::Error>> {
 
     let (command_tx, command_rx) = mpsc::channel();
     let (event_tx, event_rx) = mpsc::channel();
+    // AppKit owns this thread, so the loop is off on a worker — which makes the
+    // ping the only thing that gets a pointer event looked at before the
+    // supervision timer comes round.
+    let event_tx = PresenterEvents::new(event_tx, boot.data_loop.notifier());
     let stop = Arc::clone(&boot.stop);
 
     let mut presenter = MacPresenter {

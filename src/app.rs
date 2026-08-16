@@ -521,7 +521,6 @@ impl App {
         stop: Arc<AtomicBool>,
         last_tick: Arc<std::sync::atomic::AtomicU64>,
         watcher: SharedWatcher,
-        notifier: mpsc::SyncSender<()>,
     ) -> Self {
         let MacInit {
             command_tx,

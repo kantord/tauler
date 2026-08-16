@@ -72,11 +72,19 @@ fn log_lifecycle_errors<K: Debug, E: Debug>(errors: Vec<(K, E)>) {
 
 pub struct DataLoopHandle {
     tx: mpsc::Sender<Vec<StreamSource>>,
+    notify_tx: mpsc::SyncSender<()>,
 }
 
 impl DataLoopHandle {
+    /// Declare which subprocesses should exist.
+    ///
+    /// Pings, because a layout that just asked for a stream is waiting on it:
+    /// without one the subprocess would not be spawned until the supervision
+    /// timer came round, and that timer is sized for finding a *crashed*
+    /// process, not for starting one somebody just declared.
     pub fn set_desired(&self, sources: Vec<StreamSource>) {
         let _ = self.tx.send(sources);
+        let _ = self.notify_tx.try_send(());
     }
 }
 
@@ -102,9 +110,6 @@ impl BuiltInPool {
     }
 }
 
-/// Convert the crate's stream key (ProcessIdentity) back to tauler's
-/// (bin, Option<script>) tuple. The convention is that `identity.key`
-/// is formatted as `"bin:script"` (with an empty script when there is none).
 /// Forward every item from `rx` onto the loop's one item channel, converting on
 /// the way, and ping the loop each time.
 ///
@@ -126,6 +131,9 @@ fn spawn_bridge<T: Send + 'static>(
     });
 }
 
+/// Convert the crate's stream key (ProcessIdentity) back to tauler's
+/// (bin, Option<script>) tuple. The convention is that `identity.key`
+/// is formatted as `"bin:script"` (with an empty script when there is none).
 fn identity_to_stream_key(identity: &ProcessIdentity) -> (String, Option<String>) {
     let bin = identity.bin.clone();
     let prefix = format!("{}:", bin);
@@ -142,7 +150,6 @@ pub struct DataLoop {
     builtin_pool: BuiltInPool,
     desired_processes: Vec<ProcessSpec>,
     desired_builtins: Vec<BuiltInSource>,
-    timeout: Option<Duration>,
     /// Every source's lines, already converted, from both bridges.
     items_rx: mpsc::Receiver<StreamItem>,
     /// The one thing the loop waits on. Anything with work for the loop pings
@@ -187,14 +194,16 @@ impl DataLoop {
             builtin_pool: BuiltInPool::new(local_tx),
             desired_processes: Vec::new(),
             desired_builtins: Vec::new(),
-            timeout: None,
             items_rx,
             notify_rx,
             notify_tx,
             desired_rx,
             event_txs_snapshot,
         };
-        let handle = DataLoopHandle { tx: desired_tx };
+        let handle = DataLoopHandle {
+            tx: desired_tx,
+            notify_tx: data_loop.notify_tx.clone(),
+        };
         (data_loop, handle)
     }
 
@@ -210,11 +219,6 @@ impl DataLoop {
     /// Callers can hold this Arc and read from it while `run` is executing.
     pub fn event_txs_handle(&self) -> Arc<Mutex<HashMap<String, mpsc::Sender<serde_json::Value>>>> {
         Arc::clone(&self.event_txs_snapshot)
-    }
-
-    pub const fn with_timeout(mut self, timeout: Duration) -> Self {
-        self.timeout = Some(timeout);
-        self
     }
 
     pub fn collect_event_txs(&self) -> HashMap<ProcessIdentity, mpsc::Sender<serde_json::Value>> {
@@ -332,10 +336,7 @@ impl DataLoop {
             // One thing to wait on. The timeout is not a poll for input any
             // more — everything with work pings us — it is how often
             // supervision runs when the desktop is idle.
-            match self
-                .notify_rx
-                .recv_timeout(self.timeout.unwrap_or(SUPERVISION_INTERVAL))
-            {
+            match self.notify_rx.recv_timeout(SUPERVISION_INTERVAL) {
                 Ok(()) | Err(mpsc::RecvTimeoutError::Timeout) => {}
                 Err(mpsc::RecvTimeoutError::Disconnected) => break,
             }

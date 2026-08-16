@@ -99,7 +99,12 @@ winit = "0.30.13"
 softbuffer = "0.4.8"
 
 [dev-dependencies]
+criterion = "0.7.0"
 image = "0.25.10"
 libc = "0.2.189"
 tracing-test = "0.2.6"
 rstest = "0.26.1"
+
+[[bench]]
+name = "pipeline"
+harness = false
