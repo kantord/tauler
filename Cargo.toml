@@ -11,7 +11,7 @@ homepage = "https://kantord.github.io/tauler/"
 rust-version = "1.95"
 
 [workspace.dependencies]
-optative = "0.1.4"
+optative = "=0.1.4"
 
 [package]
 name = "tauler"
@@ -60,8 +60,8 @@ tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 # Must match `optative-script`'s rquickjs major: a second version in the graph
 # makes `Ctx`/`Error` types from the two copies fail to unify at the UI-component
 # registration boundary. Bump only in lockstep with `optative-script`.
-rquickjs = { version = "0.12.2", features = ["loader"] }
-rquickjs-serde = "0.6.1"
+rquickjs = { version = "=0.12.2", features = ["loader"] }
+rquickjs-serde = "=0.6.1"
 takumi = "=2.9.2"
 # For `ImageBuffer`, the only way to build an `ImageSource` from raw pixels: the
 # `takumi` facade re-exports it only behind its semver-exempt `unstable` feature.
@@ -79,10 +79,10 @@ serde_yaml = "0.9.34"
 # the *published* macro. That is invisible until the two disagree — which is
 # exactly what happened when the macro stopped hard-coding its tag list.
 tauler-ui-macro = { path = "tauler-ui-macro", version = "0.1.5" }
-optative = "0.1.4"
-optative-process-pool = "0.0.9"
-optative-derive = "0.0.4"
-optative-script = "0.0.9"
+optative = "=0.1.4"
+optative-process-pool = "=0.0.9"
+optative-derive = "=0.0.4"
+optative-script = "=0.0.9"
 notify = "8.2.0"
 cached = { version = "2.0.2", default-features = false }
 tempfile = "3.27.0"
