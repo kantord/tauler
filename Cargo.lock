@@ -5565,39 +5565,8 @@ version = "2.9.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "66329259839ecfc621359cff515dcf55d5aa9afa124f437f1dbbe9a6f35e86f6"
 dependencies = [
- "takumi-core 0.23.0",
+ "takumi-core",
  "takumi-raster",
-]
-
-[[package]]
-name = "takumi-core"
-version = "0.21.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "77ffb753bcbee50d652b50df9232b8f6a6ef99c4f6b1a060b54d61e143939999"
-dependencies = [
- "bitflags 2.13.1",
- "bytemuck",
- "color",
- "cssparser",
- "data-url",
- "image",
- "kurbo",
- "parley",
- "pastey 0.2.3",
- "phf 0.13.1",
- "png",
- "precomputed-hash",
- "quick_cache",
- "selectors",
- "serde",
- "serde_bytes",
- "skrifa",
- "smallvec",
- "taffy",
- "thiserror 2.0.20",
- "tiny-skia 0.12.0",
- "typed-builder",
- "xxhash-rust",
 ]
 
 [[package]]
@@ -5660,7 +5629,7 @@ dependencies = [
  "serde",
  "skrifa",
  "smallvec",
- "takumi-core 0.23.0",
+ "takumi-core",
  "tiny-skia 0.12.0",
  "typed-builder",
  "xxhash-rust",
@@ -5689,7 +5658,7 @@ dependencies = [
  "smithay-client-toolkit 0.21.1",
  "softbuffer",
  "takumi",
- "takumi-core 0.21.0",
+ "takumi-core",
  "tauler-ui-macro",
  "tempfile",
  "thiserror 2.0.20",
