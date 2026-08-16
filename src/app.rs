@@ -332,12 +332,12 @@ pub(crate) struct App {
 /// The worker is not joined on shutdown and holds nothing but memory: it may be
 /// part-way through a rasterization that no longer matters, and waiting for
 /// those pixels would only delay the re-exec. Dropping [`SurfaceOutputs`] closes
-/// its request channel, which is what tells it to stop.
+/// its job channel, which is what tells it to stop.
 fn spawn_render_worker(command_tx: mpsc::Sender<SurfaceCommand>) -> SurfaceOutputs {
-    let (repaints, repaint_rx) = mpsc::channel();
+    let (jobs, job_rx) = mpsc::channel();
     let commands = command_tx.clone();
-    thread::spawn(move || tauler::render::worker::run(repaint_rx, command_tx));
-    SurfaceOutputs { commands, repaints }
+    thread::spawn(move || tauler::render::worker::run(job_rx, command_tx));
+    SurfaceOutputs { commands, jobs }
 }
 
 fn parse_config(config_path: &std::path::Path) -> TaulerConfig {
@@ -681,6 +681,11 @@ impl App {
         }
         let config = parse_config(&self.config_path);
         tauler::reload_font_config(config.fonts);
+        // Every frame the worker has kept was drawn with the fonts just replaced.
+        let _ = self
+            .outputs
+            .jobs
+            .send(tauler::render::worker::RenderJob::FontsChanged);
         let (theme, mode, theme_file_path) = load_theme_from_config(&self.config_path);
         self.theme = theme;
         self.theme_mode = mode;
@@ -956,11 +961,11 @@ mod tests {
     use tauler::data::data_loop::{DataLoop, StreamSource};
     use tauler::layout::OutputInfo;
     use tauler::presentation::SurfaceCommand;
-    use tauler::render::worker::RenderRequest;
+    use tauler::render::worker::{RenderJob, RenderRequest};
     use tauler::surface::{SurfaceOutputs, SurfaceSets};
 
-    /// Outputs plus both receiving ends: repaint requests never reach the
-    /// presenter, so a test looking for pixels has to look at the other channel.
+    /// Outputs wired to a stand-in for the worker: it answers a `Now` job with a
+    /// blank frame of the right size and hands repaint requests to the test.
     #[allow(clippy::type_complexity)]
     fn test_outputs() -> (
         SurfaceOutputs,
@@ -968,12 +973,30 @@ mod tests {
         mpsc::Receiver<RenderRequest>,
     ) {
         let (commands, command_rx) = mpsc::channel::<SurfaceCommand>();
+        let (jobs, job_rx) = mpsc::channel::<RenderJob>();
         let (repaints, repaint_rx) = mpsc::channel::<RenderRequest>();
-        (
-            SurfaceOutputs { commands, repaints },
-            command_rx,
-            repaint_rx,
-        )
+        std::thread::spawn(move || {
+            while let Ok(job) = job_rx.recv() {
+                match job {
+                    RenderJob::Now { request, reply } => {
+                        let _ = reply.send(tauler::presentation::SurfaceFrame {
+                            pixels: std::sync::Arc::new(vec![
+                                0u8;
+                                (request.width * request.height * 4)
+                                    as usize
+                            ]),
+                            width: request.width,
+                            height: request.height,
+                        });
+                    }
+                    RenderJob::Repaint(request) => {
+                        let _ = repaints.send(request);
+                    }
+                    RenderJob::FontsChanged => {}
+                }
+            }
+        });
+        (SurfaceOutputs { commands, jobs }, command_rx, repaint_rx)
     }
 
     fn make_eval_output(layout: serde_json::Value) -> tauler::jsx::EvalOutput {

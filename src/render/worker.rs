@@ -1,65 +1,57 @@
-//! Rasterizing panel repaints off the tick thread.
+//! The one thread that rasterizes, and how it decides what to draw next.
 //!
 //! A repaint costs 40–90ms for a full-height panel, and the tick thread is the
 //! only thing that reads stream values, reloads the layout file and routes
-//! clicks. Doing that work inline means none of it happens while a panel draws.
+//! pointer events. Doing that work inline means none of it happens while a panel
+//! draws — so repaints become jobs, and the thread that draws them is this one.
 //!
-//! So repaints become requests. The worker drains the whole queue, keeps the
-//! newest request per panel and renders those. That is the entirety of what
-//! this module calls *superseding* a repaint: takumi's `render` is one opaque
-//! call with no cancellation hook, so a render already under way cannot be
-//! stopped — only a request that has not started yet can be replaced. Nothing
-//! is ever abandoned mid-flight, which is what makes starvation impossible: an
-//! endless stream of updates still renders one snapshot to completion, then the
-//! next-newest, and so on.
+//! The scheduler is a slot per render target holding the latest frame nobody has
+//! painted yet. Sending a second [`RenderRequest`] for a target overwrites the
+//! first, and that overwrite is the entirety of what *superseding* means here:
+//! takumi's `render` is one opaque call with no cancellation hook, so a render
+//! already under way cannot be stopped — only one that has not started can be
+//! replaced. Nothing is ever abandoned mid-draw, which is what makes starvation
+//! impossible: an endless stream of updates still draws one snapshot to
+//! completion, then the next-newest, and so on (ADR 0023).
 //!
-//! Only panel repaints come through here. Create, Resize and wallpaper paints
-//! stay on the tick thread — Create needs pixels before the window exists,
-//! Resize is what makes a stale-size frame droppable, and a wallpaper must be
-//! painted before the panels that sample it are rendered against it.
+//! Everything rasterizes here, including the renders whose caller cannot carry
+//! on without the pixels — a window needs a picture before it can exist. Those
+//! arrive as [`RenderJob::Now`] and are answered on a reply channel while the
+//! tick thread waits, which it did anyway when it drew them itself. One
+//! rasterizer means one [`FrameCache`], with no lock around it and nothing else
+//! able to evict from it.
+//!
+//! ## Where the order will come from
+//!
+//! Targets are drawn in a deterministic but arbitrary order — by id. That holds
+//! only while every target is independent. `<BufferBoundary>` (#395) makes a
+//! target's pixels an input to its parent's, and then the order stops being
+//! arbitrary: a boundary has to be drawn before whatever composites it, exactly
+//! as a wallpaper is painted before the panels that sample it. The dependency
+//! order belongs here, in the choice of which pending target to draw next, and
+//! nowhere else.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
+use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender};
 use std::time::{Duration, Instant};
 
+use super::cache::FrameCache;
 use crate::backdrop::Backdrop;
+use crate::presentation::{SurfaceCommand, SurfaceFrame};
 
-/// The shortest gap between two repaints of the same panel.
+/// The shortest gap between two repaints of the same target.
 ///
-/// Above roughly 80 frames a second nothing reaches the eye, so a panel cheap
-/// enough to draw faster than that is only burning CPU. Panels expensive enough
+/// Above roughly 80 frames a second nothing reaches the eye, so a target cheap
+/// enough to draw faster than that is only burning CPU. Targets expensive enough
 /// to matter (a full-height 4K bar draws in 40–90ms) never come near this floor
-/// — the worker is its own rate limit there.
+/// — drawing is its own rate limit there.
 pub const MIN_REPAINT_INTERVAL: Duration = Duration::from_micros(12_500);
 
-/// What the worker should do with a request it is holding.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum RepaintDecision {
-    /// Rasterize it now.
-    RenderNow,
-    /// Hold it until this instant. The request is kept, never dropped: this
-    /// delays a repaint, it does not cancel one.
-    WaitUntil(Instant),
-}
-
-/// Decide whether a panel may be repainted, given when it last was.
-///
-/// Pure and clock-free — the caller supplies `now`, as
-/// `tauler-i3`'s scheduler does.
-pub fn repaint_decision(now: Instant, last_render: Option<Instant>) -> RepaintDecision {
-    match last_render {
-        Some(last) if now < last + MIN_REPAINT_INTERVAL => {
-            RepaintDecision::WaitUntil(last + MIN_REPAINT_INTERVAL)
-        }
-        _ => RepaintDecision::RenderNow,
-    }
-}
-
-/// One panel's repaint, with everything the rasterizer needs to do it.
+/// One target's picture, with everything needed to draw it.
 ///
 /// Self-contained on purpose: the backdrop is cropped by the tick thread and
-/// travels with the request, so the worker never consults the wallpaper
-/// registry and cannot render against a wallpaper newer than the one the
-/// pipeline recorded.
+/// travels with the request, so the worker never consults the wallpaper registry
+/// and cannot draw against a wallpaper newer than the one the pipeline recorded.
 #[derive(Clone)]
 pub struct RenderRequest {
     pub id: String,
@@ -72,110 +64,180 @@ pub struct RenderRequest {
     pub backdrop: Option<Backdrop>,
 }
 
-/// Reduce a drained batch to the newest request per panel.
-///
-/// Position is first-seen and the payload is last-seen: a panel updating faster
-/// than the worker can draw keeps its place in the batch instead of being
-/// pushed behind quieter panels every round.
-pub fn collapse(requests: Vec<RenderRequest>) -> Vec<RenderRequest> {
-    let mut order: Vec<String> = Vec::new();
-    let mut newest: HashMap<String, RenderRequest> = HashMap::new();
-    for request in requests {
-        if !newest.contains_key(&request.id) {
-            order.push(request.id.clone());
-        }
-        newest.insert(request.id.clone(), request);
-    }
-    order
-        .into_iter()
-        .filter_map(|id| newest.remove(&id))
-        .collect()
+/// What the pipeline asks the worker for.
+pub enum RenderJob {
+    /// Draw this when you get to it, and send the pixels straight to the
+    /// presenter. Superseded by a newer request for the same target.
+    Repaint(RenderRequest),
+    /// Draw this before anything pending and hand the frame back: the caller is
+    /// blocked on it. Never throttled and never superseded — the pixels are
+    /// going somewhere the pipeline needs them synchronously.
+    Now {
+        request: RenderRequest,
+        reply: Sender<SurfaceFrame>,
+    },
+    /// The fonts were reloaded, so every cached frame was drawn with the wrong
+    /// ones.
+    FontsChanged,
 }
 
-/// Rasterize repaints until the pipeline goes away.
-///
-/// Blocks on `requests`, then drains everything else queued behind it before
-/// picking what to draw — that drain is where supersession happens, and it is
-/// the only place a repaint is ever discarded. A request the throttle is
-/// holding stays in `pending` and is drawn when its panel becomes eligible, so
-/// a burst that stops mid-interval still lands.
-pub fn run(
-    requests: std::sync::mpsc::Receiver<RenderRequest>,
-    commands: std::sync::mpsc::Sender<crate::presentation::SurfaceCommand>,
-) {
-    use std::sync::mpsc::RecvTimeoutError;
+/// What the worker should do with a target it is holding.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RepaintDecision {
+    /// Draw it now.
+    RenderNow,
+    /// Hold it until this instant. The request is kept, never dropped: this
+    /// delays a repaint, it does not cancel one.
+    WaitUntil(Instant),
+}
 
-    let mut pending: Vec<RenderRequest> = Vec::new();
-    let mut last_render: HashMap<String, Instant> = HashMap::new();
+/// Decide whether a target may be repainted, given when it last was.
+///
+/// Pure and clock-free — the caller supplies `now`, as `tauler-i3`'s scheduler
+/// does.
+pub fn repaint_decision(now: Instant, last_render: Option<Instant>) -> RepaintDecision {
+    match last_render {
+        Some(last) if now < last + MIN_REPAINT_INTERVAL => {
+            RepaintDecision::WaitUntil(last + MIN_REPAINT_INTERVAL)
+        }
+        _ => RepaintDecision::RenderNow,
+    }
+}
+
+/// What one pass over the pending targets did.
+enum Drawn {
+    /// A target was drawn, or there was nothing to draw.
+    Done,
+    /// Every pending target is inside its interval; the earliest is due then.
+    NothingUntil(Instant),
+    /// The presenter is gone.
+    Disconnected,
+}
+
+struct Worker {
+    /// The latest unpainted request per target. Inserting over an entry is how a
+    /// repaint is superseded — there is no queue for a stale one to sit in.
+    ///
+    /// Ordered by id, which is arbitrary but stable; see the module docs for
+    /// what replaces that.
+    pending: BTreeMap<String, RenderRequest>,
+    last_render: HashMap<String, Instant>,
+    cache: FrameCache,
+    commands: Sender<SurfaceCommand>,
+}
+
+impl Worker {
+    fn new(commands: Sender<SurfaceCommand>) -> Self {
+        Worker {
+            pending: BTreeMap::new(),
+            last_render: HashMap::new(),
+            cache: FrameCache::new(),
+            commands,
+        }
+    }
+
+    fn draw(&mut self, request: &RenderRequest) -> SurfaceFrame {
+        let pixels = self.cache.frame(request);
+        self.last_render.insert(request.id.clone(), Instant::now());
+        SurfaceFrame {
+            pixels,
+            width: request.width,
+            height: request.height,
+        }
+    }
+
+    /// Take one job. Returns false once there is no one left to draw for.
+    fn accept(&mut self, job: RenderJob) -> bool {
+        match job {
+            RenderJob::Repaint(request) => {
+                self.pending.insert(request.id.clone(), request);
+            }
+            RenderJob::Now { request, reply } => {
+                // Whatever was pending for this target is older than what is
+                // about to be drawn, and the caller is about to put these pixels
+                // on screen itself. Dropping it is why a frame for a stale size
+                // cannot reach the presenter.
+                self.pending.remove(&request.id);
+                let frame = self.draw(&request);
+                if reply.send(frame).is_err() {
+                    tracing::debug!(target = %request.id, "nobody waiting for a Now render");
+                }
+            }
+            RenderJob::FontsChanged => self.cache.clear(),
+        }
+        true
+    }
+
+    /// Draw the first target that is due.
+    fn draw_next(&mut self) -> Drawn {
+        let now = Instant::now();
+        let mut earliest: Option<Instant> = None;
+        let mut due: Option<String> = None;
+        for id in self.pending.keys() {
+            match repaint_decision(now, self.last_render.get(id).copied()) {
+                RepaintDecision::RenderNow => {
+                    due = Some(id.clone());
+                    break;
+                }
+                RepaintDecision::WaitUntil(t) => {
+                    earliest = Some(earliest.map_or(t, |e: Instant| e.min(t)));
+                }
+            }
+        }
+        let Some(id) = due else {
+            return match earliest {
+                Some(t) => Drawn::NothingUntil(t),
+                None => Drawn::Done,
+            };
+        };
+        let request = self.pending.remove(&id).expect("id came from pending");
+        let frame = self.draw(&request);
+        match self
+            .commands
+            .send(SurfaceCommand::UpdatePicture { id, frame })
+        {
+            Ok(()) => Drawn::Done,
+            Err(_) => Drawn::Disconnected,
+        }
+    }
+}
+
+/// Rasterize until the pipeline goes away.
+pub fn run(jobs: Receiver<RenderJob>, commands: Sender<SurfaceCommand>) {
+    let mut worker = Worker::new(commands);
 
     loop {
-        if pending.is_empty() {
-            match requests.recv() {
-                Ok(request) => pending.push(request),
+        // Nothing to draw: wait for something to do rather than spin.
+        if worker.pending.is_empty() {
+            match jobs.recv() {
+                Ok(job) => {
+                    worker.accept(job);
+                }
                 Err(_) => return,
             }
         }
-        while let Ok(request) = requests.try_recv() {
-            pending.push(request);
+        // Everything else already queued, before choosing — this drain is where
+        // a superseded repaint stops existing.
+        while let Ok(job) = jobs.try_recv() {
+            worker.accept(job);
         }
-        pending = collapse(pending);
 
-        let now = Instant::now();
-        let decide =
-            |request: &RenderRequest| repaint_decision(now, last_render.get(&request.id).copied());
-
-        match pending
-            .iter()
-            .position(|r| decide(r) == RepaintDecision::RenderNow)
-        {
-            Some(index) => {
-                let request = pending.remove(index);
-                let frame = rasterize(&request);
-                last_render.insert(request.id.clone(), Instant::now());
-                if commands
-                    .send(crate::presentation::SurfaceCommand::UpdatePicture {
-                        id: request.id,
-                        frame,
-                    })
-                    .is_err()
-                {
-                    return;
-                }
-            }
-            // Everything held by the throttle: wait for the nearest deadline,
-            // but on the channel rather than sleeping, so a newer request can
-            // still supersede what is being held.
-            None => {
-                let deadline = pending
-                    .iter()
-                    .filter_map(|r| match decide(r) {
-                        RepaintDecision::WaitUntil(t) => Some(t),
-                        RepaintDecision::RenderNow => None,
-                    })
-                    .min()
-                    .expect("nothing was eligible, so something has a deadline");
-                match requests.recv_timeout(deadline.saturating_duration_since(now)) {
-                    Ok(request) => pending.push(request),
+        match worker.draw_next() {
+            Drawn::Done => {}
+            Drawn::Disconnected => return,
+            // Held by the throttle: wait on the channel rather than sleeping, so
+            // a newer request can still supersede what is being held, and a
+            // `Now` still gets answered without waiting out the interval.
+            Drawn::NothingUntil(deadline) => {
+                match jobs.recv_timeout(deadline.saturating_duration_since(Instant::now())) {
+                    Ok(job) => {
+                        worker.accept(job);
+                    }
                     Err(RecvTimeoutError::Timeout) => {}
                     Err(RecvTimeoutError::Disconnected) => return,
                 }
             }
         }
-    }
-}
-
-fn rasterize(request: &RenderRequest) -> crate::presentation::SurfaceFrame {
-    let pixels = super::render_frame_keyed(
-        &request.content,
-        request.width,
-        request.height,
-        request.dpr,
-        request.backdrop.as_ref(),
-    );
-    crate::presentation::SurfaceFrame {
-        pixels,
-        width: request.width,
-        height: request.height,
     }
 }
 
@@ -187,11 +249,17 @@ mod tests {
         RenderRequest {
             id: id.to_string(),
             content: serde_json::json!(content),
-            width: 100,
-            height: 30,
+            width: 4,
+            height: 4,
             dpr: 1.0,
             backdrop: None,
         }
+    }
+
+    fn worker() -> Worker {
+        crate::render::init_global_ctx(crate::config::FontConfig::default());
+        let (commands, _rx) = std::sync::mpsc::channel();
+        Worker::new(commands)
     }
 
     #[test]
@@ -205,11 +273,9 @@ mod tests {
     #[test]
     fn a_panel_that_just_rendered_waits_out_the_interval() {
         let base = Instant::now();
-        let last = base;
-        let now = base + Duration::from_millis(5);
         assert_eq!(
-            repaint_decision(now, Some(last)),
-            RepaintDecision::WaitUntil(last + MIN_REPAINT_INTERVAL),
+            repaint_decision(base + Duration::from_millis(5), Some(base)),
+            RepaintDecision::WaitUntil(base + MIN_REPAINT_INTERVAL),
             "a repaint 5ms after the last one must be held, not dropped"
         );
     }
@@ -222,46 +288,74 @@ mod tests {
             RepaintDecision::RenderNow,
             "the deadline itself is eligible"
         );
-        assert_eq!(
-            repaint_decision(base + Duration::from_millis(50), Some(base)),
-            RepaintDecision::RenderNow
-        );
     }
 
+    /// The slot is the whole scheduler: a target has one unpainted frame, the
+    /// newest, and the ones it replaced never existed as far as drawing goes.
     #[test]
-    fn collapse_keeps_only_the_newest_request_for_a_panel() {
-        let out = collapse(vec![
-            request("p1", "first"),
-            request("p1", "second"),
-            request("p1", "third"),
-        ]);
+    fn a_second_repaint_for_a_target_replaces_the_first() {
+        let mut w = worker();
+        w.accept(RenderJob::Repaint(request("p1", "first")));
+        w.accept(RenderJob::Repaint(request("p1", "second")));
+        assert_eq!(w.pending.len(), 1, "one target, one unpainted frame");
         assert_eq!(
-            out.len(),
-            1,
-            "three requests for one panel must collapse to one; got {:?}",
-            out.iter().map(|r| &r.content).collect::<Vec<_>>()
-        );
-        assert_eq!(
-            out[0].content,
-            serde_json::json!("third"),
+            w.pending["p1"].content,
+            serde_json::json!("second"),
             "the surviving request must be the newest"
         );
     }
 
     #[test]
-    fn collapse_keeps_every_panel() {
-        let out = collapse(vec![
-            request("p1", "a"),
-            request("p2", "b"),
-            request("p1", "c"),
-        ]);
-        let ids: Vec<&str> = out.iter().map(|r| r.id.as_str()).collect();
-        assert_eq!(
-            ids,
-            vec!["p1", "p2"],
-            "one entry per panel, in first-seen order"
+    fn repaints_for_different_targets_all_survive() {
+        let mut w = worker();
+        w.accept(RenderJob::Repaint(request("p1", "a")));
+        w.accept(RenderJob::Repaint(request("p2", "b")));
+        w.accept(RenderJob::Repaint(request("p1", "c")));
+        assert_eq!(w.pending.len(), 2, "one entry per target");
+        assert_eq!(w.pending["p1"].content, serde_json::json!("c"));
+        assert_eq!(w.pending["p2"].content, serde_json::json!("b"));
+    }
+
+    /// A `Now` render is what a resize does, and it puts newer pixels on screen
+    /// than whatever was pending. Keeping the pending one would repaint the
+    /// panel with an older picture at a size it no longer has.
+    #[test]
+    fn a_now_render_drops_what_was_pending_for_that_target() {
+        let mut w = worker();
+        let (reply, frames) = std::sync::mpsc::channel();
+        w.accept(RenderJob::Repaint(request("p1", "stale")));
+        w.accept(RenderJob::Repaint(request("p2", "untouched")));
+        w.accept(RenderJob::Now {
+            request: request("p1", "fresh"),
+            reply,
+        });
+        assert!(
+            frames.try_recv().is_ok(),
+            "a Now render must answer the caller waiting on it"
         );
-        assert_eq!(out[0].content, serde_json::json!("c"));
-        assert_eq!(out[1].content, serde_json::json!("b"));
+        assert!(
+            !w.pending.contains_key("p1"),
+            "the pending repaint for p1 is older than what was just drawn"
+        );
+        assert!(
+            w.pending.contains_key("p2"),
+            "other targets must not be disturbed"
+        );
+    }
+
+    /// Drawing anything starts that target's interval, so the repaint that
+    /// follows a resize is throttled like any other.
+    #[test]
+    fn drawing_a_target_starts_its_interval() {
+        let mut w = worker();
+        let (reply, _frames) = std::sync::mpsc::channel();
+        w.accept(RenderJob::Now {
+            request: request("p1", "fresh"),
+            reply,
+        });
+        assert_eq!(
+            repaint_decision(Instant::now(), w.last_render.get("p1").copied()),
+            RepaintDecision::WaitUntil(w.last_render["p1"] + MIN_REPAINT_INTERVAL)
+        );
     }
 }

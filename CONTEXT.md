@@ -49,25 +49,36 @@ _Avoid_: transparency, blur, backdrop
 
 ### Rendering
 
+**Render target**:
+Something with pixels of its own. Today every target is a Surface; a `<BufferBoundary>`
+will make one out of a subtree. What makes it a target is having its own slot in the
+scheduler and its own entry in the cache.
+_Avoid_: layer, texture, canvas
+
 **Repaint**:
-Redrawing a Panel that already exists, because its content, its scale or the Wallpaper
-under it changed. It is the only kind of render that leaves the tick thread.
+Redrawing a Render target that already exists, because its content, its scale or the
+Wallpaper under it changed. Nobody waits for one.
 _Avoid_: redraw, refresh, frame
 
 **Render request**:
-One Repaint, described in full: what to draw, at what physical size, against which slice of
-Wallpaper. It is data on a channel, not a call — the tick thread hands it over and moves on.
-_Avoid_: render job, draw call, render task
+What to draw, at what physical size, against which slice of Wallpaper. It carries
+everything the drawing needs, so the Render worker consults nothing else.
+_Avoid_: draw call, render task
+
+**Render job**:
+A Render request plus what to do with the pixels: paint them (a Repaint) or hand them back
+to a caller that is waiting. Both are drawn by the same thread from the same cache.
+_Avoid_: message, command (a Surface command is the other channel)
 
 **Render worker**:
-The thread that turns Render requests into pixels. There is exactly one; it holds no state
-beyond what it has drawn and when.
+The one thread that draws. Nothing else rasterizes, which is what lets the frame cache be
+its private state rather than a global behind a lock.
 _Avoid_: render thread, rasterizer (that is takumi), render queue
 
 **Supersede**:
-What a newer Render request does to an older one for the same Panel that has not started
-drawing yet. A render already under way is never superseded — it finishes, and the newer
-request is drawn after it. See ADR 0023.
+What a newer Render request does to the unpainted one in a target's slot. A render already
+under way is never superseded — it finishes, and the newer request is drawn after it. See
+ADR 0023.
 _Avoid_: cancel, abort, debounce, throttle (all four claim work stops, and none of it does)
 
 ### The layout file

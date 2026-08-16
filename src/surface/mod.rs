@@ -4,20 +4,48 @@ use std::sync::Arc;
 use crate::layout::{SurfaceKind, SurfaceSpec};
 use crate::managed_set::{Lifecycle, OptativeSet, Reconcile, ReconcileErrors};
 use crate::presentation::{SurfaceCommand, SurfaceFrame};
-use crate::render::render_frame_keyed;
-use crate::render::worker::RenderRequest;
+use crate::render::worker::{RenderJob, RenderRequest};
 pub use crate::x11::panel::X11PanelContext;
 
 /// Where a reconciled surface sends its work.
 ///
 /// Two channels, not one. Lifecycle commands must reach the presenter in the
 /// order the pipeline decided them — a window has to exist before it moves —
-/// while a repaint is worth up to 90ms of rasterization and has to leave the
-/// tick thread. Routing everything through the worker would put a `Move` behind
-/// whatever it happens to be drawing.
+/// while drawing is worth up to 90ms and belongs on the worker. Routing the
+/// commands through the worker too would put a `Move` behind whatever it happens
+/// to be drawing.
 pub struct SurfaceOutputs {
     pub commands: Sender<SurfaceCommand>,
-    pub repaints: Sender<RenderRequest>,
+    pub jobs: Sender<RenderJob>,
+}
+
+impl SurfaceOutputs {
+    /// Ask for a repaint and carry on. The pixels reach the presenter without
+    /// coming back through here, and a newer request for the same surface
+    /// replaces this one if it has not been drawn yet.
+    fn repaint(&self, request: RenderRequest) -> Result<(), anyhow::Error> {
+        self.jobs
+            .send(RenderJob::Repaint(request))
+            .map_err(|e| anyhow::anyhow!("render worker is gone: {e}"))
+    }
+
+    /// Draw now and wait for the pixels.
+    ///
+    /// For the frames the pipeline cannot proceed without: a window needs a
+    /// picture before it can be created, a resize has to land with one, and a
+    /// wallpaper has to be published before the panels that sample it are
+    /// cropped against it. Blocking here is what the tick thread did anyway when
+    /// it drew these itself — the difference is that now there is one rasterizer
+    /// and therefore one cache.
+    fn render_now(&self, request: RenderRequest) -> Result<SurfaceFrame, anyhow::Error> {
+        let (reply, frames) = std::sync::mpsc::channel();
+        self.jobs
+            .send(RenderJob::Now { request, reply })
+            .map_err(|e| anyhow::anyhow!("render worker is gone: {e}"))?;
+        frames
+            .recv()
+            .map_err(|e| anyhow::anyhow!("render worker dropped the job: {e}"))
+    }
 }
 
 /// The physical size a spec rasterizes at.
@@ -28,14 +56,14 @@ fn phys_size(spec: &SurfaceSpec) -> (u32, u32) {
     )
 }
 
-/// Everything the render worker needs to repaint `spec`, and the backdrop
-/// generation it will be rendered against.
+/// Everything the render worker needs to draw `spec`, and the backdrop
+/// generation it will be drawn against.
 ///
 /// The crop happens here, on the tick thread, rather than in the worker: it is
 /// what `SurfaceState.backdrop` records, and a worker cropping for itself could
 /// draw against a wallpaper newer than the one the pipeline believes it drew
 /// against. Cropping costs ~0.5ms uncached and a refcount bump once cached.
-fn repaint_request(spec: &SurfaceSpec) -> (RenderRequest, u64) {
+fn request_for(spec: &SurfaceSpec) -> (RenderRequest, u64) {
     let (width, height) = phys_size(spec);
     let backdrop = crate::backdrop::crop_for(spec, (width, height));
     let generation = backdrop.as_ref().map(|b| b.generation).unwrap_or(0);
@@ -52,36 +80,29 @@ fn repaint_request(spec: &SurfaceSpec) -> (RenderRequest, u64) {
     )
 }
 
-/// Rasterize a spec's subtree at its physical size, here and now.
+/// Draw `spec` on the worker and wait for the pixels.
 ///
-/// The paths that cannot wait for the worker: a window needs pixels before it
-/// exists, a resize is what makes a late frame droppable (see
-/// [`crate::presentation::Presenter`]), and a wallpaper must be published
-/// before the panels that sample it are rendered against it.
+/// Panels sample the wallpaper they cover, so a wallpaper publishes its pixels
+/// the moment it has them — which is only possible because the caller is
+/// blocked here until it does. See [`crate::backdrop`].
 ///
-/// Panels sample the wallpaper they cover first, so `backdrop-filter` has real
-/// pixels to work on; wallpapers publish theirs afterwards, for the panels above
-/// them. See [`crate::backdrop`].
-///
-/// Returns the backdrop generation the frame was rendered against so the caller
-/// can store it: that is the only record of *which* wallpaper these pixels show.
-fn render(spec: &SurfaceSpec) -> (SurfaceFrame, u64) {
-    let width = (spec.width as f32 * spec.dpr).round() as u32;
-    let height = (spec.height as f32 * spec.dpr).round() as u32;
-    let backdrop = crate::backdrop::crop_for(spec, (width, height));
-    let generation = backdrop.as_ref().map(|b| b.generation).unwrap_or(0);
-    let pixels = render_frame_keyed(&spec.content, width, height, spec.dpr, backdrop.as_ref());
+/// Returns the backdrop generation the frame was drawn against so the caller can
+/// store it: that is the only record of *which* wallpaper these pixels show.
+fn render_now(
+    spec: &SurfaceSpec,
+    output: &SurfaceOutputs,
+) -> Result<(SurfaceFrame, u64), anyhow::Error> {
+    let (request, generation) = request_for(spec);
+    let frame = output.render_now(request)?;
     if spec.kind == SurfaceKind::Wallpaper {
-        crate::backdrop::publish_wallpaper(spec, Arc::clone(&pixels), width, height);
+        crate::backdrop::publish_wallpaper(
+            spec,
+            Arc::clone(&frame.pixels),
+            frame.width,
+            frame.height,
+        );
     }
-    (
-        SurfaceFrame {
-            pixels,
-            width,
-            height,
-        },
-        generation,
-    )
+    Ok((frame, generation))
 }
 
 /// What the pipeline remembers about a surface between ticks.
@@ -132,7 +153,7 @@ impl Lifecycle for Surface {
         _ctx: &mut (),
         output: &mut SurfaceOutputs,
     ) -> Result<SurfaceState, anyhow::Error> {
-        let (frame, backdrop) = render(&self.0);
+        let (frame, backdrop) = render_now(&self.0, output)?;
         output.commands.send(match self.0.kind {
             SurfaceKind::Panel => SurfaceCommand::Create {
                 spec: self.0.clone(),
@@ -160,7 +181,7 @@ impl Lifecycle for Surface {
         // same operation as first painting — so any change at all is one command.
         if new.kind == SurfaceKind::Wallpaper {
             if new != state.spec {
-                let (frame, backdrop) = render(&new);
+                let (frame, backdrop) = render_now(&new, output)?;
                 output.commands.send(SurfaceCommand::PaintWallpaper {
                     spec: new.clone(),
                     frame,
@@ -186,7 +207,7 @@ impl Lifecycle for Surface {
             new.content != state.spec.content || new.dpr != state.spec.dpr || backdrop_changed;
 
         if phys_dims_changed {
-            let (frame, backdrop) = render(&new);
+            let (frame, backdrop) = render_now(&new, output)?;
             output.commands.send(SurfaceCommand::Resize {
                 spec: new.clone(),
                 frame,
@@ -202,11 +223,8 @@ impl Lifecycle for Surface {
                 // worker sends itself. The request is guaranteed to be drawn or
                 // replaced by a newer one for this panel, so recording the
                 // generation now is not getting ahead of anything.
-                let (request, backdrop) = repaint_request(&new);
-                output
-                    .repaints
-                    .send(request)
-                    .map_err(|e| anyhow::anyhow!("render worker is gone: {e}"))?;
+                let (request, backdrop) = request_for(&new);
+                output.repaint(request)?;
                 state.backdrop = backdrop;
             }
         }
@@ -287,18 +305,18 @@ impl SurfaceSets {
 #[cfg(test)]
 mod tests {
     use super::{Surface, SurfaceOutputs, SurfaceSets, SurfaceState};
-    use crate::config::FontConfig;
     use crate::layout::SurfaceSpec;
     use crate::managed_set::Lifecycle;
-    use crate::presentation::SurfaceCommand;
-    use crate::render::worker::RenderRequest;
+    use crate::presentation::{SurfaceCommand, SurfaceFrame};
+    use crate::render::worker::{RenderJob, RenderRequest};
+    use std::sync::Arc;
 
-    fn init_ctx() {
-        crate::render::init_global_ctx(FontConfig::default());
-    }
-
-    /// Outputs plus both receiving ends. Repaints and lifecycle commands travel
-    /// separately, so a test that expects one has to look at the right one.
+    /// Outputs wired to a stand-in for the worker, plus both receiving ends.
+    ///
+    /// The stand-in answers a `Now` job with a blank frame of the right size and
+    /// hands every repaint request to the test instead of drawing it. What these
+    /// tests are about is which surface asks for what, so real pixels would only
+    /// make them slower and drag the font stack in.
     #[allow(clippy::type_complexity)]
     fn test_outputs() -> (
         SurfaceOutputs,
@@ -306,12 +324,42 @@ mod tests {
         std::sync::mpsc::Receiver<RenderRequest>,
     ) {
         let (commands, command_rx) = std::sync::mpsc::channel::<SurfaceCommand>();
+        let (jobs, job_rx) = std::sync::mpsc::channel::<RenderJob>();
         let (repaints, repaint_rx) = std::sync::mpsc::channel::<RenderRequest>();
-        (
-            SurfaceOutputs { commands, repaints },
-            command_rx,
-            repaint_rx,
-        )
+        std::thread::spawn(move || {
+            while let Ok(job) = job_rx.recv() {
+                match job {
+                    RenderJob::Now { request, reply } => {
+                        let _ = reply.send(SurfaceFrame {
+                            pixels: Arc::new(vec![
+                                0u8;
+                                (request.width * request.height * 4) as usize
+                            ]),
+                            width: request.width,
+                            height: request.height,
+                        });
+                    }
+                    RenderJob::Repaint(request) => {
+                        let _ = repaints.send(request);
+                    }
+                    RenderJob::FontsChanged => {}
+                }
+            }
+        });
+        (SurfaceOutputs { commands, jobs }, command_rx, repaint_rx)
+    }
+
+    /// The repaints the stand-in has forwarded, waiting briefly for the first.
+    ///
+    /// Repaints cross a thread on their way to the worker, so `try_iter` alone
+    /// races the hop.
+    fn repaints_of(rx: &std::sync::mpsc::Receiver<RenderRequest>) -> Vec<RenderRequest> {
+        let mut out = Vec::new();
+        if let Ok(first) = rx.recv_timeout(std::time::Duration::from_secs(2)) {
+            out.push(first);
+            out.extend(rx.try_iter());
+        }
+        out
     }
 
     /// A tracked surface as it looks before any wallpaper exists behind it.
@@ -338,7 +386,6 @@ mod tests {
 
     #[test]
     fn panel_spec_enter_emits_create_command_and_returns_state() {
-        init_ctx();
         let (mut tx, rx, _repaints) = test_outputs();
         let spec = Surface(make_spec_data("p1"));
         let state =
@@ -368,7 +415,6 @@ mod tests {
 
     #[test]
     fn panel_spec_reconcile_self_emits_resize_when_dimensions_change() {
-        init_ctx();
         let (mut tx, rx, _repaints) = test_outputs();
         let mut state = make_state(make_spec_data("p1"));
         let mut next = make_spec_data("p1");
@@ -416,14 +462,13 @@ mod tests {
     /// and nothing at all goes to the presenter.
     #[test]
     fn panel_spec_reconcile_self_requests_a_repaint_when_only_content_changes() {
-        init_ctx();
         let (mut tx, rx, repaints) = test_outputs();
         let mut state = make_state(make_spec_data("p1"));
         let mut next = make_spec_data("p1");
         next.content = serde_json::json!("hello");
         let spec = Surface(next);
         <Surface as Lifecycle>::reconcile_self(spec, &mut state, &mut (), &mut tx).unwrap();
-        let requests: Vec<RenderRequest> = repaints.try_iter().collect();
+        let requests = repaints_of(&repaints);
         assert!(
             matches!(requests.as_slice(), [r] if r.id == "p1" && r.content == serde_json::json!("hello")),
             "a content-only change must produce exactly one repaint request carrying the new content; got {}",
@@ -439,7 +484,6 @@ mod tests {
 
     #[test]
     fn panel_spec_reconcile_self_emits_resize_not_update_picture_when_dpr_changes_phys_dims() {
-        init_ctx();
         // State has dpr=1.0, logical 100x30 → physical 100x30.
         // New spec has dpr=2.0, logical 100x30 → physical 200x60.
         // Physical dims changed, so reconcile_self must emit Resize (not UpdatePicture)
@@ -516,7 +560,6 @@ mod tests {
     /// included) is just a repaint.
     #[test]
     fn wallpaper_spec_reconcile_self_emits_update_picture_when_geometry_changes() {
-        init_ctx();
         let (mut tx, rx, _repaints) = test_outputs();
         let mut state = make_state(make_wallpaper_data("bg"));
         let mut next = make_wallpaper_data("bg");
@@ -570,7 +613,6 @@ mod tests {
     /// this tick, not the nothing that was there before it.
     #[test]
     fn a_new_wallpaper_paints_itself_then_repaints_an_unchanged_panel() {
-        init_ctx();
         let (mut tx, rx, repaints) = test_outputs();
         let mut sets = SurfaceSets::new();
 
@@ -595,7 +637,7 @@ mod tests {
                 .any(|c| matches!(c, SurfaceCommand::PaintWallpaper { .. })),
             "the new wallpaper must be painted"
         );
-        let requests: Vec<RenderRequest> = repaints.try_iter().collect();
+        let requests = repaints_of(&repaints);
         let repaint = requests.iter().find(|r| r.id == "p1");
         assert!(
             repaint.is_some(),

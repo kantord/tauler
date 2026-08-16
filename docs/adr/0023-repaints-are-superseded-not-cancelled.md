@@ -1,12 +1,14 @@
 # Repaints are superseded, not cancelled
 
-A panel repaint is rasterized on a render worker rather than on the tick thread. When new
-data arrives for a panel that is already being drawn, the drawing runs to completion and
-the newer request is drawn after it. Nothing is ever abandoned part-way.
+One thread rasterizes. Everything else asks it for pictures: a repaint is a request the
+worker draws when it gets to it, and the renders the pipeline cannot continue without —
+a window's first frame, a resize, a wallpaper paint — are the same request with a reply
+channel attached, drawn ahead of anything pending while the caller waits.
 
-"Cancelling a render" therefore means exactly one thing here: replacing a request that has
-not started yet. That happens in the worker's drain — it takes everything queued, keeps the
-newest request per panel, and discards the rest.
+The worker holds one slot per render target: the latest frame nobody has painted yet.
+Asking twice for the same target overwrites the slot. That overwrite is the whole of what
+"cancelling a render" means here — a request that has not started is replaced, and one
+already being drawn runs to completion.
 
 ## Why
 
@@ -16,42 +18,53 @@ by killing what runs it, and Rust has no safe thread kill — it would take a su
 work that is already finished by the time the plumbing is in place.
 
 What that constraint buys is worth more than what it costs. The two failure modes an
-interruptible renderer has to defend against cannot arise:
+interruptible renderer must defend against cannot arise:
 
-- **Starvation.** Updates arriving faster than the panel can be drawn still produce frames,
-  because every started render finishes. The rate settles at one render per render, and the
-  data drawn is always the newest snapshot available when that render began.
-- **Renders cancelling each other forever.** There is no cancellation to loop on. The queue
-  holds at most one request per panel, and nothing a render does enqueues another one —
-  wallpapers, the only thing whose painting invalidates panels, are painted on the tick
-  thread.
+- **Starvation.** Updates arriving faster than a target can be drawn still produce frames,
+  because every started render finishes. The rate settles at one render per render, and
+  what gets drawn is always the newest snapshot available when that render began.
+- **Renders cancelling each other forever.** There is no cancellation to loop on. The
+  scheduler holds at most one request per target, and nothing a render does enqueues
+  another.
 
-The cost is wasted CPU: a superseded render draws pixels nobody sees. That is bounded by
-one render per panel, and it is why the worker also holds a floor on how often a panel may
-be redrawn (`MIN_REPAINT_INTERVAL`) — a delay, never a drop.
+The cost is wasted work: a superseded request was cropped for nothing. That is bounded by
+one crop per target, and the worker also holds a floor on how often a target may be
+redrawn (`MIN_REPAINT_INTERVAL`) — a delay, never a drop, because the request stays in its
+slot until it is drawn.
+
+**One rasterizer, not two.** The blocking cases could have stayed on the tick thread, which
+is where they used to run. They did not, because a second rasterizer means a second frame
+cache, or a shared one behind a lock. The tick thread blocks on these renders either way;
+the only thing that changed is which thread holds the pixels while it does.
 
 ## Consequences
 
-Only repaints leave the tick thread. `Create` needs pixels before its window exists,
-`Resize` must land with a correctly-sized frame, and a wallpaper has to be published before
-the panels that sample it are rendered against it. All three still rasterize inline.
+The frame cache is the worker's own state (`src/render/cache.rs`), not a process-global. No
+lock around it, and nothing that has no business drawing can evict from it. `render_frame`
+and friends draw unconditionally now — deciding *not* to draw is the cache's job. A font
+reload therefore has to tell the worker to forget what it has, rather than reaching into a
+static.
 
 Because a repaint's pixels arrive later than the reconciliation that asked for them, a frame
-can reach the presenter for a panel that has since been resized. The presenter drops any
-frame whose dimensions disagree with the window's — safe precisely because the resize
-repainted synchronously, so what is on screen is already newer than the frame being
-dropped. That invariant is load-bearing: any future path that changes a panel's size without
-repainting it inline would leave a panel blank.
+could reach the presenter for a target that has since been resized. Two things prevent it: a
+blocking render drops whatever was pending for that target, and the presenter drops any
+frame whose dimensions disagree with the window's. The first makes it structural; the second
+is there because the invariant is quiet when it breaks.
 
-Two channels run from the pipeline: lifecycle commands to the presenter, repaint requests to
-the worker. Sending everything through the worker would restore a single writer and with it
-a deterministic order, but a `Move` would then wait behind whatever the worker happens to be
-drawing.
+Two channels run from the pipeline: lifecycle commands to the presenter, render jobs to the
+worker. Sending everything through the worker would restore a single writer and with it a
+deterministic order, but a `Move` would then wait behind whatever is being drawn.
 
 The wallpaper crop travels inside the request, cropped on the tick thread. The worker never
 reads the wallpaper registry, so it cannot draw against a wallpaper newer than the one
 `SurfaceState` recorded it drawing against.
 
-Renders now run concurrently, which is why the render context sits behind an `Arc` a render
-snapshots rather than a lock a render holds. A font reload replaces the context
-copy-on-write instead of mutating one that a render in flight is reading.
+The render context stays global and behind an `Arc` a render snapshots, because hit-testing
+measures text on the tick thread and must not wait out a 90ms draw.
+
+**Where ordering will come from.** Targets are drawn in a deterministic but arbitrary order,
+by id, which holds only while every target is independent. `<BufferBoundary>` (#395) makes
+one target's pixels an input to another's, and the order stops being arbitrary — a boundary
+has to be drawn before whatever composites it, exactly as a wallpaper is painted before the
+panels that sample it. That belongs in the worker's choice of which pending target to draw
+next, and nowhere else.
