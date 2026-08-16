@@ -256,6 +256,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let last_tick = Arc::new(std::sync::atomic::AtomicU64::new(0));
     spawn_freeze_watchdog(Arc::clone(&last_tick), log_path);
 
+    // `mut` only on the platforms that call `run` on it here; macOS hands it to
+    // the presenter, which owns the main thread and runs the loop on a worker.
+    #[cfg_attr(target_os = "macos", allow(unused_mut))]
     let (mut data_loop, handle) = DataLoop::new();
     // Everything that has work for the loop holds one of these; it is what ends
     // the loop's wait, so nothing sits in a channel until the supervision timer.

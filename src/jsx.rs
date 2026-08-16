@@ -262,16 +262,33 @@ impl JsxEvaluator {
             context.with(|qjs_ctx| {
                 qjs_ctx.eval::<(), _>(JSX_GLOBALS_JS)?;
                 optative_script::register_h(&qjs_ctx)?;
-                let flatten_node_fn =
-                    rquickjs::Function::new(qjs_ctx.clone(), tauler_flatten_node)?;
-                qjs_ctx.globals().set("__tauler_flatten_node", flatten_node_fn)?;
                 // `h` isn't aliased directly to `__esto_h`: its generic-tag output nests
                 // props under a `props` key (`{type, props, children}`), but Rust-backed UI
                 // components (e.g. `@ui/card`) deserialize their `children: Vec<Node>` prop
                 // eagerly, mid-render, expecting the flat shape — so each node must be
                 // reshaped as soon as it's produced, not just once at the very end.
+                //
+                // The reshape is done in JavaScript rather than by a Rust callback
+                // because it is pure data movement and the boundary is not free: as a
+                // callback it converted every node to `serde_json` and back, once per
+                // element, which measured at 60% of the cost of an entire evaluation —
+                // twice what running the layout's own JavaScript cost. Nothing here
+                // needs Rust.
+                //
+                // One level deep is enough: every child was produced by its own `h`
+                // call and is already flat. `eval`'s whole-tree pass stays as the
+                // safety net for anything that reached the tree another way.
                 qjs_ctx.eval::<(), _>(format!(
-                    "globalThis.h = (type, props, ...children) => __tauler_flatten_node(__esto_h(type, __tauler_register_handlers(type, props), ...children));
+                    "globalThis.__tauler_flatten_node = (v) => {{
+                        if (v === null || typeof v !== 'object' || Array.isArray(v)) return v;
+                        if (!('type' in v) || !('props' in v)) return v;
+                        const out = {{ type: v.type }};
+                        const p = v.props;
+                        if (p !== null && typeof p === 'object') for (const k in p) out[k] = p[k];
+                        out.children = 'children' in v ? v.children : [];
+                        return out;
+                    }};
+                    globalThis.h = (type, props, ...children) => __tauler_flatten_node(__esto_h(type, __tauler_register_handlers(type, props), ...children));
                     globalThis.Fragment = {{ {}: true }};",
                     optative_script::tags::ESTO_FRAGMENT
                 ))?;
@@ -457,31 +474,6 @@ impl JsxEvaluator {
     }
 }
 
-/// The `h` shim's per-call hook (see `JsxEvaluator::new`): reshapes `__esto_h`'s result
-/// via [`flatten_passthrough`] immediately after each `h()` call, not just once at the
-/// end of `eval()`. This matters because Rust-backed UI components (e.g. `@ui/card`)
-/// deserialize their `children` prop *during* render, synchronously, expecting the flat
-/// shape already — by the time the whole tree is done and `eval()`'s own
-/// `flatten_passthrough` pass runs, it would be too late for those components.
-/// Non-passthrough results (arrays from `Fragment`, primitives, already-flat
-/// Rust-component output) are returned untouched.
-fn tauler_flatten_node<'js>(
-    ctx: rquickjs::Ctx<'js>,
-    value: rquickjs::Value<'js>,
-) -> rquickjs::Result<rquickjs::Value<'js>> {
-    let is_passthrough_node = match value.as_object() {
-        Some(obj) => obj.contains_key("type")? && obj.contains_key("props")?,
-        None => false,
-    };
-    if !is_passthrough_node {
-        return Ok(value);
-    }
-    let as_json: serde_json::Value =
-        rquickjs_serde::from_value(value).map_err(|_| rquickjs::Error::Unknown)?;
-    let flattened = flatten_passthrough(as_json);
-    rquickjs_serde::to_value(ctx, &flattened).map_err(|_| rquickjs::Error::Unknown)
-}
-
 /// Bridges `optative_script::register_h`'s generic passthrough shape
 /// (`{ type, props: {...}, children }`) to the flat shape tauler's own downstream
 /// consumers expect (`{ type, ...props, children }`), recursively.
@@ -495,10 +487,12 @@ fn tauler_flatten_node<'js>(
 /// Text needs no special case: a string child stays a string child, and the layout
 /// walker is what turns it into a text node (`docs/adr/0016`).
 ///
-/// Applied twice: once per node via [`tauler_flatten_node`] (the `h` shim's hook, so
-/// each node is already flat by the time any Rust-backed component consumes it as a
-/// `children` prop), and once more here over the whole tree in `eval()` as a final,
-/// now-idempotent safety net.
+/// This is the whole-tree pass in `eval()`. The `h` shim flattens each node in
+/// JavaScript as it is produced — a Rust-backed component consumes its `children`
+/// prop mid-render and needs the flat shape by then — so by the time this runs
+/// there is usually nothing left to do. It stays because "usually" is not
+/// "always": a node can reach the tree without passing through `h`, and the pass
+/// is idempotent, so running it costs a walk and guarantees the shape.
 fn flatten_passthrough(value: serde_json::Value) -> serde_json::Value {
     match value {
         serde_json::Value::Array(items) => {

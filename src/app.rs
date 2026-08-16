@@ -11,12 +11,15 @@ use tauler::data::data_loop::{
 use tauler::hit_test::hit_test;
 use tauler::layout::OutputInfo;
 use tauler::managed_set::{Lifecycle, OptativeSet, Reconcile};
-use tauler::pointer::{dispatch, read_handler, Capture, Handler};
+use tauler::outbox::Outbox;
+use tauler::pointer::{read_handler, Capture, Handler};
 #[cfg(not(target_os = "macos"))]
 use tauler::presentation::PresentationThread;
-use tauler::presentation::{
-    PointerEvent, PointerPhase, PresenterEvent, PresenterEvents, SurfaceCommand,
-};
+// Only the constructors that spawn a presenter thread build one of these, and
+// macOS has none: there the presenter owns the main thread and makes its own.
+#[cfg(not(target_os = "macos"))]
+use tauler::presentation::PresenterEvents;
+use tauler::presentation::{PointerEvent, PointerPhase, PresenterEvent, SurfaceCommand};
 use tauler::surface::{SurfaceOutputs, SurfaceSets};
 use tauler::theme::resolver::resolve_theme_tokens;
 use tauler::theme::{Theme, ThemeMode};
@@ -325,6 +328,9 @@ pub(crate) struct App {
     /// The drag in progress, if any: the box it was pressed in and what it last sent
     /// (`docs/adr/0020`). The handler itself lives in the JS capture slot.
     capture: Option<Capture>,
+    /// Keeps one intent in flight per module, so a module slower than the
+    /// pointer is never handed a queue it cannot drain.
+    outbox: Outbox,
     presenter_thread: Option<thread::JoinHandle<()>>,
 }
 
@@ -435,6 +441,7 @@ impl App {
             event_rx,
             module_event_txs,
             capture: None,
+            outbox: Outbox::new(),
             presenter_thread: Some(presenter_thread),
         };
         state.initial_load();
@@ -500,6 +507,7 @@ impl App {
             event_rx,
             module_event_txs,
             capture: None,
+            outbox: Outbox::new(),
             presenter_thread: Some(presenter_thread),
         };
         state.initial_load();
@@ -577,6 +585,7 @@ impl App {
             event_rx,
             module_event_txs,
             capture: None,
+            outbox: Outbox::new(),
             presenter_thread: None,
         };
         state.initial_load();
@@ -772,9 +781,51 @@ impl App {
         }
     }
 
-    fn send(&self, intents: &serde_json::Value) {
+    /// Hand a handler's intents to their modules, one channel at a time.
+    ///
+    /// `supersedable` is what a drag produces: intents describing where the
+    /// pointer is, of which only the newest is worth sending. A click is not
+    /// that — it describes something that happened — so it goes out whatever
+    /// else is in flight.
+    fn send(&mut self, intents: &serde_json::Value, supersedable: bool) {
+        let Some(list) = intents.as_array() else {
+            tracing::warn!(intents = %intents, "intents is not an array");
+            return;
+        };
+        let now = std::time::Instant::now();
+        for intent in list {
+            let (Some(channel), Some(event)) = (
+                intent.get("channel").and_then(|c| c.as_str()),
+                intent.get("event"),
+            ) else {
+                tracing::warn!(intent = %intent, "intent has no channel or no event");
+                continue;
+            };
+            if supersedable {
+                if let Some(ready) = self.outbox.offer(now, channel, event.clone()) {
+                    self.write(channel, ready);
+                }
+            } else {
+                self.outbox.urgent(now, channel);
+                self.write(channel, event.clone());
+            }
+        }
+    }
+
+    /// Put one event on one module's stdin.
+    fn write(&self, channel: &str, event: serde_json::Value) {
         let txs = self.module_event_txs.lock().unwrap();
-        dispatch(&txs, intents);
+        match txs.get(channel) {
+            Some(tx) => {
+                let ok = tx.send(event).is_ok();
+                tracing::debug!(channel, ok, "intent dispatched");
+            }
+            None => tracing::warn!(
+                channel,
+                known = ?txs.keys().collect::<Vec<_>>(),
+                "intent channel not found"
+            ),
+        }
     }
 
     fn pointer_pressed(&mut self, event: &PointerEvent) {
@@ -805,7 +856,7 @@ impl App {
             .as_ref()
             .and_then(|h| self.resolve(h, &pointer))
         {
-            self.send(&intents);
+            self.send(&intents, false);
         }
 
         // A press is the first drag event, so a plain click still sets a value and a
@@ -820,7 +871,7 @@ impl App {
         }
         let mut capture = Capture::new(event.panel_id.clone(), hit.rect, event.dpr, press);
         if let Some(intents) = self.resolve(on_drag, &pointer) {
-            self.send(&intents);
+            self.send(&intents, false);
             capture.seed(intents);
         }
         self.capture = Some(capture);
@@ -844,7 +895,7 @@ impl App {
             return;
         };
         if self.capture.as_mut().is_some_and(|c| c.is_new(&intents)) {
-            self.send(&intents);
+            self.send(&intents, true);
         }
     }
 
@@ -859,30 +910,36 @@ impl App {
 
         let mut changed = false;
 
+        let mut answered: Vec<String> = Vec::new();
         while let Ok((key, value)) = self.item_rx.try_recv() {
+            answered.push(key.0.clone());
             if self.stream_values.get(&key).map(|s| s.as_str()) != Some(value.as_str()) {
                 self.stream_values.insert(key, value);
                 changed = true;
             }
         }
 
+        // A module that emitted a line has read what it was last sent, so its
+        // channel is free for whatever the drag has produced since.
+        let now = std::time::Instant::now();
+        for channel in answered {
+            if let Some(next) = self.outbox.answered(now, &channel) {
+                self.write(&channel, next);
+            }
+        }
+        // And a module that never answers must not be silenced for good.
+        for (channel, intent) in self.outbox.released(now) {
+            self.write(&channel, intent);
+        }
+
         if changed {
-            let eval_out = self.jsx_evaluator.as_ref().map(|e| {
-                let t = std::time::Instant::now();
-                let r = e.eval(&self.stream_values);
-                let elapsed = t.elapsed();
-                tracing::info!(
-                    elapsed_us = elapsed.as_micros(),
-                    "[DEBUG-hang01] jsx re-eval"
-                );
-                if elapsed.as_millis() > 100 {
-                    tracing::warn!(
-                        elapsed_ms = elapsed.as_millis(),
-                        "[DEBUG-hang01] SLOW jsx re-eval"
-                    );
-                }
-                r
-            });
+            // What an eval costs is a question for `benches/pipeline.rs`, which
+            // can ask it repeatably. It used to be logged from here, at INFO, on
+            // every pass — which is to say several dozen times a second.
+            let eval_out = self
+                .jsx_evaluator
+                .as_ref()
+                .map(|e| e.eval(&self.stream_values));
             if let Some(eval_result) = eval_out {
                 match eval_result {
                     Ok(out) => {

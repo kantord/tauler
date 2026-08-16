@@ -389,9 +389,11 @@ mod tests {
             || {},
         );
 
+        // Not `len() == 1`: the script exits after echoing, so the supervisor is
+        // entitled to restart it and produce the line again before the stop flag
+        // is seen. What the test is about is that the script content ran at all.
         let items = items.lock().unwrap();
-        assert_eq!(items.len(), 1);
-        let item = &items[0];
+        let item = items.first().expect("no output from the script");
         assert_eq!(
             item.line, "from_script",
             "expected output from script content, got {:?}",

@@ -272,6 +272,12 @@ A plain JSON object naming a channel and the message to deliver there. Produced 
 calling a property on an events proxy; it is data, never a callback.
 _Avoid_: action, event handler, callback, command
 
+**Outbox**:
+What holds a Module to one intent at a time: the intent in flight, and the newest one
+waiting behind it. A Module that has not answered is handed nothing, and what it gets next
+is the newest thing produced since — never a backlog. See ADR 0025.
+_Avoid_: queue, buffer, backpressure (it is the mechanism, not the effect)
+
 **Channel**:
 The destination of an intent — the bin it is delivered to. A Module only ever sees
 messages addressed to its own channel, and never learns what caused them.
