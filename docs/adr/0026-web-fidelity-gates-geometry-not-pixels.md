@@ -101,14 +101,14 @@ committed screenshots:
 
 | `progress` | `badge` | `slider` | `knob` | `table` | `card` | `datatable` |
 |---|---|---|---|---|---|---|
-| 1.26 | 6.15 | 11.77 | 20.21 | 56.09 | 69.68 | 76.75 |
+| 1.26 | 6.15 | 11.78 | 20.52 | 57.09 | 71.42 | 79.95 |
 
 It orders by text density, and `progress` — which draws two bars and no glyphs — is within
 one part in 255. The suite writes this table to `docs/.tauler/web-shots/difference.csv` on
 every run, so the numbers are reproducible rather than quoted.
 
 The **pinned** browser is the qualifier that matters. The same measurement against a
-development machine's own Chrome gives `card` 6.8 rather than 69.7 — an order of magnitude
+development machine's own Chrome gives `card` 6.8 rather than 71.4 — an order of magnitude
 apart, with the ink ratios identical to three decimals, so the two browsers draw the same
 shapes and fill the glyphs differently. That is the whole argument for the pinned image
 restated as a measurement: a number from an unpinned browser is not a number about tauler.
