@@ -22,6 +22,13 @@ with it. If you want a status bar that simply works, use
 You get a bar drawn by the same renderer as every other platform, with live AeroSpace
 workspaces and click-to-switch. It stays put across workspace switches and is never tiled.
 
+![A macOS desktop under AeroSpace: a workspace rail down the left with pills for main, code,
+web, chat and files, a clock at the bottom, and two terminal windows tiled side by side over
+a purple gradient](../../assets/macos-split-terminals.png)
+
+The rail is a tauler panel; the gradient behind it is a tauler `<wallpaper>`. Everything
+between them is AeroSpace tiling ordinary windows.
+
 ## 1. Install
 
 AeroSpace must be **0.21.0-Beta or newer** — older builds have no `aerospace subscribe`,
@@ -145,6 +152,9 @@ See [Data sources](/data/) for how intents and modules work in general.
 The example paints a full-screen `<wallpaper>`, then paints *the same gradient* inside the
 rail, offset so the two line up. With no border and no plate, the pills appear to sit
 straight on the desktop and the tiled windows read as the main pane of a single app.
+
+![The same desktop with a single browser window showing Hacker News, the rail unchanged on
+the left](../../assets/macos-browser.png)
 
 The offset is necessary rather than clever: the macOS backend presents opaque pixels, so a
 panel cannot truly be transparent. Painting the backdrop it would have shown through is
