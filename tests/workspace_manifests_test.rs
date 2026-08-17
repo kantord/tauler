@@ -78,7 +78,7 @@ fn path_dependencies_require_the_current_workspace_version() {
         stale.is_empty(),
         "these path dependencies do not require the current workspace version ({expected}), \
          so `cargo publish --dry-run` will verify against the released crate instead of the \
-         local one:\n  {}",
+         local one:\n  {}\nrun `just sync-versions` to fix",
         stale.join("\n  ")
     );
 }
