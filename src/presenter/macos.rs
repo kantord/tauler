@@ -18,6 +18,7 @@ use winit::application::ApplicationHandler;
 use winit::dpi::{LogicalPosition, LogicalSize};
 use winit::event::{MouseButton, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
+use winit::platform::macos::{ActivationPolicy, EventLoopBuilderExtMacOS};
 use winit::window::{Window, WindowId, WindowLevel};
 
 use crate::app::{App, MacInit, ModuleEventTxs, SharedWatcher, TickReceivers};
@@ -421,7 +422,12 @@ fn spawn_worker(boot: MacBoot, mac: MacInit) -> thread::JoinHandle<()> {
 }
 
 pub(crate) fn run(boot: MacBoot) -> Result<(), Box<dyn std::error::Error>> {
-    let event_loop = EventLoop::new()?;
+    // Accessory keeps tauler out of the Dock. Tiling window managers enumerate
+    // Dock apps, so a bar that is not one is never claimed as a tiled window --
+    // the macOS counterpart of override-redirect on X11.
+    let event_loop = EventLoop::builder()
+        .with_activation_policy(ActivationPolicy::Accessory)
+        .build()?;
     event_loop.set_control_flow(ControlFlow::Poll);
 
     let (command_tx, command_rx) = mpsc::channel();

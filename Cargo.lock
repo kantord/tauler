@@ -5987,6 +5987,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "tauler-aerospace"
+version = "0.1.6"
+dependencies = [
+ "serde_json",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "tauler-core"
 version = "0.1.6"
 dependencies = [

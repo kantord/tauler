@@ -1,0 +1,17 @@
+[package]
+name = "tauler-aerospace"
+description = "AeroSpace workspace data source for the tauler status bar"
+keywords = ["tauler", "statusbar", "aerospace", "macos", "tiling"]
+categories = ["command-line-utilities", "os::macos-apis"]
+edition = "2024"
+version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+serde_json = "1.0.151"
+tracing = "0.1.44"
+tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
