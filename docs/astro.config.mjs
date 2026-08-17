@@ -29,6 +29,7 @@ export default defineConfig({
         { slug: 'data' },
         { slug: 'layout' },
         { slug: 'components' },
+        { slug: 'macos' },
       ],
     }),
   ],

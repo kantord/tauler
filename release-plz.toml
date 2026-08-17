@@ -20,6 +20,10 @@ name = "tauler-notify"
 version_group = "tauler"
 
 [[package]]
+name = "tauler-aerospace"
+version_group = "tauler"
+
+[[package]]
 name = "tauler-screenshot"
 version_group = "tauler"
 
