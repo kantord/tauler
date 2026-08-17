@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.6](https://github.com/kantord/tauler/compare/tauler-v0.1.5...tauler-v0.1.6) - 2026-08-17
+
+### Fixed
+
+- tear down modules before re-exec ([#411](https://github.com/kantord/tauler/pull/411))
+- *(deps)* pin dependencies ([#407](https://github.com/kantord/tauler/pull/407))
+- *(deps)* update takumi crates ([#405](https://github.com/kantord/tauler/pull/405))
+
+### Other
+
+- sync intra-workspace version requirements in the release PR ([#413](https://github.com/kantord/tauler/pull/413))
+- *(deps)* lock file maintenance ([#412](https://github.com/kantord/tauler/pull/412))
+- *(deps)* update rust crate criterion to 0.8.2 ([#410](https://github.com/kantord/tauler/pull/410))
+- improve render timing ([#406](https://github.com/kantord/tauler/pull/406))
+- improve repaint scheduling ([#400](https://github.com/kantord/tauler/pull/400))
+
 ## [0.1.5](https://github.com/kantord/tauler/compare/tauler-v0.1.4...tauler-v0.1.5) - 2026-08-15
 
 ### Added

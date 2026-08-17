@@ -5737,7 +5737,7 @@ dependencies = [
 
 [[package]]
 name = "tauler"
-version = "0.1.5"
+version = "0.1.6"
 dependencies = [
  "anyhow",
  "cached",
@@ -5773,7 +5773,7 @@ dependencies = [
 
 [[package]]
 name = "tauler-accumulate"
-version = "0.1.5"
+version = "0.1.6"
 dependencies = [
  "clap",
  "serde_json",
@@ -5781,7 +5781,7 @@ dependencies = [
 
 [[package]]
 name = "tauler-docgen"
-version = "0.1.5"
+version = "0.1.6"
 dependencies = [
  "clap",
  "image",
@@ -5791,7 +5791,7 @@ dependencies = [
 
 [[package]]
 name = "tauler-e2e"
-version = "0.1.5"
+version = "0.1.6"
 dependencies = [
  "anyhow",
  "image",
@@ -5801,7 +5801,7 @@ dependencies = [
 
 [[package]]
 name = "tauler-i3"
-version = "0.1.5"
+version = "0.1.6"
 dependencies = [
  "serde_json",
  "swayipc",
@@ -5811,7 +5811,7 @@ dependencies = [
 
 [[package]]
 name = "tauler-notify"
-version = "0.1.5"
+version = "0.1.6"
 dependencies = [
  "serde",
  "serde_json",
@@ -5821,7 +5821,7 @@ dependencies = [
 
 [[package]]
 name = "tauler-screenshot"
-version = "0.1.5"
+version = "0.1.6"
 dependencies = [
  "clap",
  "image",
@@ -5831,7 +5831,7 @@ dependencies = [
 
 [[package]]
 name = "tauler-ui-macro"
-version = "0.1.5"
+version = "0.1.6"
 dependencies = [
  "proc-macro2",
  "quote",
