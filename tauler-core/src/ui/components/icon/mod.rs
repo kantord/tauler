@@ -30,6 +30,8 @@ static ICON_MAP: LazyLock<HashMap<String, String>> = LazyLock::new(|| {
 ///
 /// # SkipSnapshot
 ///
+/// # SkipWeb
+///
 /// # JSX
 /// ```jsx
 /// <div class="flex flex-col gap-[16px] p-[12px]">

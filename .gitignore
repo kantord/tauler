@@ -1,3 +1,9 @@
 /target
 
 *.snap.new
+
+# Browser build products. The wasm module and everything derived from it are built, not
+# committed — unlike the component screenshots, which are test baselines and have to be in
+# git to be compared against (ADR 0026).
+/docs/public/tauler/
+/docs/.tauler/

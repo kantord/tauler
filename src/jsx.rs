@@ -26,8 +26,11 @@
 //! exhaustive by construction rather than by audit (ADR 0008).
 
 use std::collections::HashMap;
+
 use std::path::Path;
 use std::sync::{Arc, Mutex, RwLock};
+use tauler_core::flatten::flatten_passthrough;
+use tauler_core::globals::JSX_GLOBALS_JS;
 
 /// Shared map of stream values: keyed by `(bin, script)`, holds the latest stdout line.
 type StreamValues = Arc<RwLock<HashMap<(String, Option<String>), String>>>;
@@ -47,92 +50,6 @@ use rquickjs::loader::{Loader, Resolver};
 use rquickjs::{CatchResultExt, Persistent};
 
 use std::path::PathBuf;
-
-const JSX_GLOBALS_JS: &str = r#"
-    globalThis.useJSONStream = (bin, script) => {
-        const str = useStringStream(bin, script);
-        if (!str) return null;
-        try { return JSON.parse(str); } catch { return null; }
-    };
-    // `props` are merged into the module's init event (see merge_module_props in app.rs),
-    // so they are load-bearing. Registering the same bin more than once contributes
-    // every declaration's props (see registerModule): one subprocess, union of props.
-    globalThis.useEvents = (bin, props) => {
-        registerModule(bin, props ?? {});
-        return new Proxy({}, {
-            get: (_, type) => (args) => ({
-                channel: bin,
-                event: { type: String(type), ...args }
-            })
-        });
-    };
-    // Declaration only: <I3Layout> reads these, positions them, and emits the
-    // real <panel> nodes. Kept a marker rather than a panel because a panel's
-    // position depends on every sibling declared before it.
-    globalThis.Panel = (props) => ({ ...props, __i3panel: true });
-    // Dispatch only — the layout arithmetic is `ui::components::i3_layout`.
-    // The gaps must be registered here rather than in Rust: registration is a
-    // JS-side call, and a Rust component has no context to make one.
-    globalThis.I3Layout = ({ module, children }) => {
-        const decls = (Array.isArray(children) ? children : [children]).filter(Boolean);
-        const out = __ui_i3_layout({
-            children: decls,
-            width: ctx.screen_width,
-            height: ctx.screen_height,
-        });
-        if (module) useEvents(module, { gaps: out.gaps });
-        return out.panels;
-    };
-    // Handlers that are functions cannot cross the JSON boundary, so they stay here
-    // and the tree carries `{$handler: n}` instead (ADR 0021). Rebuilt every tick;
-    // a drag holds its own reference in __tauler_captured, so clearing is safe
-    // mid-gesture.
-    globalThis.__tauler_handlers = [];
-    globalThis.__tauler_captured = null;
-    // Only real elements. A component's props are its own — turning `on_change` into
-    // a handler id would hand <Slider> an object where it expects a function.
-    // Park a function in the registry and hand back the reference the tree carries.
-    // Anything that is not a function passes through, so a plain intent array is left
-    // exactly as written. A JS shim that calls a Rust component directly has to use
-    // this itself — those props never pass through `h`.
-    globalThis.__tauler_handler_ref = (fn) =>
-        typeof fn === "function" ? { $handler: __tauler_handlers.push(fn) - 1 } : fn;
-    globalThis.__tauler_register_handlers = (type, props) => {
-        if (typeof type !== "string" || !props) return props;
-        let out = null;
-        for (const key in props) {
-            if (key.startsWith("on_") && typeof props[key] === "function") {
-                out = out ?? { ...props };
-                out[key] = __tauler_handler_ref(props[key]);
-            }
-        }
-        return out ?? props;
-    };
-    globalThis.__tauler_capture_handler = (id) => {
-        __tauler_captured = __tauler_handlers[id] ?? null;
-    };
-    globalThis.__tauler_release_handler = () => { __tauler_captured = null; };
-    // `id < 0` means the captured one, which outlives the tick it was registered in.
-    // A handler may return one intent or several; downstream only ever sees an array.
-    globalThis.__tauler_intents = (out) =>
-        out == null ? null : (Array.isArray(out) ? out : [out]);
-    // Rounding to a step is how a control keeps a drag to one message per distinct
-    // value instead of one per pixel: a motion producing what was just sent is
-    // skipped. `step` of 0 rounds nothing and only clears the float noise — binary
-    // floating point turns 0.1 steps into 0.30000000000000004.
-    globalThis.__tauler_snap = (v, step) =>
-        Math.round((step > 0 ? Math.round(v / step) * step : v) * 1e6) / 1e6;
-    globalThis.__tauler_invoke_handler = (id, pointer) => {
-        const fn = id < 0 ? __tauler_captured : __tauler_handlers[id];
-        if (typeof fn !== "function") return null;
-        return __tauler_intents(fn(pointer));
-    };
-    globalThis.Module = ({ bin, children, ...rest }) => {
-        const child = Array.isArray(children) ? children[0] : children;
-        if (typeof child === 'function') return child(useJSONStream(bin), useEvents(bin, rest));
-        return { "bin@": bin, ...rest };
-    };
-"#;
 
 /// Fold a later module registration's props into the ones already recorded.
 ///
@@ -268,27 +185,10 @@ impl JsxEvaluator {
                 // eagerly, mid-render, expecting the flat shape — so each node must be
                 // reshaped as soon as it's produced, not just once at the very end.
                 //
-                // The reshape is done in JavaScript rather than by a Rust callback
-                // because it is pure data movement and the boundary is not free: as a
-                // callback it converted every node to `serde_json` and back, once per
-                // element, which measured at 60% of the cost of an entire evaluation —
-                // twice what running the layout's own JavaScript cost. Nothing here
-                // needs Rust.
-                //
-                // One level deep is enough: every child was produced by its own `h`
-                // call and is already flat. `eval`'s whole-tree pass stays as the
-                // safety net for anything that reached the tree another way.
+                // The reshape itself is `JSX_GLOBALS_JS`'s, evaluated above: both engines
+                // run the same source (ADR 0027). Only `Fragment` needs interpolating.
                 qjs_ctx.eval::<(), _>(format!(
-                    "globalThis.__tauler_flatten_node = (v) => {{
-                        if (v === null || typeof v !== 'object' || Array.isArray(v)) return v;
-                        if (!('type' in v) || !('props' in v)) return v;
-                        const out = {{ type: v.type }};
-                        const p = v.props;
-                        if (p !== null && typeof p === 'object') for (const k in p) out[k] = p[k];
-                        out.children = 'children' in v ? v.children : [];
-                        return out;
-                    }};
-                    globalThis.h = (type, props, ...children) => __tauler_flatten_node(__esto_h(type, __tauler_register_handlers(type, props), ...children));
+                    "globalThis.h = (type, props, ...children) => __tauler_flatten_node(__esto_h(type, __tauler_register_handlers(type, props), ...children));
                     globalThis.Fragment = {{ {}: true }};",
                     optative_script::tags::ESTO_FRAGMENT
                 ))?;
@@ -296,7 +196,17 @@ impl JsxEvaluator {
                     "useStringStream",
                     rquickjs::Function::new(
                         qjs_ctx.clone(),
-                        move |bin: String, script: Option<String>| {
+                        // `Opt<Option<_>>`, because neither half covers both calls and a
+                        // layout file makes both. rquickjs distinguishes an *absent*
+                        // argument from one explicitly passed as `undefined`: `Opt` accepts
+                        // the first and rejects the second, `Option` the reverse. So
+                        // `useStringStream("my-bin")` used to throw a type error while
+                        // `useStringStream("my-bin", undefined)` worked — and the natural
+                        // one-argument call for a Stream with no script was the broken one.
+                        // `useJSONStream` and `<Module>` never hit it because they forward
+                        // their own `script` either way, which is why it went unnoticed.
+                        move |bin: String, script: rquickjs::function::Opt<Option<String>>| {
+                            let script = script.0.flatten();
                             calls_inner
                                 .lock()
                                 .unwrap()
@@ -474,62 +384,6 @@ impl JsxEvaluator {
     }
 }
 
-/// Bridges `optative_script::register_h`'s generic passthrough shape
-/// (`{ type, props: {...}, children }`) to the flat shape tauler's own downstream
-/// consumers expect (`{ type, ...props, children }`), recursively.
-///
-/// Props are written after the tag name, so **a `type` prop overrides the tag**.
-/// That is deliberate, and load-bearing: it is what makes the long-hand
-/// `<surface type="wallpaper">` spelling equivalent to `<wallpaper>` (see
-/// `layout::parse_root_node`). The flip side is that the rule is global — any
-/// node given a `type` prop becomes that type instead.
-///
-/// Text needs no special case: a string child stays a string child, and the layout
-/// walker is what turns it into a text node (`docs/adr/0016`).
-///
-/// This is the whole-tree pass in `eval()`. The `h` shim flattens each node in
-/// JavaScript as it is produced — a Rust-backed component consumes its `children`
-/// prop mid-render and needs the flat shape by then — so by the time this runs
-/// there is usually nothing left to do. It stays because "usually" is not
-/// "always": a node can reach the tree without passing through `h`, and the pass
-/// is idempotent, so running it costs a walk and guarantees the shape.
-fn flatten_passthrough(value: serde_json::Value) -> serde_json::Value {
-    match value {
-        serde_json::Value::Array(items) => {
-            serde_json::Value::Array(items.into_iter().map(flatten_passthrough).collect())
-        }
-        serde_json::Value::Object(mut map) => {
-            let is_passthrough_node = map.contains_key("type") && map.contains_key("props");
-            if !is_passthrough_node {
-                for (_, v) in map.iter_mut() {
-                    *v = flatten_passthrough(std::mem::take(v));
-                }
-                return serde_json::Value::Object(map);
-            }
-
-            let node_type = map.remove("type").unwrap_or(serde_json::Value::Null);
-            let props = map.remove("props").unwrap_or(serde_json::Value::Null);
-            let children = map
-                .remove("children")
-                .map(flatten_passthrough)
-                .unwrap_or(serde_json::Value::Array(Vec::new()));
-
-            let mut flat = serde_json::Map::new();
-            flat.insert("type".to_string(), node_type.clone());
-            if let serde_json::Value::Object(props_map) = props {
-                for (k, v) in props_map {
-                    flat.insert(k, v);
-                }
-            }
-
-            flat.insert("children".to_string(), children);
-
-            serde_json::Value::Object(flat)
-        }
-        other => other,
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -606,6 +460,22 @@ mod tests {
         let result = eval(r#"export default function render() { return <div class="flex flex-col"><span class="text-white">{"hello"}</span></div>; }"#).layout;
         let node = crate::parse_layout(&result);
         assert!(node.is_ok(), "parse_layout failed: {:?}", node);
+    }
+
+    /// A Stream with no script is the ordinary case, and the one-argument call for it
+    /// used to throw: rquickjs treats an *absent* argument differently from one passed as
+    /// `undefined`, so `Option<String>` rejected the first. `useJSONStream` hid it by
+    /// always forwarding a second argument.
+    #[test]
+    fn use_string_stream_may_be_called_with_only_a_bin() {
+        let out = eval(
+            r#"export default function render() { return <span class="text-white">{useStringStream("/bin/true")}</span>; }"#,
+        );
+        assert_eq!(
+            out.stream_calls,
+            vec![("/bin/true".to_string(), None)],
+            "the one-argument call must record a stream with no script"
+        );
     }
 
     #[test]

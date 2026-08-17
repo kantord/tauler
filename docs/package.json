@@ -6,9 +6,10 @@
   "scripts": {
     "dev": "astro dev",
     "start": "astro dev",
-    "build": "astro build",
+    "build": "pnpm run build:css && astro build",
     "preview": "astro preview",
-    "astro": "astro"
+    "astro": "astro",
+    "build:css": "tailwindcss -i .tauler/tailwind.css -o public/tauler/tauler.css && node scripts/check-classes.mjs"
   },
   "dependencies": {
     "@astrojs/starlight": "^0.41.0",
@@ -17,5 +18,9 @@
     "mermaid": "^11.15.0",
     "sharp": "^0.35.0",
     "starlight-theme-flexoki": "^0.2.2"
+  },
+  "devDependencies": {
+    "@tailwindcss/cli": "^4.3.3",
+    "tailwindcss": "^4.3.3"
   }
 }

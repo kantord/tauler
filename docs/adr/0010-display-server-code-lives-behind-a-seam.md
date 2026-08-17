@@ -36,3 +36,13 @@ measurement.
 The rule for new code is unchanged and unconditional: display-server calls belong in a
 backend module. Anything in the core loop that needs to branch on which display server is
 running is a bug to file, not a pattern to copy.
+
+## The third measurement
+
+The web renderer ([0026](0026-the-web-renderer-emits-dom.md)) is the third backend this
+asked for, and it does not merely restate the rule — it compiles it. The wasm-clean subset
+moves into `tauler-core`, which cannot reach x11rb, smithay, takumi or rquickjs because it
+does not depend on `tauler` at all. Where the Wayland commit relied on discipline and lost
+531 lines of `main.rs` to the leak, a crate boundary fails at build time on the first
+stray `use`.
+
