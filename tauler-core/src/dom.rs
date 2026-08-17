@@ -3,7 +3,7 @@
 //! The counterpart of `tauler::layout::html`, which turns the same tree into takumi nodes.
 //! This walk writes tag names and attributes and lets the browser do the rest, presets
 //! included — those come from its own user-agent stylesheet, not from the table vendored in
-//! `layout::presets` (ADR 0024).
+//! `layout::presets` (ADR 0026).
 //!
 //! Three things about the output:
 //!
@@ -31,7 +31,7 @@ pub const MAX_DEPTH: usize = 32;
 ///
 /// The same five as `layout::html::DROPPED_TAGS`, and the reason this walk is Rust rather
 /// than JavaScript in the page: `script` is on the list, and a second copy of it in another
-/// language is a security-relevant duplicate (ADR 0024).
+/// language is a security-relevant duplicate (ADR 0026).
 const DROPPED_TAGS: [&str; 5] = ["head", "meta", "link", "style", "script"];
 
 /// Tags written without a closing tag, per the HTML spec's void-element list.
@@ -424,7 +424,7 @@ mod tests {
     }
 
     /// `script` is in `DROPPED_TAGS`, and this is the test that keeps the web walk in
-    /// Rust rather than in the page (ADR 0024).
+    /// Rust rather than in the page (ADR 0026).
     #[test]
     fn dropped_tags_take_their_subtree_with_them() {
         let html = render(json!([{

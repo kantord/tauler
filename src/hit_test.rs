@@ -169,7 +169,7 @@ fn with_scene<R>(
 ///
 /// The key is what makes this comparable with a browser: `layout::dom` writes the same
 /// child-index path into `data-tauler-path`, so a box here and a `getBoundingClientRect()`
-/// there can be matched without either side guessing (ADR 0026).
+/// there can be matched without either side guessing (ADR 0028).
 ///
 /// The measured tree is deliberately not used for this. takumi replaces a node's measured
 /// children with flat inline boxes wherever it holds inline content, so the measured tree

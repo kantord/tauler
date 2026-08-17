@@ -1,6 +1,6 @@
 //! Comparing the browser's render with takumi's.
 //!
-//! Two instruments, deliberately different in strictness (ADR 0026):
+//! Two instruments, deliberately different in strictness (ADR 0028):
 //!
 //! - [`compare_geometry`] is the gate: every box takumi painted must be within
 //!   [`GEOMETRY_TOLERANCE_PX`] of the browser's box for the same render path.
@@ -176,7 +176,7 @@ pub fn ink_share(image: &image::RgbaImage, channel_tolerance: u8) -> f32 {
     inked as f32 / total
 }
 
-/// How the two renders differ, for a person to read. Reported, never gated (ADR 0026).
+/// How the two renders differ, for a person to read. Reported, never gated (ADR 0028).
 #[derive(Debug, Clone, Copy)]
 pub struct Difference {
     /// Fraction of pixels differing by more than [`CHANNEL_TOLERANCE`].

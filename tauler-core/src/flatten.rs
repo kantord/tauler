@@ -4,7 +4,7 @@
 //! must not be able to collide with the wrapper's own `type` and `children` keys. Every
 //! consumer downstream of it wants the flat shape instead. This is the one step between,
 //! and it lives here rather than beside either engine because both engines need it: the
-//! QuickJS `h` shim calls it per node, and so does the browser's (ADR 0025).
+//! QuickJS `h` shim calls it per node, and so does the browser's (ADR 0027).
 
 use serde_json::Value;
 

@@ -58,14 +58,14 @@ struct Args {
     /// which utilities to compile — and a text scan of the sources cannot say, because
     /// `theme/resolver.rs` has already rewritten `bg-background` into `bg-[#hex]` by the
     /// time anything renders. Harvesting from the tree that actually rendered is the only
-    /// list that is guaranteed complete (ADR 0024).
+    /// list that is guaranteed complete (ADR 0026).
     #[arg(long)]
     classes_out: Option<std::path::PathBuf>,
 
     /// Also write every painted node's box, keyed by render path, as JSON.
     ///
     /// The other half of the geometry gate: the browser reports the same paths from
-    /// `getBoundingClientRect()`, and the two are compared node by node (ADR 0026).
+    /// `getBoundingClientRect()`, and the two are compared node by node (ADR 0028).
     /// Boxes are in CSS pixels, so the comparison does not depend on `--dpr`.
     #[arg(long)]
     geometry_out: Option<std::path::PathBuf>,

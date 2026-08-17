@@ -2,7 +2,7 @@
 //!
 //! Glue only. The page assigns these onto `globalThis` under the names a layout file
 //! expects, and the layout file then runs in the browser's own engine against the same
-//! globals QuickJS gives it (ADR 0025).
+//! globals QuickJS gives it (ADR 0027).
 //!
 //! The Transport lives here rather than in JavaScript so the stream map has one
 //! implementation whichever transport fills it — a subprocess on a desktop, a worker or a
@@ -81,14 +81,4 @@ pub fn bootstrap_js() -> String {
 #[wasm_bindgen(js_name = taulerGlobalsJs)]
 pub fn globals_js() -> String {
     crate::globals::JSX_GLOBALS_JS.to_string()
-}
-
-/// `h`'s per-node hook: the passthrough shape in, the layout tree's flat shape out.
-///
-/// The browser's `h` is JavaScript, but tauler's own half of the factory is not duplicated
-/// — this is the desktop's function, reached across the boundary.
-#[wasm_bindgen(js_name = taulerFlattenNode)]
-pub fn flatten_node(node: JsValue) -> Result<JsValue, JsValue> {
-    let node: Value = serde_wasm_bindgen::from_value(node)?;
-    to_js(&crate::flatten::flatten_passthrough(node))
 }

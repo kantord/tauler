@@ -16,7 +16,7 @@ The reason is that the thing this renderer exists to prove would stop being prov
 claim we want to check is *"the tree we build lays out the same way in a browser as it does
 in takumi."* Run takumi in wasm and paint its buffer to a canvas, and the two images agree
 because they came out of the same rasterizer — a test that cannot fail is not a test. See
-[0026](0026-web-fidelity-gates-geometry-not-pixels.md) for what is checked instead.
+[0028](0028-web-fidelity-gates-geometry-not-pixels.md) for what is checked instead.
 
 It also leaves [0016](0016-layout-nodes-are-html-elements.md) unredeemed. That decision
 paid for naming every layout node after the HTML element it is; the payoff is being able
@@ -61,7 +61,7 @@ same reason.
 
 **Tailwind's subset problem now runs both ways.** takumi implements part of Tailwind; the
 browser implements all of it. Where they disagree the web output is *more* correct than the
-desktop's, silently. This is a real hazard and the reason [0026](0026-web-fidelity-gates-geometry-not-pixels.md)
+desktop's, silently. This is a real hazard and the reason [0028](0028-web-fidelity-gates-geometry-not-pixels.md)
 exists at all.
 
 **Classes computed from live data have no CSS.** The stylesheet is generated at build time

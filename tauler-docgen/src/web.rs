@@ -3,7 +3,7 @@
 //! - **`ui/*.js`** — the ES modules `@ui/*` resolve to. An import map points at them, so a
 //!   layout file's imports work unaltered and the printed example is the one that runs.
 //! - **`examples/*.js`** — each `# JSX` block in the screenshot's canvas, transformed by
-//!   the same `optative-script` the desktop uses. Doing it here is ADR 0025: every example
+//!   the same `optative-script` the desktop uses. Doing it here is ADR 0027: every example
 //!   is known at build time, so the browser needs no JSX transformer.
 //! - **`classes.txt`** — the Tailwind utilities the resolved trees carry. Harvested rather
 //!   than scanned, because `theme/resolver.rs` has already rewritten `bg-background` into
@@ -147,7 +147,7 @@ fn stylesheet_input(font_url: &str) -> String {
 
    It would be wrong inside the previews too. Preflight lands in a layer above the reset
    below, so it would override `all: revert` and the presets would come from Preflight
-   rather than from the browser's user-agent stylesheet — which is the one thing ADR 0024
+   rather than from the browser's user-agent stylesheet — which is the one thing ADR 0026
    asks the browser for, and the table takumi vendors a copy of. */
 @import "tailwindcss/theme.css" layer(theme);
 @import "tailwindcss/utilities.css" layer(utilities);
@@ -156,7 +156,7 @@ fn stylesheet_input(font_url: &str) -> String {
 /* The embed sits inside Starlight's `.sl-markdown-content`, whose descendant rules would
    otherwise land on every <p>, <ul> and <h*> tauler renders. `all: revert` rolls each
    property back to the *user-agent* value — which is the same table `layout::presets`
-   vendors, and the one the comparison is meant to be against (ADR 0024). */
+   vendors, and the one the comparison is meant to be against (ADR 0026). */
 @layer tauler-reset {{
   /* `box-sizing` after the revert, not before: takumi lays out with border-box, and the
      user-agent default is content-box. It is the one UA value we do not want. */
@@ -283,7 +283,7 @@ mod tests {
     /// Preflight resets the whole document, and this stylesheet is linked site-wide — it
     /// flattened Starlight's layout. It is also wrong inside a preview: it outranks the
     /// reset, so the presets would come from Preflight instead of the browser's user-agent
-    /// stylesheet, which is the one thing ADR 0024 asks the browser for.
+    /// stylesheet, which is the one thing ADR 0026 asks the browser for.
     #[test]
     fn tailwinds_preflight_is_not_imported() {
         let css = stylesheet_input("/f.ttf");

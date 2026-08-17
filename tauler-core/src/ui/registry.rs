@@ -1,7 +1,7 @@
 //! Which components exist, and how each one reaches a JavaScript realm.
 //!
 //! Two realms, two tables: [`UI_COMPONENTS`] goes to `optative-script`, [`WEB_COMPONENTS`]
-//! to the build step that generates the page's ES modules (ADR 0025). Both are hand-listed
+//! to the build step that generates the page's ES modules (ADR 0027). Both are hand-listed
 //! because Rust cannot enumerate items carrying an attribute, and
 //! `web_table_matches_quickjs_table` is what stops them drifting.
 
@@ -23,7 +23,7 @@ use crate::ui::components::{knob::KNOB_SHIM_JS, slider::SLIDER_SHIM_JS};
 /// Every component the browser can import.
 ///
 /// `i3_layout` is deliberately absent: it reads `ctx.screen_width` and emits `<panel>`
-/// shell nodes, neither of which a page has (ADR 0024).
+/// shell nodes, neither of which a page has (ADR 0026).
 pub const WEB_COMPONENTS: &[WebComponent] = &[
     web("@ui/badge", "Badge", "__ui_badge"),
     web("@ui/card", "Card", "__ui_card"),
@@ -169,7 +169,7 @@ mod tests {
 
     /// Components the browser does not get, and why.
     const WEB_EXEMPT: &[&str] = &[
-        // Reads `ctx.screen_width`, emits `<panel>` shell nodes (ADR 0024).
+        // Reads `ctx.screen_width`, emits `<panel>` shell nodes (ADR 0026).
         "__ui_i3_layout",
         // Fixtures for the multi-component-per-module path, not real components.
         "__ui_foo_widget",

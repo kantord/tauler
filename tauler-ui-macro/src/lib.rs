@@ -110,7 +110,7 @@ fn gen_component(path: Option<LitStr>, func: ItemFn) -> TokenStream2 {
     let param_names: Vec<&syn::Ident> = params.iter().map(|(n, _)| n).collect();
 
     // Two bindings for one component, because there are two JavaScript engines to reach
-    // (ADR 0025). The rquickjs one registers a global in a QuickJS realm; the
+    // (ADR 0027). The rquickjs one registers a global in a QuickJS realm; the
     // wasm-bindgen one exports a function the browser glue assigns onto `globalThis`
     // under the same name. Both are generated here so neither can be forgotten, and
     // both are gated so neither crate has to carry the other's dependencies.

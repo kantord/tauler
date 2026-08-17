@@ -2,7 +2,7 @@
 //!
 //! Against the built Starlight page rather than a purpose-made harness, deliberately: the
 //! mount's isolation from the site's CSS is a scoped `all: revert` in a cascade layer
-//! (ADR 0024), and a test page without Starlight's stylesheet would not exercise the one
+//! (ADR 0026), and a test page without Starlight's stylesheet would not exercise the one
 //! thing most likely to be wrong about it.
 //!
 //! These are not **Scenarios** in `CONTEXT.md`'s sense — there is no fixture, no
@@ -20,7 +20,7 @@ use tauler_web_e2e::{
 
 /// Hand-listed, so a component silently dropping out of the page is a failure rather than
 /// a shorter run. `icon` is absent on purpose: its Nerd Font resolves through fontconfig,
-/// so the takumi side depends on the host (ADR 0026).
+/// so the takumi side depends on the host (ADR 0028).
 const COMPONENTS: &[&str] = &[
     "badge",
     "card",
@@ -64,7 +64,7 @@ fn takumi_geometry_dir() -> PathBuf {
 
 /// Every box takumi painted must be where the browser puts it, to within a pixel.
 ///
-/// The gate (ADR 0026).
+/// The gate (ADR 0028).
 #[test]
 #[ignore = "needs a built docs site and a Chrome; run with `just web-e2e`"]
 fn every_box_is_where_takumi_put_it() {
@@ -108,10 +108,10 @@ fn every_box_is_where_takumi_put_it() {
 
 /// Each mount rendered, and how far its pixels are from the committed screenshot.
 ///
-/// The liveness half of ADR 0026: it catches what the geometry gate cannot, because a
+/// The liveness half of ADR 0028: it catches what the geometry gate cannot, because a
 /// mount that renders an empty tree passes every box comparison vacuously. The pixel
 /// difference is measured and written out beside the shots, never gated — that is the
-/// "reviewed, not gated" half of ADR 0005, and it is what makes ADR 0026's numbers
+/// "reviewed, not gated" half of ADR 0005, and it is what makes ADR 0028's numbers
 /// reproducible.
 #[test]
 #[ignore = "needs a built docs site and a Chrome; run with `just web-e2e`"]

@@ -11,7 +11,7 @@ import { ESTO_FRAGMENT } from './constants.js'
 
 /**
  * `h`'s dispatch, in JavaScript — a twin of `optative_script::runtime::h_fn`, and the only
- * one in the project (ADR 0025). It cannot come to wasm: its first case calls a JavaScript
+ * one in the project (ADR 0027). It cannot come to wasm: its first case calls a JavaScript
  * component function.
  *
  * The geometry gate keeps it honest: diverge from `h_fn` and the box tree differs from
@@ -73,15 +73,15 @@ export function boot(wasmUrl) {
 
     globalThis.useStringStream = wasm.taulerUseStringStream
     globalThis.registerModule = (bin, props) => wasm.taulerRegisterModule(bin, props)
-    globalThis.__tauler_flatten_node = wasm.taulerFlattenNode
     globalThis.__esto_h = estoH
     globalThis.Fragment = { [ESTO_FRAGMENT]: true }
 
     // The shared source, byte for byte what QuickJS is given.
     ;(0, eval)(wasm.taulerGlobalsJs())
 
-    // Assembled as `jsx.rs` assembles it: each node must be flat by the time a Rust
-    // component consumes it as `children`.
+    // Assembled as `jsx.rs` assembles it, against the same `__tauler_flatten_node` the
+    // shared globals just defined: each node must be flat by the time a Rust component
+    // consumes it as `children`.
     globalThis.h = (type, props, ...children) =>
       globalThis.__tauler_flatten_node(
         estoH(type, globalThis.__tauler_register_handlers(type, props), ...children),

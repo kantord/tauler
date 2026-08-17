@@ -12,7 +12,7 @@
 //!
 //! The one seam back to the desktop is the `quickjs` feature, which adds the registration
 //! that puts these components into a QuickJS realm. The browser needs none of it — it has
-//! a JavaScript engine already (ADR 0025).
+//! a JavaScript engine already (ADR 0027).
 
 pub mod dom;
 pub mod flatten;

@@ -1,7 +1,7 @@
 //! Everything a layout file can reach, as source.
 //!
 //! One string, evaluated verbatim in whichever JavaScript realm is running the layout
-//! file — QuickJS on a desktop, the browser's own engine in a page. That is what ADR 0025
+//! file — QuickJS on a desktop, the browser's own engine in a page. That is what ADR 0027
 //! means by two engines sharing source rather than sharing an implementation: `useEvents`,
 //! the handler registry, pointer capture and step rounding are written once here and are
 //! the same characters in both.
@@ -10,6 +10,23 @@
 //! reason — the browser has no rquickjs to reach through.
 
 pub const JSX_GLOBALS_JS: &str = r#"
+    // `h`'s per-node reshape: the factory's `{type, props, children}` into the layout
+    // tree's flat shape. In JavaScript rather than a Rust callback because it is pure data
+    // movement and the boundary is not free — as a callback it converted every node to
+    // `serde_json` and back once per element, measured at 60% of an entire evaluation.
+    //
+    // One level deep is enough: every child came from its own `h` call and is already
+    // flat. `flatten::flatten_passthrough` stays as the whole-tree safety net for anything
+    // that reached the tree another way.
+    globalThis.__tauler_flatten_node = (v) => {
+        if (v === null || typeof v !== 'object' || Array.isArray(v)) return v;
+        if (!('type' in v) || !('props' in v)) return v;
+        const out = { type: v.type };
+        const p = v.props;
+        if (p !== null && typeof p === 'object') for (const k in p) out[k] = p[k];
+        out.children = 'children' in v ? v.children : [];
+        return out;
+    };
     globalThis.useJSONStream = (bin, script) => {
         const str = useStringStream(bin, script);
         if (!str) return null;

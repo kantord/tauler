@@ -53,7 +53,7 @@ impl Session {
     /// `TAULER_CHROME_WS` names the container's CDP endpoint, and that is the arrangement
     /// the thresholds were measured under: text advance widths depend on the browser's
     /// font stack, and Chrome updates monthly, so a gate measured against whatever is
-    /// installed locally means nothing a month later (ADR 0026, and ADR 0004 for the same
+    /// installed locally means nothing a month later (ADR 0028, and ADR 0004 for the same
     /// argument about glibc).
     ///
     /// Without it the host's Chrome is launched instead. That is a development

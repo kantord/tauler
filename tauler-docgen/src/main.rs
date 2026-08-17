@@ -50,7 +50,7 @@ struct Component {
     /// Shown as its screenshot rather than run in the browser. `<Icon>` is the one, and
     /// the reason is fonts: `append_symbol_fallback` resolves its Nerd Font through
     /// fontconfig, so the takumi side depends on the host and the two cannot be made to
-    /// agree by serving a file (ADR 0026).
+    /// agree by serving a file (ADR 0028).
     skip_web: bool,
 }
 
@@ -360,7 +360,7 @@ fn render_screenshot(
 
     // Written beside the screenshot rather than in a pass of its own: the geometry has to
     // come from the same render as the pixels, or the comparison is against a layout that
-    // was never photographed (ADR 0026).
+    // was never photographed (ADR 0028).
     let geometry_file = geometry_dir.map(|dir| {
         let _ = fs::create_dir_all(dir);
         dir.join(format!("{}.json", component.export_name.to_lowercase()))
@@ -529,7 +529,7 @@ fn render_component_section(
         let filename = path.file_name().unwrap().to_string_lossy();
         // The live embed first, the screenshot behind it. The screenshot is not decoration
         // — it is what a reader sees when the wasm module is absent, which is the ordinary
-        // state of a checkout without a Rust toolchain (ADR 0024).
+        // state of a checkout without a Rust toolchain (ADR 0026).
         if !comp.skip_web {
             out.push_str(&format!(
                 "<div class=\"tauler-mount\" data-tauler-example=\"{}\"></div>\n\n",
