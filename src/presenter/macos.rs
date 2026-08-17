@@ -18,7 +18,9 @@ use winit::application::ApplicationHandler;
 use winit::dpi::{LogicalPosition, LogicalSize};
 use winit::event::{MouseButton, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
-use winit::platform::macos::{ActivationPolicy, EventLoopBuilderExtMacOS};
+use winit::platform::macos::{
+    ActivationPolicy, EventLoopBuilderExtMacOS, WindowAttributesExtMacOS,
+};
 use winit::window::{Window, WindowId, WindowLevel};
 
 use crate::app::{App, MacInit, ModuleEventTxs, SharedWatcher, TickReceivers};
@@ -112,18 +114,25 @@ struct MacPresenter {
 }
 
 impl MacPresenter {
-    fn create(&mut self, elwt: &ActiveEventLoop, spec: &SurfaceSpec, frame: &SurfaceFrame) {
+    fn create(
+        &mut self,
+        elwt: &ActiveEventLoop,
+        spec: &SurfaceSpec,
+        frame: &SurfaceFrame,
+        level: WindowLevel,
+    ) {
         let (x, y) = window_origin(spec, self.monitor);
         let attrs = Window::default_attributes()
             .with_title(format!("tauler:{}", spec.id))
             .with_decorations(false)
             .with_resizable(false)
             .with_transparent(true)
-            .with_window_level(if spec.above {
-                WindowLevel::AlwaysOnTop
-            } else {
-                WindowLevel::Normal
-            })
+            // A borderless macOS window still gets a drop shadow, which reads as
+            // a floating dialog rather than part of the desktop.
+            .with_has_shadow(false)
+            .with_titlebar_hidden(true)
+            .with_movable_by_window_background(false)
+            .with_window_level(level)
             .with_inner_size(LogicalSize::new(spec.width as f64, spec.height as f64))
             .with_position(LogicalPosition::new(x, y));
 
@@ -150,6 +159,16 @@ impl MacPresenter {
         };
 
         let size = window.inner_size();
+        let actual = window
+            .outer_position()
+            .map(|p| format!("{},{}", p.x, p.y))
+            .unwrap_or_else(|_| "unknown".into());
+        tracing::info!(
+            surface = %spec.id,
+            requested = %format!("{x},{y}"),
+            actual_phys = %actual,
+            "placement"
+        );
         tracing::info!(
             panel = %spec.id,
             x, y,
@@ -174,7 +193,14 @@ impl MacPresenter {
 
     fn apply(&mut self, elwt: &ActiveEventLoop, cmd: SurfaceCommand) {
         match cmd {
-            SurfaceCommand::Create { spec, frame } => self.create(elwt, &spec, &frame),
+            SurfaceCommand::Create { spec, frame } => {
+                let level = if spec.above {
+                    WindowLevel::AlwaysOnTop
+                } else {
+                    WindowLevel::Normal
+                };
+                self.create(elwt, &spec, &frame, level);
+            }
             SurfaceCommand::Move(spec) => {
                 let origin = window_origin(&spec, self.monitor);
                 if let Some(panel) = self.panels.get_mut(&spec.id) {
@@ -201,9 +227,17 @@ impl MacPresenter {
                     present(panel, &frame, &id);
                 }
             }
-            // macOS offers no equivalent of painting the desktop background.
-            SurfaceCommand::PaintWallpaper { spec, .. } => {
-                tracing::warn!(id = %spec.id, "<wallpaper> is not supported on macOS; ignoring");
+            // macOS has no root pixmap to paint, so a wallpaper is a window of
+            // its own pinned below everything else. It has no Create/Delete of
+            // its own -- the first paint builds it, later paints reuse it.
+            SurfaceCommand::PaintWallpaper { spec, frame } => {
+                if !self.panels.contains_key(&spec.id) {
+                    self.create(elwt, &spec, &frame, WindowLevel::AlwaysOnBottom);
+                    return;
+                }
+                if let Some(panel) = self.panels.get_mut(&spec.id) {
+                    present(panel, &frame, &spec.id);
+                }
             }
             SurfaceCommand::Shutdown => {
                 unreachable!("Shutdown is intercepted by drain_commands before apply is called")

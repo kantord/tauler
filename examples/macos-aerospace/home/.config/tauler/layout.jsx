@@ -1,54 +1,135 @@
-// A left sidebar for AeroSpace on macOS.
+// A Slack-shaped desktop for AeroSpace on macOS.
 //
-// Workspaces come from `tauler-aerospace`, which also takes the clicks: a
-// `switchWorkspace` intent runs `aerospace workspace <name>`.
+// The rail carries no surface of its own: it paints the same gradient the
+// wallpaper does, offset so the two line up, and the pills sit straight on it.
+// Gaps on the other three sides leave the tiled windows floating in the middle,
+// which is what makes the whole screen read as one application rather than a
+// bar next to some windows.
 //
-// There is no <I3Layout> here. That component computes gaps and registers them
-// with i3 at runtime; AeroSpace reads its gaps from aerospace.toml at load time
-// and has no command to change them, so the reservation lives in
-// ~/.config/aerospace/aerospace.toml and must match RAIL below by hand.
+// The offset trick is load-bearing. softbuffer presents `0RGB` with no alpha,
+// so a panel cannot actually be transparent -- painting the backdrop it would
+// have shown through is the next best thing, and is exact for a gradient
+// because the same declaration produces the same pixels.
 
 const AEROSPACE = "~/.cargo/bin/tauler-aerospace";
 
 // Keep in step with `gaps.outer.left` in aerospace.toml.
-const RAIL = 140;
+const RAIL = 148;
 
-// macOS keeps its menu bar at the top of every screen and will not give the
-// space up, so the rail starts below it rather than fighting for the corner.
-const MENU_BAR = 25;
+// The top strip AeroSpace will not tile into. It lays windows out inside
+// NSScreen.visibleFrame, so this has to match `frame.height -
+// visibleFrame.height` or the rail and the windows start at different heights.
+//
+// On a notched Mac this is the camera housing (safeAreaInsets.top), not the
+// menu bar -- 38pt here, and reserved whether the menu bar is hidden or not.
+// On an unnotched display it is the menu bar, and auto-hiding it gives the
+// space back. Measure yours with:
+//
+//   osascript -l JavaScript -e 'ObjC.import("AppKit"); var s=$.NSScreen.mainScreen;
+//     s.frame.size.height - s.visibleFrame.size.height'
+const MENU_BAR = 38;
 
-// AeroSpace has no workspace label: a workspace *is* its name, and the only
-// field it reports is that string. Naming them "web"/"code" in aerospace.toml
-// would work but loses the digit the keybindings use, so the label is the
-// bar's business and lives here.
+// The inset macOS already imposes is the only gap this layout uses. Mirroring
+// it on the other three sides costs nothing extra at the top -- AeroSpace is
+// kept out of that strip by `visibleFrame`, so `gaps.outer.top` stays 0 -- and
+// gives the tiled area an even margin all the way round.
+//
+//   gaps.inner.*      = GAP / 2      (between windows; a full GAP reads heavy)
+//   gaps.outer.top    = 0            (the OS already reserves MENU_BAR)
+//   gaps.outer.left   = RAIL - RAIL_PAD + GAP   (148 - 10 + 38 = 176)
+//   gaps.outer.right  = GAP
+//   gaps.outer.bottom = GAP
+const GAP = MENU_BAR;
+
+// AeroSpace has no workspace label: a workspace *is* its name, and that string
+// is the only field it reports. Naming them "code"/"web" in aerospace.toml
+// would work but loses the digit the keybindings use, so the label lives here.
 const LABELS = {
   1: "main",
   2: "code",
   3: "web",
   4: "chat",
-  5: "media",
+  5: "files",
 };
 
-const ROW = "flex flex-row items-center gap-[8px] w-full h-[26px] px-[8px] rounded-lg";
-const BADGE = "flex flex-row items-center justify-center w-[18px]";
+// Horizontal padding inside the rail. The pills stop here, and because the rail
+// has no plate of its own that edge is where the sidebar *appears* to end -- so
+// it comes off the reservation, or the left margin reads wider than the others.
+const RAIL_PAD = 10;
+
+// Banding is fought three ways here, because no one of them is enough.
+//
+// 1. Two 1px hatches at 27 and 117 degrees, under 2% alpha, one white and one
+//    black. They perturb pixels either side of a band boundary so the step
+//    stops being a clean line. Earlier layers paint on top, so these go first.
+// 2. Two radial glows over the linear ramp. Their bands run in different
+//    directions to the ramp's, so no boundary lines up with another -- and the
+//    result reads as depth rather than as a single flat sweep.
+// 3. A ramp that travels in hue as much as in brightness. Banding follows the
+//    luminance step, so moving sideways through colour buys richness for free.
+const NOISE =
+  "repeating-linear-gradient(27deg, rgba(255,255,255,0.016) 0px, rgba(255,255,255,0.016) 1px, transparent 1px, transparent 3px)," +
+  "repeating-linear-gradient(117deg, rgba(0,0,0,0.016) 0px, rgba(0,0,0,0.016) 1px, transparent 1px, transparent 3px)";
+
+const GRADIENT =
+  NOISE +
+  ",radial-gradient(ellipse 90% 55% at 12% -5%, rgba(186,74,196,0.30) 0%, rgba(186,74,196,0) 62%)" +
+  ",radial-gradient(ellipse 80% 60% at 105% 108%, rgba(38,26,110,0.42) 0%, rgba(38,26,110,0) 68%)" +
+  ",radial-gradient(ellipse 55% 40% at 88% 8%, rgba(226,118,152,0.13) 0%, rgba(226,118,152,0) 70%)" +
+  ",linear-gradient(158deg, #4C1650 0%, #431552 42%, #35123E 74%, #2A0F31 100%)";
+
+// One screen-sized gradient, shifted so the slice showing through a surface is
+// the slice that would have been behind it.
+function Backdrop({ x, y }) {
+  return (
+    <div
+      style={{
+        position: "absolute",
+        left: -x,
+        top: -y,
+        width: ctx.screen_width,
+        height: ctx.screen_height,
+        backgroundImage: GRADIENT,
+      }}
+    />
+  );
+}
+
+const ROW = "flex flex-row items-center gap-[9px] w-full h-[28px] px-[9px] rounded-lg";
 
 function Workspace({ ws, aero }) {
   const occupied = ws.focused_windows.length > 0;
-  const row = ws.focused ? `${ROW} bg-primary` : occupied ? `${ROW} bg-secondary` : ROW;
+  // Only the focused row gets a plate. Everything else sits on the gradient,
+  // which is the point of the shape.
+  const row = ws.focused ? `${ROW} bg-[#FFFFFF26]` : ROW;
   const text = ws.focused
-    ? "text-primary-foreground"
+    ? "text-[#FFFFFF]"
     : occupied
-      ? "text-foreground"
-      : "text-muted-foreground";
+      ? "text-[#FFFFFFCC]"
+      : "text-[#FFFFFF80]";
 
   // The handler goes on the row's own div: a <span> is inline and has no box
   // to be clicked.
   return (
     <div class={row} on_click={[aero.switchWorkspace({ workspace: ws.name })]}>
-      <div class={BADGE}>
-        <span class={`text-[12px] ${text}`}>{ws.name}</span>
+      <div class="flex flex-row items-center justify-center w-[20px] h-[20px] rounded-md bg-[#FFFFFF1F]">
+        <span class={`text-[11px] ${text}`}>{ws.name}</span>
       </div>
-      <span class={`text-[11px] ${text}`}>{LABELS[ws.name] ?? ws.apps[0] ?? ""}</span>
+      <span class={`text-[12px] ${text}`}>{LABELS[ws.name] ?? ws.apps[0] ?? ""}</span>
+    </div>
+  );
+}
+
+// Bottom of the rail. Two streams rather than one: the minute changes on its
+// own schedule and the date almost never does, so polling them together would
+// re-render the date sixty times an hour for nothing.
+function Clock() {
+  const time = useStringStream("/bin/sh", "while true; do date '+%H:%M'; sleep 5; done");
+  const day = useStringStream("/bin/sh", "while true; do date '+%a %-d %b'; sleep 300; done");
+  return (
+    <div class="flex flex-col gap-[1px] w-full px-[9px] pb-[4px]">
+      <span class="text-[19px] text-[#FFFFFF]">{time}</span>
+      <span class="text-[11px] text-[#FFFFFF80]">{day}</span>
     </div>
   );
 }
@@ -58,31 +139,33 @@ export default function render() {
 
   return (
     <root>
-      <panel
-        id="rail"
-        x={0}
-        y={MENU_BAR}
-        width={RAIL}
-        height={ctx.screen_height - MENU_BAR}
-        above={true}
-      >
-        <div class="flex flex-col h-full w-full gap-[6px] px-[8px] py-[10px] bg-background">
-          <Module bin={AEROSPACE}>
-            {(data) => {
-              // AeroSpace declares every workspace in the config, so the full
-              // list is 30-odd mostly-empty entries. Showing the occupied ones
-              // plus wherever you are keeps the rail the length of the work.
-              const all = data?.workspaces ?? [];
-              const shown = all.filter((w) => w.focused || w.focused_windows.length);
-              return (
-                <div class="flex flex-col gap-[4px] w-full">
-                  {shown.map((ws) => (
-                    <Workspace ws={ws} aero={aero} />
-                  ))}
-                </div>
-              );
-            }}
-          </Module>
+      <wallpaper id="desk">
+        <div style={{ width: "100%", height: "100%", backgroundImage: GRADIENT }} />
+      </wallpaper>
+
+      <panel id="rail" x={0} y={MENU_BAR} width={RAIL} height={ctx.screen_height - MENU_BAR}>
+        <div style={{ position: "relative", width: "100%", height: "100%" }}>
+          <Backdrop x={0} y={MENU_BAR} />
+          <div class="flex flex-col gap-[10px] w-full h-full px-[10px] py-[14px]">
+            <Module bin={AEROSPACE}>
+              {(data) => {
+                // AeroSpace declares every workspace in the config, so the raw
+                // list is 30-odd mostly-empty entries. Showing the occupied ones
+                // plus wherever you are keeps the rail the length of the work.
+                const all = data?.workspaces ?? [];
+                const shown = all.filter((w) => w.focused || w.focused_windows.length);
+                return (
+                  <div class="flex flex-col gap-[2px] w-full">
+                    {shown.map((ws) => (
+                      <Workspace ws={ws} aero={aero} />
+                    ))}
+                  </div>
+                );
+              }}
+            </Module>
+            <div class="flex flex-1 w-full" />
+            <Clock />
+          </div>
         </div>
       </panel>
     </root>

@@ -7,7 +7,7 @@ tauler — the reservation lives in `aerospace.toml`, not in the layout file.
 ```
 home/.config/tauler/layout.jsx      the rail
 home/.config/tauler/config.yaml     theme and font
-home/.config/aerospace/aerospace.toml   the 140px it sits in
+home/.config/aerospace/aerospace.toml   the space it sits in
 ```
 
 ## Requirements
@@ -42,8 +42,8 @@ number is declared twice and the two have to agree:
 
 | where | what |
 | --- | --- |
-| `layout.jsx` | `const RAIL = 140` — how wide the panel is drawn |
-| `aerospace.toml` | `outer.left = 140` — how much space tiled windows leave for it |
+| `layout.jsx` | `RAIL = 148`, `RAIL_PAD = 10`, `MENU_BAR = 38` |
+| `aerospace.toml` | `outer.left = 176` — that is `RAIL - RAIL_PAD + GAP` |
 
 Change one and you get dead space, or windows sliding under the rail. Regenerating
 `aerospace.toml` and calling `aerospace reload-config` does work — reload re-applies gaps,
@@ -67,11 +67,38 @@ should keep yabai and Amethyst off it.
 An `[[on-window-detected]]` rule with `layout floating` looks like the fix and is not one:
 floating windows still belong to a workspace, and still disappear when you leave it.
 
+## The top inset is not the menu bar
+
+AeroSpace lays windows out inside `NSScreen.visibleFrame`, so the rail has to start at the
+same place or the two will not line up. On a notched Mac that inset is the camera housing,
+reserved whether the menu bar is hidden or not:
+
+```sh
+osascript -l JavaScript -e 'ObjC.import("AppKit"); var s=$.NSScreen.mainScreen;
+  s.frame.size.height - s.visibleFrame.size.height'
+```
+
+`MENU_BAR` in the layout has to equal that number. It changes when you change display
+scaling — the notch is a fixed physical size, so more logical points fit inside it — and
+`GAP` mirrors it, so `gaps.outer.*` moves too. tauler should read `visibleFrame` itself and
+make the constant unnecessary: [#416](https://github.com/kantord/tauler/issues/416).
+
+`gaps.outer.top` stays `0`. The inset is already excluded from `visibleFrame`, so anything
+there is added on top of it and doubles the margin.
+
+## Why the left reservation subtracts the padding
+
+The rail has no plate of its own, so it appears to end where the pills end, not where the
+window does. Reserving `RAIL + GAP` therefore reads as a wider margin on the left than on
+the other three sides. Subtracting the rail's own padding puts them back in agreement — a
+bar with a visible background would not need this.
+
 ## The menu bar
 
-macOS keeps its menu bar at the top of every screen and will not release the space, so the
-rail starts at `y = 25` rather than `y = 0`. It is also `above={true}`: a normal-level
-window on macOS sits under the menu bar rather than beside it.
+The rail cannot be drawn *over* a visible menu bar: winit maps its topmost level to
+`kCGFloatingWindowLevel` (3) and the menu bar sits at 24. Auto-hiding the menu bar frees
+that strip on an unnotched display; on a notched one the safe area is reserved anyway, so
+it buys almost nothing.
 
 ## What the module reports
 
