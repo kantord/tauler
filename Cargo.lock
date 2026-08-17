@@ -5988,7 +5988,7 @@ dependencies = [
 
 [[package]]
 name = "tauler-core"
-version = "0.1.5"
+version = "0.1.6"
 dependencies = [
  "optative-script",
  "rquickjs",
@@ -6067,7 +6067,7 @@ dependencies = [
 
 [[package]]
 name = "tauler-web"
-version = "0.1.5"
+version = "0.1.6"
 dependencies = [
  "tauler-core",
  "wasm-bindgen",
@@ -6075,7 +6075,7 @@ dependencies = [
 
 [[package]]
 name = "tauler-web-e2e"
-version = "0.1.5"
+version = "0.1.6"
 dependencies = [
  "anyhow",
  "headless_chrome",
