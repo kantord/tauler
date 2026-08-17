@@ -60,7 +60,11 @@ jobs:
         run: cargo install wasm-bindgen-cli --version 0.2.126 --locked
 
       - uses: extractions/setup-just@53165ef7e734c5c07cb06b3c8e7b647c5aa16db3 # v4.0.0
+      # `packageManager` lives in docs/package.json; there is no root package.json, and
+      # without pointing at it the action fails with "No pnpm version is specified".
       - uses: pnpm/action-setup@a7487c7e89a18df4991f7f222e4898a00d66ddda # v4.1.0
+        with:
+          package_json_file: docs/package.json
 
       # Generates the component page, the screenshots, the `@ui/*` modules, the examples,
       # the harvested class list and the wasm module, then compiles the stylesheet.

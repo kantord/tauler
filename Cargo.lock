@@ -6083,7 +6083,6 @@ dependencies = [
  "serde",
  "serde_json",
  "tauler-core",
- "testcontainers",
 ]
 
 [[package]]
