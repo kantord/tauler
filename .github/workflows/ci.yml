@@ -23,6 +23,14 @@ jobs:
         run: cargo fmt --all --check
       - name: Clippy
         run: cargo clippy --workspace -- -D warnings
+
+      # ADR 0010's "third measurement": the wasm-clean subset is a crate boundary, and
+      # this is what makes that a claim a compiler enforces rather than a convention. A
+      # stray `use` that drags takumi, x11rb or rquickjs into `tauler-core` fails here.
+      - name: Add the wasm target
+        run: rustup target add wasm32-unknown-unknown
+      - name: Check the wasm-clean subset still is
+        run: cargo check -p tauler-core --target wasm32-unknown-unknown
       - name: Check binstall metadata coverage
         run: |
           missing=$(cargo metadata --no-deps --format-version 1 | jq -r '
@@ -149,6 +157,14 @@ jobs:
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
       - name: Clippy
         run: cargo clippy --workspace -- -D warnings
+
+      # ADR 0010's "third measurement": the wasm-clean subset is a crate boundary, and
+      # this is what makes that a claim a compiler enforces rather than a convention. A
+      # stray `use` that drags takumi, x11rb or rquickjs into `tauler-core` fails here.
+      - name: Add the wasm target
+        run: rustup target add wasm32-unknown-unknown
+      - name: Check the wasm-clean subset still is
+        run: cargo check -p tauler-core --target wasm32-unknown-unknown
       - name: Build screenshot binary
         run: cargo build -p tauler-screenshot
       - name: Test

@@ -1,15 +1,17 @@
-use std::collections::HashSet;
+use std::collections::{BTreeSet, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 
 use clap::Parser;
+
+mod web;
 
 /// Generate the components page of the docs site from doc comments on UI
 /// components, rendering each `# JSX` example to a screenshot alongside it.
 #[derive(Parser)]
 struct Args {
     /// Directory containing UI component source files
-    #[arg(long, default_value = "src/ui/components")]
+    #[arg(long, default_value = "tauler-core/src/ui/components")]
     components_dir: PathBuf,
 
     /// Path to write the generated MDX file
@@ -19,6 +21,18 @@ struct Args {
     /// Directory to write rendered component screenshots
     #[arg(long, default_value = "docs/src/assets")]
     assets_dir: PathBuf,
+
+    /// Directory to write takumi's per-component box geometry, for the browser comparison
+    #[arg(long, default_value = "docs/.tauler/geometry")]
+    geometry_dir: PathBuf,
+
+    /// Directory to write the browser assets the docs site serves
+    #[arg(long, default_value = "docs/public/tauler")]
+    web_dir: PathBuf,
+
+    /// Directory to write the Tailwind inputs the docs build compiles
+    #[arg(long, default_value = "docs/.tauler")]
+    build_dir: PathBuf,
 }
 
 struct Component {
@@ -33,6 +47,11 @@ struct Component {
     /// from the generated docs: naming it would invite an import that returns
     /// something other than what the matching JSX tag does.
     internal: bool,
+    /// Shown as its screenshot rather than run in the browser. `<Icon>` is the one, and
+    /// the reason is fonts: `append_symbol_fallback` resolves its Nerd Font through
+    /// fontconfig, so the takumi side depends on the host and the two cannot be made to
+    /// agree by serving a file (ADR 0026).
+    skip_web: bool,
 }
 
 struct DocComments {
@@ -41,6 +60,7 @@ struct DocComments {
     shadcn_url: Option<String>,
     skip_snapshot: bool,
     internal: bool,
+    skip_web: bool,
 }
 
 fn to_pascal_case(s: &str) -> String {
@@ -95,6 +115,7 @@ fn parse_doc_comments(raw: &[String]) -> DocComments {
     let mut shadcn_url = None;
     let mut skip_snapshot = false;
     let mut internal = false;
+    let mut skip_web = false;
     let mut i = 0;
     while i < raw.len() {
         if raw[i].trim() == "# JSX" {
@@ -112,6 +133,9 @@ fn parse_doc_comments(raw: &[String]) -> DocComments {
         } else if raw[i].trim() == "# Internal" {
             internal = true;
             i += 1;
+        } else if raw[i].trim() == "# SkipWeb" {
+            skip_web = true;
+            i += 1;
         } else {
             prose.push(raw[i].clone());
             i += 1;
@@ -123,6 +147,7 @@ fn parse_doc_comments(raw: &[String]) -> DocComments {
         shadcn_url,
         skip_snapshot,
         internal,
+        skip_web,
     }
 }
 
@@ -176,6 +201,7 @@ fn extract_components(path: &Path) -> Result<Vec<Component>, std::io::Error> {
             shadcn_url: doc.shadcn_url,
             skip_snapshot: doc.skip_snapshot,
             internal: doc.internal,
+            skip_web: doc.skip_web,
         });
     }
     Ok(components)
@@ -291,15 +317,26 @@ fn collect_jsx_imports(jsx_block: &[String], all_components: &[Component]) -> St
 
 fn build_jsx_module(jsx_block: &[String], all_components: &[Component]) -> String {
     let imports = collect_jsx_imports(jsx_block, all_components);
-    let body = jsx_block.join("\n");
-    format!("{imports}export default function render() {{\n  return (\n{body}\n  );\n}}\n")
+    format!(
+        "{imports}export default function render() {{\n{}\n}}\n",
+        web::render_body(jsx_block)
+    )
+}
+
+/// What rendering one component produced.
+struct Rendered {
+    png: PathBuf,
+    /// Every Tailwind utility the resolved tree carried. Harvested from the render rather
+    /// than scanned from the source, because theme tokens are already rewritten by then.
+    classes: BTreeSet<String>,
 }
 
 fn render_screenshot(
     component: &Component,
     all_components: &[Component],
     assets_dir: &Path,
-) -> Option<PathBuf> {
+    geometry_dir: Option<&Path>,
+) -> Option<Rendered> {
     let jsx_block = component.jsx_block.as_ref()?;
     let bin = find_screenshot_binary()?;
 
@@ -316,8 +353,26 @@ fn render_screenshot(
     let inter_font = Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()?
         .join("assets/fonts/inter/InterVariable.ttf");
+    let classes_file = std::env::temp_dir().join(format!(
+        "tauler-docgen-{}-classes.txt",
+        component.export_name.to_lowercase()
+    ));
 
-    let status = std::process::Command::new(&bin)
+    // Written beside the screenshot rather than in a pass of its own: the geometry has to
+    // come from the same render as the pixels, or the comparison is against a layout that
+    // was never photographed (ADR 0026).
+    let geometry_file = geometry_dir.map(|dir| {
+        let _ = fs::create_dir_all(dir);
+        dir.join(format!("{}.json", component.export_name.to_lowercase()))
+    });
+
+    let mut command = std::process::Command::new(&bin);
+    if let Some(path) = &geometry_file {
+        command.arg("--geometry-out").arg(path);
+    }
+    let status = command
+        .arg("--classes-out")
+        .arg(&classes_file)
         .arg("--input")
         .arg(&tmp_jsx_file)
         .arg("--output")
@@ -328,11 +383,22 @@ fn render_screenshot(
         .ok()?;
 
     let _ = fs::remove_file(&tmp_jsx_file);
-    if status.success() {
-        Some(output_path)
-    } else {
-        None
+    if !status.success() {
+        return None;
     }
+    let classes = fs::read_to_string(&classes_file)
+        .map(|body| {
+            body.lines()
+                .filter(|l| !l.trim().is_empty())
+                .map(str::to_string)
+                .collect()
+        })
+        .unwrap_or_default();
+    let _ = fs::remove_file(&classes_file);
+    Some(Rendered {
+        png: output_path,
+        classes,
+    })
 }
 
 fn trim_blank_lines(lines: &[String]) -> &[String] {
@@ -461,12 +527,23 @@ fn render_component_section(
     }
     if let Some(path) = screenshot {
         let filename = path.file_name().unwrap().to_string_lossy();
+        // The live embed first, the screenshot behind it. The screenshot is not decoration
+        // — it is what a reader sees when the wasm module is absent, which is the ordinary
+        // state of a checkout without a Rust toolchain (ADR 0024).
+        if !comp.skip_web {
+            out.push_str(&format!(
+                "<div class=\"tauler-embed\" data-tauler-example=\"{}\"></div>\n\n",
+                comp.export_name.to_lowercase()
+            ));
+        }
+        out.push_str("<div class=\"tauler-fallback\">\n\n");
         // Relative to the generated page, so Astro processes the image and the
         // URL stays correct whatever `base` the site is deployed under.
         out.push_str(&format!(
             "![{} screenshot](../../assets/{})\n\n",
             comp.export_name, filename
         ));
+        out.push_str("</div>\n\n");
     }
     render_prose(&mut out, &comp.prose);
     if let Some(block) = &comp.jsx_block {
@@ -481,13 +558,107 @@ fn render_component_section(
     out
 }
 
-fn render_markdown(components: &[Component], screenshots: &[Option<PathBuf>]) -> String {
+fn render_markdown(components: &[Component], rendered: &[Option<Rendered>]) -> String {
     let mut out = String::new();
     out.push_str("---\ntitle: Components\ndescription: Auto-generated by tauler-docgen. Do not edit by hand.\n---\n\n");
-    for (comp, screenshot) in components.iter().zip(screenshots.iter()) {
-        out.push_str(&render_component_section(comp, screenshot, components));
+    out.push_str(&embed_head());
+    for (comp, r) in components.iter().zip(rendered.iter()) {
+        out.push_str(&render_component_section(
+            comp,
+            &r.as_ref().map(|r| r.png.clone()),
+            components,
+        ));
     }
+    out.push_str(EMBED_SCRIPT);
     out
+}
+
+/// What every embed on the page needs before any of them can run: the compiled Tailwind,
+/// and the import map that makes `@ui/card` resolve. The map is inline and near the top
+/// because an import map has to be in the document before the first module loads.
+fn embed_head() -> String {
+    format!(
+        "<link rel=\"stylesheet\" href=\"/tauler/tauler.css\" />\n\n<script type=\"importmap\">\n{}</script>\n\n",
+        web::import_map_json()
+    )
+}
+
+/// Boots the wasm module once and mounts every embed on the page.
+///
+/// Nothing here decides anything — `boot` and `Mount` are `tauler-web`'s. If the module
+/// fails to load (a checkout without a Rust toolchain, most often), every embed keeps its
+/// screenshot and the page is stale rather than empty.
+const EMBED_SCRIPT: &str = r#"
+<script type="module">
+  import { boot, Mount, registerTransport, setStreamValue } from '/tauler/runtime.js'
+
+  globalThis.__taulerErrors = []
+  const mounts = [...document.querySelectorAll('.tauler-embed')]
+  if (mounts.length) {
+    try {
+      await boot('/tauler/tauler_web_bg.wasm')
+
+      // A Module, implemented in the page instead of as a subprocess.
+      //
+      // It is what makes the Slider example on this page work, and it is the whole
+      // demonstration: the layout file says `useEvents("tauler-demo-volume")` and
+      // `useStringStream("tauler-demo-volume")` and cannot tell whether the other end is
+      // a process, a worker, an SSH connection or these four lines. A Transport is
+      // whatever fills the map and takes the intents.
+      registerTransport('tauler-demo-volume', (event) => {
+        if (event?.type === 'set') setStreamValue('tauler-demo-volume', null, event.value)
+      })
+
+      for (const el of mounts) {
+        const name = el.dataset.taulerExample
+        const { default: render } = await import(`/tauler/examples/${name}.js`)
+        new Mount(el, render).tick()
+        el.parentElement.querySelector('.tauler-fallback')?.setAttribute('hidden', '')
+      }
+    } catch (e) {
+      globalThis.__taulerErrors.push(String((e && e.stack) || e))
+      console.warn('tauler: falling back to screenshots', e)
+    }
+  }
+</script>
+"#;
+
+/// Write every browser asset, and the Tailwind input that compiles the classes they use.
+fn generate_web(
+    args: &Args,
+    components: &[Component],
+    rendered: &[Option<Rendered>],
+) -> std::io::Result<()> {
+    fs::create_dir_all(&args.web_dir)?;
+    web::write_ui_modules(&args.web_dir)?;
+    web::write_constants(&args.web_dir)?;
+
+    let runtime = workspace_root().join("tauler-web/js/runtime.js");
+    fs::copy(&runtime, args.web_dir.join("runtime.js"))?;
+
+    let fonts_dir = args.web_dir.join("fonts");
+    fs::create_dir_all(&fonts_dir)?;
+    fs::copy(
+        workspace_root().join("assets/fonts/inter/InterVariable.ttf"),
+        fonts_dir.join("InterVariable.ttf"),
+    )?;
+
+    let mut classes = BTreeSet::new();
+    for (comp, r) in components.iter().zip(rendered.iter()) {
+        if let Some(r) = r {
+            classes.extend(r.classes.iter().cloned());
+        }
+        let Some(block) = &comp.jsx_block else {
+            continue;
+        };
+        if comp.internal || comp.skip_web {
+            continue;
+        }
+        let imports = collect_jsx_imports(block, components);
+        let source = web::build_web_module(&imports, block);
+        web::write_example(&args.web_dir, comp, &source)?;
+    }
+    web::write_stylesheet_input(&args.build_dir, &classes, "/tauler/fonts/InterVariable.ttf")
 }
 
 fn main() {
@@ -508,12 +679,17 @@ fn main() {
     if all_components.is_empty() {
         eprintln!("warning: no components found — output will only contain a header");
     }
-    let screenshots: Vec<Option<PathBuf>> = all_components
+    let rendered: Vec<Option<Rendered>> = all_components
         .iter()
-        .map(|c| render_screenshot(c, &all_components, assets_dir))
+        .map(|c| render_screenshot(c, &all_components, assets_dir, Some(&args.geometry_dir)))
         .collect();
 
-    let markdown = render_markdown(&all_components, &screenshots);
+    if let Err(e) = generate_web(&args, &all_components, &rendered) {
+        eprintln!("error: could not write the browser assets: {e}");
+        std::process::exit(1);
+    }
+
+    let markdown = render_markdown(&all_components, &rendered);
 
     if let Some(parent) = output_path.parent() {
         if let Err(e) = fs::create_dir_all(parent) {
@@ -569,7 +745,7 @@ mod visual_regression {
         }
 
         let root = workspace_root();
-        let components_dir = root.join("src/ui/components");
+        let components_dir = root.join("tauler-core/src/ui/components");
         let render_dir = tempfile::tempdir().expect("temp dir for rendered screenshots");
         let assets_dir = render_dir.path().to_path_buf();
         let snap_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("snapshots");
@@ -580,8 +756,9 @@ mod visual_regression {
             for comp in &all_components {
                 if comp.jsx_block.is_none() { continue; }
                 if comp.skip_snapshot { continue; }
-                let png_path = render_screenshot(comp, &all_components, &assets_dir)
-                    .unwrap_or_else(|| panic!("render_screenshot failed for {}", comp.export_name));
+                let png_path = render_screenshot(comp, &all_components, &assets_dir, None)
+                    .unwrap_or_else(|| panic!("render_screenshot failed for {}", comp.export_name))
+                    .png;
                 let img = image::open(&png_path)
                     .unwrap_or_else(|e| panic!("failed to open {}: {e}", png_path.display()))
                     .into_rgba8();
@@ -616,6 +793,7 @@ mod tests {
             shadcn_url: None,
             skip_snapshot: false,
             internal: false,
+            skip_web: false,
         };
         let all_components = vec![Component {
             module_path: "@ui/card".to_string(),
@@ -625,14 +803,20 @@ mod tests {
             shadcn_url: None,
             skip_snapshot: false,
             internal: false,
+            skip_web: false,
         }];
 
-        let result = render_screenshot(&component, &all_components, assets_dir);
+        let result = render_screenshot(&component, &all_components, assets_dir, None);
 
-        assert!(result.is_some(), "expected Some(path) but got None");
-        let path = result.unwrap();
+        assert!(result.is_some(), "expected a render but got None");
+        let rendered = result.unwrap();
+        let path = rendered.png;
         assert!(path.exists(), "PNG file does not exist at {:?}", path);
         assert!(path.metadata().unwrap().len() > 0, "PNG file is empty");
+        assert!(
+            !rendered.classes.is_empty(),
+            "the class harvest came back empty; Tailwind would compile nothing"
+        );
     }
 
     /// A component registered only so a JS shim can call it is not something a
@@ -678,6 +862,7 @@ mod tests {
             shadcn_url: None,
             skip_snapshot: false,
             internal: false,
+            skip_web: false,
         }
     }
 

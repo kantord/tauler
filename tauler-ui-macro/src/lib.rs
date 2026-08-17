@@ -109,23 +109,39 @@ fn gen_component(path: Option<LitStr>, func: ItemFn) -> TokenStream2 {
 
     let param_names: Vec<&syn::Ident> = params.iter().map(|(n, _)| n).collect();
 
+    // Two bindings for one component, because there are two JavaScript engines to reach
+    // (ADR 0025). The rquickjs one registers a global in a QuickJS realm; the
+    // wasm-bindgen one exports a function the browser glue assigns onto `globalThis`
+    // under the same name. Both are generated here so neither can be forgotten, and
+    // both are gated so neither crate has to carry the other's dependencies.
     let entry_code = path.map(|p| {
         let module_path_str = p.value();
         let export_name_str = component_name.to_string();
         let global_name_str = format!("__ui_{fn_str}");
         let register_fn = format_ident!("__register_{fn_str}");
         let entry_const = format_ident!("__UI_ENTRY_{}", fn_str.to_uppercase());
+        let wasm_fn = format_ident!("__wasm_ui_{fn_str}");
         quote! {
+            #[cfg(feature = "quickjs")]
             fn #register_fn(ctx: &rquickjs::Ctx<'_>) -> rquickjs::Result<()> {
                 use crate::ui::UiComponent as _;
                 ctx.globals().set(#global_name_str, rquickjs::Function::new(ctx.clone(), #component_name::js_fn)?)
             }
+            #[cfg(feature = "quickjs")]
             #vis const #entry_const: crate::ui::registry::EsEntry = crate::ui::registry::EsEntry {
                 module_path: #module_path_str,
                 export_name: #export_name_str,
                 global_name: #global_name_str,
                 register: #register_fn,
             };
+
+            #[cfg(target_arch = "wasm32")]
+            #[::wasm_bindgen::prelude::wasm_bindgen(js_name = #global_name_str)]
+            #vis fn #wasm_fn(
+                props: ::wasm_bindgen::JsValue,
+            ) -> ::std::result::Result<::wasm_bindgen::JsValue, ::wasm_bindgen::JsValue> {
+                crate::ui::wasm_render::<#component_name>(props)
+            }
         }
     });
 

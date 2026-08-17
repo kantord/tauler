@@ -24,7 +24,7 @@ use std::collections::HashSet;
 use std::rc::Rc;
 use std::sync::Mutex;
 
-use takumi::prelude::Viewport;
+use takumi::prelude::{Node, Viewport};
 use takumi_core::context::RenderContext as TakumiRenderContext;
 use takumi_core::geometry::transformed_rect_extents;
 use takumi_core::geometry::{NodeId, Point};
@@ -109,7 +109,28 @@ pub fn hit_test(
         return None;
     }
 
-    let (hit, reachable) = crate::render::with_global_ctx(|global| {
+    let (hit, reachable) = with_scene(node, width, height, dpr, |painted, results| {
+        topmost_hit(painted, results, &handlers, click_x, click_y)
+    })?;
+
+    warn_unreachable(&handlers, &reachable);
+    hit
+}
+
+/// Lay a node tree out, walk its scene, and hand the paint list to `f`.
+///
+/// Extracted so that hit-testing and [`painted_boxes`] read the same geometry from the
+/// same walk. Doing the layout twice by two routes would let them disagree, and the whole
+/// point of the second caller is to compare takumi's boxes against a browser's — a
+/// comparison is worth nothing if it is not measuring what a click would measure.
+fn with_scene<R>(
+    node: Node,
+    width: u32,
+    height: u32,
+    dpr: f32,
+    f: impl FnOnce(&[&NodePaint], &LayoutResults) -> R,
+) -> Option<R> {
+    crate::render::with_global_ctx(|global| {
         let context = TakumiRenderContext::builder()
             .fonts(global.fonts.snapshot_with_fallbacks(None))
             .images(Rc::new(global.images.clone()))
@@ -140,11 +161,61 @@ pub fn hit_test(
 
         let mut painted = Vec::new();
         collect_paints(&contexts, 0, &mut painted);
-        Some(topmost_hit(&painted, &results, &handlers, click_x, click_y))
-    })?;
+        Some(f(&painted, &results))
+    })
+}
 
-    warn_unreachable(&handlers, &reachable);
-    hit
+/// Every painted node's box, keyed by the render path the markup also carries.
+///
+/// The key is what makes this comparable with a browser: `layout::dom` writes the same
+/// child-index path into `data-tauler-path`, so a box here and a `getBoundingClientRect()`
+/// there can be matched without either side guessing (ADR 0026).
+///
+/// The measured tree is deliberately not used for this. takumi replaces a node's measured
+/// children with flat inline boxes wherever it holds inline content, so the measured tree
+/// stops describing the layout tree's shape as soon as an element contains text — the same
+/// reason `hit_test` binds by path rather than by walking the two trees together (ADR
+/// 0018).
+///
+/// Zero-area entries are dropped. An inline element appears in the paint list with an
+/// empty box, and comparing that against a browser's real inline box would report a
+/// difference that means nothing.
+pub fn painted_boxes(
+    layout: &serde_json::Value,
+    width: u32,
+    height: u32,
+    dpr: f32,
+) -> Vec<(Vec<usize>, Rect)> {
+    let Ok((node, _)) = build_tree(layout) else {
+        return Vec::new();
+    };
+    with_scene(node, width, height, dpr, |painted, results| {
+        let mut out = Vec::new();
+        for paint in painted {
+            let Ok(layout) = results.layout(paint.node_id) else {
+                continue;
+            };
+            if layout.size.width <= 0.0 || layout.size.height <= 0.0 {
+                continue;
+            }
+            let Some((left, top, right, bottom)) =
+                transformed_rect_extents(Point { x: 0.0, y: 0.0 }, layout.size, paint.transform)
+            else {
+                continue;
+            };
+            out.push((
+                paint.path.clone(),
+                Rect {
+                    x: left,
+                    y: top,
+                    width: right - left,
+                    height: bottom - top,
+                },
+            ));
+        }
+        out
+    })
+    .unwrap_or_default()
 }
 
 /// Flatten the stacking contexts into one list, in paint order.

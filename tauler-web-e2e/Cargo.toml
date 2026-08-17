@@ -1,0 +1,22 @@
+[package]
+name = "tauler-web-e2e"
+description = "Internal tool: drives a real browser over the web renderer and compares it with takumi"
+edition = "2021"
+publish = false
+version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+anyhow = "1.0.104"
+image = "0.25.10"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.151"
+# Blocking CDP. `Page.captureScreenshot` takes a clip rectangle in CSS pixels with an
+# explicit scale, which is what reproducing `tauler-screenshot`'s crop needs; WebDriver's
+# element screenshot gives less control. Blocking rather than async because the workspace
+# has no tokio outside `tauler-notify`, and a test harness is no reason to add one.
+headless_chrome = "1.0.19"
+testcontainers = { version = "0.28.0", features = ["blocking"] }

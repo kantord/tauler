@@ -51,6 +51,44 @@ struct Args {
     /// Path to a TTF/OTF font file to use as the primary (sans-serif) font.
     #[arg(long)]
     font_path: Option<std::path::PathBuf>,
+
+    /// Also write every Tailwind class the resolved tree carries, one per line.
+    ///
+    /// The web renderer hands `class` to the browser verbatim, so Tailwind has to be told
+    /// which utilities to compile — and a text scan of the sources cannot say, because
+    /// `theme/resolver.rs` has already rewritten `bg-background` into `bg-[#hex]` by the
+    /// time anything renders. Harvesting from the tree that actually rendered is the only
+    /// list that is guaranteed complete (ADR 0024).
+    #[arg(long)]
+    classes_out: Option<std::path::PathBuf>,
+
+    /// Also write every painted node's box, keyed by render path, as JSON.
+    ///
+    /// The other half of the geometry gate: the browser reports the same paths from
+    /// `getBoundingClientRect()`, and the two are compared node by node (ADR 0026).
+    /// Boxes are in CSS pixels, so the comparison does not depend on `--dpr`.
+    #[arg(long)]
+    geometry_out: Option<std::path::PathBuf>,
+}
+
+/// Every `class` string in the tree, split into individual utilities.
+fn collect_classes(value: &serde_json::Value, out: &mut std::collections::BTreeSet<String>) {
+    match value {
+        serde_json::Value::Object(map) => {
+            if let Some(class) = map.get("class").and_then(|c| c.as_str()) {
+                out.extend(class.split_whitespace().map(str::to_string));
+            }
+            for v in map.values() {
+                collect_classes(v, out);
+            }
+        }
+        serde_json::Value::Array(items) => {
+            for v in items {
+                collect_classes(v, out);
+            }
+        }
+        _ => {}
+    }
 }
 
 /// Extract the x/y translation from a 2D affine transform matrix stored as [a,b,c,d,tx,ty].
@@ -98,12 +136,43 @@ fn main() {
     });
     resolve_theme_tokens(&mut canvas, &theme, args.theme);
 
+    // After resolution, not before: the point of harvesting here is to see the classes as
+    // takumi sees them, which is the same string the browser will be handed.
+    if let Some(path) = &args.classes_out {
+        let mut classes = std::collections::BTreeSet::new();
+        collect_classes(&canvas, &mut classes);
+        let body = classes.into_iter().collect::<Vec<_>>().join("\n");
+        std::fs::write(path, body).unwrap_or_else(|e| panic!("write {}: {e}", path.display()));
+    }
+
     // Everything below is in physical pixels: `render_frame` takes the buffer size,
     // and the dpr is what turns the layout's CSS pixels into those.
     let dpr = args.dpr.max(0.1);
     let phys_w = (render_w as f32 * dpr).round() as u32;
     let phys_h = (CANVAS_H as f32 * dpr).round() as u32;
     let pad = (PAD as f32 * dpr).round() as u32;
+
+    if let Some(path) = &args.geometry_out {
+        let boxes: Vec<serde_json::Value> = tauler::hit_test::painted_boxes(
+            &canvas, phys_w, phys_h, dpr,
+        )
+        .into_iter()
+        .map(|(render_path, r)| {
+            serde_json::json!({
+                "path": render_path.iter().map(usize::to_string).collect::<Vec<_>>().join("."),
+                "x": r.x / dpr,
+                "y": r.y / dpr,
+                "width": r.width / dpr,
+                "height": r.height / dpr,
+            })
+        })
+        .collect();
+        std::fs::write(
+            path,
+            serde_json::to_string_pretty(&boxes).expect("serialise boxes"),
+        )
+        .unwrap_or_else(|e| panic!("write {}: {e}", path.display()));
+    }
 
     let bgrx = tauler::render_frame(&canvas, phys_w, phys_h, dpr);
     let measured = tauler::measure_layout_frame(&canvas, phys_w, phys_h, dpr);

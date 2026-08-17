@@ -119,6 +119,7 @@ pub trait UiComponent {
         Self::render(serde_json::from_value(v).unwrap_or_default())
     }
 
+    #[cfg(feature = "quickjs")]
     fn js_fn<'js>(
         ctx: rquickjs::Ctx<'js>,
         props: rquickjs::Value<'js>,
@@ -128,20 +129,43 @@ pub trait UiComponent {
     }
 }
 
+/// The wasm-bindgen counterpart of [`UiComponent::js_fn`], called by the binding the
+/// `#[component]` macro generates.
+///
+/// Free rather than a trait method so the trait stays free of `wasm_bindgen` types on
+/// every target — only this function and the generated bindings mention them.
+#[cfg(target_arch = "wasm32")]
+pub fn wasm_render<C: UiComponent>(
+    props: wasm_bindgen::JsValue,
+) -> Result<wasm_bindgen::JsValue, wasm_bindgen::JsValue> {
+    let props: serde_json::Value = serde_wasm_bindgen::from_value(props)?;
+    let out = C::render_from_value(props);
+    let out =
+        serde_json::to_value(out).map_err(|e| wasm_bindgen::JsValue::from_str(&e.to_string()))?;
+    // Plain objects, not `Map`s — a component's output is read by the JavaScript shims,
+    // and a `Map` answers every property access with `undefined`. See `web::to_js`.
+    let serializer = serde_wasm_bindgen::Serializer::new().serialize_maps_as_objects(true);
+    Ok(serde::Serialize::serialize(&out, &serializer)?)
+}
+
+#[cfg(feature = "quickjs")]
 pub trait IntoJsValue {
     fn into_js_value<'js>(self, ctx: rquickjs::Ctx<'js>) -> rquickjs::Result<rquickjs::Value<'js>>;
 }
 
+#[cfg(feature = "quickjs")]
 impl<T: Serialize> IntoJsValue for T {
     fn into_js_value<'js>(self, ctx: rquickjs::Ctx<'js>) -> rquickjs::Result<rquickjs::Value<'js>> {
         rquickjs_serde::to_value(ctx, &self).map_err(|_| rquickjs::Error::Unknown)
     }
 }
 
+#[cfg(feature = "quickjs")]
 pub trait FromJsValue: Sized {
     fn from_js_value<'js>(value: rquickjs::Value<'js>) -> rquickjs::Result<Self>;
 }
 
+#[cfg(feature = "quickjs")]
 impl<T: for<'de> Deserialize<'de>> FromJsValue for T {
     fn from_js_value<'js>(value: rquickjs::Value<'js>) -> rquickjs::Result<Self> {
         rquickjs_serde::from_value(value).map_err(|_| rquickjs::Error::Unknown)

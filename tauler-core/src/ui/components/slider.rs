@@ -97,15 +97,27 @@ fn thumb(done: f64) -> Node {
 /// value, which is also what keeps a drag from sending a message per pixel: a motion
 /// that produces the intents just sent is skipped.
 ///
+/// The example below names a module, `tauler-demo-volume`, that you will not have —
+/// pasted as it stands it renders a slider that does not move. It names one anyway,
+/// because a slider with a literal `value` and no source would show you a control
+/// holding its own state, which is the one thing this component does not do. On this
+/// page the module is a few lines of JavaScript in the browser rather than a
+/// subprocess; the layout file cannot tell the difference, and that is the point.
+///
 /// # JSX
 /// ```jsx
-/// <div class="flex flex-col gap-[6px] w-[200px]">
-///   <div class="flex flex-row justify-between">
-///     <span class="text-muted-foreground text-[11px]">Volume</span>
-///     <span class="text-foreground text-[11px]">40%</span>
+/// const events = useEvents("tauler-demo-volume");
+/// const volume = Number(useStringStream("tauler-demo-volume")) || 40;
+///
+/// return (
+///   <div class="flex flex-col gap-[6px] w-[200px]">
+///     <div class="flex flex-row justify-between">
+///       <span class="text-muted-foreground text-[11px]">Volume</span>
+///       <span class="text-foreground text-[11px]">{volume}%</span>
+///     </div>
+///     <Slider value={volume} step={5} on_change={(v) => events.set({ value: v })} />
 ///   </div>
-///   <Slider value={40} step={5} />
-/// </div>
+/// );
 /// ```
 ///
 /// # Shadcn
@@ -140,7 +152,7 @@ pub fn slider(
 /// Owns the arithmetic, because only JavaScript can run when the pointer moves: it
 /// turns the position the runtime reports into a value in the author's units and
 /// calls `on_change` with it (ADR 0021). Rust never learns what a range is.
-const SLIDER_SHIM_JS: &str = r#"
+pub const SLIDER_SHIM_JS: &str = r#"
     globalThis.__tauler_slider = (props) => {
         const {
             value = 0, min = 0, max = 100, step = 1, on_change, class: cls,
@@ -164,6 +176,7 @@ const SLIDER_SHIM_JS: &str = r#"
 
 /// Puts both halves in place: the Rust renderer under `__ui_slider`, and the shim
 /// that `@ui/slider` actually exports.
+#[cfg(feature = "quickjs")]
 fn register_slider(ctx: &rquickjs::Ctx<'_>) -> rquickjs::Result<()> {
     (__UI_ENTRY_SLIDER.register)(ctx)?;
     ctx.eval::<(), _>(SLIDER_SHIM_JS)
@@ -174,6 +187,7 @@ fn register_slider(ctx: &rquickjs::Ctx<'_>) -> rquickjs::Result<()> {
 /// Registered in place of `__UI_ENTRY_SLIDER`: the Rust half stays reachable from
 /// JavaScript but is not importable, so there is only one `Slider` and it is the one
 /// that accepts `on_change`.
+#[cfg(feature = "quickjs")]
 pub const __UI_ENTRY_SLIDER_SHIM: crate::ui::registry::EsEntry = crate::ui::registry::EsEntry {
     module_path: "@ui/slider",
     export_name: "Slider",

@@ -119,7 +119,7 @@ pub fn knob(value: f64, on_drag: Option<Value>, class: Option<String>) -> Node {
 /// Owns the trigonometry, because only JavaScript can run when the pointer moves: it
 /// turns the two positions the runtime reports into an angle in degrees and calls
 /// `on_change` with it (ADR 0021). Rust never learns what a turn is.
-const KNOB_SHIM_JS: &str = r#"
+pub const KNOB_SHIM_JS: &str = r#"
     globalThis.__tauler_knob = (props) => {
         const { value = 0, step = 1, on_change, class: cls } = props ?? {};
         const rendered = { value };
@@ -161,6 +161,7 @@ const KNOB_SHIM_JS: &str = r#"
 
 /// Puts both halves in place: the Rust renderer under `__ui_knob`, and the shim that
 /// `@ui/knob` actually exports.
+#[cfg(feature = "quickjs")]
 fn register_knob(ctx: &rquickjs::Ctx<'_>) -> rquickjs::Result<()> {
     (__UI_ENTRY_KNOB.register)(ctx)?;
     ctx.eval::<(), _>(KNOB_SHIM_JS)
@@ -171,6 +172,7 @@ fn register_knob(ctx: &rquickjs::Ctx<'_>) -> rquickjs::Result<()> {
 /// Registered in place of `__UI_ENTRY_KNOB`: the Rust half stays reachable from
 /// JavaScript but is not importable, so there is only one `Knob` and it is the one
 /// that accepts `on_change`.
+#[cfg(feature = "quickjs")]
 pub const __UI_ENTRY_KNOB_SHIM: crate::ui::registry::EsEntry = crate::ui::registry::EsEntry {
     module_path: "@ui/knob",
     export_name: "Knob",
