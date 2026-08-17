@@ -28,10 +28,10 @@ importers:
         version: 0.2.3(@astrojs/starlight@0.41.7(@astrojs/markdown-remark@7.2.2(supports-color@7.2.0))(astro@7.2.2(@astrojs/markdown-remark@7.2.2(supports-color@7.2.0))(@emnapi/core@1.11.1)(@emnapi/runtime@1.11.3)(@types/node@24.13.3)(jiti@2.7.0))(supports-color@7.2.0))
     devDependencies:
       '@tailwindcss/cli':
-        specifier: ^4.3.3
+        specifier: 4.3.3
         version: 4.3.3
       tailwindcss:
-        specifier: ^4.3.3
+        specifier: 4.3.3
         version: 4.3.3
 
 packages:
