@@ -9,6 +9,11 @@ test:
 
 ci: fmt lint test
 
+# Point every intra-workspace path dependency at the current workspace version.
+# The release PR runs this for itself; this recipe is for when it did not.
+sync-versions:
+    ./scripts/sync-workspace-versions.sh
+
 docs:
     cargo build -p tauler-screenshot
     cargo run -p tauler-docgen
