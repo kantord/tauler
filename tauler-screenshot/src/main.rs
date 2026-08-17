@@ -39,7 +39,7 @@ struct Args {
     theme: ThemeMode,
 
     /// Maximum render width in CSS pixels. The final image is this wide (including 16px margins).
-    #[arg(long, default_value_t = 400)]
+    #[arg(long, default_value_t = tauler::preview::WIDTH)]
     width: u32,
 
     /// Device pixel ratio to render at. The image comes out `dpr` times larger, and
@@ -116,22 +116,22 @@ fn main() {
     let mut layout = eval_output.layout;
     resolve_theme_tokens(&mut layout, &theme, args.theme);
 
-    const PAD: u32 = 16;
+    use tauler::preview::{CANVAS_CLASS, FRAME_CLASS, PAD};
     // Large scratch height so auto-crop can handle any component without a pre-measurement pass.
     const CANVAS_H: u32 = 2000;
     let render_w = args.width;
 
-    // Inject a w-full frame wrapper so every component renders at the full content
-    // width (render_w - 2×PAD), giving consistent screenshot widths regardless of
-    // whether the component itself uses w-full.
+    // The frame makes every component render at the full content width, whether or not it
+    // uses `w-full`. Both classes come from `tauler::preview` because the browser has to
+    // build the same canvas to be photographing the same thing.
     let frame = serde_json::json!({
         "type": "div",
-        "class": "w-full flex flex-col",
+        "class": FRAME_CLASS,
         "children": [layout]
     });
     let mut canvas = serde_json::json!({
         "type": "div",
-        "class": "bg-background w-full flex flex-col p-[16px]",
+        "class": CANVAS_CLASS,
         "children": [frame]
     });
     resolve_theme_tokens(&mut canvas, &theme, args.theme);

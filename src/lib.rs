@@ -15,7 +15,7 @@ pub mod windowing;
 // The UI components and the theme layer live in `tauler-core`, which cannot reach x11rb,
 // takumi or rquickjs (ADR 0010, "The third measurement"). Re-exported under their old
 // paths: nothing above this line cares which crate they are compiled in.
-pub use tauler_core::{dom, theme, ui};
+pub use tauler_core::{dom, preview, theme, ui};
 pub mod x11;
 
 pub use render::RenderContext;

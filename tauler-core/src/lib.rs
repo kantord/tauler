@@ -17,6 +17,7 @@
 pub mod dom;
 pub mod flatten;
 pub mod globals;
+pub mod preview;
 pub mod theme;
 pub mod ui;
 

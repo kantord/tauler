@@ -6082,6 +6082,7 @@ dependencies = [
  "image",
  "serde",
  "serde_json",
+ "tauler-core",
  "testcontainers",
 ]
 

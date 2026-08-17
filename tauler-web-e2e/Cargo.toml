@@ -10,6 +10,8 @@ repository.workspace = true
 rust-version.workspace = true
 
 [dependencies]
+# For the preview-canvas constants the crop rule is measured from.
+tauler-core = { path = "../tauler-core" }
 anyhow = "1.0.104"
 image = "0.25.10"
 serde = { version = "1.0.229", features = ["derive"] }

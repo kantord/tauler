@@ -1,19 +1,14 @@
-//! Generating everything the documentation site needs to run a component in a browser.
+//! Everything the documentation site needs to run a component in a browser, all derived:
 //!
-//! Four kinds of artifact, all derived rather than written by hand:
-//!
-//! - **`ui/*.js`** — the ES modules `@ui/card` and friends resolve to, from
-//!   `tauler_core::ui::registry::web_module_sources`. An import map points at them, so a
+//! - **`ui/*.js`** — the ES modules `@ui/*` resolve to. An import map points at them, so a
 //!   layout file's imports work unaltered and the printed example is the one that runs.
-//! - **`examples/*.js`** — each `# JSX` block, wrapped in the same padded canvas
-//!   `tauler-screenshot` wraps it in, then transformed by the same `optative-script` the
-//!   desktop uses. Transforming here rather than in the page is ADR 0025: every example is
-//!   known at build time, so the browser never needs a JSX transformer.
-//! - **`classes.txt`** — every Tailwind utility the resolved trees carry, for Tailwind to
-//!   compile. Harvested rather than scanned, because `theme/resolver.rs` has already
-//!   rewritten `bg-background` into `bg-[#hex]` by the time anything renders.
-//! - **`tailwind.css`** — the stylesheet input: the scoped reset, the fonts, and the
-//!   `@source` line pointing at `classes.txt`.
+//! - **`examples/*.js`** — each `# JSX` block in the screenshot's canvas, transformed by
+//!   the same `optative-script` the desktop uses. Doing it here is ADR 0025: every example
+//!   is known at build time, so the browser needs no JSX transformer.
+//! - **`classes.txt`** — the Tailwind utilities the resolved trees carry. Harvested rather
+//!   than scanned, because `theme/resolver.rs` has already rewritten `bg-background` into
+//!   `bg-[#hex]` by the time anything renders.
+//! - **`tailwind.css`** — the stylesheet input.
 
 use std::collections::BTreeSet;
 use std::fs;
@@ -22,24 +17,13 @@ use std::path::Path;
 
 use crate::Component;
 
-/// The canvas `tauler-screenshot` renders into, as JSX.
-///
-/// Identical to the JSON wrapper in `tauler-screenshot/src/main.rs`, and it has to stay
-/// that way: the crop the browser reproduces is measured from the frame's first child, so
-/// a different wrapper here would compare two different pictures (ADR 0026).
-const CANVAS_CLASS: &str = "bg-background w-full flex flex-col p-[16px]";
-const FRAME_CLASS: &str = "w-full flex flex-col";
-
-/// The width `tauler-screenshot` renders at, and therefore the width the embed is given.
-pub const EMBED_WIDTH: u32 = 400;
+use tauler_core::preview::{CANVAS_CLASS, FRAME_CLASS, WIDTH};
 
 /// A `# JSX` block as the body of a `render` function.
 ///
-/// Two shapes, and which one a block is is decided by whether it says `return`. Most
-/// examples are a bare JSX expression and are wrapped in one; an example that has to show
-/// *where its value comes from* needs statements first, and a control's example does —
-/// ADR 0012 says a control never holds its own value, so an example that did not name a
-/// source would be documenting something the system does not do.
+/// A block that says `return` is used as written; anything else is a bare expression and
+/// gets wrapped. Controls need the first shape: ADR 0012 says a control never holds its own
+/// value, so an example that named no source would document something that does not exist.
 pub fn render_body(jsx_block: &[String]) -> String {
     let body = jsx_block.join("\n");
     if has_return_statement(jsx_block) {
@@ -55,10 +39,8 @@ fn has_return_statement(jsx_block: &[String]) -> bool {
         .any(|line| line.trim_start().starts_with("return "))
 }
 
-/// Wrap an example in a `<dom>` surface and the screenshot canvas.
-///
-/// The `# JSX` block itself is untouched — the wrapper is the harness's, exactly as it is
-/// on the takumi side, so the block stays the thing a reader can paste.
+/// Wrap an example in a `<dom>` surface and the screenshot canvas. The block itself is
+/// untouched, so it stays the thing a reader can paste.
 pub fn build_web_module(imports: &str, jsx_block: &[String]) -> String {
     let body = render_body(jsx_block);
     let wrapped = body.replacen(
@@ -101,11 +83,8 @@ fn module_file_name(specifier: &str) -> String {
     format!("{}.js", specifier.trim_start_matches("@ui/"))
 }
 
-/// The import map that resolves `@ui/*` for the page.
-///
-/// Inlined into the document rather than served as a file, because an import map has to be
-/// in the document before the first module loads — and because that is what lets the
-/// printed example be the one that runs, imports and all.
+/// The import map that resolves `@ui/*`. Inlined, because an import map has to be in the
+/// document before the first module loads.
 pub fn import_map_json() -> String {
     let imports: Vec<String> = tauler_core::ui::registry::web_module_sources()
         .into_iter()
@@ -119,8 +98,7 @@ pub fn import_map_json() -> String {
     format!("{{\n  \"imports\": {{\n{}\n  }}\n}}\n", imports.join(",\n"))
 }
 
-/// The Fragment marker, baked out of `optative-script` so the page's `h` recognises the
-/// same one the transform emits.
+/// The Fragment marker, so the page's `h` recognises the one the transform emits.
 pub fn write_constants(out_dir: &Path) -> io::Result<()> {
     fs::write(
         out_dir.join("constants.js"),
@@ -154,11 +132,10 @@ pub fn write_stylesheet_input(
     fs::write(build_dir.join("tailwind.css"), stylesheet_input(font_url))
 }
 
-/// The stylesheet the documentation site compiles with Tailwind.
+/// The stylesheet input.
 ///
-/// The layer order is load-bearing. Tailwind emits its utilities into `@layer utilities`,
-/// and unlayered CSS beats layered CSS — so the reset has to sit in a layer declared
-/// *below* Tailwind's, or it would win against the utilities it is meant to sit under.
+/// The layer order is load-bearing: Tailwind emits utilities into `@layer utilities` and
+/// unlayered CSS beats layered CSS, so the reset must sit in a layer declared below.
 fn stylesheet_input(font_url: &str) -> String {
     format!(
         r#"/* Generated by tauler-docgen. Do not edit by hand. */
@@ -172,13 +149,13 @@ fn stylesheet_input(font_url: &str) -> String {
    property back to the *user-agent* value — which is the same table `layout::presets`
    vendors, and the one the comparison is meant to be against (ADR 0024). */
 @layer tauler-reset {{
-  .tauler-embed, .tauler-embed * {{ all: revert; }}
+  .tauler-mount, .tauler-mount * {{ all: revert; }}
 }}
 
 /* `all: revert` cannot plug inherited properties: those still arrive from Starlight's
    <body>. They are set explicitly here, to the same values `tauler-screenshot` renders
    with, because they are what the two pictures have to agree about. */
-.tauler-embed {{
+.tauler-mount {{
   font-family: "Inter", sans-serif;
   font-size: 16px;
   font-weight: 400;
@@ -194,7 +171,7 @@ fn stylesheet_input(font_url: &str) -> String {
   max-width: 100%;
 }}
 
-.tauler-embed [data-tauler-on] {{ cursor: pointer; touch-action: none; }}
+.tauler-mount [data-tauler-on] {{ cursor: pointer; touch-action: none; }}
 
 @font-face {{
   font-family: "Inter";
@@ -205,7 +182,7 @@ fn stylesheet_input(font_url: &str) -> String {
   font-display: block;
 }}
 "#,
-        width = EMBED_WIDTH,
+        width = WIDTH,
     )
 }
 

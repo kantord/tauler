@@ -1,27 +1,20 @@
 //! Turning the layout file's tree into markup.
 //!
-//! The counterpart of `tauler::layout::html`, which turns the same tree into takumi
-//! nodes. Where that walk has to build a box model, this one writes tag names and
-//! attributes and lets the browser do the rest — including the presets, which are the
-//! browser's own user-agent stylesheet rather than the table vendored in `layout::presets`
-//! (ADR 0024).
+//! The counterpart of `tauler::layout::html`, which turns the same tree into takumi nodes.
+//! This walk writes tag names and attributes and lets the browser do the rest, presets
+//! included — those come from its own user-agent stylesheet, not from the table vendored in
+//! `layout::presets` (ADR 0024).
 //!
-//! Three things about the output are worth knowing before reading:
+//! Three things about the output:
 //!
-//! **Nothing is resolved here.** `class` is written through verbatim, so the Tailwind is
-//! compiled by Tailwind and the theme tokens were already rewritten upstream by
-//! [`crate::theme::resolver`]. This walk decides no styling at all.
-//!
-//! **Every element carries `data-tauler-path`.** It is the same child-index path
-//! `layout::html` binds handlers to (ADR 0018), which is what lets the geometry check
-//! align the browser's box tree against takumi's `MeasuredNode` tree node for node.
-//! Elements that carry a handler additionally get `data-tauler-on`, so a delegated
-//! listener can find the nearest one with `closest`.
-//!
-//! **Attributes are an allowlist, not a passthrough.** A layout node's props are
-//! arbitrary — `on_click` holds intents, a component's props reach the tree unrecognised
-//! — and writing them all out would put JSON in the DOM and, in the case of anything
-//! beginning with `on`, hand the browser something that looks like an event handler.
+//! - **Nothing is resolved here.** `class` is written verbatim; theme tokens were already
+//!   rewritten by [`crate::theme::resolver`] and Tailwind compiles the rest.
+//! - **Every element carries `data-tauler-path`** — the same child-index path
+//!   `layout::html` binds handlers to (ADR 0018), which is what lets the geometry check
+//!   pair the two box trees. Handler-carrying elements also get `data-tauler-on`, so a
+//!   delegated listener can find the nearest with `closest`.
+//! - **Attributes are an allowlist.** A node's props are arbitrary, and writing them all
+//!   out would put JSON in the DOM and hand the browser things that look like handlers.
 
 use std::fmt::Write as _;
 
@@ -30,17 +23,15 @@ use serde_json::Value;
 
 /// Cap on element nesting.
 ///
-/// The same 32 as `layout::html::MAX_DEPTH`, for a different reason: this walk is not
-/// stack-hungry — it writes into one string — but a tree that is too deep for the
-/// desktop renderer must not quietly succeed on the web. The two limits are the same
-/// number so that a layout either renders in both or fails in both.
+/// The same 32 as `layout::html::MAX_DEPTH`, so a layout either renders in both renderers
+/// or fails in both. This walk is not itself stack-hungry.
 pub const MAX_DEPTH: usize = 32;
 
 /// Tags whose entire subtree is dropped rather than written.
 ///
 /// The same five as `layout::html::DROPPED_TAGS`, and the reason this walk is Rust rather
-/// than a few dozen lines of JavaScript in the page: `script` is on the list, and a second
-/// copy of that list in another language is a security-relevant duplicate (ADR 0024).
+/// than JavaScript in the page: `script` is on the list, and a second copy of it in another
+/// language is a security-relevant duplicate (ADR 0024).
 const DROPPED_TAGS: [&str; 5] = ["head", "meta", "link", "style", "script"];
 
 /// Tags written without a closing tag, per the HTML spec's void-element list.
@@ -49,10 +40,8 @@ const VOID_TAGS: [&str; 14] = [
     "track", "wbr",
 ];
 
-/// Style properties whose numeric values carry no unit.
-///
-/// Everything else gets `px` appended, which is what a bare number means in a layout file
-/// — see the **Logical pixel** entry in `CONTEXT.md`.
+/// Style properties whose numeric values carry no unit. Everything else gets `px` — a bare
+/// number in a layout file is a **Logical pixel**.
 const UNITLESS_PROPERTIES: [&str; 9] = [
     "opacity",
     "z-index",
@@ -71,9 +60,8 @@ const ATTRIBUTES: [&str; 6] = ["id", "class", "src", "alt", "title", "role"];
 /// Props written through only when numeric, as HTML's own presentational attributes.
 const NUMERIC_ATTRIBUTES: [&str; 2] = ["width", "height"];
 
-/// The scheme naming a resource tauler binds for one render. A page has no Wallpaper to
-/// slice, so an `<img>` pointing at one is written without its `src` rather than left to
-/// resolve to a broken image.
+/// A resource tauler binds for one render. A page has no Wallpaper to slice, so such an
+/// `<img>` is written without its `src` rather than left to resolve to a broken image.
 const TAULER_SCHEME: &str = "tauler:";
 
 #[derive(Debug, thiserror::Error, PartialEq)]
@@ -90,9 +78,8 @@ pub enum DomError {
 
 /// What a web render hands back.
 ///
-/// Tagged so that a second kind of output — several surfaces placed in a viewport, say —
-/// is an added variant rather than a breaking change, and so that glue receiving one it
-/// does not recognise can say so instead of reaching for a field that is not there.
+/// Tagged so a second kind of output is an added variant rather than a breaking change, and
+/// so glue meeting one it does not know can say so instead of reaching for a missing field.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(tag = "kind", rename_all = "lowercase")]
 pub enum Output {
@@ -102,8 +89,8 @@ pub enum Output {
 
 /// Render an evaluated layout tree whose root is a `<dom>` shell node.
 ///
-/// A `<root>` wrapper is accepted and unwrapped, since that is what a layout file that
-/// also declares desktop surfaces would produce — but it may hold exactly one `<dom>`.
+/// A `<root>` wrapper is unwrapped, since a layout file that also declares desktop surfaces
+/// produces one — but it may hold exactly one `<dom>`.
 pub fn render_output(root: &Value) -> Result<Output, DomError> {
     let node = unwrap_root(root)?;
     let tag = node
@@ -141,9 +128,8 @@ fn unwrap_root(root: &Value) -> Result<&Value, DomError> {
 
 /// Markup for the children of a Dom surface.
 ///
-/// Paths are numbered as `layout::html::build_tree` numbers them, so that the same path
-/// means the same node in both renderers: a lone child is the root and has an empty path,
-/// and several children are numbered from zero.
+/// Paths are numbered as `layout::html::build_tree` numbers them, so a path means the same
+/// node in both renderers: a lone child is the root and has an empty path.
 fn render_children_of(node: &Value) -> Result<String, DomError> {
     let kids: Vec<&Value> = children_of(node).collect();
     let mut out = String::new();
@@ -171,8 +157,8 @@ fn children_of(node: &Value) -> impl Iterator<Item = &Value> {
 
 /// Write one child, giving it the next sibling index if it produces anything.
 ///
-/// An array child is spliced in at this level rather than nesting, which is what makes
-/// `{items.map(...)}` number its elements as siblings of whatever surrounds it.
+/// An array child is spliced in at this level rather than nesting, so `{items.map(...)}`
+/// numbers its elements as siblings of whatever surrounds them.
 fn write_sibling(
     value: &Value,
     depth: usize,
@@ -308,10 +294,7 @@ fn format_path(path: &[usize]) -> String {
         .join(".")
 }
 
-/// A style object as a CSS declaration list.
-///
-/// Keys arrive camelCased, the way they are written in a layout file's `style={{…}}`, and
-/// leave kebab-cased, the way CSS spells them.
+/// A style object as a CSS declaration list. Keys arrive camelCased and leave kebab-cased.
 fn style_to_css(style: &serde_json::Map<String, Value>) -> String {
     let mut out = String::new();
     for (key, value) in style {
@@ -342,8 +325,8 @@ fn css_value(property: &str, value: &Value) -> Option<String> {
     }
 }
 
-/// `12.0` as `12`, `12.5` as `12.5` — CSS accepts both, but a trailing `.0` in an
-/// attribute makes two otherwise identical renders compare unequal.
+/// `12.0` as `12`. CSS accepts both, but a trailing `.0` makes two identical renders
+/// compare unequal.
 fn trim_float(n: f64) -> String {
     if n.fract() == 0.0 && n.abs() < 1e15 {
         format!("{}", n as i64)

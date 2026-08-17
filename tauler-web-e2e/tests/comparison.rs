@@ -1,24 +1,26 @@
 //! The web renderer, run against the documentation site a reader actually gets.
 //!
-//! Against the built Starlight page rather than a purpose-made harness, deliberately. The
-//! embed's isolation from the site's own CSS is a scoped `all: revert` in a cascade layer
+//! Against the built Starlight page rather than a purpose-made harness, deliberately: the
+//! mount's isolation from the site's CSS is a scoped `all: revert` in a cascade layer
 //! (ADR 0024), and a test page without Starlight's stylesheet would not exercise the one
 //! thing most likely to be wrong about it.
 //!
-//! `#[ignore]` by default, and loud when asked to run — the same arrangement, for the same
-//! reason, as `tauler-e2e` (ADR 0006). These need a built site and a Chrome.
+//! These are not **Scenarios** in `CONTEXT.md`'s sense — there is no fixture, no
+//! reservation and no desktop, and the expected values are derived rather than written by
+//! hand. They are comparisons. `#[ignore]` by default for the reason ADR 0006 gives: they
+//! need a built site and a browser.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use tauler_web_e2e::browser::{read_takumi_boxes, Session};
-use tauler_web_e2e::{compare_geometry, liveness, server::Server};
+use tauler_web_e2e::{
+    compare_geometry, difference, ink_share, rendered_at_all, server::Server, CHANNEL_TOLERANCE,
+};
 
-/// The components run in the browser, and the file each was generated from.
-///
-/// Hand-listed so that a component silently dropping out of the page is a failure rather
-/// than a shorter run. `icon` is absent on purpose: its Nerd Font is resolved through
-/// fontconfig, so the takumi side depends on the host (ADR 0026).
+/// Hand-listed, so a component silently dropping out of the page is a failure rather than
+/// a shorter run. `icon` is absent on purpose: its Nerd Font resolves through fontconfig,
+/// so the takumi side depends on the host (ADR 0026).
 const COMPONENTS: &[&str] = &[
     "badge",
     "card",
@@ -62,9 +64,7 @@ fn takumi_geometry_dir() -> PathBuf {
 
 /// Every box takumi painted must be where the browser puts it, to within a pixel.
 ///
-/// The strict half of ADR 0026. It is expected to be the half that finds things: the
-/// tolerance is not a judgement about how close is close enough, so when it fails the
-/// answer is to understand the disagreement rather than to widen the number.
+/// The gate (ADR 0026).
 #[test]
 #[ignore = "needs a built docs site and a Chrome; run with `just web-e2e`"]
 fn every_box_is_where_takumi_put_it() {
@@ -106,27 +106,28 @@ fn every_box_is_where_takumi_put_it() {
     );
 }
 
-/// Each embed still produces recognisably the picture the committed screenshot holds.
+/// Each mount rendered, and how far its pixels are from the committed screenshot.
 ///
-/// The coarse half of ADR 0026, and the one that catches what the geometry gate cannot: an
-/// embed that renders an empty tree passes every box comparison vacuously, because there
-/// are no boxes to compare.
+/// The liveness half of ADR 0026: it catches what the geometry gate cannot, because a
+/// mount that renders an empty tree passes every box comparison vacuously. The pixel
+/// difference is measured and written out beside the shots, never gated — that is the
+/// "reviewed, not gated" half of ADR 0005, and it is what makes ADR 0026's numbers
+/// reproducible.
 #[test]
 #[ignore = "needs a built docs site and a Chrome; run with `just web-e2e`"]
-fn every_embed_still_renders_its_component() {
+fn every_mount_still_renders_its_component() {
     let server = Server::start(site_dir()).expect("serve the built site");
     let session = Session::launch().expect("launch Chrome");
     session
         .open(&server.url("/components/"))
         .expect("open the components page");
 
-    let diff_dir = workspace_root().join("docs/.tauler/web-shots");
-    std::fs::create_dir_all(&diff_dir).expect("create the output directory");
+    let shots_dir = workspace_root().join("docs/.tauler/web-shots");
+    std::fs::create_dir_all(&shots_dir).expect("create the output directory");
 
     let mut failures = Vec::new();
+    let mut report = String::from("component,pixels_differing,mean_channel_delta,ink_ratio\n");
     for component in COMPONENTS {
-        // Isolated first: an embed left where the prose puts it lands at a fractional
-        // offset, and the capture then slices every row mid-pixel. See `Session::isolate`.
         session
             .isolate(component)
             .unwrap_or_else(|e| panic!("pinning {component}: {e}"));
@@ -136,9 +137,7 @@ fn every_embed_still_renders_its_component() {
         let png = session
             .screenshot_clip(clip, 1.0)
             .unwrap_or_else(|e| panic!("screenshotting {component}: {e}"));
-        // Written whatever the outcome: the fine-grained difference goes in front of a
-        // person rather than into a threshold (ADR 0005, and ADR 0026 after it).
-        std::fs::write(diff_dir.join(format!("{component}.png")), &png).expect("write the shot");
+        std::fs::write(shots_dir.join(format!("{component}.png")), &png).expect("write the shot");
         session
             .restore(component)
             .unwrap_or_else(|e| panic!("restoring {component}: {e}"));
@@ -150,21 +149,30 @@ fn every_embed_still_renders_its_component() {
             .unwrap_or_else(|e| panic!("opening the committed {component} screenshot: {e}"))
             .into_rgba8();
 
-        if let Err(why) = liveness(&browser, &takumi) {
+        let diff = difference(&browser, &takumi);
+        let ink = ink_share(&browser, CHANNEL_TOLERANCE) / ink_share(&takumi, CHANNEL_TOLERANCE);
+        report.push_str(&format!(
+            "{component},{:.4},{:.2},{ink:.3}\n",
+            diff.share, diff.mean
+        ));
+        if let Err(why) = rendered_at_all(&browser, &takumi) {
             failures.push(format!("{component}: {why}"));
         }
     }
 
+    std::fs::write(shots_dir.join("difference.csv"), &report).expect("write the report");
+    println!("{report}");
+
     assert!(
         failures.is_empty(),
-        "{} embed(s) are not the picture the screenshot holds:\n  {}\nShots written to {}",
+        "{} mount(s) did not render:\n  {}\nShots and difference.csv written to {}",
         failures.len(),
         failures.join("\n  "),
-        diff_dir.display()
+        shots_dir.display()
     );
 }
 
-/// The happy path, stated on its own so a total failure to run says so plainly rather than
+/// The happy path, stated on its own so a total failure says so plainly rather than
 /// arriving as a hundred box discrepancies.
 #[test]
 #[ignore = "needs a built docs site and a Chrome; run with `just web-e2e`"]
@@ -181,7 +189,7 @@ fn the_page_runs_every_component_in_the_browser() {
             .unwrap_or_else(|e| panic!("{component} did not render: {e}"));
         assert!(
             boxes.len() > 1,
-            "{component} rendered {} node(s); the embed is empty or the layout threw",
+            "{component} rendered {} node(s); the mount is empty or the layout threw",
             boxes.len()
         );
     }
@@ -209,9 +217,6 @@ fn dragging_the_slider_moves_the_value_through_a_transport() {
     session
         .open(&server.url("/components/"))
         .expect("open the components page");
-    // Isolated, for the same reason the capture is: at this window width the embed sits at
-    // page x = 0, underneath Starlight's sidebar, and a pointer aimed at the track hits the
-    // sidebar instead. See `Session::isolate`.
     session.isolate("slider").expect("isolate the slider");
 
     let before = session

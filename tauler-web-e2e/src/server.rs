@@ -1,10 +1,9 @@
 //! A static file server for the built documentation site.
 //!
-//! Written out rather than pulled in because the requirements are unusually specific and
-//! unusually small: ES modules and wasm are both fetched with a MIME check the browser
-//! will not negotiate over, and a wrong `Content-Type` on either fails the page with an
-//! error that reads like a bug in the renderer. Sixty lines that get those two headers
-//! right are worth more than a dependency that gets a hundred others right too.
+//! Written out rather than pulled in because the requirement is small and specific: a
+//! browser will not negotiate over the MIME type of an ES module or a wasm binary, and a
+//! wrong `Content-Type` on either fails the page with an error that reads like a renderer
+//! bug.
 
 use std::io::{BufRead, BufReader, Write};
 use std::net::{TcpListener, TcpStream};
@@ -79,8 +78,7 @@ fn serve_one(mut stream: TcpStream, root: &Path) -> std::io::Result<()> {
 
 /// Map a request path to a file under `root`, refusing anything that climbs out.
 ///
-/// A directory resolves to its `index.html`, which is what Astro's built output needs:
-/// the components page is `components/index.html` and is linked as `/components/`.
+/// A directory resolves to its `index.html`, which is what Astro's output needs.
 fn resolve(root: &Path, target: &str) -> Option<PathBuf> {
     let relative = Path::new(target.trim_start_matches('/'));
     if relative
@@ -97,9 +95,15 @@ fn resolve(root: &Path, target: &str) -> Option<PathBuf> {
     candidate.is_file().then_some(candidate)
 }
 
-/// The two that matter are `.js` and `.wasm`: a browser refuses an ES module served as
-/// anything but a JavaScript type, and rejects streaming instantiation of a wasm module
-/// that is not `application/wasm`.
+fn reason_for(status: u16) -> &'static str {
+    if status == 200 {
+        "OK"
+    } else {
+        "Not Found"
+    }
+}
+
+/// `.js` and `.wasm` are the two that matter — see the module docs.
 fn content_type(path: &Path) -> &'static str {
     match path.extension().and_then(|e| e.to_str()) {
         Some("html") => "text/html; charset=utf-8",
@@ -122,9 +126,10 @@ fn respond(
     content_type: &str,
     body: &[u8],
 ) -> std::io::Result<()> {
+    let reason = reason_for(status);
     write!(
         stream,
-        "HTTP/1.1 {status} OK\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+        "HTTP/1.1 {status} {reason}\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
         body.len()
     )?;
     stream.write_all(body)?;
@@ -148,6 +153,11 @@ mod tests {
     #[test]
     fn a_path_climbing_out_of_the_root_is_refused() {
         assert_eq!(resolve(Path::new("/srv"), "/../etc/passwd"), None);
+    }
+
+    #[test]
+    fn a_missing_file_says_not_found() {
+        assert_eq!(reason_for(404), "Not Found");
     }
 
     #[test]

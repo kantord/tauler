@@ -2,9 +2,9 @@
 
 The web renderer is checked against the committed component screenshots by two different
 instruments. Every element's box, measured with `getBoundingClientRect()`, must agree with
-takumi's `measure_layout_frame` to within a logical pixel — that gate is strict and it
-fails the build. The image comparison is a coarse liveness bar only; the fine-grained diff
-is published for a person to look at.
+takumi's to within a logical pixel — that gate is strict and it fails the build. The second
+check asks only whether the component rendered at all; the measured difference is written
+out for a person to look at.
 
 ## Why not simply gate the image
 
@@ -31,10 +31,16 @@ This is 0005's own conclusion — "what is gated is the structure, not the pixel
 by the same reasoning at a different layer. There the structure was i3's reported gaps and
 the X server's window geometry; here it is the box tree.
 
-The machinery is nearly free. `measure_layout_frame` returns a `MeasuredNode` tree with
-transforms and sizes; the walk already emits `data-tauler-path` for click delegation
-([0018](0018-clicks-bind-by-render-path.md)); aligning two trees by that key is a few dozen
-lines. When it fails it names the node and the axis, which no image diff can do.
+The machinery is nearly free. `hit_test::painted_boxes` walks takumi's scene and hands back
+a box per render path; `layout::dom` already emits that same path as `data-tauler-path` for
+click delegation ([0018](0018-clicks-bind-by-render-path.md)); pairing them is a lookup.
+When it fails it names the node and the axis, which no image diff can do.
+
+The *measured* tree is deliberately not used, for 0018's reason: takumi replaces a node's
+measured children with flat inline boxes wherever it holds inline content, so the measured
+tree stops describing the layout tree's shape as soon as an element contains text. The
+consequence is that inline elements have no box to compare — a `<span>` inside a paragraph
+is checked only through the block that contains it.
 
 ## Why there is a second, coarse check at all
 
@@ -84,33 +90,44 @@ someone looks at the published diff.** That is the same trade 0005 accepted, mad
 deliberately again.
 
 **The geometry gate was expected to fail on first run, on text advance width. It did not.**
-parley and Blink agree about every box in all seven components to within a pixel, including
-the text-bearing ones — which is a stronger result than this decision was written to expect,
-and the reason to keep the tolerance where it is rather than relax it now that it is known
-to be achievable.
+parley and Blink agree about every box takumi paints, in all seven components, to within a
+pixel — including the blocks that contain text, though not inline elements, which takumi
+gives no box of their own. A stronger result than this decision expected, and the reason to
+keep the tolerance where it is now that it is known to be achievable.
 
-What the pixel comparison does show, once the capture itself is honest, is that the
-remaining difference tracks text density exactly: components with little or no text agree to
-within about one part in 255 on average (`knob` 0.86, `slider` 1.23, `progress` 1.25), and
-the text-heavy ones do not (`datatable` 13.19). That residual is glyph rasterization —
-parley and skrifa against Skia — and it is not something a threshold should be asked to
-have an opinion about.
+What the pixel comparison does show, once the capture is honest, is that the residual is
+entirely glyph rasterization. On the pinned browser, mean per-channel difference against the
+committed screenshots:
+
+| `progress` | `badge` | `slider` | `knob` | `table` | `card` | `datatable` |
+|---|---|---|---|---|---|---|
+| 1.26 | 6.15 | 11.77 | 20.21 | 56.09 | 69.68 | 76.75 |
+
+It orders by text density, and `progress` — which draws two bars and no glyphs — is within
+one part in 255. The suite writes this table to `docs/.tauler/web-shots/difference.csv` on
+every run, so the numbers are reproducible rather than quoted.
+
+The **pinned** browser is the qualifier that matters. The same measurement against a
+development machine's own Chrome gives `card` 6.8 rather than 69.7 — an order of magnitude
+apart, with the ink ratios identical to three decimals, so the two browsers draw the same
+shapes and fill the glyphs differently. That is the whole argument for the pinned image
+restated as a measurement: a number from an unpinned browser is not a number about tauler.
 
 **Making the capture honest took three fixes, all found by measurement**, and they are
 recorded in `tauler-web-e2e/src/browser.rs` because each one produced a difference that
-reads exactly like a renderer disagreement and is nothing of the kind: an embed at a
+reads exactly like a renderer disagreement and is nothing of the kind: a mount at a
 fractional page offset (every row sliced mid-pixel, a uniform ~12/255 everywhere), a pinned
-embed painted underneath the site's header (`z-index` cannot escape an ancestor's stacking
+mount painted underneath the site's header (`z-index` cannot escape an ancestor's stacking
 context), and `captureBeyondViewport` re-laying-out the page so the clip no longer matched
 what was measured.
 
 **The browser runs in a container with a pinned Chrome**, for the reason
 [0004](0004-e2e-builds-tauler-inside-the-image.md) gives about glibc: a threshold measured
-against an unpinned Chrome means nothing the next time Chrome updates. The scenarios are
+against an unpinned Chrome means nothing the next time Chrome updates. The comparisons are
 `#[ignore]` by default, per [0006](0006-e2e-scenarios-are-ignored-by-default.md).
 
 **There is one baseline, not two.** The committed `docs/src/assets/*.png` gain a second
 producer rather than a counterpart, so there is no second set of golden images to keep in
 step. takumi is host-independent enough for that to hold; `<Icon>` is not, because
 `append_symbol_fallback` resolves its font through fontconfig, and it is excluded from the
-web embed for that reason.
+web preview for that reason.

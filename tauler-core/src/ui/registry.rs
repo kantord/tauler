@@ -1,21 +1,14 @@
 //! Which components exist, and how each one reaches a JavaScript realm.
 //!
-//! There are two realms and therefore two tables. [`UI_COMPONENTS`] is the QuickJS one and
-//! is handed straight to `optative-script`; [`WEB_COMPONENTS`] is the browser one and is
-//! read by the build step that generates the page's ES-module shims (ADR 0025).
-//!
-//! They are hand-listed rather than collected, because Rust has no way to enumerate items
-//! carrying an attribute. `web_table_matches_quickjs_table` is what stops the two lists
-//! drifting apart.
+//! Two realms, two tables: [`UI_COMPONENTS`] goes to `optative-script`, [`WEB_COMPONENTS`]
+//! to the build step that generates the page's ES modules (ADR 0025). Both are hand-listed
+//! because Rust cannot enumerate items carrying an attribute, and
+//! `web_table_matches_quickjs_table` is what stops them drifting.
 
 #[cfg(feature = "quickjs")]
 pub use optative_script::EsEntry;
 
 /// One component, as the browser needs to know it.
-///
-/// The Rust half arrives as a `#[wasm_bindgen]` export named `global_name` (or, for a
-/// shimmed component, named by the shim's own call into it). `shim_js` is evaluated in the
-/// page after the exports are assigned, and is the same source the QuickJS side evaluates.
 pub struct WebComponent {
     pub module_path: &'static str,
     pub export_name: &'static str,
@@ -75,12 +68,8 @@ const fn web(
     }
 }
 
-/// The JavaScript that must run once, after the wasm exports are on `globalThis` and
-/// before any layout module is imported.
-///
-/// Only the shims. Each one is the same source the QuickJS side evaluates — a shim exists
-/// because `on_change` has to be resolved in JavaScript before Rust sees any props, and
-/// that argument does not change with the engine.
+/// The shims, run once after the wasm exports are on `globalThis` and before any layout
+/// module is imported. The same source the QuickJS side evaluates.
 pub fn web_bootstrap_js() -> String {
     WEB_COMPONENTS
         .iter()
@@ -91,11 +80,9 @@ pub fn web_bootstrap_js() -> String {
 
 /// The ES modules `@ui/*` resolve to in a browser, as `(specifier, source)`.
 ///
-/// One module per `module_path`, exporting every component declared under it, so a layout
-/// file's `import { Card, CardHeader } from "@ui/card"` works unaltered. This is the same
-/// shape `optative-script::synthetic_module_source_for_entries` synthesises for QuickJS,
-/// written out as files instead of resolved in memory — a page has no module loader to
-/// hook, only an import map.
+/// One per `module_path`, so a layout file's `import { Card } from "@ui/card"` works
+/// unaltered. The same shape `optative-script` synthesises for QuickJS, written as files
+/// because a page has no module loader to hook — only an import map.
 pub fn web_module_sources() -> Vec<(String, String)> {
     let mut modules: Vec<&'static str> = WEB_COMPONENTS.iter().map(|c| c.module_path).collect();
     modules.sort_unstable();
