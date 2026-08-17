@@ -78,7 +78,7 @@ serde_yaml = "0.9.34"
 # requirement admits one, so a stale floor silently verifies `tauler` against
 # the *published* macro. That is invisible until the two disagree — which is
 # exactly what happened when the macro stopped hard-coding its tag list.
-tauler-ui-macro = { path = "tauler-ui-macro", version = "0.1.5" }
+tauler-ui-macro = { path = "tauler-ui-macro", version = "0.1.6" }
 optative = "=0.1.4"
 optative-process-pool = "=0.0.9"
 optative-derive = "=0.0.4"
