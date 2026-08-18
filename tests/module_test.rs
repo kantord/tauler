@@ -47,11 +47,12 @@ fn module_receives_event_on_stdin() {
 
 #[test]
 fn module_can_read_init_event_fields() {
+    // One `python3`, not two. On the macOS runners `/usr/bin/python3` is the Xcode
+    // command-line-tools shim, and a cold start of it costs seconds -- two of them
+    // in series is what made this the only test in the file that timed out there.
     let script = r#"
         read -r line
-        output=$(echo "$line" | /usr/bin/python3 -c "import sys,json; d=json.load(sys.stdin); print(d['output'])")
-        width=$(echo "$line" | /usr/bin/python3 -c "import sys,json; d=json.load(sys.stdin); print(d['config']['width'])")
-        echo "$output:$width"
+        echo "$line" | /usr/bin/python3 -c 'import sys, json; d = json.load(sys.stdin); print("%s:%s" % (d["output"], d["config"]["width"]))'
     "#;
     let m = spawn_module("/bin/bash", Some(script));
     m.send_event(&serde_json::json!({
@@ -59,6 +60,6 @@ fn module_can_read_init_event_fields() {
         "output": "DP-1",
         "config": {"width": 200}
     }));
-    let line = m.rx.recv_timeout(Duration::from_secs(5)).unwrap();
+    let line = m.rx.recv_timeout(Duration::from_secs(30)).unwrap();
     assert_eq!(line, "DP-1:200");
 }

@@ -69,7 +69,12 @@ jobs:
     runs-on: ubuntu-latest
     needs:
       - release-plz-release
-    if: ${{ github.repository_owner == 'kantord' }}
+    # `needs` orders this after the release job, but deliberately does not gate on it
+    # succeeding. A publish failure is very often fixable only by the next version --
+    # a stale published dependency that a bump would resolve, say -- and gating here
+    # meant the one job that opens that bump's PR could never run. Ordering is what is
+    # wanted; a hard dependency was a deadlock.
+    if: ${{ always() && github.repository_owner == 'kantord' }}
     permissions:
       contents: write
       pull-requests: write
