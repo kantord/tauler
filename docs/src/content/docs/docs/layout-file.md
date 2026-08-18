@@ -44,7 +44,7 @@ Layout nodes describe content and get rasterized. **They are HTML elements** —
 </div>
 ```
 
-[Elements and styling](/elements/) covers which tags exist, what each one's
+[Elements and styling](/docs/elements/) covers which tags exist, what each one's
 default styling is, and how `class` and `style` apply.
 
 Shell nodes describe structure and never reach the rasterizer. They are the only
@@ -75,7 +75,7 @@ spellings. A bare `<surface>` names no kind and is a parse error.
 
 `anchor` *places* a panel. It does not reserve space for it, and a window manager will
 happily tile other windows underneath. Reserving space is a separate decision — see
-[Screen layout](/layout/).
+[Screen layout](/docs/layout/).
 
 ## `<wallpaper>` props
 

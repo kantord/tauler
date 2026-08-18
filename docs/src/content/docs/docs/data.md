@@ -363,7 +363,7 @@ props — that payload is the module protocol, not user-editable state.
 `tauler-i3` reads its `gaps` this way. Every side is declared rather than derived; an
 omitted side reserves nothing, and outputs with no panel are revoked to zero regardless.
 The values are logical pixels and reach i3 untouched — see
-[Screen layout](/layout/).
+[Screen layout](/docs/layout/).
 
 ```jsx
 <Module bin="~/.cargo/bin/tauler-i3" gaps={{ left: 300, top: 8 }}>
