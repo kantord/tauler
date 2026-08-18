@@ -12,6 +12,7 @@
     "build:css": "tailwindcss -i .tauler/tailwind.css -o public/tauler/tauler.css && node scripts/check-classes.mjs",
     "test": "playwright test",
     "test:update": "playwright test --update-snapshots",
+    "test:update:baselines": "bash scripts/update-snapshots.sh",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "check": "astro check && node scripts/check-class-layers.ts"

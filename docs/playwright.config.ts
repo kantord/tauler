@@ -21,11 +21,14 @@ export default defineConfig({
   },
   expect: {
     toHaveScreenshot: {
-      // The flow field is seeded and deterministic and the browser is
-      // pinned, so snapshots reproduce exactly. A near-zero budget: a 1%
-      // ratio was once loose enough to wave through a full copy rewrite
-      // on desktop viewports.
-      maxDiffPixels: 64,
+      // The flow field is seeded and the browser is pinned, but font
+      // hinting/antialiasing still varies by host OS even on identical
+      // Chromium builds — measured at 124-141px between a bare-metal dev
+      // machine and the mcr.microsoft.com/playwright:v1.62.1-noble image
+      // CI actually runs (see "Updating baselines" below). 300 comfortably
+      // covers that drift while staying far below the ~1% (thousands of
+      // pixels) a real content or layout regression moves.
+      maxDiffPixels: 300,
     },
   },
   projects: breakpoints.map(({ name, viewport }) => ({
