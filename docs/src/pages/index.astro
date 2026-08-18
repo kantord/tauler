@@ -15,7 +15,7 @@ import '../styles/tokens.css'
     <title>tauler</title>
     <meta
       name="description"
-      content="Declarative control surface for your whole desktop. One .jsx file declares the panels, the space they reserve, and what every control does."
+      content="A status bar for Linux whose layout is written as a .jsx file. The file returns a tree of panels; tauler renders it into X11 or Wayland windows."
     />
     <link
       rel="preload"
@@ -45,13 +45,12 @@ import '../styles/tokens.css'
       <main class="stage">
         <canvas id="field" aria-hidden="true"></canvas>
         <div class="hero">
-          <p class="caps-label">DECLARATIVE CONTROL SURFACE FOR YOUR WHOLE DESKTOP</p>
-          <h1 class="display">Declare the desk.<br />Drive everything.</h1>
+          <p class="caps-label">PANELS · WALLPAPER · NOTIFICATIONS · ONE .jsx FILE</p>
+          <h1 class="display">A status bar.<br />The layout is JSX.</h1>
           <p class="body">
-            One <code>.jsx</code> file declares the panels, the space they
-            reserve, and what every control does. If a thing on your system
-            speaks an IPC or reads a config file, it belongs in that file —
-            window manager, audio graph, backlight, player, notifications.
+            One <code>.jsx</code> file returns a tree of panels. tauler
+            evaluates it on every data tick and renders the result into X11
+            or Wayland windows. Data comes from your scripts.
           </p>
           <div class="command-line">
             <span class="prompt">$</span> cargo install tauler
@@ -72,7 +71,7 @@ import '../styles/tokens.css'
       </main>
 
       <footer class="statement">
-        <p class="display-md">Bring the scripts. Leave the config format.</p>
+        <p class="display-md">No component state, no effects, no lifecycle. Closer to a spreadsheet than to React.</p>
       </footer>
     </div>
 
@@ -177,7 +176,10 @@ import '../styles/tokens.css'
 
       .hero {
         position: relative;
-        max-width: var(--col-major);
+        /* Wider than --col-major: with no right-hand panel column on this
+           cut, the display line owns the stage width. Body keeps its own
+           42ch measure. */
+        max-width: 1080px;
         padding: 96px var(--space-8) 104px;
         display: flex;
         flex-direction: column;
