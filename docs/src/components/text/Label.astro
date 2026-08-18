@@ -1,5 +1,7 @@
 ---
 // Caps label — the machine-flavoured workhorse. Separator is always "·".
+// No `uppercase` transform: caps are typed, so user-typed strings like
+// `.jsx` keep their real casing (a design rule, not an accident).
 ---
 
-<p class="above-fold font-ui text-label text-ink-4 uppercase"><slot /></p>
+<p class="above-fold font-ui text-label text-ink-4"><slot /></p>

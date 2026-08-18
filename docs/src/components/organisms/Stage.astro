@@ -1,6 +1,7 @@
 ---
 // The wallpaper surface. Owns the generative flow field: one canvas,
 // drawn once, decorative, absent without JavaScript.
+import PageWidth from '../ui/PageWidth.astro'
 ---
 
 <main
@@ -8,7 +9,7 @@
 >
   <canvas id="field" class="absolute inset-0 h-full w-full" aria-hidden="true"
   ></canvas>
-  <slot />
+  <PageWidth><slot /></PageWidth>
 </main>
 
 <script>
@@ -18,17 +19,26 @@
   const stage = canvas.parentElement as HTMLElement
 
   /* Draw once; repaint only on width change, debounced ≥200ms
-     (height-only changes are ignored — mobile browser chrome). */
+     (height-only changes are ignored — mobile browser chrome).
+     The design mandates a 2× backing store — hairline art aliases at 1× —
+     but 2× of a 4K viewport is a ~125MB canvas, so the scale backs off
+     just enough to cap the store at ~48MB on very large screens. */
   let lastW = 0
   function paint(): void {
     const w = stage.clientWidth
     if (w === lastW) return
     lastW = w
-    canvas.width = w * 2
-    canvas.height = stage.clientHeight * 2
-    drawField(canvas, 'flow', '#F0855A', 0)
+    const h = stage.clientHeight
+    const scale = Math.min(2, Math.sqrt(12_000_000 / (w * h)))
+    canvas.width = Math.round(w * scale)
+    canvas.height = Math.round(h * scale)
+    // Hex because the canvas parses it into RGB; the token (--color-accent)
+    // is oklch, which parseInt can't read. Keep in sync with global.css.
+    drawField(canvas, 'flow', '#F0855A', 0, scale)
   }
-  paint()
+  /* Off the critical path: first paint waits for a frame so LCP text
+     renders before ~90K line segments hit the main thread. */
+  requestAnimationFrame(paint)
   let t: ReturnType<typeof setTimeout>
   addEventListener('resize', () => {
     clearTimeout(t)

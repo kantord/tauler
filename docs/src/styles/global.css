@@ -60,14 +60,11 @@
   --color-ink-2: oklch(0.88 0.01 265);
   --color-ink-3: oklch(0.74 0.01 265);
   --color-ink-4: oklch(0.62 0.01 265);
-  --color-ink-5: oklch(0.56 0.01 265);
   --color-code: oklch(0.94 0.006 265);
 
   /* Hairlines. Four weights, no more. */
   --color-line-1: oklch(1 0 0 / 0.11);
   --color-line-2: oklch(1 0 0 / 0.16);
-  --color-line-3: oklch(1 0 0 / 0.2);
-  --color-line-4: oklch(1 0 0 / 0.34);
 
   /* Accent-1 (flow field). The other five workspace accents return with
      the full scroll-story page. Text on an accent fill is accent-ink,
@@ -92,13 +89,11 @@
   --color-gray-900: oklch(0.13 0.008 265);
 
   /* Spacing scale from the design package (s = "step") */
-  --spacing-s1: 2px;
   --spacing-s2: 5px;
   --spacing-s3: 9px;
   --spacing-s4: 16px;
   --spacing-s5: 22px;
   --spacing-s6: 26px;
-  --spacing-s7: 34px;
   --spacing-s8: 44px;
   --spacing-panel: 48px;
   --spacing-footer: 80px;
@@ -106,6 +101,7 @@
   /* Long-measure cap for body text */
   --container-measure: 42ch;
   --container-hero: 1080px;
+  --container-page: 1600px;
 }
 
 /* Squeezed viewports: narrow phones or short laptops — the hero drops a
@@ -114,6 +110,11 @@
 @custom-variant short (@media (max-height: 500px));
 
 @layer base {
+  /* The design has no light theme; dark scrollbars and form chrome. */
+  :root {
+    color-scheme: dark;
+  }
+
   /* Radius is 0 everywhere. Sharp corners are the visual argument. */
   * {
     margin: 0;

@@ -8,6 +8,16 @@ import mermaid from 'astro-mermaid'
 export default defineConfig({
   // Served from a custom domain at the root, so no `base` prefix.
   site: 'https://tauler.dev',
+  // The docs moved from the site root to /docs when the landing page took
+  // over `/`; published links to the old URLs must keep resolving.
+  redirects: {
+    '/layout-file/': '/docs/layout-file/',
+    '/elements/': '/docs/elements/',
+    '/data/': '/docs/data/',
+    '/layout/': '/docs/layout/',
+    '/components/': '/docs/components/',
+    '/macos/': '/docs/macos/',
+  },
   integrations: [
     // Must come before starlight so it can transform ```mermaid code blocks
     // before Starlight's syntax highlighting. Renders client-side.

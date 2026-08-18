@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test'
+import AxeBuilder from '@axe-core/playwright'
 
 // The landing page marks everything that must be visible before the fold —
 // without scrolling or any other action — with the `above-fold` class.
@@ -27,4 +28,14 @@ test('every above-fold element is visible without scrolling', async ({
 
 test('visual regression', async ({ page }) => {
   await expect(page).toHaveScreenshot('landing.png')
+})
+
+test('no automatically detectable accessibility violations', async ({
+  page,
+}) => {
+  const results = await new AxeBuilder({ page }).analyze()
+  expect(
+    results.violations,
+    JSON.stringify(results.violations, null, 2),
+  ).toEqual([])
 })

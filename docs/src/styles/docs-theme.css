@@ -3,11 +3,11 @@
    locked to dark via the ThemeProvider/ThemeSelect component overrides. */
 
 :root {
-  --sl-color-bg-nav: oklch(0.145 0.008 265);
-  --sl-color-bg-sidebar: oklch(0.145 0.008 265);
-  --sl-color-bg-inline-code: oklch(0.22 0.01 265);
-  --sl-color-hairline-light: oklch(1 0 0 / 0.16);
-  --sl-color-hairline: oklch(1 0 0 / 0.11);
+  --sl-color-bg-nav: var(--color-surface-frame);
+  --sl-color-bg-sidebar: var(--color-surface-frame);
+  --sl-color-bg-inline-code: var(--color-surface-control);
+  --sl-color-hairline-light: var(--color-line-2);
+  --sl-color-hairline: var(--color-line-1);
 }
 
 /* Display type: Martian Mono 500, tracked negative because mono runs wide */

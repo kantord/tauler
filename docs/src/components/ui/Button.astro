@@ -11,8 +11,8 @@ const { href, variant = 'dark' } = Astro.props
 
 const skin =
   variant === 'accent'
-    ? 'bg-accent text-accent-ink font-semibold hover:brightness-[1.06]'
-    : 'bg-surface-control text-ink-1 hover:bg-surface-control-hover'
+    ? 'bg-accent text-accent-ink font-semibold hover:brightness-[1.06] active:brightness-95'
+    : 'bg-surface-control text-ink-1 hover:bg-surface-control-hover active:brightness-90'
 ---
 
 <a
