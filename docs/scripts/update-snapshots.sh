@@ -1,17 +1,19 @@
 #!/usr/bin/env bash
-# Runs the Playwright visual-regression suite inside the same
-# mcr.microsoft.com/playwright image CI runs — font hinting and
-# antialiasing differ enough across host OSes that baselines generated on
-# a bare-metal dev machine can fail in CI (and vice versa) by 100+ pixels
-# even with an identical pinned Chromium build. `pnpm test` on a plain dev
-# machine is fine for the other suites (above-fold, overflow, a11y), but
-# don't trust its visual-regression verdict; use this instead. See
-# playwright.config.ts and ADR 0031.
+# Runs the Playwright suite inside the exact mcr.microsoft.com/playwright
+# image CI's `container:` field pins (docs-ci.yaml) — font hinting and
+# antialiasing differ enough across host OSes that a bare dev machine's
+# verdict on `toHaveScreenshot` cannot be trusted (ADR 0031). `pnpm test`
+# on a plain machine is fine for the other suites (above-fold, overflow,
+# a11y), but not for visual regression; use this instead, both to check
+# and to regenerate baselines — CI and this script are now the same
+# environment, so what passes here passes there.
 #
-# --check verifies the committed baselines (docs/test:docker). No flag
-# regenerates them (docs/test:update:baselines).
+# --update regenerates the committed baselines. No flag just verifies them
+# (what CI does).
 #
-# Keep the tag in sync with the @playwright/test version in package.json.
+# The image tag is derived from @playwright/test, so it can't drift from
+# the npm package on its own; renovate.json groups it with the tag
+# hardcoded in docs-ci.yaml's `container:` field so those two stay in sync.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -19,7 +21,7 @@ PLAYWRIGHT_VERSION=$(node -e "console.log(require('@playwright/test/package.json
 IMAGE="mcr.microsoft.com/playwright:v${PLAYWRIGHT_VERSION}-noble"
 
 TEST_CMD='pnpm exec playwright test'
-if [ "${1:-}" != '--check' ]; then
+if [ "${1:-}" = '--update' ]; then
   TEST_CMD='pnpm exec playwright test --update-snapshots'
 fi
 

@@ -19,12 +19,32 @@ browser is Playwright's own pinned Chromium on every machine" is true of
 the binary but not of the pixels it produces. A pinned Chromium still
 renders through the host OS's font hinting and rasterizer, and CI first
 failed on baselines generated on a bare-metal dev machine — 124 to 141
-pixels different per breakpoint, on every single one, with no code change
-between the passing local run and the failing CI run. Baselines are now
-generated inside `mcr.microsoft.com/playwright:v<version>-noble` — the
-same image CI's `--with-deps chromium` install effectively matches — via
-`pnpm run test:update:baselines` (`docs/scripts/update-snapshots.sh`), not
-bare `playwright test --update-snapshots`. `maxDiffPixels` moved from 64 to
-300: still two orders of magnitude below what a real content or layout
-regression moves, but wide enough to absorb the measured host-rendering
-drift.
+pixels different per breakpoint, with no code change between the passing
+local run and the failing CI run.
+
+The fix took three tries. First guess: raise `maxDiffPixels` from 64 to
+300 to cover the measured drift — CI still failed, now by 390-470 pixels,
+because a bare-metal dev machine isn't the only thing that renders
+differently from CI; it just happened to be the first one measured.
+Second guess: generate baselines inside
+`mcr.microsoft.com/playwright:v<version>-noble` and treat that as close
+enough to CI's `ubuntu-latest` + `playwright install --with-deps
+chromium` — CI *still* disagreed with it. A container that merely
+resembles CI's environment isn't CI's environment; `ubuntu-latest` plus
+an install step is its own third thing, distinct from both a bare dev
+machine and the official image.
+
+The fix that stuck removes the comparison entirely: `docs-ci.yaml`'s
+`test` job now runs *inside* `mcr.microsoft.com/playwright:v<version
+>-noble` via the job-level `container:` field, instead of on
+`ubuntu-latest` with a browser installed alongside it. CI and
+`docs/scripts/update-snapshots.sh` run the identical image and the
+identical command, so there is no second environment left to drift from
+a first — baselines are generated and committed from a local run of that
+script. `renovate.json` groups `@playwright/test` with the
+`mcr.microsoft.com/playwright` image tag so a version bump can't
+reintroduce the gap between the two places that name a version. What's
+left is not zero: two runs of the same container image on different
+physical CPUs can still round floating-point rasterizer math a few pixels
+apart. `maxDiffPixels` stayed at 300 to absorb that, not the
+hundred-pixel class of drift the first two tries were fighting.
