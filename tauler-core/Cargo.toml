@@ -34,7 +34,7 @@ optative-script = { version = "=0.0.9", optional = true }
 # Pinned exactly: the `wasm-bindgen` CLI refuses to process a module built against a
 # different version of the crate, so the two are one version number in two places.
 # CI installs `wasm-bindgen-cli` at this same version.
-wasm-bindgen = "=0.2.126"
+wasm-bindgen = "=0.2.127"
 serde-wasm-bindgen = "0.6.5"
 
 [dev-dependencies]

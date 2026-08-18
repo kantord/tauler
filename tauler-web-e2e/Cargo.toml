@@ -20,4 +20,4 @@ serde_json = "1.0.151"
 # explicit scale, which is what reproducing `tauler-screenshot`'s crop needs; WebDriver's
 # element screenshot gives less control. Blocking rather than async because the workspace
 # has no tokio outside `tauler-notify`, and a test harness is no reason to add one.
-headless_chrome = "1.0.19"
+headless_chrome = "1.0.22"
