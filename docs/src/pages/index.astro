@@ -35,8 +35,8 @@ import '../styles/tokens.css'
   <body>
     <div class="frame">
       <header class="panel-bar">
-        <span class="wordmark">TAULER</span>
-        <nav class="panel-nav">
+        <span class="wordmark above-fold">TAULER</span>
+        <nav class="panel-nav above-fold">
           <a href="/docs/">DOCS</a>
           <a href="https://github.com/kantord/tauler">GITHUB</a>
         </nav>
@@ -45,19 +45,19 @@ import '../styles/tokens.css'
       <main class="stage">
         <canvas id="field" aria-hidden="true"></canvas>
         <div class="hero">
-          <p class="caps-label">PANELS · WALLPAPER · NOTIFICATIONS · ONE .jsx FILE</p>
-          <h1 class="display">A status bar.<br />The layout is JSX.</h1>
-          <p class="body">
+          <p class="caps-label above-fold">PANELS · WALLPAPER · NOTIFICATIONS · ONE .jsx FILE</p>
+          <h1 class="display above-fold">A status bar.<br />The layout is JSX.</h1>
+          <p class="body above-fold">
             One <code>.jsx</code> file returns a tree of panels. tauler
             evaluates it on every data tick and renders the result into X11
             or Wayland windows. Data comes from your scripts.
           </p>
-          <div class="command-line">
+          <div class="command-line above-fold">
             <span class="prompt">$</span> cargo install tauler
           </div>
           <div class="button-group">
-            <a class="button button-accent" href="/docs/">DOCS →</a>
-            <a class="button button-dark" href="https://github.com/kantord/tauler">
+            <a class="button button-accent above-fold" href="/docs/">DOCS →</a>
+            <a class="button button-dark above-fold" href="https://github.com/kantord/tauler">
               <svg viewBox="0 0 16 16" width="17" height="17" fill="currentColor" aria-hidden="true">
                 <path
                   d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.07-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.4 7.4 0 0 1 2-.27c.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.15 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A7.995 7.995 0 0 0 16 8c0-4.42-3.58-8-8-8Z"
@@ -66,12 +66,12 @@ import '../styles/tokens.css'
               GITHUB
             </a>
           </div>
-          <p class="meta">Linux · X11 or Wayland · Rust 1.95+ · MIT / Apache-2.0</p>
+          <p class="meta above-fold">Linux · X11 or Wayland · Rust 1.95+ · MIT / Apache-2.0</p>
         </div>
       </main>
 
       <footer class="statement">
-        <p class="display-md">No component state, no effects, no lifecycle. Closer to a spreadsheet than to React.</p>
+        <p class="display-md above-fold">No component state, no effects, no lifecycle. Closer to a spreadsheet than to React.</p>
       </footer>
     </div>
 
@@ -91,8 +91,6 @@ import '../styles/tokens.css'
         const h = stage.clientHeight
         canvas.width = w * 2
         canvas.height = h * 2
-        canvas.style.width = w + 'px'
-        canvas.style.height = h + 'px'
         drawField(canvas, 'flow', '#F0855A', 0)
       }
       paint()
@@ -112,21 +110,22 @@ import '../styles/tokens.css'
         border-radius: var(--radius);
       }
 
+      html,
       body {
-        background: var(--page-bg);
-        min-height: 100vh;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        padding: var(--space-7) var(--gutter);
+        height: 100%;
       }
 
+      body {
+        background: var(--surface-wallpaper);
+      }
+
+      /* The page IS the frame: full screen, edge to edge, like the desktop
+         it depicts. Panel bar on top, stage filling, statement at the foot. */
       .frame {
-        width: 100%;
-        max-width: var(--frame-w);
+        min-height: 100dvh;
+        display: flex;
+        flex-direction: column;
         background: var(--surface-frame);
-        border: 1px solid var(--line-2);
-        box-shadow: var(--shadow-frame);
       }
 
       /* Panel bar — 48px, wordmark left, nav right */
@@ -165,6 +164,9 @@ import '../styles/tokens.css'
       /* Stage — the wallpaper surface with the flow field drawn once */
       .stage {
         position: relative;
+        flex: 1;
+        display: flex;
+        align-items: center;
         background: var(--surface-wallpaper);
         overflow: hidden;
       }
@@ -172,15 +174,18 @@ import '../styles/tokens.css'
       .stage canvas {
         position: absolute;
         inset: 0;
+        width: 100%;
+        height: 100%;
       }
 
       .hero {
         position: relative;
         /* Wider than --col-major: with no right-hand panel column on this
            cut, the display line owns the stage width. Body keeps its own
-           42ch measure. */
+           42ch measure. The stage flex-centers the hero, so vertical
+           padding is only a minimum breathing space. */
         max-width: 1080px;
-        padding: 96px var(--space-8) 104px;
+        padding: var(--space-8) var(--space-8);
         display: flex;
         flex-direction: column;
         gap: var(--space-6);
@@ -288,18 +293,57 @@ import '../styles/tokens.css'
         color: var(--text-display);
       }
 
-      @media (max-width: 720px) {
+      /* Short viewports (laptops) and narrow ones (phones) drop the display
+         a step and tighten the hero so every above-fold element stays above
+         the fold. */
+      @media (max-width: 720px), (max-height: 860px) {
         .display {
           font: var(--type-display-lg);
           letter-spacing: var(--track-display-lg);
         }
 
         .hero {
-          padding: 56px var(--space-6) 64px;
+          padding: var(--space-6) var(--space-6);
+          gap: var(--space-5);
         }
 
         .statement {
-          padding: var(--space-5) var(--space-6);
+          padding: var(--space-4) var(--space-6);
+        }
+      }
+
+      /* Phone landscape: barely any height at all. Everything drops to its
+         smallest legal size (nothing below the 10.5px UI minimum). */
+      @media (max-height: 500px) {
+        .display {
+          font: var(--type-display-md);
+          letter-spacing: var(--track-display-md);
+        }
+
+        .hero {
+          padding: var(--space-4) var(--space-6);
+          gap: var(--space-3);
+        }
+
+        .body {
+          font: var(--type-body-sm);
+        }
+
+        .command-line {
+          padding: 9px 16px;
+        }
+
+        .button {
+          padding: 9px 16px;
+        }
+
+        .statement {
+          min-height: 0;
+          padding: var(--space-3) var(--space-6);
+        }
+
+        .statement .display-md {
+          font: var(--type-chrome);
         }
       }
     </style>

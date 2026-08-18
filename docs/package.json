@@ -9,7 +9,9 @@
     "build": "pnpm run build:css && astro build",
     "preview": "astro preview",
     "astro": "astro",
-    "build:css": "tailwindcss -i .tauler/tailwind.css -o public/tauler/tauler.css && node scripts/check-classes.mjs"
+    "build:css": "tailwindcss -i .tauler/tailwind.css -o public/tauler/tauler.css && node scripts/check-classes.mjs",
+    "test": "playwright test",
+    "test:update": "playwright test --update-snapshots"
   },
   "dependencies": {
     "@astrojs/starlight": "^0.41.0",
@@ -19,6 +21,7 @@
     "sharp": "^0.35.0"
   },
   "devDependencies": {
+    "@playwright/test": "^1.62.1",
     "@tailwindcss/cli": "4.3.3",
     "tailwindcss": "4.3.3"
   }

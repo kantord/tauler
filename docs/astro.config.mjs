@@ -13,6 +13,18 @@ export default defineConfig({
     mermaid({ theme: 'default', autoTheme: true }),
     starlight({
       title: 'tauler',
+      head: [
+        // Preload the self-hosted fonts so docs pages don't flash the
+        // fallback mono before the real families arrive.
+        ...[
+          '/fonts/martian-mono-latin.woff2',
+          '/fonts/dm-mono-400-latin.woff2',
+          '/fonts/dm-mono-500-latin.woff2',
+        ].map((href) => ({
+          tag: 'link',
+          attrs: { rel: 'preload', href, as: 'font', type: 'font/woff2', crossorigin: 'anonymous' },
+        })),
+      ],
       customCss: [
         './src/styles/fonts.css',
         './src/styles/tokens.css',
