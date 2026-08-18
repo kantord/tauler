@@ -17,4 +17,4 @@ crate-type = ["cdylib"]
 
 [dependencies]
 tauler-core = { path = "../tauler-core" }
-wasm-bindgen = "=0.2.126"
+wasm-bindgen = "=0.2.127"
