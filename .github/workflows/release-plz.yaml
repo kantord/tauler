@@ -12,9 +12,10 @@ jobs:
     if: ${{ github.repository_owner == 'kantord' }}
     permissions:
       contents: write
-    concurrency:
-      group: release-plz-release
-      cancel-in-progress: false
+    # Deliberately no `concurrency` block, per the official workflow
+    # (https://release-plz.dev/docs/github/quickstart): GitHub keeps only the newest
+    # pending run per group and cancels the rest, and a cancelled run here is a
+    # skipped release. The docs put concurrency on the PR job only, as below.
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -47,7 +48,11 @@ jobs:
             | select(.name as $n | $ws | index($n))
             | . as $p
             | "\($p.name) \($p.name)",
-              (.dependencies[] | select(.name as $d | $ws | index($d)) | "\(.name) \($p.name)")
+              # Dev-dependencies do not gate publishing, and a dev-dep pointing back
+              # at its own dependent (crate <-> its test helper, say) would read as a
+              # cycle and make `tsort` emit a partial order without failing the step.
+              (.dependencies[] | select(.kind != "dev")
+                | select(.name as $d | $ws | index($d)) | "\(.name) \($p.name)")
           ' | tsort)
           for pkg in $order; do
             echo "Publishing $pkg..."
