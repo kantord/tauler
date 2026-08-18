@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.7](https://github.com/kantord/tauler/compare/tauler-v0.1.6...tauler-v0.1.7) - 2026-08-18
+
+### Added
+
+- add aerospace support ([#414](https://github.com/kantord/tauler/pull/414))
+- add basic web support ([#415](https://github.com/kantord/tauler/pull/415))
+
+### Fixed
+
+- *(deps)* update patch updates ([#419](https://github.com/kantord/tauler/pull/419))
+
+### Other
+
+- . ([#423](https://github.com/kantord/tauler/pull/423))
+
 ## [0.1.6](https://github.com/kantord/tauler/compare/tauler-v0.1.5...tauler-v0.1.6) - 2026-08-17
 
 ### Fixed

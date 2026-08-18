@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.7](https://github.com/kantord/tauler/compare/tauler-ui-macro-v0.1.6...tauler-ui-macro-v0.1.7) - 2026-08-18
+
+### Added
+
+- add basic web support ([#415](https://github.com/kantord/tauler/pull/415))
+
 ## [0.1.5](https://github.com/kantord/tauler/compare/tauler-ui-macro-v0.1.4...tauler-ui-macro-v0.1.5) - 2026-08-15
 
 ### Added
