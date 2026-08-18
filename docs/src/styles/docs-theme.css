@@ -1,43 +1,13 @@
-/* Starlight theme mapped onto the tauler design tokens (tokens.css).
-   The design system has no light theme, so the docs are locked to dark
-   (see ThemeProvider.astro / ThemeSelect.astro overrides). This is a
-   distilled cut of the landing design: same surfaces, ink ramp, accent-1,
-   two monospaced families, radius 0, hairline structure. */
+/* Residual Starlight overrides that the @astrojs/starlight-tailwind mapping
+   (driven by the @theme tokens in global.css) does not cover. The docs are
+   locked to dark via the ThemeProvider/ThemeSelect component overrides. */
 
 :root {
-  /* Two families and nothing else */
-  --sl-font: 'DM Mono', ui-monospace, monospace;
-  --sl-font-mono: 'DM Mono', ui-monospace, monospace;
-
-  /* Accent-1 (#F0855A) — the flow-field workspace */
-  --sl-color-accent-low: oklch(0.3 0.06 40);
-  --sl-color-accent: #f0855a;
-  --sl-color-accent-high: oklch(0.85 0.08 45);
-
-  /* Ink ramp → Starlight gray scale */
-  --sl-color-white: oklch(0.97 0.004 265);
-  --sl-color-gray-1: oklch(0.88 0.01 265);
-  --sl-color-gray-2: oklch(0.74 0.01 265);
-  --sl-color-gray-3: oklch(0.62 0.01 265);
-  --sl-color-gray-4: oklch(0.4 0.01 265);
-  --sl-color-gray-5: oklch(0.26 0.01 265);
-  --sl-color-gray-6: oklch(0.175 0.01 265);
-  --sl-color-black: oklch(0.13 0.008 265);
-
-  /* Surfaces */
-  --sl-color-bg: oklch(0.13 0.008 265);
   --sl-color-bg-nav: oklch(0.145 0.008 265);
   --sl-color-bg-sidebar: oklch(0.145 0.008 265);
   --sl-color-bg-inline-code: oklch(0.22 0.01 265);
   --sl-color-hairline-light: oklch(1 0 0 / 0.16);
   --sl-color-hairline: oklch(1 0 0 / 0.11);
-}
-
-/* Radius is 0 everywhere. Sharp corners are the visual argument. */
-*,
-::before,
-::after {
-  border-radius: 0 !important;
 }
 
 /* Display type: Martian Mono 500, tracked negative because mono runs wide */
@@ -47,14 +17,14 @@ h3,
 h4,
 h5,
 h6 {
-  font-family: 'Martian Mono', ui-monospace, monospace;
+  font-family: var(--font-display);
   font-weight: 500;
   letter-spacing: -0.035em;
 }
 
 /* Wordmark: the name set in type — weight 600, 0.24em tracking. No logo. */
 .site-title {
-  font-family: 'Martian Mono', ui-monospace, monospace;
+  font-family: var(--font-display);
   font-weight: 600;
   font-size: 12px;
   letter-spacing: 0.24em;

@@ -1,0 +1,41 @@
+name: Docs CI
+
+on:
+  pull_request:
+    paths:
+      - "docs/**"
+      - ".github/workflows/docs-ci.yaml"
+  push:
+    branches: [main]
+    paths:
+      - "docs/**"
+      - ".github/workflows/docs-ci.yaml"
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: docs
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
+        with:
+          package_json_file: docs/package.json
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: docs/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run format:check
+      - run: pnpm run check
+      - run: pnpm exec playwright install --with-deps chromium
+      - run: pnpm exec playwright test
+        env:
+          CI: "true"
+      - uses: actions/upload-artifact@v6
+        if: failure()
+        with:
+          name: playwright-report
+          path: docs/test-results/

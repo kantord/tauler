@@ -12,7 +12,9 @@ test.beforeEach(async ({ page }) => {
   await page.evaluate(() => document.fonts.ready)
 })
 
-test('every above-fold element is visible without scrolling', async ({ page }) => {
+test('every above-fold element is visible without scrolling', async ({
+  page,
+}) => {
   const critical = page.locator('.above-fold')
   await expect(critical).toHaveCount(ABOVE_FOLD_COUNT)
 

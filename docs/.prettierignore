@@ -1,0 +1,9 @@
+dist/
+node_modules/
+.astro/
+.tauler/
+public/tauler/
+test-results/
+src/content/
+*.md
+*.mdx

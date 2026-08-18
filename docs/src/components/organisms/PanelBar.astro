@@ -1,0 +1,16 @@
+---
+// The top bar: wordmark at the true left edge, nav at the true right —
+// the shape of the product itself.
+import NavLink from '../ui/NavLink.astro'
+import Wordmark from '../ui/Wordmark.astro'
+---
+
+<header
+  class="flex h-panel items-center justify-between border-b border-line-2 px-s5"
+>
+  <Wordmark />
+  <nav class="above-fold flex gap-s6">
+    <NavLink href="/docs/">DOCS</NavLink>
+    <NavLink href="https://github.com/kantord/tauler">GITHUB</NavLink>
+  </nav>
+</header>

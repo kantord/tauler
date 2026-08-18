@@ -1,0 +1,34 @@
+---
+// Workspace 01's type column: label, display line, body, install command,
+// the one accent action, and the fine print.
+import Body from '../text/Body.astro'
+import Display from '../text/Display.astro'
+import Label from '../text/Label.astro'
+import Meta from '../text/Meta.astro'
+import Button from '../ui/Button.astro'
+import CommandLine from '../ui/CommandLine.astro'
+import GithubMark from '../ui/GithubMark.astro'
+import InlineCode from '../ui/InlineCode.astro'
+import SeamGroup from '../ui/SeamGroup.astro'
+---
+
+<div
+  class="relative flex max-w-hero flex-col gap-s6 p-s8 tight:gap-s5 tight:p-s6 short:gap-s3 short:px-s6 short:py-s4"
+>
+  <Label>PANELS · WALLPAPER · NOTIFICATIONS · ONE .jsx FILE</Label>
+  <Display>A status bar.<br />The layout is JSX.</Display>
+  <Body>
+    One <InlineCode>.jsx</InlineCode> file returns a tree of panels. tauler evaluates
+    it on every data tick and renders the result into X11 or Wayland windows. Data
+    comes from your scripts.
+  </Body>
+  <CommandLine>cargo install tauler</CommandLine>
+  <SeamGroup>
+    <Button href="/docs/" variant="accent">DOCS →</Button>
+    <Button href="https://github.com/kantord/tauler">
+      <GithubMark />
+      GITHUB
+    </Button>
+  </SeamGroup>
+  <Meta>Linux · X11 or Wayland · Rust 1.95+ · MIT / Apache-2.0</Meta>
+</div>

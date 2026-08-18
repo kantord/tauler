@@ -1,6 +1,7 @@
 // @ts-check
 import starlight from '@astrojs/starlight'
 import { defineConfig } from 'astro/config'
+import tailwindcss from '@tailwindcss/vite'
 import mermaid from 'astro-mermaid'
 
 // https://astro.build/config
@@ -15,7 +16,7 @@ export default defineConfig({
       title: 'tauler',
       customCss: [
         './src/styles/fonts.css',
-        './src/styles/tokens.css',
+        './src/styles/global.css',
         './src/styles/docs-theme.css',
       ],
       components: {
@@ -43,4 +44,5 @@ export default defineConfig({
       ],
     }),
   ],
+  vite: { plugins: [tailwindcss()] },
 })

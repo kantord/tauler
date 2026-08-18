@@ -17,7 +17,7 @@ export default defineConfig({
   forbidOnly: !!process.env.CI,
   retries: 0,
   use: {
-    baseURL: 'http://localhost:4321',
+    baseURL: 'http://127.0.0.1:4321',
   },
   expect: {
     toHaveScreenshot: {
@@ -32,8 +32,11 @@ export default defineConfig({
   })),
   webServer: {
     // Test the production build: no dev toolbar in the screenshots.
-    command: 'pnpm exec astro build && pnpm exec astro preview --port 4321',
-    url: 'http://localhost:4321',
+    // sirv, not `astro preview`: preview daemonizes when stdin is not a TTY,
+    // so Playwright would think it exited and later reuse stale daemons.
+    command:
+      'pnpm exec astro build && pnpm exec sirv dist --host 127.0.0.1 --port 4321',
+    url: 'http://127.0.0.1:4321',
     reuseExistingServer: !process.env.CI,
     timeout: 120_000,
   },

@@ -1,0 +1,37 @@
+---
+// The wallpaper surface. Owns the generative flow field: one canvas,
+// drawn once, decorative, absent without JavaScript.
+---
+
+<main
+  class="relative flex flex-1 items-center overflow-hidden bg-surface-wallpaper"
+>
+  <canvas id="field" class="absolute inset-0 h-full w-full" aria-hidden="true"
+  ></canvas>
+  <slot />
+</main>
+
+<script>
+  import { drawField } from '../../scripts/field.ts'
+
+  const canvas = document.getElementById('field') as HTMLCanvasElement
+  const stage = canvas.parentElement as HTMLElement
+
+  /* Draw once; repaint only on width change, debounced ≥200ms
+     (height-only changes are ignored — mobile browser chrome). */
+  let lastW = 0
+  function paint(): void {
+    const w = stage.clientWidth
+    if (w === lastW) return
+    lastW = w
+    canvas.width = w * 2
+    canvas.height = stage.clientHeight * 2
+    drawField(canvas, 'flow', '#F0855A', 0)
+  }
+  paint()
+  let t: ReturnType<typeof setTimeout>
+  addEventListener('resize', () => {
+    clearTimeout(t)
+    t = setTimeout(paint, 200)
+  })
+</script>
