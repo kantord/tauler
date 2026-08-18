@@ -1,28 +1,11 @@
-/* Self-hosted fonts (GDPR: no requests to fonts.googleapis.com at runtime).
-   Latin subsets downloaded from Google Fonts and committed to public/fonts/.
-   Martian Mono is a variable font — one file covers weights 500 and 600.
+/* Fonts come from the @fontsource npm packages: pinned by the lockfile,
+   bundled by the build, served same-origin (GDPR: no runtime requests to a
+   font CDN). Each import declares latin + latin-ext @font-face rules with
+   unicode-range, so browsers fetch only the subsets a page uses. OFL 1.1
+   license texts ship inside the packages.
    Two families and nothing else: no sans, no serif, no icon font. */
 
-@font-face {
-  font-family: "DM Mono";
-  font-style: normal;
-  font-weight: 400;
-  font-display: fallback;
-  src: url("/fonts/dm-mono-400-latin.woff2") format("woff2");
-}
-
-@font-face {
-  font-family: "DM Mono";
-  font-style: normal;
-  font-weight: 500;
-  font-display: fallback;
-  src: url("/fonts/dm-mono-500-latin.woff2") format("woff2");
-}
-
-@font-face {
-  font-family: "Martian Mono";
-  font-style: normal;
-  font-weight: 400 800;
-  font-display: fallback;
-  src: url("/fonts/martian-mono-latin.woff2") format("woff2");
-}
+@import '@fontsource/dm-mono/400.css';
+@import '@fontsource/dm-mono/500.css';
+@import '@fontsource/martian-mono/500.css';
+@import '@fontsource/martian-mono/600.css';

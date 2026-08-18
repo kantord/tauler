@@ -1,0 +1,17 @@
+---
+// Starlight Head override: the default head plus preloads for the
+// self-hosted fonts, so docs pages don't flash the fallback mono. The
+// ?url imports resolve to the hashed asset URLs the bundler gives the
+// Fontsource files, which a static <head> entry in astro.config cannot know.
+import Default from '@astrojs/starlight/components/Head.astro'
+import dmMono400 from '@fontsource/dm-mono/files/dm-mono-latin-400-normal.woff2?url'
+import dmMono500 from '@fontsource/dm-mono/files/dm-mono-latin-500-normal.woff2?url'
+import martianMono500 from '@fontsource/martian-mono/files/martian-mono-latin-500-normal.woff2?url'
+import martianMono600 from '@fontsource/martian-mono/files/martian-mono-latin-600-normal.woff2?url'
+---
+
+<Default><slot /></Default>
+<link rel="preload" href={martianMono500} as="font" type="font/woff2" crossorigin />
+<link rel="preload" href={martianMono600} as="font" type="font/woff2" crossorigin />
+<link rel="preload" href={dmMono400} as="font" type="font/woff2" crossorigin />
+<link rel="preload" href={dmMono500} as="font" type="font/woff2" crossorigin />

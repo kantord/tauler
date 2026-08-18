@@ -6,6 +6,9 @@
 // with JS disabled it degrades to the plain wallpaper surface.
 import '../styles/fonts.css'
 import '../styles/tokens.css'
+import martianMono500 from '@fontsource/martian-mono/files/martian-mono-latin-500-normal.woff2?url'
+import martianMono600 from '@fontsource/martian-mono/files/martian-mono-latin-600-normal.woff2?url'
+import dmMono400 from '@fontsource/dm-mono/files/dm-mono-latin-400-normal.woff2?url'
 ---
 
 <html lang="en">
@@ -17,20 +20,9 @@ import '../styles/tokens.css'
       name="description"
       content="A status bar for Linux whose layout is written as a .jsx file. The file returns a tree of panels; tauler renders it into X11 or Wayland windows."
     />
-    <link
-      rel="preload"
-      href="/fonts/martian-mono-latin.woff2"
-      as="font"
-      type="font/woff2"
-      crossorigin
-    />
-    <link
-      rel="preload"
-      href="/fonts/dm-mono-400-latin.woff2"
-      as="font"
-      type="font/woff2"
-      crossorigin
-    />
+        <link rel="preload" href={martianMono500} as="font" type="font/woff2" crossorigin />
+    <link rel="preload" href={martianMono600} as="font" type="font/woff2" crossorigin />
+    <link rel="preload" href={dmMono400} as="font" type="font/woff2" crossorigin />
   </head>
   <body>
     <div class="frame">

@@ -13,24 +13,14 @@ export default defineConfig({
     mermaid({ theme: 'default', autoTheme: true }),
     starlight({
       title: 'tauler',
-      head: [
-        // Preload the self-hosted fonts so docs pages don't flash the
-        // fallback mono before the real families arrive.
-        ...[
-          '/fonts/martian-mono-latin.woff2',
-          '/fonts/dm-mono-400-latin.woff2',
-          '/fonts/dm-mono-500-latin.woff2',
-        ].map((href) => ({
-          tag: 'link',
-          attrs: { rel: 'preload', href, as: 'font', type: 'font/woff2', crossorigin: 'anonymous' },
-        })),
-      ],
       customCss: [
         './src/styles/fonts.css',
         './src/styles/tokens.css',
         './src/styles/docs-theme.css',
       ],
       components: {
+        // Default head + font preloads (see the component for why).
+        Head: './src/components/Head.astro',
         // The design system has no light theme; lock the docs to dark.
         ThemeProvider: './src/components/ThemeProvider.astro',
         ThemeSelect: './src/components/ThemeSelect.astro',
