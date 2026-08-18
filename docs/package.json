@@ -31,14 +31,14 @@
   },
   "devDependencies": {
     "@astrojs/check": "^0.9.10",
-    "@axe-core/playwright": "^4.13.0",
-    "@playwright/test": "^1.62.1",
+    "@axe-core/playwright": "4.13.0",
+    "@playwright/test": "1.62.1",
     "@tailwindcss/cli": "4.3.3",
-    "prettier": "^3.9.6",
-    "prettier-plugin-astro": "^0.14.1",
-    "prettier-plugin-tailwindcss": "^0.8.1",
-    "sirv-cli": "^3.0.1",
+    "prettier": "3.9.6",
+    "prettier-plugin-astro": "0.14.1",
+    "prettier-plugin-tailwindcss": "0.8.1",
+    "sirv-cli": "3.0.1",
     "tailwindcss": "4.3.3",
-    "typescript": "^5.9.3"
+    "typescript": "5.9.3"
   }
 }
