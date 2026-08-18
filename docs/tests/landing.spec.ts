@@ -26,6 +26,17 @@ test('every above-fold element is visible without scrolling', async ({
   }
 })
 
+test('page never scrolls horizontally', async ({ page }) => {
+  // A visual diff crops to the viewport and can't see content pushed past
+  // its right edge; this is the one check for real horizontal overflow —
+  // e.g. the panel bar and the capped hero column silently drifting out of
+  // alignment on very wide viewports.
+  const overflow = await page.evaluate(
+    () => document.documentElement.scrollWidth - window.innerWidth,
+  )
+  expect(overflow).toBeLessThanOrEqual(0)
+})
+
 test('visual regression', async ({ page }) => {
   await expect(page).toHaveScreenshot('landing.png')
 })
