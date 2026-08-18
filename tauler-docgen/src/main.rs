@@ -15,7 +15,7 @@ struct Args {
     components_dir: PathBuf,
 
     /// Path to write the generated MDX file
-    #[arg(long, default_value = "docs/src/content/docs/components.md")]
+    #[arg(long, default_value = "docs/src/content/docs/docs/components.md")]
     output: PathBuf,
 
     /// Directory to write rendered component screenshots
@@ -543,7 +543,7 @@ fn render_component_section(
         // Relative to the generated page, so Astro processes the image and the
         // URL stays correct whatever `base` the site is deployed under.
         out.push_str(&format!(
-            "![{} screenshot](../../assets/{})\n\n",
+            "![{} screenshot](../../../assets/{})\n\n",
             comp.export_name, filename
         ));
         out.push_str("</div>\n\n");

@@ -1,0 +1,47 @@
+---
+// tauler landing page — the ultra-minimal cut of design option 21a, reduced
+// to workspace 01. The page composes organisms with layout classes only;
+// type, color, and chrome live in the component layers (see ADR 0030).
+import '../styles/fonts.css'
+import '../styles/global.css'
+import Hero from '../components/organisms/Hero.astro'
+import TopPanel from '../components/organisms/TopPanel.astro'
+import Stage from '../components/organisms/Stage.astro'
+import StatementFooter from '../components/organisms/StatementFooter.astro'
+import FontPreloads from '../components/FontPreloads.astro'
+---
+
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>tauler — declarative workspace customization</title>
+    <meta
+      name="description"
+      content="Declare your Linux workspace — status bars, automations, smart-home controls, data dashboards — in one file, and tauler keeps reality matching it. Any program that prints data or takes commands can drive it."
+    />
+    <link rel="canonical" href={new URL('/', Astro.site)} />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <meta name="theme-color" content="#16161d" />
+    <meta property="og:title" content="tauler" />
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content={new URL('/', Astro.site)} />
+    <meta
+      property="og:description"
+      content="Declare your workspace. tauler keeps it that way."
+    />
+    <meta name="twitter:card" content="summary" />
+    <FontPreloads />
+  </head>
+  <body>
+    <div class="flex min-h-dvh flex-col">
+      <TopPanel />
+      <Stage>
+        <Hero />
+      </Stage>
+      <StatementFooter>
+        One native binary renders your panels. Any script becomes a data source.
+      </StatementFooter>
+    </div>
+  </body>
+</html>

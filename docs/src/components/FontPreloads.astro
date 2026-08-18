@@ -1,0 +1,26 @@
+---
+// Preload links for the self-hosted fonts, shared by the landing page and
+// the Starlight Head override. The ?url imports resolve to the hashed asset
+// URLs the bundler gives the Fontsource files.
+import dmMono400 from '@fontsource/dm-mono/files/dm-mono-latin-400-normal.woff2?url'
+import dmMono500 from '@fontsource/dm-mono/files/dm-mono-latin-500-normal.woff2?url'
+import martianMono500 from '@fontsource/martian-mono/files/martian-mono-latin-500-normal.woff2?url'
+import martianMono600 from '@fontsource/martian-mono/files/martian-mono-latin-600-normal.woff2?url'
+---
+
+<link
+  rel="preload"
+  href={martianMono500}
+  as="font"
+  type="font/woff2"
+  crossorigin
+/>
+<link
+  rel="preload"
+  href={martianMono600}
+  as="font"
+  type="font/woff2"
+  crossorigin
+/>
+<link rel="preload" href={dmMono400} as="font" type="font/woff2" crossorigin />
+<link rel="preload" href={dmMono500} as="font" type="font/woff2" crossorigin />

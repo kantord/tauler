@@ -1,0 +1,21 @@
+---
+// The top panel: full-bleed strip, its wordmark and nav capped to the same
+// 1600px column as the stage and footer below — so on a wide window the
+// panel's content lines up with the hero instead of pinning to the true
+// screen edge while the rest of the page centers.
+import PageWidth from '../ui/PageWidth.astro'
+import NavLink from '../ui/NavLink.astro'
+import Wordmark from '../ui/Wordmark.astro'
+---
+
+<header class="flex h-panel items-center border-b border-line-2">
+  <PageWidth>
+    <div class="flex items-center justify-between">
+      <Wordmark />
+      <nav class="above-fold flex items-stretch gap-s3 self-stretch">
+        <NavLink href="/docs/">DOCS</NavLink>
+        <NavLink href="https://github.com/kantord/tauler">GITHUB</NavLink>
+      </nav>
+    </div>
+  </PageWidth>
+</header>

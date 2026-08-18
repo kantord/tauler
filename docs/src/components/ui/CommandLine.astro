@@ -1,0 +1,43 @@
+---
+// The install line: a dark field with an accent prompt glyph. Clicking it
+// copies the command — it sits beside real buttons and should not be the
+// one inert control in the row. Feedback is a brief COPIED tag.
+interface Props {
+  prompt?: string
+}
+
+const { prompt = '$' } = Astro.props
+---
+
+<button
+  type="button"
+  data-command-line
+  class="above-fold flex max-w-[460px] cursor-pointer items-baseline gap-s2 border border-line-1 bg-surface-control px-5 py-s4 text-left font-ui text-chrome text-ink-1 hover:bg-surface-control-hover focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-2 focus-visible:outline-accent short:px-s4 short:py-s2"
+>
+  <span class="text-accent select-none" aria-hidden="true">{prompt}</span>
+  <span data-command-text><slot /></span>
+  <span
+    data-copied-tag
+    class="ml-auto text-label-sm text-accent opacity-0 select-none"
+    aria-hidden="true">COPIED</span
+  >
+</button>
+
+<script>
+  for (const el of document.querySelectorAll<HTMLButtonElement>(
+    '[data-command-line]',
+  )) {
+    el.addEventListener('click', () => {
+      const text = el.querySelector('[data-command-text]')?.textContent?.trim()
+      if (!text) return
+      navigator.clipboard.writeText(text).then(() => {
+        const tag = el.querySelector('[data-copied-tag]')
+        if (!(tag instanceof HTMLElement)) return
+        tag.style.opacity = '1'
+        setTimeout(() => {
+          tag.style.opacity = '0'
+        }, 1200)
+      })
+    })
+  }
+</script>

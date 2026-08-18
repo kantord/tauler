@@ -1,0 +1,11 @@
+---
+// Locks the docs to the dark theme. The tauler design system has no light
+// theme (a known gap in the design draft), so the default ThemeProvider's
+// localStorage/system-preference logic is replaced with a constant.
+// With JS disabled Starlight's base CSS is dark by default, so this
+// degrades correctly.
+---
+
+<script is:inline>
+  document.documentElement.dataset.theme = 'dark'
+</script>

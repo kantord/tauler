@@ -1,0 +1,129 @@
+/* Single source of truth for the design tokens, Tailwind v4 CSS-first style.
+   Values originate from the tauler design package (option 21a); the verbatim
+   tokens.css was retired for Tailwind-native names — see ADR 0029.
+   Layer order per the official Starlight + Tailwind integration. */
+
+@layer base, starlight, theme, components, utilities;
+
+@import '@astrojs/starlight-tailwind';
+@import 'tailwindcss/theme.css' layer(theme);
+@import 'tailwindcss/utilities.css' layer(utilities);
+
+@theme {
+  /* Two monospaced families and nothing else. --font-sans/--font-mono are
+     what Starlight consumes; display/ui are the design's own vocabulary. */
+  --font-display: 'Martian Mono', ui-monospace, monospace;
+  --font-ui: 'DM Mono', ui-monospace, monospace;
+  --font-sans: 'DM Mono', ui-monospace, monospace;
+  --font-mono: 'DM Mono', ui-monospace, monospace;
+
+  /* Type ramp. Weight and tracking ride along with each size so one
+     utility sets the whole style: `font-display text-display-xl`. */
+  --text-display-xl: 60px;
+  --text-display-xl--line-height: 1.06;
+  --text-display-xl--font-weight: 500;
+  --text-display-xl--letter-spacing: -0.055em;
+  --text-display-lg: 30px;
+  --text-display-lg--line-height: 1.12;
+  --text-display-lg--font-weight: 500;
+  --text-display-lg--letter-spacing: -0.03em;
+  --text-display-md: 23px;
+  --text-display-md--line-height: 1.1;
+  --text-display-md--font-weight: 500;
+  --text-display-md--letter-spacing: -0.035em;
+  --text-body-md: 15px;
+  --text-body-md--line-height: 1.85;
+  --text-body-sm: 13px;
+  --text-body-sm--line-height: 1.6;
+  --text-label: 11.5px;
+  --text-label--line-height: 1.3;
+  --text-label--letter-spacing: 0.2em;
+  --text-label-sm: 10.5px;
+  --text-label-sm--line-height: 1.6;
+  --text-label-sm--letter-spacing: 0.14em;
+  --text-chrome: 13px;
+  --text-chrome--line-height: 1.2;
+  --text-chrome-sm: 11.5px;
+  --text-chrome-sm--line-height: 1.2;
+  --tracking-chrome: 0.13em;
+  --tracking-btn: 0.06em;
+  --tracking-wordmark: 0.24em;
+
+  /* Surfaces, darkest (wallpaper) to lightest (controls) */
+  --color-surface-wallpaper: oklch(0.13 0.008 265);
+  --color-surface-frame: oklch(0.145 0.008 265);
+  --color-surface-control: oklch(0.22 0.01 265);
+  --color-surface-control-hover: oklch(0.28 0.012 265);
+
+  /* Ink ramp — five steps, used strictly by rank */
+  --color-ink-1: oklch(0.97 0.004 265);
+  --color-ink-2: oklch(0.88 0.01 265);
+  --color-ink-3: oklch(0.74 0.01 265);
+  --color-ink-4: oklch(0.62 0.01 265);
+  --color-code: oklch(0.94 0.006 265);
+
+  /* Hairlines. Four weights, no more. */
+  --color-line-1: oklch(1 0 0 / 0.11);
+  --color-line-2: oklch(1 0 0 / 0.16);
+
+  /* Accent-1 (flow field). The other five workspace accents return with
+     the full scroll-story page. Text on an accent fill is accent-ink,
+     never white. */
+  --color-accent: #f0855a;
+  --color-accent-ink: oklch(0.16 0.02 40);
+
+  /* Starlight accent + gray scales (consumed by @astrojs/starlight-tailwind;
+     the scales map the ink ramp and surfaces onto Starlight's slots). */
+  --color-white: oklch(0.97 0.004 265);
+  --color-accent-200: oklch(0.85 0.08 45);
+  --color-accent-600: #f0855a;
+  --color-accent-950: oklch(0.3 0.06 40);
+  --color-gray-100: oklch(0.92 0.006 265);
+  --color-gray-200: oklch(0.88 0.01 265);
+  --color-gray-300: oklch(0.74 0.01 265);
+  --color-gray-400: oklch(0.62 0.01 265);
+  --color-gray-500: oklch(0.56 0.01 265);
+  --color-gray-600: oklch(0.4 0.01 265);
+  --color-gray-700: oklch(0.26 0.01 265);
+  --color-gray-800: oklch(0.175 0.01 265);
+  --color-gray-900: oklch(0.13 0.008 265);
+
+  /* Spacing scale from the design package (s = "step") */
+  --spacing-s2: 5px;
+  --spacing-s3: 9px;
+  --spacing-s4: 16px;
+  --spacing-s5: 22px;
+  --spacing-s6: 26px;
+  --spacing-s8: 44px;
+  --spacing-panel: 48px;
+  --spacing-footer: 80px;
+
+  /* Long-measure cap for body text */
+  --container-measure: 42ch;
+  --container-hero: 1080px;
+  --container-page: 1600px;
+}
+
+/* Squeezed viewports: narrow phones or short laptops — the hero drops a
+   type step. Very short (phone landscape): smallest legal sizes. */
+@custom-variant tight (@media ((max-width: 720px) or (max-height: 860px)));
+@custom-variant short (@media (max-height: 500px));
+
+@layer base {
+  /* The design has no light theme; dark scrollbars and form chrome. */
+  :root {
+    color-scheme: dark;
+  }
+
+  /* Radius is 0 everywhere. Sharp corners are the visual argument. */
+  * {
+    margin: 0;
+    box-sizing: border-box;
+    border-radius: 0;
+  }
+
+  /* Landing-page ground; Starlight's own layers repaint it for docs pages. */
+  body {
+    background-color: var(--color-surface-frame);
+  }
+}

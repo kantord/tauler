@@ -16,9 +16,14 @@ const KNOWN_UNRESOLVED = new Map([
 ])
 
 const css = readFileSync('public/tauler/tauler.css', 'utf8')
-const classes = readFileSync('.tauler/classes.txt', 'utf8').split('\n').map((l) => l.trim()).filter(Boolean)
+const classes = readFileSync('.tauler/classes.txt', 'utf8')
+  .split('\n')
+  .map((l) => l.trim())
+  .filter(Boolean)
 const selectors = new Set(
-  [...css.matchAll(/\.((?:\\.|[A-Za-z0-9_-])+)/g)].map((m) => m[1].replace(/\\(.)/g, '$1')),
+  [...css.matchAll(/\.((?:\\.|[A-Za-z0-9_-])+)/g)].map((m) =>
+    m[1].replace(/\\(.)/g, '$1'),
+  ),
 )
 
 const missing = classes.filter((c) => !selectors.has(c))
@@ -28,8 +33,11 @@ const stale = [...KNOWN_UNRESOLVED.keys()].filter((c) => !missing.includes(c))
 for (const c of missing.filter((c) => KNOWN_UNRESOLVED.has(c))) {
   console.warn(`known unresolved: ${c} — ${KNOWN_UNRESOLVED.get(c)}`)
 }
-for (const c of stale) console.error(`${c} now resolves — remove it from KNOWN_UNRESOLVED`)
+for (const c of stale)
+  console.error(`${c} now resolves — remove it from KNOWN_UNRESOLVED`)
 for (const c of unexpected) console.error(`no rule compiled for: ${c}`)
 
 if (unexpected.length || stale.length) process.exit(1)
-console.log(`${classes.length} classes harvested, all resolved or accounted for.`)
+console.log(
+  `${classes.length} classes harvested, all resolved or accounted for.`,
+)

@@ -1,0 +1,33 @@
+/* Residual Starlight overrides that the @astrojs/starlight-tailwind mapping
+   (driven by the @theme tokens in global.css) does not cover. The docs are
+   locked to dark via the ThemeProvider/ThemeSelect component overrides. */
+
+:root {
+  --sl-color-bg-nav: var(--color-surface-frame);
+  --sl-color-bg-sidebar: var(--color-surface-frame);
+  --sl-color-bg-inline-code: var(--color-surface-control);
+  --sl-color-hairline-light: var(--color-line-2);
+  --sl-color-hairline: var(--color-line-1);
+}
+
+/* Display type: Martian Mono 500, tracked negative because mono runs wide */
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+  font-family: var(--font-display);
+  font-weight: 500;
+  letter-spacing: -0.035em;
+}
+
+/* Wordmark: the name set in type — weight 600, 0.24em tracking. No logo. */
+.site-title {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 12px;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  color: var(--sl-color-white);
+}

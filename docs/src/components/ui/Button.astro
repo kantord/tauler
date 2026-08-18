@@ -1,0 +1,28 @@
+---
+// Square, filled or dark. Two variants only: one accent-filled action per
+// view, dark for everything secondary. Text on the accent fill is
+// accent-ink, never white.
+interface Props {
+  href: string
+  variant?: 'accent' | 'dark'
+}
+
+const { href, variant = 'dark' } = Astro.props
+
+const skin =
+  variant === 'accent'
+    ? 'bg-accent text-accent-ink font-semibold hover:brightness-[1.06] active:brightness-95'
+    : 'bg-surface-control text-ink-1 hover:bg-surface-control-hover active:brightness-90'
+---
+
+<a
+  href={href}
+  class:list={[
+    'above-fold flex cursor-pointer items-center gap-[10px] px-s5 py-s4 font-ui text-chrome tracking-btn no-underline',
+    'focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-2 focus-visible:outline-accent',
+    'short:px-s4 short:py-s2',
+    skin,
+  ]}
+>
+  <slot />
+</a>

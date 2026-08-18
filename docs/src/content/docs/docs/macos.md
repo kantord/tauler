@@ -24,7 +24,7 @@ workspaces and click-to-switch. It stays put across workspace switches and is ne
 
 ![A macOS desktop under AeroSpace: a workspace rail down the left with pills for main, code,
 web, chat and files, a clock at the bottom, and two terminal windows tiled side by side over
-a purple gradient](../../assets/macos-split-terminals.png)
+a purple gradient](../../../assets/macos-split-terminals.png)
 
 The rail is a tauler panel; the gradient behind it is a tauler `<wallpaper>`. Everything
 between them is AeroSpace tiling ordinary windows.
@@ -145,7 +145,7 @@ const aero = useEvents("~/.cargo/bin/tauler-aerospace");
 <div on_click={[aero.switchWorkspace({ workspace: ws.name })]}>…</div>
 ```
 
-See [Data sources](/data/) for how intents and modules work in general.
+See [Data sources](/docs/data/) for how intents and modules work in general.
 
 ## Making it look like one application
 
@@ -154,7 +154,7 @@ rail, offset so the two line up. With no border and no plate, the pills appear t
 straight on the desktop and the tiled windows read as the main pane of a single app.
 
 ![The same desktop with a single browser window showing Hacker News, the rail unchanged on
-the left](../../assets/macos-browser.png)
+the left](../../../assets/macos-browser.png)
 
 The offset is necessary rather than clever: the macOS backend presents opaque pixels, so a
 panel cannot truly be transparent. Painting the backdrop it would have shown through is
