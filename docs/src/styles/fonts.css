@@ -1,0 +1,28 @@
+/* Self-hosted fonts (GDPR: no requests to fonts.googleapis.com at runtime).
+   Latin subsets downloaded from Google Fonts and committed to public/fonts/.
+   Martian Mono is a variable font — one file covers weights 500 and 600.
+   Two families and nothing else: no sans, no serif, no icon font. */
+
+@font-face {
+  font-family: "DM Mono";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("/fonts/dm-mono-400-latin.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "DM Mono";
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("/fonts/dm-mono-500-latin.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "Martian Mono";
+  font-style: normal;
+  font-weight: 400 800;
+  font-display: swap;
+  src: url("/fonts/martian-mono-latin.woff2") format("woff2");
+}

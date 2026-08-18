@@ -1,8 +1,11 @@
 ---
-// Hello-world landing page at `/`. Because Astro's file-based routing in
-// `src/pages/` takes precedence over Starlight's injected routes, this
-// overrides the root while the docs live under `/docs/...`
-// (nested at `src/content/docs/docs/` — Starlight's documented subpath trick).
+// tauler landing page — the ultra-minimal cut of design option 21a
+// ("THE DESKTOP, SCROLLED"), reduced to workspace 01 only. Copy is verbatim
+// from the design; tokens come from ../styles/tokens.css unchanged. The
+// generative flow field (field.js, shipped verbatim) is the page's only art;
+// with JS disabled it degrades to the plain wallpaper surface.
+import '../styles/fonts.css'
+import '../styles/tokens.css'
 ---
 
 <html lang="en">
@@ -10,16 +13,293 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>tauler</title>
-    <meta name="description" content="A JSX-based Linux status bar renderer." />
+    <meta
+      name="description"
+      content="Declarative control surface for your whole desktop. One .jsx file declares the panels, the space they reserve, and what every control does."
+    />
+    <link
+      rel="preload"
+      href="/fonts/martian-mono-latin.woff2"
+      as="font"
+      type="font/woff2"
+      crossorigin
+    />
+    <link
+      rel="preload"
+      href="/fonts/dm-mono-400-latin.woff2"
+      as="font"
+      type="font/woff2"
+      crossorigin
+    />
   </head>
   <body>
-    <main>
-      <h1>Hello, world — tauler</h1>
-      <p>A JSX-based Linux status bar renderer.</p>
-      <p>
-        <a href="/docs/">Read the docs</a> ·
-        <a href="https://github.com/kantord/tauler">GitHub</a>
-      </p>
-    </main>
+    <div class="frame">
+      <header class="panel-bar">
+        <span class="wordmark">TAULER</span>
+        <nav class="panel-nav">
+          <a href="/docs/">DOCS</a>
+          <a href="https://github.com/kantord/tauler">GITHUB</a>
+        </nav>
+      </header>
+
+      <main class="stage">
+        <canvas id="field" aria-hidden="true"></canvas>
+        <div class="hero">
+          <p class="caps-label">DECLARATIVE CONTROL SURFACE FOR YOUR WHOLE DESKTOP</p>
+          <h1 class="display">Declare the desk.<br />Drive everything.</h1>
+          <p class="body">
+            One <code>.jsx</code> file declares the panels, the space they
+            reserve, and what every control does. If a thing on your system
+            speaks an IPC or reads a config file, it belongs in that file —
+            window manager, audio graph, backlight, player, notifications.
+          </p>
+          <div class="command-line">
+            <span class="prompt">$</span> cargo install tauler
+          </div>
+          <div class="button-group">
+            <a class="button button-accent" href="/docs/">DOCS →</a>
+            <a class="button button-dark" href="https://github.com/kantord/tauler">
+              <svg viewBox="0 0 16 16" width="17" height="17" fill="currentColor" aria-hidden="true">
+                <path
+                  d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.07-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.4 7.4 0 0 1 2-.27c.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.15 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A7.995 7.995 0 0 0 16 8c0-4.42-3.58-8-8-8Z"
+                ></path>
+              </svg>
+              GITHUB
+            </a>
+          </div>
+          <p class="meta">Linux · X11 or Wayland · Rust 1.95+ · MIT / Apache-2.0</p>
+        </div>
+      </main>
+
+      <footer class="statement">
+        <p class="display-md">Bring the scripts. Leave the config format.</p>
+      </footer>
+    </div>
+
+    <script>
+      import { drawField } from '../scripts/field.js'
+
+      const canvas = document.getElementById('field') as HTMLCanvasElement
+      const stage = canvas.parentElement as HTMLElement
+
+      /* Draw once; repaint only on width change, debounced ≥200ms
+         (height-only changes are ignored — mobile browser chrome). */
+      let lastW = 0
+      function paint() {
+        const w = stage.clientWidth
+        if (w === lastW) return
+        lastW = w
+        const h = stage.clientHeight
+        canvas.width = w * 2
+        canvas.height = h * 2
+        canvas.style.width = w + 'px'
+        canvas.style.height = h + 'px'
+        drawField(canvas, 'flow', '#F0855A', 0)
+      }
+      paint()
+      let t: ReturnType<typeof setTimeout>
+      addEventListener('resize', () => {
+        clearTimeout(t)
+        t = setTimeout(paint, 200)
+      })
+    </script>
+
+    <style>
+      /* Structure only — every value comes from tokens.css. Radius is 0
+         everywhere; structure is hairlines, depth is the two shadows. */
+      * {
+        margin: 0;
+        box-sizing: border-box;
+        border-radius: var(--radius);
+      }
+
+      body {
+        background: var(--page-bg);
+        min-height: 100vh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: var(--space-7) var(--gutter);
+      }
+
+      .frame {
+        width: 100%;
+        max-width: var(--frame-w);
+        background: var(--surface-frame);
+        border: 1px solid var(--line-2);
+        box-shadow: var(--shadow-frame);
+      }
+
+      /* Panel bar — 48px, wordmark left, nav right */
+      .panel-bar {
+        height: var(--panel-h);
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: var(--pad-panel);
+        border-bottom: 1px solid var(--line-2);
+      }
+
+      .wordmark {
+        font: 600 12px/1 var(--font-display);
+        letter-spacing: 0.24em;
+        color: var(--ink-1);
+      }
+
+      .panel-nav {
+        display: flex;
+        gap: var(--space-6);
+      }
+
+      .panel-nav a {
+        font: var(--type-chrome-sm);
+        letter-spacing: var(--track-chrome);
+        color: var(--ink-3);
+        text-decoration: none;
+      }
+
+      .panel-nav a:hover {
+        color: var(--ink-1);
+        text-decoration: underline;
+      }
+
+      /* Stage — the wallpaper surface with the flow field drawn once */
+      .stage {
+        position: relative;
+        background: var(--surface-wallpaper);
+        overflow: hidden;
+      }
+
+      .stage canvas {
+        position: absolute;
+        inset: 0;
+      }
+
+      .hero {
+        position: relative;
+        max-width: var(--col-major);
+        padding: 96px var(--space-8) 104px;
+        display: flex;
+        flex-direction: column;
+        gap: var(--space-6);
+      }
+
+      .caps-label {
+        font: var(--type-label);
+        letter-spacing: var(--track-label);
+        color: var(--text-meta);
+      }
+
+      .display {
+        font: var(--type-display-xl);
+        letter-spacing: var(--track-display-xl);
+        color: var(--text-display);
+      }
+
+      .body {
+        font: var(--type-body-md);
+        color: var(--text-body);
+        max-width: var(--measure-body);
+      }
+
+      .body code {
+        font: inherit;
+        color: var(--text-code);
+        background: var(--surface-control);
+        padding: 0 var(--space-2);
+      }
+
+      .command-line {
+        font: var(--type-chrome);
+        background: var(--surface-control);
+        border: 1px solid var(--line-1);
+        color: var(--ink-1);
+        padding: 16px 20px;
+        max-width: 460px;
+      }
+
+      .command-line .prompt {
+        color: var(--accent);
+      }
+
+      /* The seam group: 1px gaps over a hairline background */
+      .button-group {
+        display: flex;
+        gap: 1px;
+        background: var(--line-2);
+        width: max-content;
+      }
+
+      .button {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: var(--pad-button);
+        font: var(--type-chrome);
+        letter-spacing: 0.06em;
+        text-decoration: none;
+        cursor: pointer;
+      }
+
+      .button-accent {
+        background: var(--accent);
+        color: var(--accent-ink);
+        font-weight: 600;
+      }
+
+      .button-accent:hover {
+        filter: brightness(1.06);
+      }
+
+      .button-dark {
+        background: var(--surface-control);
+        color: var(--ink-1);
+      }
+
+      .button-dark:hover {
+        background: var(--surface-control-hover);
+      }
+
+      .button:focus-visible {
+        outline: 1px solid var(--accent);
+        outline-offset: 2px;
+      }
+
+      .meta {
+        font: var(--type-label-sm);
+        letter-spacing: var(--track-label-sm);
+        color: var(--text-meta);
+      }
+
+      /* Statement footer — 80px, hairline above */
+      .statement {
+        min-height: var(--footer-h);
+        display: flex;
+        align-items: center;
+        padding: var(--space-5) var(--space-8);
+        border-top: 1px solid var(--line-2);
+      }
+
+      .display-md {
+        font: var(--type-display-md);
+        letter-spacing: var(--track-display-md);
+        color: var(--text-display);
+      }
+
+      @media (max-width: 720px) {
+        .display {
+          font: var(--type-display-lg);
+          letter-spacing: var(--track-display-lg);
+        }
+
+        .hero {
+          padding: 56px var(--space-6) 64px;
+        }
+
+        .statement {
+          padding: var(--space-5) var(--space-6);
+        }
+      }
+    </style>
   </body>
 </html>
