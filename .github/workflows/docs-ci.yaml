@@ -10,6 +10,17 @@ on:
     paths:
       - "docs/**"
       - ".github/workflows/docs-ci.yaml"
+  # Font hinting and antialiasing differ enough across host OSes that
+  # visual-regression baselines generated anywhere but this exact runner
+  # (a dev machine, even a matching mcr.microsoft.com/playwright image)
+  # can fail here by hundreds of pixels with no real content change. This
+  # mode regenerates them on the one machine that gets to be authoritative.
+  workflow_dispatch:
+    inputs:
+      update_snapshots:
+        description: "Regenerate visual-regression baselines instead of checking them"
+        type: boolean
+        default: false
 
 jobs:
   test:
@@ -28,10 +39,12 @@ jobs:
           cache: pnpm
           cache-dependency-path: docs/pnpm-lock.yaml
       - run: pnpm install --frozen-lockfile
-      - run: pnpm run format:check
-      - run: pnpm run check
+      - if: ${{ !inputs.update_snapshots }}
+        run: pnpm run format:check
+      - if: ${{ !inputs.update_snapshots }}
+        run: pnpm run check
       - run: pnpm exec playwright install --with-deps chromium
-      - run: pnpm exec playwright test
+      - run: pnpm exec playwright test ${{ inputs.update_snapshots && '--update-snapshots' || '' }}
         env:
           CI: "true"
       - uses: actions/upload-artifact@v6
@@ -39,3 +52,8 @@ jobs:
         with:
           name: playwright-report
           path: docs/test-results/
+      - uses: actions/upload-artifact@v6
+        if: ${{ inputs.update_snapshots }}
+        with:
+          name: updated-snapshots
+          path: docs/tests/landing.spec.ts-snapshots/
