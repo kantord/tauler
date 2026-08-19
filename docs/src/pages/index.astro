@@ -4,6 +4,7 @@
 // type, color, and chrome live in the component layers (see ADR 0030).
 import '../styles/fonts.css'
 import '../styles/global.css'
+import '../styles/crt.css'
 import Hero from '../components/organisms/Hero.astro'
 import TopPanel from '../components/organisms/TopPanel.astro'
 import Stage from '../components/organisms/Stage.astro'
@@ -32,6 +33,47 @@ import FontPreloads from '../components/FontPreloads.astro'
     />
     <meta name="twitter:card" content="summary" />
     <FontPreloads />
+    <script is:inline>
+      // Locks the tube to physical device pixels rather than nominal CSS
+      // pixels, so zooming the page in or out doesn't change how coarse
+      // the effect looks — a real CRT's scanline pitch and misconvergence
+      // don't change when you lean closer to the glass.
+      //
+      // --crt-dpr is the raw devicePixelRatio; crt.css divides any size
+      // that should read as "N device pixels" by it, so the on-screen
+      // physical size stays constant while the CSS-px value shrinks as
+      // the user zooms in (and grows as they zoom out) to compensate.
+      //
+      // --crt-scan-period is additionally snapped to a whole device pixel
+      // count: an unsnapped period doesn't line up with the physical
+      // pixel grid and the repeating gradient moirés into uneven banding
+      // — see crt.css.
+      ;(function () {
+        var root = document.documentElement
+        var TARGET_SCAN_DEVICE_PX = 3
+        function align() {
+          var dpr = window.devicePixelRatio || 1
+          root.style.setProperty('--crt-dpr', String(dpr))
+          // The period is a whole device-pixel count already (an integer
+          // constant divided by dpr) — no rounding needed. Rounding
+          // dpr-scaled inputs was the earlier bug: round(3 * dpr) grows
+          // the target along with zoom instead of holding it constant,
+          // so the pattern got physically thicker as the page zoomed in.
+          root.style.setProperty(
+            '--crt-scan-period',
+            TARGET_SCAN_DEVICE_PX / dpr + 'px',
+          )
+        }
+        align()
+        addEventListener('resize', align)
+      })()
+    </script>
+    <script>
+      // Hidden CRT tuning panel — reachable only via `crt.tune()` in the
+      // devtools console, never linked from the page. See crt-panel.ts.
+      import { initCrtPanel } from '../scripts/crt-panel'
+      initCrtPanel()
+    </script>
   </head>
   <body>
     <div class="flex min-h-dvh flex-col">
@@ -43,5 +85,8 @@ import FontPreloads from '../components/FontPreloads.astro'
         One native binary renders your panels. Any script becomes a data source.
       </StatementFooter>
     </div>
+    <div class="crt-halation" aria-hidden="true"></div>
+    <div class="crt-scanlines" aria-hidden="true"></div>
+    <div class="crt-vignette" aria-hidden="true"></div>
   </body>
 </html>

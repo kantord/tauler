@@ -8,6 +8,15 @@ import AxeBuilder from '@axe-core/playwright'
 const ABOVE_FOLD_COUNT = 10
 
 test.beforeEach(async ({ page }) => {
+  // The CRT overlay (scanlines, chromatic aberration, the beam sweep)
+  // is animated and layers backdrop-filter over the flow field —
+  // exactly the kind of thing that turns a pixel-diff baseline and an
+  // axe contrast check flaky across OSes and timing. data-crt is a
+  // hard kill switch (see crt.css) that these tests always assert,
+  // independent of what any real visitor sees.
+  await page.addInitScript(() => {
+    document.documentElement.setAttribute('data-crt', 'off')
+  })
   await page.goto('/')
   // Type and canvas both affect layout and the screenshot.
   await page.evaluate(() => document.fonts.ready)

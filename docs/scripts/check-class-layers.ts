@@ -6,7 +6,11 @@
 //   src/components/ui/**      own surfaces, hairlines, spacing — and their text.
 //   src/components/organisms/** compose atoms; layout plus section chrome
 //                             (hairline borders, surface backgrounds).
-// Marker classes (`above-fold`) are metadata, allowed everywhere.
+// Marker classes (`above-fold`) are metadata, allowed everywhere. `crt-*`
+// classes are the same kind of thing: hooks into crt.css (a separate,
+// deliberately-unlayered stylesheet scoped to the landing page's CRT
+// overlay — see that file's own top comment), not Tailwind utilities, so
+// they're not subject to the layer rules below.
 // `rounded-*`, blur and backdrop utilities are banned everywhere: radius 0
 // and "never blur what you cover" are design invariants.
 
@@ -24,7 +28,7 @@ const TYPOGRAPHY =
 const SURFACE =
   /^(bg-|border(-|$)|outline|ring|cursor-|select-|opacity-|brightness-|transition|duration-|ease-)/
 
-const MARKERS = /^(above-fold)$/
+const MARKERS = /^(above-fold|crt-[\w-]+)$/
 
 const BANNED = /^(rounded|blur|backdrop-)/
 
