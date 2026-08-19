@@ -6,31 +6,43 @@
 // filter is a pure paint-time effect, it never moves a click target's
 // actual hit-test geometry. Displacing DOCS/GITHUB or the command line
 // even a few px would make them visually not where they're clickable.
-// So the displacement map here is ~0 in a "safe zone" covering the
-// hero's real content column (SAFE_ZONE_PX, with a soft ramp past it)
-// and only grows in the empty background area to the right, where nothing
-// is interactive. Below MIN_WIDTH_PX there's no meaningful empty
-// background to warp into, so the filter isn't applied at all.
+//
+// Falloff model: distance from the nearest of the TWO RIGHT corners of
+// <main> (top-right, bottom-right) — not a single left/right split.
+// tauler's hero content clusters near BOTH the top-left (the eyebrow
+// label) and the bottom-left (the meta line) of the hero, so a plain
+// vertical safe-zone boundary (the first version) protected the middle
+// of the left edge but not its actual top/bottom corners specifically.
+// Anchoring from the two corners that are genuinely always empty
+// background does. Two radii per corner, the way CSS border-radius
+// needs two lengths per corner for an ellipse:
+//   - STRONG_RADIUS_PX: full displacement strength inside this distance
+//   - WEAK_RADIUS_PX: fades from full strength down to WEAK_FLOOR
+//     between STRONG_RADIUS_PX and here, then to exactly 0 beyond it
+// WEAK_FLOOR is intentionally non-zero — a wide, faint halo that CAN
+// graze the edge of a clickable element is an explicit, deliberate
+// choice here (not a bug to eliminate), as long as it stays subtle.
 //
 // The displacement itself reuses the scanlines' geometry: distance from
 // an off-screen point above the viewport, signed by which side of the
 // vertical middle a pixel falls on, so the content that IS warped bends
 // the same direction the scanline mesh already does.
 
-const SAFE_ZONE_PX = 650
-const RAMP_PX = 250
+const STRONG_RADIUS_PX = 500
+const WEAK_RADIUS_PX = 950
+const WEAK_FLOOR = 0.22
 const MIN_WIDTH_PX = 900
 // 512, not the 128 this started at — a low-res displacement map shows up
-// as visible blockiness in the safe-zone ramp specifically (each map
-// pixel there is several real screen pixels wide). A hand-crafted
-// reference (codepen.io/cauners/pen/ExMaqOW) uses a 600×600 pre-baked
-// PNG for the same feDisplacementMap technique; 512 is the same order
-// of magnitude without a meaningfully heavier per-pixel build loop.
+// as visible blockiness in the falloff specifically (each map pixel
+// there is several real screen pixels wide). A hand-crafted reference
+// (codepen.io/cauners/pen/ExMaqOW) uses a 600×600 pre-baked PNG for the
+// same feDisplacementMap technique; 512 is the same order of magnitude
+// without a meaningfully heavier per-pixel build loop.
 const MAP_SIZE = 512
 
 let currentScale = 40
 
-function buildDisplacementMap(width: number): string {
+function buildDisplacementMap(width: number, height: number): string {
   const canvas = document.createElement('canvas')
   canvas.width = MAP_SIZE
   canvas.height = MAP_SIZE
@@ -39,20 +51,39 @@ function buildDisplacementMap(width: number): string {
 
   const img = ctx.createImageData(MAP_SIZE, MAP_SIZE)
   const midY = MAP_SIZE / 2
-  const safeZoneMap = (SAFE_ZONE_PX / width) * MAP_SIZE
-  const rampMap = (RAMP_PX / width) * MAP_SIZE
+  const mapScaleX = MAP_SIZE / width
+  const mapScaleY = MAP_SIZE / height
+  const strongMap = STRONG_RADIUS_PX * ((mapScaleX + mapScaleY) / 2)
+  const weakMap = WEAK_RADIUS_PX * ((mapScaleX + mapScaleY) / 2)
+  // The two corners this anchors from, in map space.
+  const corners = [
+    { x: MAP_SIZE, y: 0 },
+    { x: MAP_SIZE, y: MAP_SIZE },
+  ]
 
   for (let y = 0; y < MAP_SIZE; y++) {
     for (let x = 0; x < MAP_SIZE; x++) {
+      let dist = Infinity
+      for (const c of corners) {
+        const dx = x - c.x
+        const dyC = y - c.y
+        dist = Math.min(dist, Math.sqrt(dx * dx + dyC * dyC))
+      }
+      let strength: number
+      if (dist <= strongMap) {
+        strength = 1
+      } else if (dist >= weakMap) {
+        strength = 0
+      } else {
+        const t = (dist - strongMap) / (weakMap - strongMap)
+        strength = 1 - t * (1 - WEAK_FLOOR)
+      }
+
       const dy = y - midY
-      const safety = Math.min(
-        1,
-        Math.max(0, (x - safeZoneMap) / rampMap),
-      )
       // Signed, capped displacement: grows away from the vertical
       // middle, scaled to fit a single byte around a mid-gray zero point.
       const raw = Math.max(-127, Math.min(127, dy * 0.35))
-      const value = 128 + raw * safety
+      const value = 128 + raw * strength
       const i = (y * MAP_SIZE + x) * 4
       // R carries the real (Y) displacement data. G is held at a flat
       // 128 — neutral, zero displacement — and is what xChannelSelector
@@ -72,7 +103,7 @@ function buildDisplacementMap(width: number): string {
 
 let installed = false
 
-function ensureFilter(width: number): void {
+function ensureFilter(width: number, height: number): void {
   const existing = document.getElementById('crt-warp-filter-root')
   if (existing) existing.remove()
 
@@ -86,8 +117,8 @@ function ensureFilter(width: number): void {
   })
   svg.innerHTML = `
     <defs>
-      <filter id="crt-page-warp" x="-10%" y="-10%" width="120%" height="120%">
-        <feImage href="${buildDisplacementMap(width)}" result="warpmap" preserveAspectRatio="none" x="0%" y="0%" width="100%" height="100%" />
+      <filter id="crt-page-warp" x="0%" y="0%" width="100%" height="100%">
+        <feImage href="${buildDisplacementMap(width, height)}" result="warpmap" preserveAspectRatio="none" x="0%" y="0%" width="100%" height="100%" />
         <feDisplacementMap id="crt-page-warp-disp" in="SourceGraphic" in2="warpmap" scale="${currentScale}" xChannelSelector="G" yChannelSelector="R" />
       </filter>
     </defs>
@@ -103,7 +134,7 @@ function apply(on: boolean): void {
     main.style.filter = ''
     return
   }
-  if (!installed) ensureFilter(window.innerWidth)
+  if (!installed) ensureFilter(main.clientWidth, main.clientHeight)
   main.style.filter = 'url(#crt-page-warp)'
 }
 

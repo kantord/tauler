@@ -14,6 +14,7 @@
 
 import { setPageWarp, setPageWarpStrength } from './crt-warp'
 import { setTextAttenuation } from './crt-text-mask'
+import { setCanvasFringe } from './crt-canvas-fringe'
 
 type Knob = {
   prop: string
@@ -285,6 +286,9 @@ const WARP_STRENGTH_DEFAULT = 40
 const BOW_ENABLED_KEY = 'tauler:crt-bow-enabled'
 const TEXT_ATTEN_KEY = 'tauler:crt-text-attenuation'
 const TEXT_ATTEN_DEFAULT = 0
+const NOISE_VARIANT_KEY = 'tauler:crt-noise-variant'
+const FLICKER_VARIANT_KEY = 'tauler:crt-flicker-variant'
+const FRAME_KEY = 'tauler:crt-frame'
 
 function readStored(): Record<string, number> {
   try {
@@ -320,6 +324,81 @@ function applyKnob(knob: Knob, value: number): void {
     knob.prop,
     `${value}${knob.unit}`,
   )
+  // --crt-ab-target also drives the canvas/SVG fringe filter, which
+  // can't read the CSS custom property itself — feOffset's dx is an SVG
+  // geometry attribute, not something url(#filter) makes reactive to
+  // the referencing element's custom properties the way text-shadow's
+  // calc() is. Kept in sync here rather than duplicated at every call
+  // site that changes this one knob.
+  if (knob.prop === '--crt-ab-target') {
+    const dpr = Number(
+      getComputedStyle(document.documentElement).getPropertyValue(
+        '--crt-dpr',
+      ) || 1,
+    )
+    setCanvasFringe(value / (dpr || 1))
+  }
+}
+
+function applyVariantAttr(attr: string, key: string, onValue: string): void {
+  if (localStorage.getItem(key) === '1') {
+    document.documentElement.setAttribute(attr, onValue)
+  }
+}
+
+// A checkbox that toggles an html[attr="onValue"] selector on/off,
+// persisted as '0'/'1' under storageKey. Used for the three variant
+// pairs (static grain, classic flicker, frame bezel) — each is a plain
+// attribute swap in crt.css, no CSS custom property involved, so this
+// doesn't reuse the KNOBS slider machinery above.
+function buildVariantToggle(opts: {
+  label: string
+  hint: string
+  attr: string
+  onValue: string
+  storageKey: string
+}): HTMLElement {
+  const wrap = document.createElement('div')
+  Object.assign(wrap.style, {
+    marginTop: '8px',
+  } satisfies Partial<CSSStyleDeclaration>)
+
+  const row = document.createElement('label')
+  Object.assign(row.style, {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '6px',
+    cursor: 'pointer',
+  } satisfies Partial<CSSStyleDeclaration>)
+
+  const checkbox = document.createElement('input')
+  checkbox.type = 'checkbox'
+  checkbox.checked = localStorage.getItem(opts.storageKey) === '1'
+  checkbox.addEventListener('change', () => {
+    localStorage.setItem(opts.storageKey, checkbox.checked ? '1' : '0')
+    if (checkbox.checked) {
+      document.documentElement.setAttribute(opts.attr, opts.onValue)
+    } else {
+      document.documentElement.removeAttribute(opts.attr)
+    }
+  })
+
+  const label = document.createElement('span')
+  label.textContent = opts.label
+  row.append(checkbox, label)
+
+  const hint = document.createElement('div')
+  hint.textContent = opts.hint
+  Object.assign(hint.style, {
+    fontSize: '10px',
+    lineHeight: '1.35',
+    opacity: '0.55',
+    marginTop: '2px',
+    marginLeft: '20px',
+  } satisfies Partial<CSSStyleDeclaration>)
+
+  wrap.append(row, hint)
+  return wrap
 }
 
 // Reapply any saved tuning on every load, panel open or not — the whole
@@ -340,9 +419,38 @@ function applyStored(): void {
       applyKnob(knob, clamped)
     }
   }
+  // Unconditional, unlike the loop above: on a totally fresh load with
+  // nothing in storage, --crt-ab-target still resolves to crt.css's own
+  // shipped default (the stylesheet sets it directly, not just as a
+  // var() fallback) — but the canvas/SVG fringe filter has no CSS-level
+  // default of its own, only whatever setCanvasFringe was last called
+  // with. Without this, a fresh page load would show text fringing but
+  // zero fringing on the canvas and the GitHub icon.
+  {
+    const dpr = Number(
+      getComputedStyle(document.documentElement).getPropertyValue(
+        '--crt-dpr',
+      ) || 1,
+    )
+    const abTarget = parseFloat(
+      getComputedStyle(document.documentElement).getPropertyValue(
+        '--crt-ab-target',
+      ),
+    )
+    if (!Number.isNaN(abTarget)) {
+      setCanvasFringe(abTarget / (dpr || 1))
+    }
+  }
   if (localStorage.getItem(BOW_ENABLED_KEY) === '0') {
     document.documentElement.setAttribute('data-crt-bow-off', '')
   }
+  applyVariantAttr('data-crt-noise-variant', NOISE_VARIANT_KEY, 'static')
+  applyVariantAttr(
+    'data-crt-scanline-flicker-variant',
+    FLICKER_VARIANT_KEY,
+    'classic',
+  )
+  applyVariantAttr('data-crt-frame', FRAME_KEY, 'on')
   const storedAtten = Number(
     localStorage.getItem(TEXT_ATTEN_KEY) ?? TEXT_ATTEN_DEFAULT,
   )
@@ -611,6 +719,38 @@ function buildPanel(): HTMLElement {
       knobsWrap.appendChild(attenRow)
 
       if (storedAtten > 0) setTextAttenuation(storedAtten)
+
+      knobsWrap.appendChild(
+        buildVariantToggle({
+          label: 'Classic flicker variant',
+          hint: "Lucas Bebber's original canon technique (codepen.io/lbebber/pen/XJRdrV): 21 fixed keyframe stops of pseudo-random opacity over 0.15s (~133fps), instead of the smooth breathing pulse above. This is the exact pattern crt-resources.md flags as a real photosensitivity/WCAG flash risk, not just a style choice — still fully killed by prefers-reduced-motion, but treat this as a comparison, not a default candidate.",
+          attr: 'data-crt-scanline-flicker-variant',
+          onValue: 'classic',
+          storageKey: FLICKER_VARIANT_KEY,
+        }),
+      )
+
+      knobsWrap.appendChild(
+        buildVariantToggle({
+          label: 'Frame bezel variant (experimental)',
+          hint: "The other canon approach to a curved screen (codepen.io/somethingformed/pen/raWJXV): keep the scanline mesh flat and suggest curvature with a physical bezel around the hero instead — rounded corners, shaded borders, heavy inset shadow. This directly contradicts --radius: 0 elsewhere in the design (global.css calls sharp corners \"the whole visual argument\"), so it's here purely for comparison, independent of the Bow toggle above.",
+          attr: 'data-crt-frame',
+          onValue: 'on',
+          storageKey: FRAME_KEY,
+        }),
+      )
+    }
+
+    if (layer.id === 'noise') {
+      knobsWrap.appendChild(
+        buildVariantToggle({
+          label: 'Static texture variant',
+          hint: 'Swaps the animated SVG-turbulence grain for a fixed noise texture (codepen.io/somethingformed/pen/raWJXV) — no jitter at all, cheaper, and a genuinely different look rather than a tuned-down version of the same one.',
+          attr: 'data-crt-noise-variant',
+          onValue: 'static',
+          storageKey: NOISE_VARIANT_KEY,
+        }),
+      )
     }
 
     section.appendChild(knobsWrap)
@@ -773,6 +913,12 @@ function buildPanel(): HTMLElement {
       localStorage.removeItem(WARP_KEY)
       localStorage.removeItem(WARP_STRENGTH_KEY)
       localStorage.removeItem(BOW_ENABLED_KEY)
+      localStorage.removeItem(NOISE_VARIANT_KEY)
+      localStorage.removeItem(FLICKER_VARIANT_KEY)
+      localStorage.removeItem(FRAME_KEY)
+      document.documentElement.removeAttribute('data-crt-noise-variant')
+      document.documentElement.removeAttribute('data-crt-scanline-flicker-variant')
+      document.documentElement.removeAttribute('data-crt-frame')
       document.documentElement.removeAttribute('data-crt-bow-off')
       localStorage.removeItem(TEXT_ATTEN_KEY)
       setTextAttenuation(0)
@@ -819,6 +965,12 @@ export function initCrtPanel(): void {
       localStorage.removeItem(WARP_KEY)
       localStorage.removeItem(WARP_STRENGTH_KEY)
       localStorage.removeItem(BOW_ENABLED_KEY)
+      localStorage.removeItem(NOISE_VARIANT_KEY)
+      localStorage.removeItem(FLICKER_VARIANT_KEY)
+      localStorage.removeItem(FRAME_KEY)
+      document.documentElement.removeAttribute('data-crt-noise-variant')
+      document.documentElement.removeAttribute('data-crt-scanline-flicker-variant')
+      document.documentElement.removeAttribute('data-crt-frame')
       document.documentElement.removeAttribute('data-crt-bow-off')
       localStorage.removeItem(TEXT_ATTEN_KEY)
       setTextAttenuation(0)
