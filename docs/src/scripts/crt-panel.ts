@@ -85,7 +85,7 @@ const LAYERS: Layer[] = [
         min: 1,
         max: 20,
         step: 0.5,
-        default: 20,
+        default: 4,
         unit: 's',
       },
     ],
@@ -102,7 +102,7 @@ const LAYERS: Layer[] = [
         min: 0,
         max: 0.8,
         step: 0.01,
-        default: 0.37,
+        default: 0.34,
         unit: '',
       },
     ],
@@ -183,7 +183,7 @@ const LAYERS: Layer[] = [
         min: 0,
         max: 6,
         step: 0.1,
-        default: 0.5,
+        default: 0.6,
         unit: 'px',
       },
       {
@@ -235,10 +235,7 @@ function applyHidden(hidden: Set<string>): void {
 }
 
 function applyKnob(knob: Knob, value: number): void {
-  document.documentElement.style.setProperty(
-    knob.prop,
-    `${value}${knob.unit}`,
-  )
+  document.documentElement.style.setProperty(knob.prop, `${value}${knob.unit}`)
   // --crt-ab-target also drives the canvas/SVG fringe filter, which
   // can't read the CSS custom property itself — feOffset's dx is an SVG
   // geometry attribute, not something url(#filter) makes reactive to
@@ -266,10 +263,7 @@ function applyStored(): void {
   const stored = readStored()
   for (const knob of KNOBS) {
     if (knob.prop in stored) {
-      const clamped = Math.min(
-        knob.max,
-        Math.max(knob.min, stored[knob.prop]),
-      )
+      const clamped = Math.min(knob.max, Math.max(knob.min, stored[knob.prop]))
       applyKnob(knob, clamped)
     }
   }
@@ -469,10 +463,7 @@ function buildPanel(): HTMLElement {
     marginTop: '12px',
   } satisfies Partial<CSSStyleDeclaration>)
 
-  const makeButton = (
-    text: string,
-    onClick: () => void,
-  ): HTMLButtonElement => {
+  const makeButton = (text: string, onClick: () => void): HTMLButtonElement => {
     const btn = document.createElement('button')
     btn.type = 'button'
     btn.textContent = text
@@ -530,12 +521,6 @@ function hide(): void {
 
 export function initCrtPanel(): void {
   applyStored()
-  // Tuning phase: show by default instead of requiring crt.tune() in the
-  // console, so it's there on every reload while dialing in defaults.
-  // Revert this once a final config is settled — a hidden panel that's
-  // always open by default is a bug, not a feature, for anyone who
-  // isn't actively tuning it.
-  show()
   ;(window as unknown as { crt: Record<string, () => void> }).crt = {
     tune: show,
     hide,
