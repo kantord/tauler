@@ -37,7 +37,7 @@ importers:
         version: 0.35.3(@types/node@24.13.3)
     devDependencies:
       '@astrojs/check':
-        specifier: ^0.9.10
+        specifier: 0.9.10
         version: 0.9.10(prettier-plugin-astro@0.14.1)(prettier@3.9.6)(typescript@5.9.3)
       '@axe-core/playwright':
         specifier: 4.13.0
