@@ -1,0 +1,75 @@
+---
+// Starlight Header override: composed from Starlight's own parts (SiteTitle,
+// Search, SocialIcons) rather than rebuilt, plus HOME/GITHUB/INSTALL cells.
+// See docs revamp handoff §7. The mobile menu button lives in PageFrame's
+// sidebar nav, not here — DesktopFrame reuses Starlight's default
+// PageFrame unmodified, so it is never at risk of being dropped.
+import SiteTitle from '@astrojs/starlight/components/SiteTitle.astro'
+import Search from '@astrojs/starlight/components/Search.astro'
+import SocialIcons from '@astrojs/starlight/components/SocialIcons.astro'
+---
+
+<div class="dx-header flex items-center gap-s5">
+  <SiteTitle />
+  <nav class="dx-nav above-fold flex items-stretch gap-s3">
+    <a href="/" class="dx-nav-link">HOME</a>
+    <a href="https://github.com/kantord/tauler" class="dx-nav-link">GITHUB</a>
+    <a href="/docs/#install" class="dx-nav-link dx-nav-install">INSTALL</a>
+  </nav>
+  <div class="dx-tools flex items-center gap-s3">
+    <Search />
+    <SocialIcons />
+  </div>
+</div>
+
+<style>
+  @layer design {
+    .dx-header {
+      height: 100%;
+    }
+
+    .dx-nav {
+      margin-inline-start: auto;
+    }
+
+    .dx-nav-link {
+      display: flex;
+      align-items: center;
+      padding-inline: var(--spacing-s3);
+      font-family: var(--font-ui);
+      font-size: var(--text-chrome-sm);
+      letter-spacing: var(--tracking-chrome);
+      color: var(--color-ink-3);
+      text-decoration: none;
+    }
+    .dx-nav-link:hover {
+      color: var(--color-ink-1);
+      text-decoration: underline;
+    }
+
+    .dx-nav-install {
+      color: var(--page-accent, var(--color-accent));
+    }
+
+    .dx-tools {
+      flex-shrink: 0;
+    }
+
+    @media (max-width: 49.99em) {
+      .dx-nav-link:not(.dx-nav-install) {
+        display: none;
+      }
+      /* The 44px (--spacing-s5) gap between wordmark/nav/tools is sized
+         for the desktop row's breathing room; on a narrow phone it alone
+         can exceed the space left after the wordmark, INSTALL and the
+         icon buttons — every gap-shrink candidate here is already
+         minimal, so this is the one that has room to give.
+         Real case: at 375–390px this freed exactly the room the
+         wordmark needed and the fallback below never triggers; the
+         ellipsis is a safety net for anything narrower still. */
+      .dx-header {
+        gap: var(--spacing-s3);
+      }
+    }
+  }
+</style>

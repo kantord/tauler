@@ -1,0 +1,61 @@
+/* The slab: caps the docs page at the same 1600px frame the landing page
+   uses, centered, with the generative wallpaper visible only in the
+   margins outside it — so the docs read as an instance of the landing's
+   own argument (a panel reserved on a desktop) rather than a separate
+   site wearing the same colours. Declared in the `design` layer (order
+   fixed by global.css) so it always outranks `starlight.*`, regardless of
+   specificity. */
+
+@layer design {
+  .page {
+    max-width: var(--container-page);
+    margin-inline: auto;
+    background: var(--color-surface-frame);
+    border-inline: 1px solid var(--color-line-2);
+    border-bottom: 1px solid var(--color-line-2);
+  }
+  /* Header: opaque edge to edge, matching the landing page's TopPanel —
+     a full-bleed bar, its content capped and centered inside it, not a
+     capped bar with wallpaper showing in the margins. (An earlier version
+     tried the latter; it read as a bug, not a design, so it's gone.)
+
+     Starlight's own PageFrame puts --sl-nav-pad-x padding directly on
+     .header, then centering the content on TOP of that stacks two insets
+     instead of the landing's one (PageWidth: a single max-width+padding
+     on one element) — 22px more margin than the landing at any given
+     width. Zeroing .header's own padding and doing both jobs (cap +
+     padding) on the inner wrapper reproduces the landing's exact math. */
+  .header {
+    background: var(--color-surface-frame);
+    border-bottom: 1px solid var(--color-line-2);
+    padding-inline: 0;
+  }
+  .header > * {
+    max-width: var(--container-page);
+    margin-inline: auto;
+    padding-inline: var(--spacing-s5);
+    box-sizing: border-box;
+  }
+
+  .sidebar {
+    background: transparent;
+  }
+  .sidebar-pane {
+    background-color: var(--color-surface-frame);
+  }
+  /* Starlight's own .sidebar-pane is `position: fixed; inset-inline-start:
+     0` — hardcoded to the true viewport edge, not the slab's. .page's own
+     max-width+auto-margin centering above never reaches it: position:fixed
+     escapes to the viewport regardless of an ancestor's position:relative
+     (only position:absolute honours that as a containing block). Below
+     Starlight's own 50em breakpoint .sidebar-pane is a full-width mobile
+     overlay and must stay at the true edge; above it (and only once the
+     viewport exceeds the 1600px cap) it needs the same offset .page's
+     margin:auto already computed, recomputed directly since fixed
+     positioning can't inherit it. */
+  @media (min-width: 50em) {
+    .sidebar-pane {
+      inset-inline-start: max(0px, calc((100vw - var(--container-page)) / 2));
+    }
+  }
+}

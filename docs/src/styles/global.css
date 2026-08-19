@@ -3,7 +3,7 @@
    tokens.css was retired for Tailwind-native names — see ADR 0029.
    Layer order per the official Starlight + Tailwind integration. */
 
-@layer base, starlight, theme, components, utilities;
+@layer base, starlight, theme, components, utilities, design;
 
 @import '@astrojs/starlight-tailwind';
 @import 'tailwindcss/theme.css' layer(theme);
@@ -66,11 +66,14 @@
   --color-line-1: oklch(1 0 0 / 0.11);
   --color-line-2: oklch(1 0 0 / 0.16);
 
-  /* Accent-1 (flow field). The other five workspace accents return with
-     the full scroll-story page. Text on an accent fill is accent-ink,
-     never white. */
+  /* Accent-1 (flow field). The other four workspace accents return with
+     the full scroll-story page; accent-2 arrived early for the docs'
+     second sidebar group (ADR-pending: see the docs revamp handoff §6).
+     Text on an accent fill is accent-ink, never white. */
   --color-accent: #f0855a;
   --color-accent-ink: oklch(0.16 0.02 40);
+  --color-accent-2: #5ad6ac;
+  --color-accent-2-ink: oklch(0.18 0.03 165);
 
   /* Starlight accent + gray scales (consumed by @astrojs/starlight-tailwind;
      the scales map the ink ramp and surfaces onto Starlight's slots). */
@@ -115,10 +118,20 @@
     color-scheme: dark;
   }
 
-  /* Radius is 0 everywhere. Sharp corners are the visual argument. */
+  /* Generic reset, not a design argument — stays ahead of Starlight so its
+     own layered rules can still adjust box-sizing etc. if they need to. */
   * {
     margin: 0;
     box-sizing: border-box;
+  }
+}
+
+/* Assertions Starlight's own layered CSS must never win back. Declared
+   after the `starlight` layer (see the order above) so radius-0 and the
+   wallpaper ground hold on every docs page — asides, code frames and the
+   search modal included. See docs revamp handoff §2. */
+@layer design {
+  * {
     border-radius: 0;
   }
 

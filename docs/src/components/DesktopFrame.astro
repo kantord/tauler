@@ -1,0 +1,110 @@
+---
+// Starlight PageFrame override: adds the fixed desktop canvas behind the
+// page frame. The docs page is a panel reserved on a desktop, not a page
+// with a decorated background — the field lives on this canvas, below the
+// frame, visible only in the margins outside it and the strip behind the
+// header, matching the landing page's own wallpaper argument.
+//
+// One accent, one field kind — matches the landing page, which only shows
+// its single "flow" workspace. Per-section accents/field kinds were part
+// of a separate decision (workspace groups) that hasn't been made yet.
+import Default from '@astrojs/starlight/components/PageFrame.astro'
+import ScrollRegionA11y from './ScrollRegionA11y.astro'
+
+const { entry } = Astro.locals.starlightRoute
+const isSplash = entry.data.template === 'splash'
+---
+
+<div data-desktop data-splash={isSplash ? '' : undefined}>
+  <canvas data-desktop-canvas aria-hidden="true"></canvas>
+  <ScrollRegionA11y />
+  <Default>
+    <slot />
+    <slot name="header" slot="header" />
+    <slot name="sidebar" slot="sidebar" />
+  </Default>
+</div>
+
+<style>
+  @layer design {
+    [data-desktop] {
+      display: contents;
+    }
+
+    [data-desktop-canvas] {
+      position: fixed;
+      inset: 0;
+      z-index: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+    }
+
+    /* The slab sits above the canvas — see the stacking note in the
+       script below for why an explicit z-index is required here, not
+       just DOM order. */
+    :global(.page) {
+      position: relative;
+      z-index: 1;
+    }
+  }
+</style>
+
+<script>
+  import { drawField } from '../scripts/field.ts'
+
+  // Above this width the field has visible margin to draw into; below it
+  // the slab fills the viewport and the field is absent by construction
+  // (also why phones carry no contrast risk and no cost). Splash pages
+  // skip the gate entirely, matching the landing page's own hero canvas.
+  const MARGIN_QUERY = '(min-width: 1700px)'
+
+  for (const host of document.querySelectorAll<HTMLElement>('[data-desktop]')) {
+    const canvas = host.querySelector<HTMLCanvasElement>(
+      '[data-desktop-canvas]',
+    )
+    if (!canvas) continue
+
+    const isSplash = host.hasAttribute('data-splash')
+    // Stable per route: the same page always draws the same wallpaper slice.
+    const routeId = location.pathname
+    let seed = 0
+    for (let i = 0; i < routeId.length; i++)
+      seed = (seed * 31 + routeId.charCodeAt(i)) >>> 0
+
+    const mq = isSplash ? null : matchMedia(MARGIN_QUERY)
+
+    let lastW = 0
+    let lastH = 0
+    function paint(): void {
+      if (mq && !mq.matches) return
+      const w = window.innerWidth
+      const h = window.innerHeight
+      if (w === lastW && h === lastH) return
+      lastW = w
+      lastH = h
+      const scale = Math.min(2, Math.sqrt(12_000_000 / (w * h)))
+      canvas!.width = Math.round(w * scale)
+      canvas!.height = Math.round(h * scale)
+      // Hex because the canvas parses it into RGB; the token is oklch,
+      // which parseInt can't read — matches the landing's own Stage.astro.
+      drawField(canvas!, 'flow', '#F0855A', seed, scale)
+    }
+    function clear(): void {
+      const ctx = canvas!.getContext('2d')
+      if (ctx) ctx.clearRect(0, 0, canvas!.width, canvas!.height)
+      lastW = 0
+      lastH = 0
+    }
+
+    requestAnimationFrame(paint)
+    if (mq)
+      mq.addEventListener('change', () => (mq.matches ? paint() : clear()))
+
+    let t: ReturnType<typeof setTimeout>
+    addEventListener('resize', () => {
+      clearTimeout(t)
+      t = setTimeout(paint, 200)
+    })
+  }
+</script>
