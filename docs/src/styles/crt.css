@@ -1,0 +1,559 @@
+/* CRT overlay for the marketing landing page only — not imported by the
+   Starlight docs pages, where it would fight long-form reading contrast.
+
+   Fixed layers, each a sibling of the page's root div rather than a
+   wrapper around it: nesting them would give mix-blend-mode the layers
+   themselves to blend against instead of the page, and the effect would
+   quietly flatten out (see components.md's blend-context note if this
+   moves).
+
+   --crt-dpr and --crt-scan-period are set in JS (see index.astro's inline
+   align script) from the viewer's devicePixelRatio, which tracks browser
+   zoom as well as display density. Anything sized as calc(Npx /
+   var(--crt-dpr, 1)) renders at a fixed N *device* pixels regardless of
+   zoom level — a real tube's scanline pitch and misconvergence don't
+   change when you lean closer to the glass, so this effect shouldn't
+   either. --crt-scan-period is additionally snapped to a whole device
+   pixel count: an unsnapped period doesn't line up with the physical
+   pixel grid and the repeating gradient moirés into uneven banding. The
+   3px fallback only applies before that script runs.
+
+   Blend-mode math (multiply/screen/soft-light/overlay) always runs in
+   sRGB gamma space per the CSS Compositing spec — there's no way to make
+   mix-blend-mode blend in linear light on the web platform today, so
+   this isn't a lever available to pull.
+
+   Flicker and headline aberration each run on two periods that share no
+   common factor, summed, so nothing ever resolves into a visible loop.
+
+   html[data-crt="off"] is a hard kill switch, not an aesthetic mode —
+   Playwright sets it before every test (see tests/landing.spec.ts) so
+   visual-regression baselines and axe contrast checks run against the
+   undecorated page. prefers-reduced-motion additionally zeroes the
+   aberration layer entirely for real users, not just its animation.
+
+   Every strength knob below is a custom property with the shipped value
+   as its fallback — --crt-scan-alpha, --crt-bow, --crt-vignette-alpha,
+   --crt-glow-base/-peak, --crt-halation-opacity, --crt-beam-opacity,
+   --crt-noise-opacity, --crt-ab-target/-ref-size. That's what
+   crt-panel.ts drives: it sets these as inline styles on <html>, nothing
+   here needs to know a tuning panel exists. Open it from the console
+   with `crt.tune()`. */
+
+:root {
+  --crt-scan-alpha: 0.224;
+  --crt-scan-flicker-floor: 0.7;
+  --crt-bow: 380vh;
+  --crt-vignette-alpha: 0.37;
+  --crt-glow-base: 0;
+  --crt-glow-peak: 0.4;
+  --crt-halation-opacity: 0.08;
+  --crt-beam-opacity: 0.4;
+  --crt-noise-opacity: 0;
+  --crt-ab-target: 1.6px;
+  --crt-ab-ref-size: 30px;
+}
+
+.crt-scanlines,
+.crt-vignette,
+.crt-glow,
+.crt-halation {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+}
+
+/* Scanlines, bowed rather than flat: two SIBLING elements (not a
+   pseudo-element pair — see below), each a repeating-radial-gradient
+   with its centre thrown far off-screen, masked to its own half of the
+   viewport so the top half sags down and the bottom half sags up,
+   meeting at the midline. The closest a position: fixed overlay gets to
+   the whole-page bend without actually warping any geometry (that still
+   needs feDisplacementMap or WebGL, and still costs subpixel AA +
+   breaks fixed positioning either way).
+
+   These were originally one element plus its ::after, each half masked
+   independently. That doesn't work: mask-image clips an element's
+   ENTIRE rendered subtree, pseudo-elements included — so the parent's
+   own top-half mask was ALSO clipping its ::after, and the ::after's
+   bottom-half mask intersected with that parent clip to exactly nothing
+   visible. Two real siblings under the same .crt-scanlines class (which
+   carries the shared animation) don't have that nesting, so each one's
+   mask only ever affects its own box.
+
+   Curvature comes from an ELLIPSE with a very wide horizontal radius
+   (700vw — seven times the viewport width, whatever that is) and a
+   vertical radius of --crt-bow. Tried a plain circle instead at one
+   point: circle stops are simple, exact physical-pixel distances, but a
+   fine 3px period swept across a wide viewport corrugates into dense
+   banding at ANY circle radius from 900vh to 8000vh tested — the
+   corrugation frequency barely drops as the radius grows, which points
+   at a rendering/precision issue with this many concentric rings rather
+   than true geometric curvature. The wide ellipse doesn't have that
+   problem — but it has to be sized in vw, not a fixed px value: a fixed
+   9000px stops being "wide enough" on a sufficiently wide-and-short
+   viewport (verified broken at 1920×600 — visibly diagonal at the
+   corners) because the ratio of Rx to visible width is what determines
+   flatness, not Rx alone. 700vw keeps that ratio constant regardless of
+   how wide or short the window actually is. */
+.crt-scanlines {
+  z-index: 60;
+  mix-blend-mode: multiply;
+  /* Two independent animations: opacity flicker (breathing) and a slow
+     vertical drift (translate, not transform, so it never collides with
+     a transform-based effect added later). Both durations and the drift
+     amplitude are tunable — see crt-panel.ts. */
+  animation-name: crt-flicker-scanlines, crt-scan-drift;
+  animation-duration: var(--crt-scan-flicker-duration, 4.1s),
+    var(--crt-scan-drift-duration, 7s);
+  animation-timing-function: ease-in-out, ease-in-out;
+  animation-iteration-count: infinite, infinite;
+}
+
+@keyframes crt-scan-drift {
+  0%,
+  100% {
+    translate: 0 0;
+  }
+  50% {
+    translate: 0 var(--crt-scan-drift, 4px);
+  }
+}
+
+.crt-scanlines-top {
+  background-image: repeating-radial-gradient(
+    ellipse 700vw var(--crt-bow) at 50% calc(-1 * var(--crt-bow)),
+    oklch(0 0 0 / var(--crt-scan-alpha, 0.224)) 0px,
+    oklch(0 0 0 / var(--crt-scan-alpha, 0.224))
+      calc(var(--crt-scan-period, 3px) * 0.5),
+    transparent calc(var(--crt-scan-period, 3px) * 0.5),
+    transparent var(--crt-scan-period, 3px)
+  );
+  mask-image: linear-gradient(to bottom, black 50%, transparent 50%);
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    black 50%,
+    transparent 50%
+  );
+}
+
+.crt-scanlines-bottom {
+  background-image: repeating-radial-gradient(
+    ellipse 700vw var(--crt-bow) at 50% calc(100% + var(--crt-bow)),
+    oklch(0 0 0 / var(--crt-scan-alpha, 0.224)) 0px,
+    oklch(0 0 0 / var(--crt-scan-alpha, 0.224))
+      calc(var(--crt-scan-period, 3px) * 0.5),
+    transparent calc(var(--crt-scan-period, 3px) * 0.5),
+    transparent var(--crt-scan-period, 3px)
+  );
+  mask-image: linear-gradient(to bottom, transparent 50%, black 50%);
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    transparent 50%,
+    black 50%
+  );
+}
+
+/* "Bow off" used to mean setting --crt-bow to an astronomically large
+   value, on the theory that a huge radius reads as flat. It doesn't:
+   pushing Ry to ~9,000,000px while Rx stays at 700vw (~10,000px)
+   inverts the same anisotropic-gradient problem that caused the
+   diagonal bug earlier, just rotated — the ellipse math degenerates
+   into thick VERTICAL bands instead of a flat line, because at that
+   ratio the pattern stops varying with y at all. A genuinely flat
+   fallback needs to not go through the ellipse math in the first
+   place. html[data-crt-bow-off] swaps both halves to a plain
+   repeating-linear-gradient — the exact thing this file used before
+   bowing existed — and drops the mask entirely, since a flat pattern
+   doesn't need a top/bottom split. */
+html[data-crt-bow-off] .crt-scanlines-top {
+  background-image: repeating-linear-gradient(
+    to bottom,
+    oklch(0 0 0 / var(--crt-scan-alpha, 0.224)) 0px,
+    oklch(0 0 0 / var(--crt-scan-alpha, 0.224))
+      calc(var(--crt-scan-period, 3px) * 0.5),
+    transparent calc(var(--crt-scan-period, 3px) * 0.5),
+    transparent var(--crt-scan-period, 3px)
+  );
+  mask-image: none;
+  -webkit-mask-image: none;
+}
+/* Full-viewport flat pattern is carried by .crt-scanlines-top alone —
+   showing .crt-scanlines-bottom at the same time would double-paint
+   the identical pattern through two multiply layers, darkening it
+   beyond what the Darkness slider actually says. */
+html[data-crt-bow-off] .crt-scanlines-bottom {
+  display: none;
+}
+
+.crt-vignette {
+  z-index: 61;
+  background: radial-gradient(
+    ellipse 85% 75% at 50% 45%,
+    transparent 55%,
+    oklch(0 0 0 / var(--crt-vignette-alpha, 0.37)) 100%
+  );
+}
+
+.crt-glow {
+  z-index: 62;
+  /* A thin bloom hugging the true top/bottom edge of the viewport — a few
+     device pixels, not a fraction of the page. It used to fade in over
+     12% of viewport height, which put its brightest stop directly behind
+     the nav bar's own text; accent-only (no white stop) and a much
+     narrower band keep it from washing out real UI copy. Screen, not
+     multiply, so it adds light rather than eating the contrast the
+     scanlines already spent. */
+  background: linear-gradient(
+    to bottom,
+    color-mix(in oklch, var(--color-accent) 55%, transparent) 0px,
+    transparent calc(10px / var(--crt-dpr, 1)),
+    transparent calc(100% - 10px / var(--crt-dpr, 1)),
+    color-mix(in oklch, var(--color-accent) 55%, transparent) 100%
+  );
+  opacity: var(--crt-glow-base, 0);
+  mix-blend-mode: screen;
+  animation: crt-flicker-glow var(--crt-glow-flicker-duration, 5.3s)
+    ease-in-out infinite;
+}
+
+/* Halation: blur + brighten a copy of the page and screen it back. Glow
+   follows every real glyph, border and image automatically instead of
+   only what got a manual text-shadow. Sits under the scanlines (lower
+   z-index) so the mask still reads as being drawn over the bloom, not
+   the other way round. Brightness stays modest — the ink ramp already
+   tops out near-white, and pushing it further with screen on top clips
+   toward pure white instead of glowing. */
+.crt-halation {
+  z-index: 59;
+  backdrop-filter: blur(calc(var(--crt-halation-blur, 4px) / var(--crt-dpr, 1)))
+    brightness(1.12) saturate(0.85);
+  -webkit-backdrop-filter: blur(
+      calc(var(--crt-halation-blur, 4px) / var(--crt-dpr, 1))
+    )
+    brightness(1.12) saturate(0.85);
+  mix-blend-mode: screen;
+  opacity: var(--crt-halation-opacity, 0.08);
+}
+@supports not (backdrop-filter: blur(1px)) {
+  .crt-halation {
+    display: none;
+  }
+}
+@media (hover: none), (max-width: 700px) {
+  /* Touch devices scroll this layer's backdrop every frame; cheaper blur
+     radius keeps that affordable. */
+  .crt-halation {
+    backdrop-filter: blur(calc(2px / var(--crt-dpr, 1))) brightness(1.1)
+      saturate(0.9);
+    -webkit-backdrop-filter: blur(calc(2px / var(--crt-dpr, 1)))
+      brightness(1.1) saturate(0.9);
+  }
+}
+
+@keyframes crt-flicker-scanlines {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: var(--crt-scan-flicker-floor, 0.7);
+  }
+}
+
+@keyframes crt-flicker-glow {
+  0%,
+  100% {
+    opacity: var(--crt-glow-base, 0);
+  }
+  50% {
+    opacity: var(--crt-glow-peak, 0.4);
+  }
+}
+
+/* ── Chromatic aberration ────────────────────────────────────────────
+   One fixed target (--crt-ab-target, in device px), applied everywhere.
+
+   Text gets it scaled by its OWN font-size via em: heavily attenuated
+   for small type (a 10px label lands around 6% of the target), ramping
+   linearly up to the full target at --crt-ab-ref-size and beyond. em
+   only resolves against a declaring element's own computed font-size —
+   inheriting a pre-resolved px value from `body` (the old approach)
+   would give every descendant the SAME offset regardless of its own
+   size, so this has to be redeclared on every element via the universal
+   selector rather than set once and inherited.
+
+   Non-text content (the flow-field canvas, the GitHub mark) gets the
+   fixed target directly via filter: drop-shadow — text-shadow has no
+   effect on canvas pixels or SVG shapes.
+
+   The headline adds a STEPPED, erratic jitter on top of its own
+   (already-maxed) base term — Deloughry's field note (crt-resources.md)
+   argues instant jumps between discrete values read as signal
+   corruption where ease-in-out reads as something breathing, and a
+   CRT's misconvergence jitters rather than breathes. Two step counts (5
+   and 4) on periods that share no common factor (0.42s / 0.65s) sum
+   into a sequence that takes ~2.7s to repeat. */
+:root {
+  --crt-ab-ratio: calc(var(--crt-ab-target) / var(--crt-ab-ref-size));
+}
+
+*,
+*::before,
+*::after {
+  --crt-ab-text: clamp(
+    0px,
+    calc(1em * var(--crt-ab-ratio) / var(--crt-dpr, 1)),
+    calc(var(--crt-ab-target) / var(--crt-dpr, 1))
+  );
+  text-shadow:
+    var(--crt-ab-text) 0 0
+      color-mix(in oklch, var(--color-accent) 45%, transparent),
+    calc(var(--crt-ab-text) * -1) 0 0 oklch(0.75 0.12 220 / 0.4);
+}
+
+main :is(canvas, svg) {
+  filter:
+    drop-shadow(
+      calc(var(--crt-ab-target) / var(--crt-dpr, 1)) 0 0
+        color-mix(in oklch, var(--color-accent) 55%, transparent)
+    )
+    drop-shadow(
+      calc(var(--crt-ab-target) / var(--crt-dpr, 1) * -1) 0 0
+        oklch(0.75 0.12 220 / 0.5)
+    );
+}
+
+@property --crt-ab-1 {
+  syntax: '<number>';
+  inherits: false;
+  initial-value: 0.6;
+}
+@property --crt-ab-2 {
+  syntax: '<number>';
+  inherits: false;
+  initial-value: 0.2;
+}
+
+main h1 {
+  --crt-ab-jitter: calc(
+    (var(--crt-ab-1) + var(--crt-ab-2)) * 1px / var(--crt-dpr, 1)
+  );
+  --crt-ab-x: calc(
+    var(--crt-ab-target) / var(--crt-dpr, 1) + var(--crt-ab-jitter)
+  );
+  text-shadow:
+    var(--crt-ab-x) 0 0
+      color-mix(in oklch, var(--color-accent) 60%, transparent),
+    calc(var(--crt-ab-x) * -1) 0 0 oklch(0.75 0.12 220 / 0.5);
+  animation:
+    crt-ab-1 0.42s steps(5) infinite,
+    crt-ab-2 0.65s steps(4) infinite;
+}
+
+@keyframes crt-ab-1 {
+  0% {
+    --crt-ab-1: 0.3;
+  }
+  30% {
+    --crt-ab-1: 1.4;
+  }
+  55% {
+    --crt-ab-1: 0.5;
+  }
+  80% {
+    --crt-ab-1: 2;
+  }
+  100% {
+    --crt-ab-1: 0.3;
+  }
+}
+@keyframes crt-ab-2 {
+  0% {
+    --crt-ab-2: 0.1;
+  }
+  40% {
+    --crt-ab-2: 0.9;
+  }
+  70% {
+    --crt-ab-2: 0.25;
+  }
+  100% {
+    --crt-ab-2: 0.1;
+  }
+}
+
+/* Beam sweep — lives inside the hero's <main>, not fixed to the viewport.
+   The first cut covered the whole page including the nav bar, which read
+   as a flashlight scanning the screen rather than a tube's own retrace.
+   Confining it to the hero (which already clips overflow) makes it scan
+   only the "screen" — the flow-field canvas and headline — not the
+   surrounding chrome. soft-light instead of screen: screen always adds
+   raw brightness and reads as a light source; soft-light pushes existing
+   tones further toward light or dark depending what's already there, so
+   it reads as the beam modulating the canvas rather than shining a torch
+   over it. main is position: relative + overflow: hidden (Stage.astro),
+   so this needs no viewport-relative math of its own. */
+.crt-beam {
+  position: absolute;
+  inset: auto 0 auto 0;
+  top: calc(-1 * var(--crt-beam-height, 20vh));
+  height: var(--crt-beam-height, 20vh);
+  pointer-events: none;
+  mix-blend-mode: soft-light;
+  background: linear-gradient(
+    to bottom,
+    transparent,
+    color-mix(in oklch, var(--color-accent) 55%, transparent) 50%,
+    transparent
+  );
+  opacity: var(--crt-beam-opacity, 0.4);
+  will-change: translate;
+  animation: crt-beam-roll var(--crt-beam-duration, 9s) linear infinite;
+}
+
+@keyframes crt-beam-roll {
+  from {
+    translate: 0 0;
+  }
+  to {
+    /* Travels one full viewport height plus its own height on each end,
+       so the band fully exits before the loop restarts — independent
+       of --crt-beam-height so a taller/shorter beam never leaves a gap
+       or overshoots. translate, not transform, so a tunable-height
+       change (which is a real layout property) never fights it. */
+    translate: 0 calc(100vh + 2 * var(--crt-beam-height, 20vh));
+  }
+}
+
+/* Film grain. A static SVG turbulence tile, translated in five discrete
+   jumps rather than smoothly — a crossfaded grain reads as fog, a
+   stepped one reads as grain (same reasoning as the headline's fringe).
+   transform-only, so a step never triggers a repaint: the browser is
+   just recompositing an already-rasterised tile. */
+.crt-noise {
+  position: fixed;
+  inset: -60px;
+  z-index: 58;
+  pointer-events: none;
+  mix-blend-mode: overlay;
+  opacity: var(--crt-noise-opacity, 0);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  will-change: transform;
+  animation: crt-grain var(--crt-noise-step-duration, 0.7s) steps(5) infinite;
+}
+
+@keyframes crt-grain {
+  0% {
+    transform: translate3d(0, 0, 0);
+  }
+  20% {
+    transform: translate3d(-14px, 7px, 0);
+  }
+  40% {
+    transform: translate3d(9px, -11px, 0);
+  }
+  60% {
+    transform: translate3d(-6px, -6px, 0);
+  }
+  80% {
+    transform: translate3d(12px, 9px, 0);
+  }
+}
+
+@media (prefers-contrast: more) {
+  .crt-scanlines,
+  .crt-vignette,
+  .crt-glow,
+  .crt-halation,
+  .crt-beam,
+  .crt-noise {
+    display: none;
+  }
+  *,
+  *::before,
+  *::after {
+    text-shadow: none;
+  }
+  main :is(canvas, svg) {
+    filter: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .crt-scanlines,
+  .crt-glow,
+  main h1 {
+    animation: none;
+  }
+  .crt-beam,
+  .crt-noise {
+    display: none;
+  }
+  /* Not just the animation — the aberration layer itself. A static
+     fringe isn't a WCAG motion violation the way flicker is, but this
+     was an explicit ask: reduced-motion should drop this effect
+     entirely for anyone who's told the browser they don't want it. */
+  *,
+  *::before,
+  *::after {
+    text-shadow: none;
+  }
+  main :is(canvas, svg) {
+    filter: none;
+  }
+}
+
+/* Per-layer isolation toggles, driven by crt-panel.ts's checkboxes —
+   html[data-crt-hide] holds a space-separated list of layer ids, so
+   `~=` matches each one independently regardless of what else is
+   hidden. Exists so the tuning panel can turn every layer off but one:
+   with six-plus animated overlays stacked together, it's genuinely hard
+   to tell which layer is doing what you're looking at without being
+   able to isolate it. */
+html[data-crt-hide~='scanlines'] .crt-scanlines {
+  display: none;
+}
+html[data-crt-hide~='vignette'] .crt-vignette {
+  display: none;
+}
+html[data-crt-hide~='glow'] .crt-glow {
+  display: none;
+}
+html[data-crt-hide~='halation'] .crt-halation {
+  display: none;
+}
+html[data-crt-hide~='beam'] .crt-beam {
+  display: none;
+}
+html[data-crt-hide~='noise'] .crt-noise {
+  display: none;
+}
+html[data-crt-hide~='aberration'],
+html[data-crt-hide~='aberration'] *,
+html[data-crt-hide~='aberration'] *::before,
+html[data-crt-hide~='aberration'] *::after {
+  text-shadow: none;
+}
+html[data-crt-hide~='aberration'] main :is(canvas, svg) {
+  filter: none;
+}
+
+/* Hard kill switch — not a user-facing mode. Playwright sets
+   data-crt="off" on <html> before every test (tests/landing.spec.ts) so
+   visual-regression baselines and axe contrast checks run against the
+   plain, undecorated page instead of chasing animation timing or
+   backdrop-filter rendering drift across OSes. */
+html[data-crt='off'] :is(.crt-scanlines, .crt-vignette, .crt-glow, .crt-halation, .crt-beam, .crt-noise) {
+  display: none;
+}
+html[data-crt='off'],
+html[data-crt='off'] *,
+html[data-crt='off'] *::before,
+html[data-crt='off'] *::after {
+  text-shadow: none;
+  animation: none;
+}
+html[data-crt='off'] main :is(canvas, svg) {
+  filter: none;
+}
