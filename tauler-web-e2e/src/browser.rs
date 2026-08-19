@@ -47,6 +47,16 @@ pub struct Session {
     tab: Arc<Tab>,
 }
 
+/// Every scenario opens its own tab on the one container the whole suite shares
+/// (`TAULER_CHROME_WS`), and nothing closed them: by the fourth scenario the extra idle
+/// tabs cost the container enough that a navigation's load event stopped arriving in time
+/// — a real timeout, not a flaky one, and it went away as soon as tabs stopped piling up.
+impl Drop for Session {
+    fn drop(&mut self) {
+        let _ = self.tab.close_target();
+    }
+}
+
 impl Session {
     /// Connect to the pinned browser, or launch the host's.
     ///
