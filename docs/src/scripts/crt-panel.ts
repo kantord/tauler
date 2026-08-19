@@ -12,8 +12,6 @@
 // doing what you're looking at. Toggle everything else off to check one
 // layer in isolation.
 
-import { setPageWarp, setPageWarpStrength } from './crt-warp'
-import { setTextAttenuation } from './crt-text-mask'
 import { setCanvasFringe } from './crt-canvas-fringe'
 
 type Knob = {
@@ -38,7 +36,7 @@ const LAYERS: Layer[] = [
   {
     id: 'scanlines',
     label: 'Scanlines',
-    hint: 'Fine horizontal line mesh over the whole page, bowed into a barrel curve top and bottom.',
+    hint: 'Fine horizontal line mesh over the whole page.',
     knobs: [
       {
         prop: '--crt-scan-alpha',
@@ -90,16 +88,6 @@ const LAYERS: Layer[] = [
         default: 20,
         unit: 's',
       },
-      {
-        prop: '--crt-bow',
-        label: 'Bow radius',
-        hint: "Smaller = stronger barrel curve, sagging toward vertical centre. Larger = flatter, near-straight. If this still looks wrong, toggle every OTHER layer off first — with everything stacked at once it's easy to mistake beam/grain/aberration motion for a scanline problem.",
-        min: 150,
-        max: 1200,
-        step: 10,
-        default: 380,
-        unit: 'vh',
-      },
     ],
   },
   {
@@ -116,43 +104,6 @@ const LAYERS: Layer[] = [
         step: 0.01,
         default: 0.37,
         unit: '',
-      },
-    ],
-  },
-  {
-    id: 'glow',
-    label: 'Edge glow',
-    hint: 'Thin accent-coloured line hugging the true top and bottom edge of the viewport — not the hero, the whole browser window edge.',
-    knobs: [
-      {
-        prop: '--crt-glow-base',
-        label: 'Resting',
-        hint: '0 = invisible. Look right at the top edge, behind the nav text.',
-        min: 0,
-        max: 0.3,
-        step: 0.005,
-        default: 0,
-        unit: '',
-      },
-      {
-        prop: '--crt-glow-peak',
-        label: 'Flicker peak',
-        hint: 'Brightness at the top of its pulse. Set higher than "Resting" or the pulse is invisible.',
-        min: 0,
-        max: 0.4,
-        step: 0.005,
-        default: 0.4,
-        unit: '',
-      },
-      {
-        prop: '--crt-glow-flicker-duration',
-        label: 'Flicker period (s)',
-        hint: 'How long one full resting-to-peak-and-back pulse takes.',
-        min: 0.5,
-        max: 15,
-        step: 0.1,
-        default: 5.3,
-        unit: 's',
       },
     ],
   },
@@ -221,33 +172,6 @@ const LAYERS: Layer[] = [
     ],
   },
   {
-    id: 'noise',
-    label: 'Grain',
-    hint: 'Film-grain static over the whole page, jittering in 5 discrete steps roughly every 0.7s — not a smooth crossfade.',
-    knobs: [
-      {
-        prop: '--crt-noise-opacity',
-        label: 'Strength',
-        hint: 'Subtle by design. Push it up to see the stepping clearly, then back off.',
-        min: 0,
-        max: 0.15,
-        step: 0.002,
-        default: 0.15,
-        unit: '',
-      },
-      {
-        prop: '--crt-noise-step-duration',
-        label: 'Step period (s)',
-        hint: 'How long each of the 5 grain steps holds before jumping to the next.',
-        min: 0.1,
-        max: 3,
-        step: 0.05,
-        default: 1.2,
-        unit: 's',
-      },
-    ],
-  },
-  {
     id: 'aberration',
     label: 'Chromatic aberration',
     hint: 'Red/cyan colour-fringing. On text it scales with font-size; on the flow-field canvas and the GitHub icon it applies at full strength always (text-shadow has no effect on those, so they get a separate always-on treatment).',
@@ -280,15 +204,6 @@ const KNOBS: Knob[] = LAYERS.flatMap((layer) => layer.knobs)
 
 const STORAGE_KEY = 'tauler:crt-tuning'
 const HIDDEN_KEY = 'tauler:crt-hidden'
-const WARP_KEY = 'tauler:crt-page-warp'
-const WARP_STRENGTH_KEY = 'tauler:crt-page-warp-strength'
-const WARP_STRENGTH_DEFAULT = 40
-const BOW_ENABLED_KEY = 'tauler:crt-bow-enabled'
-const TEXT_ATTEN_KEY = 'tauler:crt-text-attenuation'
-const TEXT_ATTEN_DEFAULT = 0
-const NOISE_VARIANT_KEY = 'tauler:crt-noise-variant'
-const FLICKER_VARIANT_KEY = 'tauler:crt-flicker-variant'
-const FRAME_KEY = 'tauler:crt-frame'
 
 function readStored(): Record<string, number> {
   try {
@@ -340,67 +255,6 @@ function applyKnob(knob: Knob, value: number): void {
   }
 }
 
-function applyVariantAttr(attr: string, key: string, onValue: string): void {
-  if (localStorage.getItem(key) === '1') {
-    document.documentElement.setAttribute(attr, onValue)
-  }
-}
-
-// A checkbox that toggles an html[attr="onValue"] selector on/off,
-// persisted as '0'/'1' under storageKey. Used for the three variant
-// pairs (static grain, classic flicker, frame bezel) — each is a plain
-// attribute swap in crt.css, no CSS custom property involved, so this
-// doesn't reuse the KNOBS slider machinery above.
-function buildVariantToggle(opts: {
-  label: string
-  hint: string
-  attr: string
-  onValue: string
-  storageKey: string
-}): HTMLElement {
-  const wrap = document.createElement('div')
-  Object.assign(wrap.style, {
-    marginTop: '8px',
-  } satisfies Partial<CSSStyleDeclaration>)
-
-  const row = document.createElement('label')
-  Object.assign(row.style, {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '6px',
-    cursor: 'pointer',
-  } satisfies Partial<CSSStyleDeclaration>)
-
-  const checkbox = document.createElement('input')
-  checkbox.type = 'checkbox'
-  checkbox.checked = localStorage.getItem(opts.storageKey) === '1'
-  checkbox.addEventListener('change', () => {
-    localStorage.setItem(opts.storageKey, checkbox.checked ? '1' : '0')
-    if (checkbox.checked) {
-      document.documentElement.setAttribute(opts.attr, opts.onValue)
-    } else {
-      document.documentElement.removeAttribute(opts.attr)
-    }
-  })
-
-  const label = document.createElement('span')
-  label.textContent = opts.label
-  row.append(checkbox, label)
-
-  const hint = document.createElement('div')
-  hint.textContent = opts.hint
-  Object.assign(hint.style, {
-    fontSize: '10px',
-    lineHeight: '1.35',
-    opacity: '0.55',
-    marginTop: '2px',
-    marginLeft: '20px',
-  } satisfies Partial<CSSStyleDeclaration>)
-
-  wrap.append(row, hint)
-  return wrap
-}
-
 // Reapply any saved tuning on every load, panel open or not — the whole
 // point is that adjustments survive a refresh while you're dialing
 // something in. Values are clamped to the CURRENT knob range: a value
@@ -441,28 +295,7 @@ function applyStored(): void {
       setCanvasFringe(abTarget / (dpr || 1))
     }
   }
-  if (localStorage.getItem(BOW_ENABLED_KEY) === '0') {
-    document.documentElement.setAttribute('data-crt-bow-off', '')
-  }
-  applyVariantAttr('data-crt-noise-variant', NOISE_VARIANT_KEY, 'static')
-  applyVariantAttr(
-    'data-crt-scanline-flicker-variant',
-    FLICKER_VARIANT_KEY,
-    'classic',
-  )
-  applyVariantAttr('data-crt-frame', FRAME_KEY, 'on')
-  const storedAtten = Number(
-    localStorage.getItem(TEXT_ATTEN_KEY) ?? TEXT_ATTEN_DEFAULT,
-  )
-  if (storedAtten > 0) setTextAttenuation(storedAtten)
   applyHidden(readHidden())
-  if (localStorage.getItem(WARP_KEY) === '1') {
-    setPageWarp(true)
-    const storedStrength = localStorage.getItem(WARP_STRENGTH_KEY)
-    if (storedStrength !== null) {
-      setPageWarpStrength(Number(storedStrength))
-    }
-  }
 }
 
 let panelEl: HTMLElement | null = null
@@ -612,40 +445,6 @@ function buildPanel(): HTMLElement {
         writeStored(next)
       })
 
-      // The bow is the one knob users want to A/B against a genuinely
-      // flat baseline, not just dial down. This used to fake "flat" by
-      // pushing --crt-bow to an astronomical value — visually wrong: an
-      // extreme Ry:Rx ratio on the ellipse gradient degenerates into
-      // thick vertical bands (the same anisotropic-gradient problem
-      // that caused the diagonal bug, inverted). A real flat fallback
-      // needs to skip the ellipse math entirely — html[data-crt-bow-off]
-      // swaps to a plain repeating-linear-gradient instead (see
-      // crt.css). This toggle sets that attribute rather than touching
-      // --crt-bow at all, so the slider's own value is untouched by it.
-      if (knob.prop === '--crt-bow') {
-        const bowToggle = document.createElement('input')
-        bowToggle.type = 'checkbox'
-        bowToggle.checked = localStorage.getItem(BOW_ENABLED_KEY) !== '0'
-        bowToggle.title = 'Bow on/off'
-        bowToggle.addEventListener('change', () => {
-          localStorage.setItem(
-            BOW_ENABLED_KEY,
-            bowToggle.checked ? '1' : '0',
-          )
-          input.disabled = !bowToggle.checked
-          document.documentElement.toggleAttribute(
-            'data-crt-bow-off',
-            !bowToggle.checked,
-          )
-        })
-        labelLeft.prepend(bowToggle)
-        input.disabled = !bowToggle.checked
-        document.documentElement.toggleAttribute(
-          'data-crt-bow-off',
-          !bowToggle.checked,
-        )
-      }
-
       const hint = document.createElement('div')
       hint.textContent = knob.hint
       Object.assign(hint.style, {
@@ -659,215 +458,9 @@ function buildPanel(): HTMLElement {
       knobsWrap.appendChild(row)
     }
 
-    // Text attenuation isn't a KNOBS entry: it doesn't set a CSS custom
-    // property, it rebuilds a canvas-rasterised mask (see
-    // crt-text-mask.ts) covering every text-bearing element's bounding
-    // box, so it needs its own JS call rather than a var() the
-    // stylesheet already knows how to read.
-    if (layer.id === 'scanlines') {
-      const storedAtten = Number(
-        localStorage.getItem(TEXT_ATTEN_KEY) ?? TEXT_ATTEN_DEFAULT,
-      )
-
-      const attenRow = document.createElement('label')
-      Object.assign(attenRow.style, {
-        display: 'block',
-        marginTop: '6px',
-      } satisfies Partial<CSSStyleDeclaration>)
-
-      const attenLabelRow = document.createElement('div')
-      Object.assign(attenLabelRow.style, {
-        display: 'flex',
-        justifyContent: 'space-between',
-        opacity: '0.85',
-        marginBottom: '2px',
-      } satisfies Partial<CSSStyleDeclaration>)
-      const attenLabelText = document.createElement('span')
-      attenLabelText.textContent = 'Text attenuation'
-      const attenValueText = document.createElement('span')
-      attenValueText.textContent = String(storedAtten)
-      attenLabelRow.append(attenLabelText, attenValueText)
-
-      const attenInput = document.createElement('input')
-      attenInput.type = 'range'
-      attenInput.min = '0'
-      attenInput.max = '1'
-      attenInput.step = '0.05'
-      attenInput.value = String(storedAtten)
-      Object.assign(attenInput.style, {
-        width: '100%',
-        accentColor: '#f0855a',
-      } satisfies Partial<CSSStyleDeclaration>)
-      attenInput.addEventListener('input', () => {
-        const value = Number(attenInput.value)
-        attenValueText.textContent = String(value)
-        localStorage.setItem(TEXT_ATTEN_KEY, String(value))
-        setTextAttenuation(value)
-      })
-
-      const attenHint = document.createElement('div')
-      attenHint.textContent =
-        "Reduces the scanline mesh's darkening specifically over text (headline, body copy, buttons, nav) — the rest of the mesh is unaffected. 0 = no difference from ordinary text. 1 = scanlines fully cleared wherever there's text."
-      Object.assign(attenHint.style, {
-        fontSize: '10px',
-        lineHeight: '1.35',
-        opacity: '0.55',
-        marginTop: '2px',
-      } satisfies Partial<CSSStyleDeclaration>)
-
-      attenRow.append(attenLabelRow, attenInput, attenHint)
-      knobsWrap.appendChild(attenRow)
-
-      if (storedAtten > 0) setTextAttenuation(storedAtten)
-
-      knobsWrap.appendChild(
-        buildVariantToggle({
-          label: 'Classic flicker variant',
-          hint: "Lucas Bebber's original canon technique (codepen.io/lbebber/pen/XJRdrV): 21 fixed keyframe stops of pseudo-random opacity over 0.15s (~133fps), instead of the smooth breathing pulse above. This is the exact pattern crt-resources.md flags as a real photosensitivity/WCAG flash risk, not just a style choice — still fully killed by prefers-reduced-motion, but treat this as a comparison, not a default candidate.",
-          attr: 'data-crt-scanline-flicker-variant',
-          onValue: 'classic',
-          storageKey: FLICKER_VARIANT_KEY,
-        }),
-      )
-
-      knobsWrap.appendChild(
-        buildVariantToggle({
-          label: 'Frame bezel variant (experimental)',
-          hint: "The other canon approach to a curved screen (codepen.io/somethingformed/pen/raWJXV): keep the scanline mesh flat and suggest curvature with a physical bezel around the hero instead — rounded corners, shaded borders, heavy inset shadow. This directly contradicts --radius: 0 elsewhere in the design (global.css calls sharp corners \"the whole visual argument\"), so it's here purely for comparison, independent of the Bow toggle above.",
-          attr: 'data-crt-frame',
-          onValue: 'on',
-          storageKey: FRAME_KEY,
-        }),
-      )
-    }
-
-    if (layer.id === 'noise') {
-      knobsWrap.appendChild(
-        buildVariantToggle({
-          label: 'Static texture variant',
-          hint: 'Swaps the animated SVG-turbulence grain for a fixed noise texture (codepen.io/somethingformed/pen/raWJXV) — no jitter at all, cheaper, and a genuinely different look rather than a tuned-down version of the same one.',
-          attr: 'data-crt-noise-variant',
-          onValue: 'static',
-          storageKey: NOISE_VARIANT_KEY,
-        }),
-      )
-    }
-
     section.appendChild(knobsWrap)
     panel.appendChild(section)
   }
-
-  // Experimental page-warp toggle — not a LAYERS entry, because turning
-  // it on/off calls into crt-warp.ts (builds a canvas-generated
-  // displacement map and sets a real filter on <main>) rather than just
-  // flipping a CSS custom property. Off by default: this actually
-  // displaces the real hero content, not just a decorative overlay.
-  const warpSection = document.createElement('div')
-  Object.assign(warpSection.style, {
-    marginTop: '10px',
-    paddingTop: '10px',
-    borderTop: '1px solid rgba(255, 255, 255, 0.1)',
-  } satisfies Partial<CSSStyleDeclaration>)
-
-  const warpHeader = document.createElement('label')
-  Object.assign(warpHeader.style, {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '6px',
-    fontWeight: '600',
-    cursor: 'pointer',
-    color: '#f0855a',
-  } satisfies Partial<CSSStyleDeclaration>)
-
-  const warpCheckbox = document.createElement('input')
-  warpCheckbox.type = 'checkbox'
-  warpCheckbox.checked = localStorage.getItem(WARP_KEY) === '1'
-  warpCheckbox.addEventListener('change', () => {
-    localStorage.setItem(WARP_KEY, warpCheckbox.checked ? '1' : '0')
-    setPageWarp(warpCheckbox.checked)
-  })
-
-  const warpLabel = document.createElement('span')
-  warpLabel.textContent = 'EXPERIMENTAL: bend real content'
-  warpHeader.append(warpCheckbox, warpLabel)
-  warpSection.appendChild(warpHeader)
-
-  const warpHint = document.createElement('div')
-  warpHint.textContent =
-    "Bends the actual hero — not just the scanline overlay — using an SVG displacement filter on <main>. Displacement is ~0 over the real content column (headline, buttons, command line) and only grows in the empty background to the right, so click targets stay where they visually appear. Disabled below 900px viewport width, where there's no empty background to bend into."
-  Object.assign(warpHint.style, {
-    fontSize: '10px',
-    lineHeight: '1.35',
-    opacity: '0.55',
-    margin: '3px 0 0 20px',
-  } satisfies Partial<CSSStyleDeclaration>)
-  warpSection.appendChild(warpHint)
-
-  const warpStrengthWrap = document.createElement('div')
-  Object.assign(warpStrengthWrap.style, {
-    marginLeft: '20px',
-    marginTop: '6px',
-    opacity: warpCheckbox.checked ? '1' : '0.35',
-  } satisfies Partial<CSSStyleDeclaration>)
-
-  const storedStrength = Number(
-    localStorage.getItem(WARP_STRENGTH_KEY) ?? WARP_STRENGTH_DEFAULT,
-  )
-
-  const strengthLabelRow = document.createElement('div')
-  Object.assign(strengthLabelRow.style, {
-    display: 'flex',
-    justifyContent: 'space-between',
-    opacity: '0.85',
-    marginBottom: '2px',
-  } satisfies Partial<CSSStyleDeclaration>)
-  const strengthLabelText = document.createElement('span')
-  strengthLabelText.textContent = 'Strength'
-  const strengthValueText = document.createElement('span')
-  strengthValueText.textContent = String(storedStrength)
-  strengthLabelRow.append(strengthLabelText, strengthValueText)
-
-  const strengthInput = document.createElement('input')
-  strengthInput.type = 'range'
-  strengthInput.min = '0'
-  strengthInput.max = '150'
-  strengthInput.step = '2'
-  strengthInput.value = String(storedStrength)
-  Object.assign(strengthInput.style, {
-    width: '100%',
-    accentColor: '#f0855a',
-  } satisfies Partial<CSSStyleDeclaration>)
-  strengthInput.addEventListener('input', () => {
-    const value = Number(strengthInput.value)
-    strengthValueText.textContent = String(value)
-    localStorage.setItem(WARP_STRENGTH_KEY, String(value))
-    setPageWarpStrength(value)
-  })
-
-  const strengthHint = document.createElement('div')
-  strengthHint.textContent =
-    'How far the background bends at its most-displaced point (empty space, far from the content column). 0 = flat. The default (40) is a moderate bend — push well past 100 to see how far this can go before it looks broken.'
-  Object.assign(strengthHint.style, {
-    fontSize: '10px',
-    lineHeight: '1.35',
-    opacity: '0.55',
-    marginTop: '2px',
-  } satisfies Partial<CSSStyleDeclaration>)
-
-  warpStrengthWrap.append(strengthLabelRow, strengthInput, strengthHint)
-  warpSection.appendChild(warpStrengthWrap)
-
-  warpCheckbox.addEventListener('change', () => {
-    warpStrengthWrap.style.opacity = warpCheckbox.checked ? '1' : '0.35'
-  })
-
-  // Apply the stored strength immediately if the effect starts checked
-  // (panel reopened after being left on) — setPageWarp(true) above
-  // rebuilds the filter at the hardcoded default, so this corrects it
-  // to whatever was last saved.
-  if (warpCheckbox.checked) setPageWarpStrength(storedStrength)
-
-  panel.appendChild(warpSection)
 
   const actions = document.createElement('div')
   Object.assign(actions.style, {
@@ -910,23 +503,10 @@ function buildPanel(): HTMLElement {
     makeButton('Show all / Reset', () => {
       localStorage.removeItem(STORAGE_KEY)
       localStorage.removeItem(HIDDEN_KEY)
-      localStorage.removeItem(WARP_KEY)
-      localStorage.removeItem(WARP_STRENGTH_KEY)
-      localStorage.removeItem(BOW_ENABLED_KEY)
-      localStorage.removeItem(NOISE_VARIANT_KEY)
-      localStorage.removeItem(FLICKER_VARIANT_KEY)
-      localStorage.removeItem(FRAME_KEY)
-      document.documentElement.removeAttribute('data-crt-noise-variant')
-      document.documentElement.removeAttribute('data-crt-scanline-flicker-variant')
-      document.documentElement.removeAttribute('data-crt-frame')
-      document.documentElement.removeAttribute('data-crt-bow-off')
-      localStorage.removeItem(TEXT_ATTEN_KEY)
-      setTextAttenuation(0)
       for (const knob of KNOBS) {
         document.documentElement.style.removeProperty(knob.prop)
       }
       document.documentElement.removeAttribute('data-crt-hide')
-      setPageWarp(false)
       hide()
       show()
     }),
@@ -962,23 +542,10 @@ export function initCrtPanel(): void {
     reset: () => {
       localStorage.removeItem(STORAGE_KEY)
       localStorage.removeItem(HIDDEN_KEY)
-      localStorage.removeItem(WARP_KEY)
-      localStorage.removeItem(WARP_STRENGTH_KEY)
-      localStorage.removeItem(BOW_ENABLED_KEY)
-      localStorage.removeItem(NOISE_VARIANT_KEY)
-      localStorage.removeItem(FLICKER_VARIANT_KEY)
-      localStorage.removeItem(FRAME_KEY)
-      document.documentElement.removeAttribute('data-crt-noise-variant')
-      document.documentElement.removeAttribute('data-crt-scanline-flicker-variant')
-      document.documentElement.removeAttribute('data-crt-frame')
-      document.documentElement.removeAttribute('data-crt-bow-off')
-      localStorage.removeItem(TEXT_ATTEN_KEY)
-      setTextAttenuation(0)
       for (const knob of KNOBS) {
         document.documentElement.style.removeProperty(knob.prop)
       }
       document.documentElement.removeAttribute('data-crt-hide')
-      setPageWarp(false)
       hide()
     },
   }
