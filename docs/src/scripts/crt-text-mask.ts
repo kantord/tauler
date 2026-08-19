@@ -114,6 +114,10 @@ function render(): void {
       el.style.maskImage = ''
       el.style.webkitMaskImage = ''
       el.style.maskComposite = ''
+      el.style.maskSize = ''
+      el.style.webkitMaskSize = ''
+      el.style.maskRepeat = ''
+      el.style.webkitMaskRepeat = ''
       continue
     }
 
@@ -121,6 +125,21 @@ function render(): void {
     el.style.maskImage = `${SPLIT[suffix]}, url(${dataUrl})`
     el.style.webkitMaskImage = `${SPLIT[suffix]}, url(${dataUrl})`
     el.style.maskComposite = 'intersect'
+    // The PNG's intrinsic size is MAP_LONG_EDGE (512px on its long
+    // edge) scaled down from the real viewport — much smaller than the
+    // element it's masking. Without an explicit size, mask-size
+    // defaults to auto (native pixel size) and mask-repeat defaults to
+    // repeat, so the mask TILES across the viewport at the wrong scale
+    // instead of stretching to cover it — text-shaped holes end up
+    // scattered at repeat-period offsets instead of pinned under the
+    // actual text. The gradient layer has no intrinsic size and
+    // already fills correctly either way, but mask-size is a single
+    // comma-separated value applying to both layers positionally, so
+    // both need stating explicitly.
+    el.style.maskSize = '100% 100%, 100% 100%'
+    el.style.webkitMaskSize = '100% 100%, 100% 100%'
+    el.style.maskRepeat = 'no-repeat, no-repeat'
+    el.style.webkitMaskRepeat = 'no-repeat, no-repeat'
   }
 }
 

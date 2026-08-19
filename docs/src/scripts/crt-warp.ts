@@ -127,6 +127,18 @@ function ensureFilter(width: number, height: number): void {
   installed = true
 }
 
+// Real bug this had: every call to setPageWarp(true) registered a NEW
+// resize listener that unconditionally called apply(true), and none
+// were ever removed — toggling on/off/on stacked duplicate listeners,
+// and toggling OFF didn't stop them. Resize the window after unchecking
+// the box and a stale listener would call apply(true) anyway, silently
+// re-enabling the warp against what the (now-unchecked) checkbox showed.
+// Fixed by tracking the desired state in one place and registering the
+// resize listener exactly once, checking that state rather than a
+// value baked into the closure at registration time.
+let wantOn = false
+let resizeBound = false
+
 function apply(on: boolean): void {
   const main = document.querySelector('main')
   if (!(main instanceof HTMLElement)) return
@@ -139,11 +151,13 @@ function apply(on: boolean): void {
 }
 
 export function setPageWarp(on: boolean): void {
+  wantOn = on
   apply(on)
-  if (on) {
+  if (!resizeBound) {
+    resizeBound = true
     addEventListener('resize', () => {
       installed = false
-      apply(true)
+      apply(wantOn)
     })
   }
 }

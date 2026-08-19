@@ -47,7 +47,7 @@ const LAYERS: Layer[] = [
         min: 0,
         max: 0.6,
         step: 0.005,
-        default: 0.224,
+        default: 0.42,
         unit: '',
       },
       {
@@ -67,7 +67,7 @@ const LAYERS: Layer[] = [
         min: 0.5,
         max: 12,
         step: 0.1,
-        default: 4.1,
+        default: 3.6,
         unit: 's',
       },
       {
@@ -87,7 +87,7 @@ const LAYERS: Layer[] = [
         min: 1,
         max: 20,
         step: 0.5,
-        default: 7,
+        default: 20,
         unit: 's',
       },
       {
@@ -168,7 +168,7 @@ const LAYERS: Layer[] = [
         min: 0,
         max: 0.4,
         step: 0.005,
-        default: 0.08,
+        default: 0.225,
         unit: '',
       },
       {
@@ -232,7 +232,7 @@ const LAYERS: Layer[] = [
         min: 0,
         max: 0.15,
         step: 0.002,
-        default: 0,
+        default: 0.15,
         unit: '',
       },
       {
@@ -242,7 +242,7 @@ const LAYERS: Layer[] = [
         min: 0.1,
         max: 3,
         step: 0.05,
-        default: 0.7,
+        default: 1.2,
         unit: 's',
       },
     ],
@@ -259,7 +259,7 @@ const LAYERS: Layer[] = [
         min: 0,
         max: 6,
         step: 0.1,
-        default: 1.6,
+        default: 0.5,
         unit: 'px',
       },
       {

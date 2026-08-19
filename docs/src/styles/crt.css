@@ -1,6 +1,19 @@
 /* CRT overlay for the marketing landing page only — not imported by the
    Starlight docs pages, where it would fight long-form reading contrast.
 
+   Deliberately loaded UNLAYERED — global.css declares
+   `@layer base, starlight, theme, components, utilities` and everything
+   in it (including Tailwind's own utility classes) lives inside one of
+   those layers. Per the cascade spec, unlayered rules always beat
+   layered ones regardless of specificity, which is exactly what this
+   file needs: it has to reliably darken/fringe/bend content that
+   Tailwind utility classes and Starlight's own styles already touch,
+   and putting it in a layer (any layer, even `utilities`) would put it
+   back under normal specificity rules and let those lose sometimes.
+   Flagging this explicitly because PR #442 fixed a real layer-collision
+   bug on this same project shortly before this branch started — this
+   is the same hazard class, and here it's intentional, not an oversight.
+
    Fixed layers, each a sibling of the page's root div rather than a
    wrapper around it: nesting them would give mix-blend-mode the layers
    themselves to blend against instead of the page, and the effect would
@@ -41,16 +54,19 @@
    with `crt.tune()`. */
 
 :root {
-  --crt-scan-alpha: 0.224;
+  --crt-scan-alpha: 0.42;
   --crt-scan-flicker-floor: 0.7;
+  --crt-scan-flicker-duration: 3.6s;
+  --crt-scan-drift-duration: 20s;
   --crt-bow: 380vh;
   --crt-vignette-alpha: 0.37;
   --crt-glow-base: 0;
   --crt-glow-peak: 0.4;
-  --crt-halation-opacity: 0.08;
+  --crt-halation-opacity: 0.225;
   --crt-beam-opacity: 0.4;
-  --crt-noise-opacity: 0;
-  --crt-ab-target: 1.6px;
+  --crt-noise-opacity: 0.15;
+  --crt-noise-step-duration: 1.2s;
+  --crt-ab-target: 0.5px;
   --crt-ab-ref-size: 30px;
 }
 
@@ -123,8 +139,8 @@
 .crt-scanlines-top {
   background-image: repeating-radial-gradient(
     ellipse 700vw var(--crt-bow) at 50% calc(-1 * var(--crt-bow)),
-    oklch(0 0 0 / var(--crt-scan-alpha, 0.224)) 0px,
-    oklch(0 0 0 / var(--crt-scan-alpha, 0.224))
+    oklch(0 0 0 / var(--crt-scan-alpha, 0.42)) 0px,
+    oklch(0 0 0 / var(--crt-scan-alpha, 0.42))
       calc(var(--crt-scan-period, 3px) * 0.5),
     transparent calc(var(--crt-scan-period, 3px) * 0.5),
     transparent var(--crt-scan-period, 3px)
@@ -140,8 +156,8 @@
 .crt-scanlines-bottom {
   background-image: repeating-radial-gradient(
     ellipse 700vw var(--crt-bow) at 50% calc(100% + var(--crt-bow)),
-    oklch(0 0 0 / var(--crt-scan-alpha, 0.224)) 0px,
-    oklch(0 0 0 / var(--crt-scan-alpha, 0.224))
+    oklch(0 0 0 / var(--crt-scan-alpha, 0.42)) 0px,
+    oklch(0 0 0 / var(--crt-scan-alpha, 0.42))
       calc(var(--crt-scan-period, 3px) * 0.5),
     transparent calc(var(--crt-scan-period, 3px) * 0.5),
     transparent var(--crt-scan-period, 3px)
@@ -169,8 +185,8 @@
 html[data-crt-bow-off] .crt-scanlines-top {
   background-image: repeating-linear-gradient(
     to bottom,
-    oklch(0 0 0 / var(--crt-scan-alpha, 0.224)) 0px,
-    oklch(0 0 0 / var(--crt-scan-alpha, 0.224))
+    oklch(0 0 0 / var(--crt-scan-alpha, 0.42)) 0px,
+    oklch(0 0 0 / var(--crt-scan-alpha, 0.42))
       calc(var(--crt-scan-period, 3px) * 0.5),
     transparent calc(var(--crt-scan-period, 3px) * 0.5),
     transparent var(--crt-scan-period, 3px)
@@ -586,6 +602,19 @@ html[data-crt-frame='on'] .crt-frame {
   display: block;
 }
 
+/* !important throughout both blocks below, deliberately — a real,
+   confirmed bug otherwise: html[data-crt-*-variant='...'] .crt-scanlines
+   (specificity 0,2,1 — an attribute selector plus a class) beats a
+   plain .crt-scanlines here (0,1,0) regardless of source order, since
+   media queries don't add specificity, only gate whether a rule
+   applies. Every variant toggle this file adds (classic flicker, frame
+   bezel, more later) risks silently out-specificity-ing these
+   accessibility kill switches the same way — confirmed happening for
+   the classic-flicker/reduced-motion pair and the frame-bezel/
+   prefers-contrast pair. These two blocks are the one place in this
+   file where !important is the correct tool: an accessibility override
+   must win regardless of what variant selector gets added next,
+   without every future addition needing to remember to out-rank it. */
 @media (prefers-contrast: more) {
   .crt-scanlines,
   .crt-vignette,
@@ -594,15 +623,15 @@ html[data-crt-frame='on'] .crt-frame {
   .crt-beam,
   .crt-noise,
   .crt-frame {
-    display: none;
+    display: none !important;
   }
   *,
   *::before,
   *::after {
-    text-shadow: none;
+    text-shadow: none !important;
   }
   main :is(canvas, svg) {
-    filter: none;
+    filter: none !important;
   }
 }
 
@@ -610,11 +639,11 @@ html[data-crt-frame='on'] .crt-frame {
   .crt-scanlines,
   .crt-glow,
   main h1 {
-    animation: none;
+    animation: none !important;
   }
   .crt-beam,
   .crt-noise {
-    display: none;
+    display: none !important;
   }
   /* Not just the animation — the aberration layer itself. A static
      fringe isn't a WCAG motion violation the way flicker is, but this
@@ -623,10 +652,10 @@ html[data-crt-frame='on'] .crt-frame {
   *,
   *::before,
   *::after {
-    text-shadow: none;
+    text-shadow: none !important;
   }
   main :is(canvas, svg) {
-    filter: none;
+    filter: none !important;
   }
 }
 
