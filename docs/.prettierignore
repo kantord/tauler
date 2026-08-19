@@ -7,3 +7,4 @@ test-results/
 src/content/
 *.md
 *.mdx
+pnpm-lock.yaml
