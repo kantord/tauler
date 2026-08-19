@@ -66,11 +66,13 @@ const isSplash = entry.data.template === 'splash'
     if (!canvas) continue
 
     const isSplash = host.hasAttribute('data-splash')
-    // Stable per route: the same page always draws the same wallpaper slice.
-    const routeId = location.pathname
-    let seed = 0
-    for (let i = 0; i < routeId.length; i++)
-      seed = (seed * 31 + routeId.charCodeAt(i)) >>> 0
+    // Fixed, not per-route: every navigation here is a full page load (no
+    // view-transitions/client router in this Starlight setup), so a
+    // route-derived seed drew a visibly different pattern on every click —
+    // read as the background "flashing". One seed for the whole site means
+    // consecutive page loads paint the same pixels, so there's nothing to
+    // flash even though the canvas does still redraw from scratch each time.
+    const seed = 0x74617502 // 'tau' + version marker, arbitrary but stable
 
     const mq = isSplash ? null : matchMedia(MARGIN_QUERY)
 

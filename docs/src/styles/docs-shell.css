@@ -19,17 +19,27 @@
      capped bar with wallpaper showing in the margins. (An earlier version
      tried the latter; it read as a bug, not a design, so it's gone.)
 
-     Starlight's own PageFrame puts --sl-nav-pad-x padding directly on
-     .header, then centering the content on TOP of that stacks two insets
-     instead of the landing's one (PageWidth: a single max-width+padding
-     on one element) — 22px more margin than the landing at any given
-     width. Zeroing .header's own padding and doing both jobs (cap +
-     padding) on the inner wrapper reproduces the landing's exact math. */
+     Starlight's own PageFrame puts --sl-nav-pad-x/-y padding directly on
+     .header, then the inner wrapper centers its own content on TOP of
+     that — two insets doing one job, both axes. Horizontally that put
+     docs content 22px further from the edge than the landing. Vertically
+     it's worse: --sl-nav-pad-y (12px top+bottom) shrinks the row's usable
+     height to 24px inside the fixed 48px bar, and Starlight's search
+     button is a native 40px tall — it doesn't fit the shrunk box and
+     blows through the bottom hairline, and everything else in the row
+     ends up centered in that same wrong 24px, not the real 48px.
+     Zeroing .header's own padding on both axes and doing the centering
+     (cap + padding-inline + align-items) on the inner wrapper matches
+     the landing's model exactly: one element, the full 48px, one job. */
   .header {
     background: var(--color-surface-frame);
     border-bottom: 1px solid var(--color-line-2);
-    padding-inline: 0;
+    padding: 0;
   }
+  /* DesktopHeader.astro's own .dx-header rule already sets height:100%
+     and align-items:center — with .header's padding zeroed above, that
+     100% now resolves against the full 48px bar instead of a shrunk
+     24px box, which is all the vertical fix actually needed. */
   .header > * {
     max-width: var(--container-page);
     margin-inline: auto;

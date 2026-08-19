@@ -9,15 +9,17 @@ import Search from '@astrojs/starlight/components/Search.astro'
 import SocialIcons from '@astrojs/starlight/components/SocialIcons.astro'
 ---
 
-<div class="dx-header flex items-center gap-s5">
+<div class="dx-header">
   <SiteTitle />
-  <nav class="dx-nav above-fold flex items-stretch gap-s3">
-    <a href="/" class="dx-nav-link">HOME</a>
-    <a href="https://github.com/kantord/tauler" class="dx-nav-link">GITHUB</a>
-    <a href="/docs/#install" class="dx-nav-link dx-nav-install">INSTALL</a>
-  </nav>
-  <div class="dx-tools flex items-center gap-s3">
+  <div class="dx-search">
     <Search />
+  </div>
+  <div class="dx-tools flex items-center gap-s3">
+    <nav class="dx-nav above-fold flex items-stretch gap-s3">
+      <a href="/" class="dx-nav-link">HOME</a>
+      <a href="https://github.com/kantord/tauler" class="dx-nav-link">GITHUB</a>
+      <a href="/docs/#install" class="dx-nav-link dx-nav-install">INSTALL</a>
+    </nav>
     <SocialIcons />
   </div>
 </div>
@@ -26,10 +28,17 @@ import SocialIcons from '@astrojs/starlight/components/SocialIcons.astro'
   @layer design {
     .dx-header {
       height: 100%;
+      display: grid;
+      grid-template-columns: auto 1fr auto;
+      align-items: center;
+      gap: var(--spacing-s5);
     }
 
-    .dx-nav {
-      margin-inline-start: auto;
+    /* Search sits in the middle column and centers itself within it —
+       gets its own zone instead of being clustered with GITHUB/INSTALL. */
+    .dx-search {
+      display: flex;
+      justify-content: center;
     }
 
     .dx-nav-link {
