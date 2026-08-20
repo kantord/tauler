@@ -114,7 +114,7 @@ jobs:
       # release PR that fails `workspace_manifests_test`. Correct it in place rather
       # than by hand on every such PR.
       - name: Sync intra-workspace version requirements
-        if: ${{ steps.release-pr.outputs.pr != '' }}
+        if: ${{ fromJSON(steps.release-pr.outputs.pr).head_branch != '' }}
         env:
           HEAD_BRANCH: ${{ fromJSON(steps.release-pr.outputs.pr).head_branch }}
         run: |
