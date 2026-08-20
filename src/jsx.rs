@@ -179,6 +179,21 @@ impl JsxEvaluator {
             context.with(|qjs_ctx| {
                 qjs_ctx.eval::<(), _>(JSX_GLOBALS_JS)?;
                 optative_script::register_h(&qjs_ctx)?;
+                // The reconciler vocabulary, registered but not wired as an `esto`
+                // module: a layout file reaches `unit` the way it reaches
+                // `useJSONStream`, as a global. The effectful half of that crate's
+                // builtins (`sh`, `read`, `ls`) is deliberately absent — evaluating a
+                // layout file must not touch the world, and leaving them unregistered
+                // is what makes that a guarantee rather than a convention (ADR 0034).
+                optative_script::builtins::register_all(
+                    &qjs_ctx,
+                    optative_script::builtins::RECONCILER_BUILTINS,
+                )?;
+                qjs_ctx.eval::<(), _>(
+                    "globalThis.unit = __esto_unit;
+                    globalThis.optativeSet = __esto_optative_set;
+                    globalThis.optativeJsonSet = __esto_optative_json_set;",
+                )?;
                 // `h` isn't aliased directly to `__esto_h`: its generic-tag output nests
                 // props under a `props` key (`{type, props, children}`), but Rust-backed UI
                 // components (e.g. `@ui/card`) deserialize their `children: Vec<Node>` prop
@@ -393,6 +408,54 @@ mod tests {
             .unwrap()
             .eval(&std::collections::HashMap::new())
             .unwrap()
+    }
+
+    /// A layout file can declare a Unit and render an Item of it. `unit()` is a
+    /// global here rather than an import, like every other name a layout file gets
+    /// — see ADR 0033 for what a Unit is.
+    #[test]
+    fn a_layout_file_can_declare_a_unit_and_render_an_item() {
+        let result = eval(
+            r#"
+            const Light = unit({
+              key: (i) => i.entity,
+              value: (i) => i.state,
+              reconciler: optativeSet({ observe: () => [] }),
+              enter: (i) => `on ${i.entity}`,
+            });
+            export default function render() {
+              return <root><Light entity="light.desk" state="on" /></root>;
+            }"#,
+        )
+        .layout;
+        let item = &result["children"][0];
+        assert_eq!(
+            item["entity"], "light.desk",
+            "an Item's props must reach the tree: got {result}"
+        );
+        assert_eq!(item["state"], "on");
+    }
+
+    /// The other half of ADR 0034: evaluating a layout file must not be able to
+    /// touch the world. `sh` exists in `optative-script` and is deliberately not
+    /// registered here, so a layout file that reaches for it fails rather than
+    /// blocking the loop on a subprocess.
+    #[test]
+    fn the_render_runtime_has_no_shell() {
+        let evaluator = JsxEvaluator::new(
+            r#"export default function render() { return <root>{typeof sh}</root>; }"#,
+            serde_json::Value::Null,
+            None,
+        )
+        .unwrap();
+        let result = evaluator
+            .eval(&std::collections::HashMap::new())
+            .unwrap()
+            .layout;
+        assert_eq!(
+            result["children"][0], "undefined",
+            "sh must not exist in the render runtime"
+        );
     }
 
     #[test]
