@@ -7,7 +7,13 @@
 import { readFileSync } from 'node:fs'
 
 /** Known to have no rule, with the reason. Entries are filed bugs; the list should shrink. */
-const KNOWN_UNRESOLVED = new Map([])
+const KNOWN_UNRESOLVED = new Map([
+  [
+    'text-destructive-foreground',
+    'not in themes/default.yaml, so nothing resolves it — <Badge variant="destructive"> ' +
+      'renders with an inherited text colour on both renderers',
+  ],
+])
 
 const css = readFileSync('public/tauler/tauler.css', 'utf8')
 const classes = readFileSync('.tauler/classes.txt', 'utf8')

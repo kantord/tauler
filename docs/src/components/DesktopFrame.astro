@@ -38,6 +38,18 @@ const isSplash = entry.data.template === 'splash'
       width: 100%;
       height: 100%;
       pointer-events: none;
+      /* The draw itself can't happen before the page's first paint (it's a
+         deferred module script, same as the landing's own Stage.astro, and
+         deliberately so — it stays off the critical rendering path rather
+         than delay real content). That gap is fine; what read as a "flicker"
+         was the canvas going from nothing to fully drawn in a single frame.
+         Fading it in turns an instant pop into a transition, which the eye
+         reads as intentional rather than as something breaking. */
+      opacity: 0;
+      transition: opacity 0.4s ease;
+    }
+    [data-desktop-canvas][data-painted] {
+      opacity: 1;
     }
 
     /* The slab sits above the canvas — see the stacking note in the
@@ -91,10 +103,14 @@ const isSplash = entry.data.template === 'splash'
       // Hex because the canvas parses it into RGB; the token is oklch,
       // which parseInt can't read — matches the landing's own Stage.astro.
       drawField(canvas!, 'flow', '#F0855A', seed, scale)
+      // Only the CSS opacity transition should be visible, not a hard cut —
+      // set once per reveal, harmless to set again on every resize repaint.
+      canvas!.setAttribute('data-painted', '')
     }
     function clear(): void {
       const ctx = canvas!.getContext('2d')
       if (ctx) ctx.clearRect(0, 0, canvas!.width, canvas!.height)
+      canvas!.removeAttribute('data-painted')
       lastW = 0
       lastH = 0
     }
