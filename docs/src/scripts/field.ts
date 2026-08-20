@@ -78,15 +78,20 @@ export function drawField(
   }
 
   /* Every field is erased outward so it dissolves into the surface
-     instead of ending at an edge. This is not optional. */
+     instead of ending at an edge. This is not optional.
+     The outer radius is biased toward max(w,h), which is the tall side on
+     a narrow phone — the erase circle then dwarfs the width and the field
+     stays dense behind body text edge to edge. Below 720px pull the radius
+     in so the erase actually reaches the narrow dimension. */
   ctx.globalCompositeOperation = 'destination-out'
+  const eraseRadius = Math.max(w, h) * (w < 720 ? 0.5 : 0.72)
   const grd = ctx.createRadialGradient(
     w * 0.44,
     h * 0.5,
     Math.min(w, h) * 0.2,
     w * 0.44,
     h * 0.5,
-    Math.max(w, h) * 0.72,
+    eraseRadius,
   )
   grd.addColorStop(0, 'rgba(0,0,0,0)')
   grd.addColorStop(0.55, 'rgba(0,0,0,0.28)')

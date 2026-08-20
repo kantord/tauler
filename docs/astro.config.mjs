@@ -28,6 +28,7 @@ export default defineConfig({
         './src/styles/fonts.css',
         './src/styles/global.css',
         './src/styles/docs-theme.css',
+        './src/styles/docs-shell.css',
       ],
       components: {
         // Default head + font preloads (see the component for why).
@@ -35,6 +36,11 @@ export default defineConfig({
         // The design system has no light theme; lock the docs to dark.
         ThemeProvider: './src/components/ThemeProvider.astro',
         ThemeSelect: './src/components/ThemeSelect.astro',
+        // The desktop reservation frame and its chrome, matching the
+        // landing page's own header 1:1.
+        PageFrame: './src/components/DesktopFrame.astro',
+        Header: './src/components/DesktopHeader.astro',
+        MobileMenuFooter: './src/components/DesktopMobileMenuFooter.astro',
       },
       social: [
         {

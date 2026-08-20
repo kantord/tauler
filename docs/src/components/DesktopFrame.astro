@@ -1,0 +1,128 @@
+---
+// Starlight PageFrame override: adds the fixed desktop canvas behind the
+// page frame. The docs page is a panel reserved on a desktop, not a page
+// with a decorated background — the field lives on this canvas, below the
+// frame, visible only in the margins outside it and the strip behind the
+// header, matching the landing page's own wallpaper argument.
+//
+// One accent, one field kind — matches the landing page, which only shows
+// its single "flow" workspace. Per-section accents/field kinds were part
+// of a separate decision (workspace groups) that hasn't been made yet.
+import Default from '@astrojs/starlight/components/PageFrame.astro'
+import ScrollRegionA11y from './ScrollRegionA11y.astro'
+
+const { entry } = Astro.locals.starlightRoute
+const isSplash = entry.data.template === 'splash'
+---
+
+<div data-desktop data-splash={isSplash ? '' : undefined}>
+  <canvas data-desktop-canvas aria-hidden="true"></canvas>
+  <ScrollRegionA11y />
+  <Default>
+    <slot />
+    <slot name="header" slot="header" />
+    <slot name="sidebar" slot="sidebar" />
+  </Default>
+</div>
+
+<style>
+  @layer design {
+    [data-desktop] {
+      display: contents;
+    }
+
+    [data-desktop-canvas] {
+      position: fixed;
+      inset: 0;
+      z-index: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+      /* The draw itself can't happen before the page's first paint (it's a
+         deferred module script, same as the landing's own Stage.astro, and
+         deliberately so — it stays off the critical rendering path rather
+         than delay real content). That gap is fine; what read as a "flicker"
+         was the canvas going from nothing to fully drawn in a single frame.
+         Fading it in turns an instant pop into a transition, which the eye
+         reads as intentional rather than as something breaking. */
+      opacity: 0;
+      transition: opacity 0.4s ease;
+    }
+    [data-desktop-canvas][data-painted] {
+      opacity: 1;
+    }
+
+    /* The slab sits above the canvas — see the stacking note in the
+       script below for why an explicit z-index is required here, not
+       just DOM order. */
+    :global(.page) {
+      position: relative;
+      z-index: 1;
+    }
+  }
+</style>
+
+<script>
+  import { drawField } from '../scripts/field.ts'
+
+  // Above this width the field has visible margin to draw into; below it
+  // the slab fills the viewport and the field is absent by construction
+  // (also why phones carry no contrast risk and no cost). Splash pages
+  // skip the gate entirely, matching the landing page's own hero canvas.
+  const MARGIN_QUERY = '(min-width: 1700px)'
+
+  for (const host of document.querySelectorAll<HTMLElement>('[data-desktop]')) {
+    const canvas = host.querySelector<HTMLCanvasElement>(
+      '[data-desktop-canvas]',
+    )
+    if (!canvas) continue
+
+    const isSplash = host.hasAttribute('data-splash')
+    // Fixed, not per-route: every navigation here is a full page load (no
+    // view-transitions/client router in this Starlight setup), so a
+    // route-derived seed drew a visibly different pattern on every click —
+    // read as the background "flashing". One seed for the whole site means
+    // consecutive page loads paint the same pixels, so there's nothing to
+    // flash even though the canvas does still redraw from scratch each time.
+    const seed = 0x74617502 // 'tau' + version marker, arbitrary but stable
+
+    const mq = isSplash ? null : matchMedia(MARGIN_QUERY)
+
+    let lastW = 0
+    let lastH = 0
+    function paint(): void {
+      if (mq && !mq.matches) return
+      const w = window.innerWidth
+      const h = window.innerHeight
+      if (w === lastW && h === lastH) return
+      lastW = w
+      lastH = h
+      const scale = Math.min(2, Math.sqrt(12_000_000 / (w * h)))
+      canvas!.width = Math.round(w * scale)
+      canvas!.height = Math.round(h * scale)
+      // Hex because the canvas parses it into RGB; the token is oklch,
+      // which parseInt can't read — matches the landing's own Stage.astro.
+      drawField(canvas!, 'flow', '#F0855A', seed, scale)
+      // Only the CSS opacity transition should be visible, not a hard cut —
+      // set once per reveal, harmless to set again on every resize repaint.
+      canvas!.setAttribute('data-painted', '')
+    }
+    function clear(): void {
+      const ctx = canvas!.getContext('2d')
+      if (ctx) ctx.clearRect(0, 0, canvas!.width, canvas!.height)
+      canvas!.removeAttribute('data-painted')
+      lastW = 0
+      lastH = 0
+    }
+
+    requestAnimationFrame(paint)
+    if (mq)
+      mq.addEventListener('change', () => (mq.matches ? paint() : clear()))
+
+    let t: ReturnType<typeof setTimeout>
+    addEventListener('resize', () => {
+      clearTimeout(t)
+      t = setTimeout(paint, 200)
+    })
+  }
+</script>
