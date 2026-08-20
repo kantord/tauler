@@ -144,11 +144,41 @@ impl Loader for NoFsLoader {
     }
 }
 
+/// Whether an evaluator's runtime may touch the world. The render runtime may not:
+/// a Tick runs on the loop, and `sh` blocking it for the length of a subprocess is
+/// what the latency budgets forbid. The reconciler runtime must, because that is
+/// where hooks and `observe` run. See ADR 0034.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Effects {
+    Denied,
+    Allowed,
+}
+
 impl JsxEvaluator {
+    /// The render runtime: evaluated every Tick, and unable to touch the world.
     pub fn new(
         source: &str,
         ctx: serde_json::Value,
         base_dir: Option<&Path>,
+    ) -> rquickjs::Result<Self> {
+        Self::with_effects(source, ctx, base_dir, Effects::Denied)
+    }
+
+    /// The reconciler runtime: the same layout file, evaluated off the loop, with
+    /// `sh` and friends registered so a Unit's hooks can run.
+    pub fn new_reconciler(
+        source: &str,
+        ctx: serde_json::Value,
+        base_dir: Option<&Path>,
+    ) -> rquickjs::Result<Self> {
+        Self::with_effects(source, ctx, base_dir, Effects::Allowed)
+    }
+
+    fn with_effects(
+        source: &str,
+        ctx: serde_json::Value,
+        base_dir: Option<&Path>,
+        effects: Effects,
     ) -> rquickjs::Result<Self> {
         let loaded_paths: Arc<Mutex<Vec<PathBuf>>> = Arc::new(Mutex::new(Vec::new()));
 
@@ -194,6 +224,19 @@ impl JsxEvaluator {
                     globalThis.optativeSet = __esto_optative_set;
                     globalThis.optativeJsonSet = __esto_optative_json_set;",
                 )?;
+                if effects == Effects::Allowed {
+                    optative_script::builtins::register_all(
+                        &qjs_ctx,
+                        optative_script::builtins::EFFECTFUL_BUILTINS,
+                    )?;
+                    qjs_ctx.eval::<(), _>(
+                        "globalThis.sh = __esto_sh;
+                        globalThis.read = __esto_read;
+                        globalThis.ls = __esto_ls;
+                        globalThis.exists = __esto_exists;
+                        globalThis.hash = __esto_hash;",
+                    )?;
+                }
                 // `h` isn't aliased directly to `__esto_h`: its generic-tag output nests
                 // props under a `props` key (`{type, props, children}`), but Rust-backed UI
                 // components (e.g. `@ui/card`) deserialize their `children: Vec<Node>` prop
@@ -456,6 +499,39 @@ mod tests {
             result["children"][0], "undefined",
             "sh must not exist in the render runtime"
         );
+    }
+
+    /// The reconciler runtime is the same evaluator with the world switched on.
+    /// A hook and an `observe` need `sh` (ADR 0034); this is the half the render
+    /// runtime is not allowed to have.
+    #[test]
+    fn the_reconciler_runtime_has_a_shell() {
+        let result = JsxEvaluator::new_reconciler(
+            r#"export default function render() { return <root>{typeof sh}</root>; }"#,
+            serde_json::Value::Null,
+            None,
+        )
+        .unwrap()
+        .eval(&std::collections::HashMap::new())
+        .unwrap()
+        .layout;
+        assert_eq!(result["children"][0], "function");
+    }
+
+    /// And it really runs: `typeof sh` only proves a binding exists, not that the
+    /// subprocess half of it survived the trip through two crates.
+    #[test]
+    fn the_reconciler_runtimes_shell_actually_runs_a_command() {
+        let result = JsxEvaluator::new_reconciler(
+            r#"export default function render() { return <root>{sh`printf hi`}</root>; }"#,
+            serde_json::Value::Null,
+            None,
+        )
+        .unwrap()
+        .eval(&std::collections::HashMap::new())
+        .unwrap()
+        .layout;
+        assert_eq!(result["children"][0], "hi");
     }
 
     #[test]
