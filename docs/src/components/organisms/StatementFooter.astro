@@ -1,0 +1,11 @@
+---
+// The statement footer: one claim, hairline above, pinned to the foot.
+import Statement from '../text/Statement.astro'
+import PageWidth from '../ui/PageWidth.astro'
+---
+
+<footer
+  class="flex min-h-footer items-center border-t border-line-2 py-s5 tight:py-s4 short:min-h-0 short:py-s3"
+>
+  <PageWidth><Statement><slot /></Statement></PageWidth>
+</footer>

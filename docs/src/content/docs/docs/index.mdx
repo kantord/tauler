@@ -1,0 +1,89 @@
+---
+title: tauler
+description: A JSX-based Linux status bar renderer.
+---
+
+Tauler is a status bar for Linux whose layout is written as a `.jsx` file. The
+file returns a tree of `<panel>` nodes; tauler evaluates it on every data tick
+and renders the result into X11 or Wayland windows.
+
+## The rendering model
+
+Tauler borrows JSX syntax, but the execution model is deliberately simpler than
+React's. Rather than tracking state and re-rendering the subtrees that changed,
+tauler is a pure function called on every tick:
+
+```
+(all stream values) → UI tree
+```
+
+There is no component state, no effects, no virtual DOM diffing and no
+lifecycle. The whole render function runs top to bottom on each tick and
+produces a fresh layout tree — closer to a spreadsheet than to React.
+
+### Streams replace useState and useEffect
+
+Where React subscribes to external data with `useEffect` and `useState`, tauler
+declares the data source inline and hands you the latest value synchronously:
+
+```jsx
+const time = useStringStream("/usr/bin/bash", "while true; do date; sleep 1; done");
+```
+
+The runtime owns the subprocess lifecycle, so there is no subscription or
+cleanup code to write.
+
+### Joining streams is just closures
+
+Every stream value is computed at the top of the render function, which puts it
+in scope everywhere below — including inside a `Module` render-prop callback.
+Sharing data between unrelated parts of the tree needs no context provider and
+no prop drilling:
+
+```jsx
+const notifications = useJSONStream("...tauler-notify")?.notifications ?? [];
+
+<Module bin="...tauler-i3">
+  {(data, events) => {
+    // notifications is in scope here
+    const urgent = notifications.some(n => data.workspaces.find(...));
+    return <WorkspaceList urgent={urgent} />;
+  }}
+</Module>
+```
+
+### History comes from a pipe
+
+tauler keeps one value per stream, the latest line, so nothing in the render
+function can look backwards. History is added by piping the source through
+`tauler-accumulate`, which hands you a window instead of a value:
+
+```jsx
+const load = useJSONStream("/bin/sh", `
+  while :; do cut -d' ' -f1 /proc/loadavg; sleep 1; done | tauler-accumulate -n 60
+`) ?? [];
+```
+
+`load` is the last 60 samples, oldest first. A naive shell loop gets history
+without becoming stateful — see [Data and events](/docs/data/).
+
+### Where this model stops
+
+A pure function cannot express state that persists *across* ticks — "this
+workspace has had a notification since you last looked at it", for example.
+A window of recent values will not do it either, because the interesting part is
+what you have already seen. That kind of memory belongs in the data source
+itself, in a module process that tracks it, rather than in the render function.
+
+## Screen layout
+
+Panels are placed around a screen, and the space they occupy has to be reserved from
+the window manager explicitly — `anchor` alone does not do it. The
+[layout page](./layout/) covers `<I3Layout>`, which derives the reservation from the
+panels themselves.
+
+## Components
+
+Tauler ships a set of built-in UI components. Every entry on the
+[components page](./components/) is generated from the component's own doc
+comments, and each screenshot is produced by really rendering the example.

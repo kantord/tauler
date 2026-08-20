@@ -2,20 +2,42 @@
   "name": "docs",
   "type": "module",
   "version": "0.0.1",
-  "packageManager": "pnpm@11.21.0",
+  "packageManager": "pnpm@11.22.0",
   "scripts": {
     "dev": "astro dev",
     "start": "astro dev",
-    "build": "astro build",
+    "build": "pnpm run build:css && astro build",
     "preview": "astro preview",
-    "astro": "astro"
+    "astro": "astro",
+    "build:css": "tailwindcss -i .tauler/tailwind.css -o public/tauler/tauler.css && node scripts/check-classes.mjs",
+    "test": "playwright test",
+    "test:docker": "bash scripts/update-snapshots.sh",
+    "test:update": "bash scripts/update-snapshots.sh --update",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "check": "astro check && node scripts/check-class-layers.ts"
   },
   "dependencies": {
     "@astrojs/starlight": "^0.41.0",
+    "@astrojs/starlight-tailwind": "^5.0.0",
+    "@fontsource/dm-mono": "^5.3.0",
+    "@fontsource/martian-mono": "^5.3.0",
+    "@tailwindcss/vite": "^4.3.3",
     "astro": "^7.0.0",
     "astro-mermaid": "^2.0.4",
     "mermaid": "^11.15.0",
-    "sharp": "^0.35.0",
-    "starlight-theme-flexoki": "^0.2.2"
+    "sharp": "^0.35.0"
+  },
+  "devDependencies": {
+    "@astrojs/check": "0.9.10",
+    "@axe-core/playwright": "4.13.0",
+    "@playwright/test": "1.62.1",
+    "@tailwindcss/cli": "4.3.3",
+    "prettier": "3.9.6",
+    "prettier-plugin-astro": "0.14.1",
+    "prettier-plugin-tailwindcss": "0.8.1",
+    "sirv-cli": "3.0.1",
+    "tailwindcss": "4.3.3",
+    "typescript": "5.9.3"
   }
 }

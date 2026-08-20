@@ -1,9 +1,9 @@
 [workspace]
-members = [".", "tauler-i3", "tauler-notify", "tauler-ui-macro", "tauler-docgen", "tauler-screenshot", "tauler-accumulate", "tauler-e2e"]
+members = [".", "tauler-core", "tauler-web", "tauler-i3", "tauler-aerospace", "tauler-notify", "tauler-ui-macro", "tauler-docgen", "tauler-screenshot", "tauler-accumulate", "tauler-e2e", "tauler-web-e2e"]
 resolver = "2"
 
 [workspace.package]
-version = "0.1.5"
+version = "0.1.8"
 authors = ["Dániel Kántor <github@daniel-kantor.com>"]
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/kantord/tauler"
@@ -62,7 +62,7 @@ tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 # registration boundary. Bump only in lockstep with `optative-script`.
 rquickjs = { version = "=0.12.2", features = ["loader"] }
 rquickjs-serde = "=0.6.1"
-takumi = "=2.9.2"
+takumi = "=2.10.0"
 # For `ImageBuffer`, the only way to build an `ImageSource` from raw pixels: the
 # `takumi` facade re-exports it only behind its semver-exempt `unstable` feature.
 takumi-core = { version = "=0.23.0", default-features = false }
@@ -78,11 +78,14 @@ serde_yaml = "0.9.34"
 # requirement admits one, so a stale floor silently verifies `tauler` against
 # the *published* macro. That is invisible until the two disagree — which is
 # exactly what happened when the macro stopped hard-coding its tag list.
-tauler-ui-macro = { path = "tauler-ui-macro", version = "0.1.5" }
+tauler-ui-macro = { path = "tauler-ui-macro", version = "0.1.8" }
+# The wasm-clean subset, with the QuickJS half switched on. Same version pinning
+# rationale as `tauler-ui-macro` above.
+tauler-core = { path = "tauler-core", version = "0.1.8", features = ["quickjs"] }
 optative = "=0.1.4"
 optative-process-pool = "=0.0.9"
 optative-derive = "=0.0.4"
-optative-script = "=0.0.9"
+optative-script = "=0.0.10"
 notify = "8.2.0"
 cached = { version = "2.0.2", default-features = false }
 tempfile = "3.27.0"

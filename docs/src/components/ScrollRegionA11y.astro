@@ -1,0 +1,92 @@
+---
+// Two of Starlight's own patterns render a horizontally-scrollable region:
+// Expressive Code blocks and markdown tables (`overflow: auto` in
+// Starlight's own markdown.css). Each has a different, genuine gap:
+//
+// - Markdown tables get no keyboard access path at all — Starlight never
+//   sets tabindex on them. Full handling needed here.
+// - Expressive Code ships a "Scrollable block tabindex" core plugin that
+//   DOES work (verified: it's correctly bundled and wired, and sets
+//   tabindex/role after a debounced ResizeObserver fires) — an earlier
+//   version of this file assumed otherwise from grepping the wrong file
+//   (the HTML, not the external bundled script the HTML references) and
+//   duplicated EC's own tabindex logic for no reason. What EC's plugin
+//   does NOT do is set an aria-label: every scrollable code block on a
+//   page becomes an unlabelled `role="region"` landmark, and axe flags
+//   more than one of those as "landmarks should have a unique accessible
+//   name" (confirmed: disabling this file's pre-handling and relying on
+//   EC alone still fails that check on a page with 2+ scrollable blocks).
+//   So the code-block half of this file only ever needs to ADD the label
+//   EC leaves off — never duplicate the keyboard-access part it already
+//   does correctly.
+//
+// Either gap, wide enough content on a narrow viewport, is an axe
+// "scrollable-region-focusable" violation — caught by tests/docs.spec.ts's
+// cross-device a11y check.
+---
+
+<script>
+  // role="region" alone makes every scrollable block an unlabelled
+  // landmark — fine with one on the page, but a second unlabelled
+  // "region" is itself an axe violation once a page has more than one.
+  // Labelling each from whatever identifies it (a code frame's
+  // title/language, a running index for tables) keeps uniqueness from
+  // depending on content the author didn't write for this purpose.
+  function labelPre(pre: HTMLElement, index: number): void {
+    if (pre.hasAttribute('aria-label')) return
+    const frame = pre.closest('.expressive-code')
+    const title = frame?.querySelector('.title')?.textContent?.trim()
+    const lang = pre.dataset.language
+    const label = title
+      ? `Code: ${title}`
+      : lang
+        ? `${lang} code block ${index}`
+        : `Code block ${index}`
+    pre.setAttribute('aria-label', label)
+  }
+
+  // Expressive Code's own core plugin sets tabindex/role on a scrollable
+  // `<pre>` asynchronously (a debounced ResizeObserver) — reacting to that
+  // attribute change via MutationObserver, rather than polling or racing
+  // it with a fixed delay, means the label lands correctly regardless of
+  // when EC's own timing fires.
+  const preObserver = new MutationObserver((mutations) => {
+    for (const m of mutations) {
+      const pre = m.target as HTMLElement
+      if (pre.getAttribute('role') === 'region') {
+        labelPre(
+          pre,
+          [...document.querySelectorAll('.expressive-code pre')].indexOf(pre) +
+            1,
+        )
+      }
+    }
+  })
+  document
+    .querySelectorAll<HTMLElement>('.expressive-code pre')
+    .forEach((pre, i) => {
+      preObserver.observe(pre, { attributes: true, attributeFilter: ['role'] })
+      if (pre.getAttribute('role') === 'region') labelPre(pre, i + 1)
+    })
+
+  // Tables get no help from Starlight at all — full handling, driven by
+  // the same scrollable-or-not check on resize.
+  function syncTables(): void {
+    document
+      .querySelectorAll<HTMLElement>('.sl-markdown-content table')
+      .forEach((table, index) => {
+        const scrollable = table.scrollWidth > table.clientWidth
+        if (scrollable && !table.hasAttribute('tabindex')) {
+          table.setAttribute('tabindex', '0')
+          table.setAttribute('role', 'region')
+          table.setAttribute('aria-label', `Table ${index + 1}`)
+        } else if (!scrollable && table.hasAttribute('tabindex')) {
+          table.removeAttribute('tabindex')
+          table.removeAttribute('role')
+          table.removeAttribute('aria-label')
+        }
+      })
+  }
+  syncTables()
+  addEventListener('resize', syncTables)
+</script>

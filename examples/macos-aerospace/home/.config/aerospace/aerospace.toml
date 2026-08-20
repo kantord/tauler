@@ -1,0 +1,22 @@
+# The half of the example that is not tauler.
+#
+# AeroSpace reads gaps at config load time and exposes no command to change
+# them, so this is where the rail's 148pt is reserved. `outer.left` must match
+# RAIL in ~/.config/tauler/layout.jsx.
+start-at-login = true
+
+[gaps]
+    inner.horizontal = 19
+    inner.vertical   = 19
+    outer.top        = 0
+    outer.bottom     = 38
+    outer.right      = 38
+    outer.left       = 176
+
+[mode.main.binding]
+    alt-1 = 'workspace 1'
+    alt-2 = 'workspace 2'
+    alt-3 = 'workspace 3'
+    alt-shift-1 = 'move-node-to-workspace 1'
+    alt-shift-2 = 'move-node-to-workspace 2'
+    alt-shift-3 = 'move-node-to-workspace 3'

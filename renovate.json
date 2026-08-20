@@ -49,6 +49,19 @@
       "description": "Action digest bumps are independent and noisy; one PR is enough.",
       "matchManagers": ["github-actions"],
       "groupName": "github actions"
+    },
+    {
+      "description": "docs-ci.yaml pins its job container to the same mcr.microsoft.com/playwright image tag docs/scripts/update-snapshots.sh derives from @playwright/test — two copies of one version (ADR 0031). Overrides the generic github-actions grouping above so this doesn't drift out of sync inside a batch of unrelated action bumps.",
+      "matchManagers": ["npm", "github-actions"],
+      "matchPackageNames": ["@playwright/test", "mcr.microsoft.com/playwright"],
+      "groupName": "playwright (npm package + pinned docker image)"
+    },
+    {
+      "description": "TypeScript 7's native compiler doesn't expose the programmatic API @astrojs/language-server's `astro check` needs yet (https://github.com/withastro/roadmap/discussions/1321). A major bump landed anyway and broke Docs CI outright, not just with new lint findings — block it until Astro's tooling catches up.",
+      "matchManagers": ["npm"],
+      "matchPackageNames": ["typescript"],
+      "matchUpdateTypes": ["major"],
+      "enabled": false
     }
   ]
 }

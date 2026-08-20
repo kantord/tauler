@@ -1,3 +1,7 @@
 allowBuilds:
+  # A native file watcher Tailwind pulls in for its `--watch` mode. The docs build never
+  # watches, so the prebuilt fallback is all that is needed and `pnpm install` stops
+  # exiting non-zero over an undecided entry.
+  '@parcel/watcher': false
   esbuild: true
   sharp: true

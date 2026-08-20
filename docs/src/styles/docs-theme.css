@@ -1,0 +1,74 @@
+/* Residual Starlight overrides that the @astrojs/starlight-tailwind mapping
+   (driven by the @theme tokens in global.css) does not cover. The docs are
+   locked to dark via the ThemeProvider/ThemeSelect component overrides. */
+
+:root {
+  --sl-color-bg-nav: var(--color-surface-frame);
+  --sl-color-bg-sidebar: var(--color-surface-frame);
+  --sl-color-bg-inline-code: var(--color-surface-control);
+  --sl-color-hairline-light: var(--color-line-2);
+  --sl-color-hairline: var(--color-line-1);
+
+  /* Layout variables, not overrides — every proportion below is one of
+     Starlight's own custom properties (props.css), set once here so it
+     wins regardless of Starlight's internal ≥50em/≥72em media steps
+     (unlayered CSS always outranks Starlight's layered defaults). See
+     docs revamp handoff §3. Sidebar width is intentionally left at
+     Starlight's default. */
+  --sl-nav-height: 48px;
+  --sl-content-width: 56rem;
+  --sl-nav-pad-x: var(--spacing-s5);
+  --sl-content-pad-x: var(--spacing-s8);
+}
+
+/* Display type: Martian Mono 500, tracked negative because mono runs wide */
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+  font-family: var(--font-display);
+  font-weight: 500;
+  letter-spacing: -0.035em;
+}
+
+/* Wordmark: the name set in type — weight 600, 0.24em tracking. No logo. */
+.site-title {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 12px;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  color: var(--sl-color-white);
+}
+/* Starlight's own SiteTitle already clips this span (min-width:0 on the
+   link, overflow:hidden here) when flex-shrink squeezes it — with no
+   ellipsis, that clip lands mid-glyph ("TAULER" → "TAULI") on real phone
+   widths (320–390px). DesktopHeader's mobile gap reduction should mean
+   this never actually triggers; ellipsis is the graceful fallback for
+   whatever narrower case that headroom doesn't cover. */
+.site-title span {
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* @fontsource/dm-mono ships only weights 300/400/500 — no 600 file exists.
+   Starlight's SidebarSublist.astro requests 600 for top-level links (.large,
+   since our flat sidebar has no groups so every link qualifies) and for the
+   active link ([aria-current='page']). With no 600 to load, the browser
+   synthesizes a fake bold by distorting the 400 glyph outlines instead of
+   silently falling back to a real weight — this is what read as "broken"
+   rather than just "not bold enough". Redirect to the boldest real cut. */
+.sidebar-content :where(.large, [aria-current='page']) {
+  font-weight: 500;
+}
+
+/* Defense in depth: without this, ANY future request for a weight a font
+   doesn't ship (not just this one, known case) fails the same way — fake
+   bold that looks broken instead of a clean fallback to the nearest real
+   weight. Martian Mono's own 500/600 are real files, so this doesn't
+   change anything there. */
+* {
+  font-synthesis: none;
+}

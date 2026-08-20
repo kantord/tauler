@@ -68,10 +68,33 @@ jobs:
         with:
           toolchain: "1.97.1"
           targets: ${{ matrix.target }}
-      - name: Install build and signing dependencies
+      - name: Install build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libwayland-dev libxkbcommon-dev libfontconfig-dev libxcb1-dev pkg-config minisign
+          sudo apt-get install -y libwayland-dev libxkbcommon-dev libfontconfig-dev libxcb1-dev pkg-config
+      # Not `apt-get install minisign`: the package does not exist in jammy, only from
+      # noble on. These runners are deliberately 22.04 because the binaries they build
+      # are the released ones, and jammy's glibc 2.35 is the floor tauler ships against
+      # — bumping the runner to get one apt package would drop every user on an older
+      # distro. Upstream's tarball carries static x86_64 and aarch64 builds, which is
+      # exactly this matrix.
+      - name: Install minisign
+        env:
+          MINISIGN_VERSION: "0.12"
+          MINISIGN_SHA256: "9a599b48ba6eb7b1e80f12f36b94ceca7c00b7a5173c95c3efc88d9822957e73"
+        run: |
+          set -euo pipefail
+          case "$TARGET" in
+            x86_64-*) arch=x86_64 ;;
+            aarch64-*) arch=aarch64 ;;
+            *) echo "No minisign build for $TARGET"; exit 1 ;;
+          esac
+          url="https://github.com/jedisct1/minisign/releases/download/${MINISIGN_VERSION}/minisign-${MINISIGN_VERSION}-linux.tar.gz"
+          curl -fsSL --retry 3 -o /tmp/minisign.tar.gz "$url"
+          echo "${MINISIGN_SHA256}  /tmp/minisign.tar.gz" | sha256sum -c -
+          tar -xzf /tmp/minisign.tar.gz -C /tmp "minisign-linux/${arch}/minisign"
+          sudo install -m 0755 "/tmp/minisign-linux/${arch}/minisign" /usr/local/bin/minisign
+          minisign -v
       - name: Build
         run: cargo build --release -p "$CRATE" --target "$TARGET"
       - name: Package

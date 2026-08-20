@@ -1,0 +1,35 @@
+---
+// Starlight MobileMenuFooter override: the header's ranked collapse below
+// 50em (docs revamp handoff §11) moves HOME and INSTALL into the mobile
+// menu — GITHUB is already there via the default's SocialIcons. INSTALL
+// stays visible in the collapsed header too (see DesktopHeader.astro); it's
+// the one link worth showing in both places.
+import Default from '@astrojs/starlight/components/MobileMenuFooter.astro'
+---
+
+<nav class="dx-mobile-links">
+  <a href="/">HOME</a>
+  <a href="/docs/#install">INSTALL</a>
+</nav>
+<Default><slot /></Default>
+
+<style>
+  @layer design {
+    .dx-mobile-links {
+      display: flex;
+      gap: var(--spacing-s5);
+      padding-block: var(--spacing-s4);
+      border-top: 1px solid var(--color-line-2);
+    }
+    .dx-mobile-links a {
+      font-family: var(--font-ui);
+      font-size: var(--text-chrome-sm);
+      letter-spacing: var(--tracking-chrome);
+      color: var(--color-ink-3);
+      text-decoration: none;
+    }
+    .dx-mobile-links a:hover {
+      color: var(--color-ink-1);
+    }
+  }
+</style>

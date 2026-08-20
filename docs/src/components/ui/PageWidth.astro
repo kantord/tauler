@@ -1,0 +1,11 @@
+---
+// Caps content at the design's 1600px frame width and centers it, so
+// ultrawide monitors don't pin the page to the far-left edge. Owns the
+// horizontal edge inset too — the panel, hero and footer all defer to this
+// one padding value instead of each adding their own, which is what kept
+// their left edges a few pixels apart instead of flush.
+---
+
+<div class="relative mx-auto w-full max-w-page px-s5">
+  <slot />
+</div>

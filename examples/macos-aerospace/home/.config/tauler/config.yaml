@@ -1,0 +1,5 @@
+theme:
+  mode: dark
+
+fonts:
+  primary: "Menlo"

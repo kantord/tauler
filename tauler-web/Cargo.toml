@@ -1,0 +1,20 @@
+[package]
+name = "tauler-web"
+description = "Internal tool: the wasm module the documentation site loads"
+edition = "2021"
+publish = false
+version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+# A cdylib so `cargo build --target wasm32-unknown-unknown` produces a module for
+# `wasm-bindgen` to process. It holds no logic of its own — everything it exports comes
+# from `tauler-core`, which is also what the desktop compiles (ADR 0024).
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+tauler-core = { path = "../tauler-core" }
+wasm-bindgen = "=0.2.127"

@@ -1,0 +1,10 @@
+---
+// Starlight Head override: the default head plus preloads for the
+// self-hosted fonts, so docs pages don't flash the fallback mono.
+import Default from '@astrojs/starlight/components/Head.astro'
+import FontPreloads from './FontPreloads.astro'
+---
+
+<Default><slot /></Default>
+<FontPreloads />
+<meta name="theme-color" content="#16161d" />

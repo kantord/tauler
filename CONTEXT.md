@@ -9,8 +9,8 @@ desktop shell surfaces — bars, docks, notification areas — not general-purpo
 ### Surfaces
 
 **Surface**:
-A rectangle tauler rasterizes into. Every surface has exactly one kind — Panel or
-Wallpaper — which decides where the finished pixels go, and nothing else.
+A rectangle tauler produces output for. Every surface has exactly one kind — Panel,
+Wallpaper or Dom — which decides where the finished output goes, and nothing else.
 _Avoid_: widget, window (a Wallpaper is neither)
 
 **Panel**:
@@ -21,6 +21,16 @@ _Avoid_: bar, dock, widget, bar window
 A surface painted into the desktop background of one output. It has no window, takes no
 clicks, and always covers its output exactly.
 _Avoid_: background, backdrop, root image, desktop
+
+**Dom**:
+A surface whose output is markup rather than pixels. The browser is what rasterizes it,
+which is why it is the one surface kind tauler draws nothing for.
+_Avoid_: mount, web surface, canvas, root
+
+**Mount node**:
+The element in a web page a Dom surface's markup is written into. Everything inside it is
+tauler's; everything outside it is the page's.
+_Avoid_: host, container, target, portal
 
 **Output**:
 One connected monitor, named as RandR names it (`DP-2`).
@@ -50,9 +60,10 @@ _Avoid_: transparency, blur, backdrop
 ### Rendering
 
 **Render target**:
-Something with pixels of its own. Today every target is a Surface; a `<BufferBoundary>`
-will make one out of a subtree. What makes it a target is having its own slot in the
-scheduler and its own entry in the cache.
+Something with pixels of its own. Today every target is a Panel or a Wallpaper; a
+`<BufferBoundary>` will make one out of a subtree. What makes it a target is having its
+own slot in the scheduler and its own entry in the cache — which is why a Dom surface is
+not one.
 _Avoid_: layer, texture, canvas
 
 **Repaint**:
@@ -129,9 +140,9 @@ _Avoid_: frame, render pass, update, re-render; pass (that is the loop turn, not
 re-evaluation)
 
 **Shell node**:
-A node that describes structure rather than content: `root`, `panel`, `wallpaper`. Shell
-nodes never reach the rasterizer, and they are the only lowercase names in a layout file
-that are not HTML elements.
+A node that describes structure rather than content: `root`, `panel`, `wallpaper`, `dom`.
+Shell nodes never reach the rasterizer, and they are the only lowercase names in a layout
+file that are not HTML elements.
 _Avoid_: top-level node, container node
 
 **Layout node**:
@@ -283,13 +294,19 @@ The destination of an intent — the bin it is delivered to. A Module only ever 
 messages addressed to its own channel, and never learns what caused them.
 _Avoid_: topic, target, recipient
 
+**Transport**:
+Whatever carries a Stream's values in and a Module's intents out. Subprocesses are the
+one tauler ships; a JavaScript module inside a page is another. A layout file names the
+bin, never the transport that answers to it.
+_Avoid_: glue, backend, adapter, driver, bridge
+
 ### Reconcilers
 
 **Unit**:
 A kind of reconcilable thing: what identifies one, what value decides whether it has
 changed, how to observe the world for it, and what to do when one appears, changes or goes
 away. Declared by a `unit()` call, which returns a component — so a Unit is never a node,
-only its Items are. See ADR 0026.
+only its Items are. See ADR 0033.
 _Avoid_: resource (that is a subprocess argument), target (that is a Render target), kind
 (that is a Component kind), type
 _Elsewhere_: custom resource definition (Kubernetes), provider resource (Terraform)
@@ -303,7 +320,7 @@ _Avoid_: instance, entry, record
 **Observation**:
 The set of Items the world currently holds, as a Unit reports it. The only thing that
 establishes what is really there: a hook's return value is not one, and neither is the fact
-that a hook was run. See ADR 0028.
+that a hook was run. See ADR 0035.
 _Avoid_: state, snapshot, current state, actual state
 
 **Sweep**:

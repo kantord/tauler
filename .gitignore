@@ -1,3 +1,13 @@
 /target
 
 *.snap.new
+
+# pnpm's content-addressable store, created here by `pnpm install` when run
+# without a configured global store dir (e.g. inside a container).
+/.pnpm-store/
+
+# Browser build products. The wasm module and everything derived from it are built, not
+# committed — unlike the component screenshots, which are test baselines and have to be in
+# git to be compared against (ADR 0026).
+/docs/public/tauler/
+/docs/.tauler/

@@ -551,8 +551,10 @@ impl App {
                 name: output_name.clone(),
                 x: 0,
                 y: 0,
-                width: screen_width_logical,
-                height: screen_height_logical,
+                // Physical pixels, as randr reports them: a `<wallpaper>` takes
+                // its size from here and is rasterized at that size.
+                width: (screen_width_logical as f32 * dpr).round() as u32,
+                height: (screen_height_logical as f32 * dpr).round() as u32,
                 dpr,
             },
         )]);
