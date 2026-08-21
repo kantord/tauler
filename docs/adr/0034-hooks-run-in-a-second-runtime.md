@@ -1,10 +1,10 @@
 # Lifecycle hooks run in a second runtime, on the reconciler thread
 
 On a native build there are two QuickJS runtimes. The render runtime evaluates the layout
-file on every Tick and is pure: it produces a tree, and the Items in that tree cross to the
-other side as plain JSON — a Unit name and the Item's props, nothing else. The reconciler
-runtime lives on its own thread, loads the same layout file, holds the real `unit()`
-objects, and calls the real hooks.
+file on every Tick and is pure: it produces a tree, and it ignores the Items in it. The
+reconciler runtime lives on its own thread, loads the same layout file, evaluates it again,
+and collects the Items out of *its own* tree — where a Unit is still an object with callable
+hooks. Nothing about a Unit crosses between the runtimes.
 
 `sh`, `read`, `ls` and every other builtin that touches the world are registered only in the
 reconciler runtime. In the render runtime they do not exist.
@@ -45,10 +45,22 @@ have two answers to it, and nothing reconciles them.
 data already lives under ([0013](0013-data-stays-plain-json-and-accessors-point-at-it.md)).
 A prop holding a function or a closure does not cross.
 
-**A Unit needs an identity that survives serialisation.** The render side ships a name; the
-reconciler side looks up a `unit()` object by it. Neither `esto` nor the authoring-model
-sketch specifies what that name is, so tauler picks one, and it is a thing two files can
-collide on.
+**A Unit needs no identity at all.** An earlier draft had the render side ship a Unit id and
+the reconciler side look the object up by it. That cannot work: `unit()` draws its
+`__estoId` from a process-global `AtomicU32`, so two runtimes in one process number the same
+Unit differently — and inventing a name instead would have been a thing two layout files can
+collide on. Collecting reconciler-side costs nothing extra, because that runtime was already
+evaluating the file, and it makes identity the object itself.
+
+**The two runtimes can disagree about what was declared.** They evaluate at different
+moments, so a Unit conditional on a Stream value can be present in one tree and absent from
+the other. Only the reconciler's answer decides what gets reconciled; the render side's is
+about what gets drawn. Feeding the reconciler the render loop's Stream values narrows the
+window but does not close it, and a Sweep that acts on a tree one wake old is the normal
+case, not a bug — the next Sweep sees the newer one.
+
+**Props still have to survive JSON**, because a batch is serialised into the hook call. A
+prop holding a closure reaches neither side.
 
 **One thread for now, so Units sweep serially.** A 40-second hook delays every other Unit's
 Sweep behind it. The bar does not stall — the render loop never waits on the reconciler

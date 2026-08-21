@@ -58,6 +58,43 @@ use std::path::PathBuf;
 /// are evaluated before their parent — a wrapper that derives props from its
 /// children (layout geometry, say) can only register after them, and must not be
 /// able to clobber what the author wrote by hand.
+/// Groups the Items in an evaluated tree by the Unit object that declared them,
+/// parking those objects in `__tauler_units` for later hook calls. Unit identity
+/// is the object itself — two `<Light/>` elements share one because `unit()` ran
+/// once — so no id or name has to be agreed on.
+fn collect_units_source() -> String {
+    format!(
+        r#"
+        globalThis.__tauler_collect_units = (tree) => {{
+          const units = [];
+          const batches = [];
+          const walk = (node) => {{
+            if (node === null || typeof node !== "object") return;
+            const t = node.type;
+            if (t && typeof t === "object" && t.{kind} === true) {{
+              let i = units.indexOf(t);
+              if (i < 0) {{
+                i = units.length;
+                units.push(t);
+                batches.push({{ unit_index: i, items: [] }});
+              }}
+              const props = {{}};
+              for (const k of Object.keys(node)) {{
+                if (k !== "type" && k !== "children") props[k] = node[k];
+              }}
+              batches[i].items.push(props);
+            }}
+            if (Array.isArray(node.children)) node.children.forEach(walk);
+          }};
+          walk(tree);
+          globalThis.__tauler_units = units;
+          return batches;
+        }};
+        "#,
+        kind = optative_script::tags::ESTO_KIND,
+    )
+}
+
 fn merge_missing(existing: &mut serde_json::Value, incoming: serde_json::Value) {
     let (Some(target), serde_json::Value::Object(source)) = (existing.as_object_mut(), incoming)
     else {
@@ -432,6 +469,158 @@ impl JsxEvaluator {
                 stream_calls: self.calls.lock().unwrap().clone(),
                 module_calls: self.module_calls.lock().unwrap().clone(),
             })
+        })
+    }
+
+    /// Evaluate for the reconciler: the same render call, but what comes back is
+    /// the Items grouped by the live `unit()` object that declared them, not a
+    /// JSON tree.
+    ///
+    /// The walk happens in JavaScript because that is the only place a Unit is
+    /// still an object with callable hooks; once it goes through
+    /// `json_stringify` it is a bag of props and a number nobody else can
+    /// resolve. The Unit objects are parked in `__tauler_units` so a hook call
+    /// can address one by index (ADR 0034).
+    pub fn eval_units(
+        &self,
+        new_stream_values: &HashMap<(String, Option<String>), String>,
+    ) -> rquickjs::Result<Vec<crate::units::UnitBatch>> {
+        self.stream_values
+            .write()
+            .unwrap()
+            .clone_from(new_stream_values);
+        self.calls.lock().unwrap().clear();
+        self.module_calls.lock().unwrap().clear();
+        self.reset_handlers();
+
+        self.context.with(|qjs_ctx| {
+            let globals_val =
+                rquickjs_serde::to_value(qjs_ctx.clone(), &*self.global_state.lock().unwrap())
+                    .map_err(|_| rquickjs::Error::Unknown)?;
+            qjs_ctx.globals().set("globals", globals_val)?;
+
+            let render_fn = self.render_fn.as_ref().unwrap().clone().restore(&qjs_ctx)?;
+            let tree: rquickjs::Value = render_fn
+                .call::<(), rquickjs::Value>(())
+                .catch(&qjs_ctx)
+                .map_err(|e| {
+                tracing::error!(exception = %e, "JS exception");
+                rquickjs::Error::Exception
+            })?;
+
+            qjs_ctx.eval::<(), _>(collect_units_source())?;
+            let collect: Function = qjs_ctx.globals().get("__tauler_collect_units")?;
+            let batches: rquickjs::Value = collect.call((tree,))?;
+            let json = qjs_ctx
+                .json_stringify(batches)?
+                .ok_or(rquickjs::Error::Unknown)?
+                .to_string()?;
+            serde_json::from_str(&json).map_err(|_| rquickjs::Error::Unknown)
+        })
+    }
+
+    /// Call one of a Unit's hooks with a whole batch of Items.
+    ///
+    /// `unit_index` comes from an [`eval_units`](Self::eval_units) on this same
+    /// evaluator; the two are only meaningful together, because the index
+    /// addresses that evaluation's `__tauler_units`. A Unit that does not define
+    /// the hook yields `None` — there is nothing to do, which is not a failure.
+    pub fn call_unit_hook(
+        &self,
+        unit_index: usize,
+        hook: &str,
+        items: &[serde_json::Value],
+    ) -> Option<serde_json::Value> {
+        self.call_unit_fn(unit_index, hook, &serde_json::Value::Array(items.to_vec()))
+    }
+
+    /// Call one of a Unit's projections — `key` or `value` — on a single Item.
+    ///
+    /// Projections stay per-Item where the batch hooks do not: they name a part
+    /// of the Item rather than act on the world, and `esto` writes them that way
+    /// (`key: (i) => i.entity`). Batching them would buy nothing and break every
+    /// Unit that already exists.
+    pub fn call_unit_projection(
+        &self,
+        unit_index: usize,
+        projection: &str,
+        item: &serde_json::Value,
+    ) -> Option<serde_json::Value> {
+        self.call_unit_fn(unit_index, projection, item)
+    }
+
+    /// Whether a Unit defines `hook` at all.
+    ///
+    /// Distinguishes "there is nothing to run" from "it ran and returned
+    /// nothing", which [`call_unit_hook`](Self::call_unit_hook) cannot: both come
+    /// back as `None`.
+    pub fn has_unit_hook(&self, unit_index: usize, hook: &str) -> bool {
+        self.context.with(|qjs_ctx| {
+            let Ok(units) = qjs_ctx
+                .globals()
+                .get::<_, rquickjs::Array>("__tauler_units")
+            else {
+                return false;
+            };
+            units
+                .get::<rquickjs::Object>(unit_index)
+                .and_then(|unit| unit.get::<_, rquickjs::Value>(hook))
+                .is_ok_and(|v| v.is_function())
+        })
+    }
+
+    /// Read a plain property off a Unit — anything that is data rather than a
+    /// hook, like `refreshInterval`.
+    pub fn unit_property(&self, unit_index: usize, name: &str) -> Option<serde_json::Value> {
+        self.context.with(|qjs_ctx| {
+            let units: rquickjs::Array = qjs_ctx.globals().get("__tauler_units").ok()?;
+            let unit: rquickjs::Object = units.get(unit_index).ok()?;
+            let value: rquickjs::Value = unit.get(name).ok()?;
+            let json = qjs_ctx.json_stringify(value).ok()??.to_string().ok()?;
+            serde_json::from_str(&json).ok()
+        })
+    }
+
+    fn call_unit_fn(
+        &self,
+        unit_index: usize,
+        name: &str,
+        arg: &serde_json::Value,
+    ) -> Option<serde_json::Value> {
+        self.context.with(|qjs_ctx| {
+            let units: rquickjs::Array = qjs_ctx.globals().get("__tauler_units").ok()?;
+            let unit: rquickjs::Object = units.get(unit_index).ok()?;
+            let f: Function = unit.get(name).ok()?;
+            let arg = rquickjs_serde::to_value(qjs_ctx.clone(), arg).ok()?;
+            let out: rquickjs::Value = f
+                .call((arg,))
+                .catch(&qjs_ctx)
+                .map_err(|e| tracing::error!(exception = %e, name, "Unit hook threw"))
+                .ok()?;
+            let json = qjs_ctx.json_stringify(out).ok()??.to_string().ok()?;
+            serde_json::from_str(&json).ok()
+        })
+    }
+
+    /// Ask a Unit's reconciler what the world currently holds.
+    ///
+    /// Unlike a hook this hangs off `reconciler`, because it belongs to the
+    /// backend rather than to the Unit — `optativeSet` supplies its own, and a
+    /// file-backed one would read the file instead. `None` means the Unit has no
+    /// `observe` to ask.
+    pub fn observe(&self, unit_index: usize) -> Option<serde_json::Value> {
+        self.context.with(|qjs_ctx| {
+            let units: rquickjs::Array = qjs_ctx.globals().get("__tauler_units").ok()?;
+            let unit: rquickjs::Object = units.get(unit_index).ok()?;
+            let reconciler: rquickjs::Object = unit.get("reconciler").ok()?;
+            let f: Function = reconciler.get("observe").ok()?;
+            let out: rquickjs::Value = f
+                .call(())
+                .catch(&qjs_ctx)
+                .map_err(|e| tracing::error!(exception = %e, "observe threw"))
+                .ok()?;
+            let json = qjs_ctx.json_stringify(out).ok()??.to_string().ok()?;
+            serde_json::from_str(&json).ok()
         })
     }
 
