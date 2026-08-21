@@ -3,9 +3,8 @@
 What a Unit believes exists comes from its `observe`, and from nothing else. A hook does not
 report which Items it handled; running a hook is not evidence that it worked.
 
-A Sweep therefore ends by observing again — immediately, if it made progress, because that
-is the moment the world has just changed. If it made no progress it waits the Unit's refresh
-interval first. A hook that failed counts as no progress.
+A Unit sweeps every `refreshInterval`, and what the last Sweep did has no bearing on when
+the next one runs.
 
 Nothing is torn down when tauler exits or re-execs. On start, `observe` seeds the set, the
 diff comes back empty, and nothing runs.
@@ -31,6 +30,21 @@ notion of work in progress. Here that is not userland: a Unit with a hook in fli
 swept again until it returns. Without that rule, a 40-second `enter` observed every 5s fires
 eight times.
 
+**Why the outcome does not pick the cadence.** An earlier version of this ADR said a Sweep
+that made progress was followed immediately by the next, on the grounds that the observation
+it worked from was already stale. It bought a bounded latency improvement — a Unit needing
+two Sweeps to settle converged in one interval instead of two — and paid for it with an
+unbounded failure mode. A hook that throws still counted as having acted, so it asked for an
+immediate re-Sweep, and a Home Assistant server that stops answering turns into a hundred
+failed `curl`s a second. A Unit whose declared representation can never equal the observed
+one (`state: true` against `state: "on"`) does the same thing without any hook failing at
+all. Both were reachable by writing a Unit that looks correct.
+
+The rule was removed rather than contained. `refreshInterval` now answers one question —
+how often does this Unit check — and that single number bounds both how fast it converges
+and how hard it can hammer when it is wrong. A backoff mechanism would have been machinery
+built to survive a hazard that nothing else required us to create.
+
 **Why nothing is torn down at exit.** The alternative is running every `exit` before
 re-exec, the way Modules are torn down. Modules are torn down because they are child
 processes tauler owns; a reconciled Item is the opposite — state out in the world, put there
@@ -46,10 +60,16 @@ waiting out the rest of an interval is pure latency, so it does not.
 
 ## Consequences
 
-**A Unit with nothing to observe does not work.** `optativeJsonSet` — jsonl-persisted state,
-for things with no external check — is the answer for those, and it is not part of this. A
-notification id or a `mktemp -d` path has no observation, so such a Unit would re-enter
-forever.
+**A Unit with nothing to observe does not work, and says so.** `optativeJsonSet` —
+jsonl-persisted state, for things with no external check — is the answer for those, and it
+is not part of this. A notification id or a `mktemp -d` path has no observation, so such a
+Unit would re-enter forever.
+
+Because that failure is silent — an absent `observe` reads exactly like a world that is
+permanently empty — a Unit whose `reconciler` names `optativeJsonSet` is refused with an
+error naming this ADR, rather than swept. The builtin stays registered: it exists in the
+crate tauler deliberately adopted ([0033](0033-reconcilers-are-esto-units.md)), and
+`optativeJsonSet is not defined` would say nothing about why.
 
 **An Item dropped while tauler is down never exits.** Delete its line from the layout file
 while tauler is stopped and the Item stays in the world until tauler runs again — at which

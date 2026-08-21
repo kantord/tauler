@@ -11,10 +11,10 @@
 //!    render function is called. No reparse, no recompile. It returns a JS object tree
 //!    that Rust walks to extract surfaces and build takumi nodes.
 //!
-//! The `Runtime` and `Context` are created once and live forever, which is what makes the
-//! second phase cost 100–200μs — small enough that re-rendering everything on every tick
-//! is affordable (ADR 0007). The transform is under a millisecond and happens only in the
-//! first phase. Rasterization dominates both by two orders of magnitude.
+//! The `Runtime` and `Context` are created once and live forever, which is what keeps the
+//! second phase to about 2ms — small enough that re-rendering everything on every tick is
+//! affordable (ADR 0007). The transform is under a millisecond and happens only in the
+//! first phase. Rasterization still dominates both, by roughly an order of magnitude.
 //!
 //! `_jsx` is registered from Rust as a global. It takes `(tag, props, ...children)` and
 //! returns `{ type, ...props, children }` — a plain object, no intermediate
@@ -431,6 +431,12 @@ impl JsxEvaluator {
                     qjs_ctx.globals().set("ctx", js_ctx)?;
                 }
 
+                // Installed once, before the layout file can run: the collector and
+                // the hook dispatcher are the only JavaScript tauler adds to a
+                // reconciler runtime, and both are needed before the first Sweep.
+                qjs_ctx.eval::<(), _>(collect_units_source())?;
+                qjs_ctx.eval::<(), _>(dispatch_hook_source())?;
+
                 let js_source = optative_script::jsx::transform_source(source, "layout.jsx");
                 let module = rquickjs::Module::declare(qjs_ctx.clone(), "layout.jsx", js_source)?;
                 let (module, promise) = module.eval()?;
@@ -609,8 +615,6 @@ impl JsxEvaluator {
                 rquickjs::Error::Exception
             })?;
 
-            qjs_ctx.eval::<(), _>(collect_units_source())?;
-            qjs_ctx.eval::<(), _>(dispatch_hook_source())?;
             let collect: Function = qjs_ctx.globals().get("__tauler_collect_units")?;
             let batches: rquickjs::Value = collect.call((tree,))?;
             let json = qjs_ctx
@@ -738,28 +742,32 @@ mod tests {
 
     /// A layout file can declare a Unit and render an Item of it. `unit()` is a
     /// global here rather than an import, like every other name a layout file gets
-    /// — see ADR 0033 for what a Unit is.
+    /// `unit()` works in a layout file, and its Items do not reach the layout
+    /// tree: an Item is a statement about the world, not about the bar, and the
+    /// reconciler reads it from its own evaluation (ADR 0034). Leaving it in was
+    /// worse than useless — `layout::first_child` takes a panel's first child as
+    /// its whole content, so a Unit written above the UI would swallow it.
     #[test]
-    fn a_layout_file_can_declare_a_unit_and_render_an_item() {
+    fn a_layout_file_can_declare_a_unit_and_the_item_does_not_render() {
         let result = eval(
             r#"
             const Light = unit({
               key: (i) => i.entity,
               value: (i) => i.state,
               reconciler: optativeSet({ observe: () => [] }),
-              enter: (i) => `on ${i.entity}`,
+              enterOne: (i) => `on ${i.entity}`,
             });
             export default function render() {
-              return <root><Light entity="light.desk" state="on" /></root>;
+              return <root><Light entity="light.desk" state="on" /><div>bar</div></root>;
             }"#,
         )
         .layout;
-        let item = &result["children"][0];
         assert_eq!(
-            item["entity"], "light.desk",
-            "an Item's props must reach the tree: got {result}"
+            result["children"].as_array().map(Vec::len),
+            Some(1),
+            "only the div survives: {result}"
         );
-        assert_eq!(item["state"], "on");
+        assert_eq!(result["children"][0]["type"], "div");
     }
 
     /// The other half of ADR 0034: evaluating a layout file must not be able to

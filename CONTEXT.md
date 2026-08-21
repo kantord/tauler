@@ -307,6 +307,8 @@ A kind of reconcilable thing: what identifies one, what value decides whether it
 changed, how to observe the world for it, and what to do when one appears, changes or goes
 away. Declared by a `unit()` call, which returns a component — so a Unit is never a node,
 only its Items are. See ADR 0033.
+A Surface is reconciled by the same machinery; what makes a Unit its own term is that its
+hooks are the layout file's own JavaScript, and so may take as long as they like.
 _Avoid_: resource (that is a subprocess argument), target (that is a Render target), kind
 (that is a Component kind), type
 _Elsewhere_: custom resource definition (Kubernetes), provider resource (Terraform)
@@ -330,11 +332,10 @@ so it is never a **Pass** and never a **Tick** — neither of those may wait for
 _Avoid_: pass, tick, cycle, loop, run
 
 **Refresh interval**:
-How long a Unit waits before its next Sweep when the previous one made no progress. A Sweep
-that did make progress is followed immediately by the next, because that is the moment the
-world has just changed. A failed hook counts as no progress.
-_Avoid_: poll interval, retry delay, backoff (it is the gap between Sweeps, not a response
-to failure)
+How often a Unit sweeps. Independent of what the last Sweep did: it is the gap between
+Sweeps, not a response to what one found. It is also the Unit's blast radius, since a Unit
+that can never converge retries exactly this often. See ADR 0035.
+_Avoid_: poll interval, retry delay, backoff (it is not a response to failure)
 
 ### Measurement
 

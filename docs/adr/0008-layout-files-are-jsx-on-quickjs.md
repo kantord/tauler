@@ -18,8 +18,9 @@ boxes; JSX is the least ceremonious tree syntax with editor support already ever
 ## Why QuickJS
 
 It embeds as a vendored C library through `rquickjs-sys` — no system dependency to install,
-no runtime to ship alongside the binary. A layout evaluation costs 100–200μs, which is
-noise against rasterization. The cost is a C compiler at build time.
+no runtime to ship alongside the binary. A layout evaluation costs about 2ms, still small
+against rasterization ([0007](0007-every-tick-re-renders-everything.md) carries the
+measurement). The cost is a C compiler at build time.
 
 ## Why the sandbox is deny-by-default
 

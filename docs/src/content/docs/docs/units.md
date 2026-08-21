@@ -12,8 +12,8 @@ const Light = unit({
   key: (light) => light.entity,
   value: (light) => light.state,
   reconciler: optativeSet({ observe: () => currentLights() }),
-  enter: (lights) => turnOn(lights),
-  update: (lights) => turnOn(lights),
+  enterOne: (light) => turnOn(light),
+  updateOne: (light) => turnOn(light),
 })
 
 export default function render() {
@@ -42,9 +42,34 @@ Item needs an `update`. Return whatever comparison you want — a string, a numb
 declare them. This is the only thing tauler believes. A hook that says it succeeded proves
 nothing; the next `observe` does.
 
-The hooks — `enter`, `update`, `exit` — act. Each takes an **array**, not a single Item, so
-a Unit that talks to an API can make one request for ten lights instead of ten requests. A
-hook you do not define is a transition you are not managing, which is fine and costs nothing.
+The hooks act. Each comes in two spellings and you pick one:
+
+| batch | per Item |
+| --- | --- |
+| `enter(items)` | `enterOne(item)` |
+| `update(pairs)` | `updateOne(item, old)` |
+| `exit(items)` | `exitOne(item)` |
+
+The batch form is handed **all** the Items that need that transition, so a Unit that talks
+to an API can make one request for ten lights instead of ten requests. Items arrive in the
+order the layout declared them. `update`'s batch form gets `{item, old}` pairs, so you can
+see what the world had before:
+
+```jsx
+update: (pairs) => pairs.forEach(({ item, old }) => fade(old.state, item.state)),
+```
+
+A hook you define neither spelling of is a transition you are not managing, which is fine
+and costs nothing.
+
+:::caution
+Defining both `enter` and `enterOne` is an error. So is writing a per-Item hook under the
+batch name — `enter: (light) => …` gets an array, and you'll be told so:
+
+```
+TypeError: `enter` receives an array of Items, not one Item. Did you mean `enterOne`?
+```
+:::
 
 ## What a Sweep does
 
@@ -60,9 +85,8 @@ hooks the comparison asks for.
 Sweeps run on their own thread, off the render loop. A hook that takes forty seconds makes
 its Unit converge late; it never drops a frame.
 
-After a Sweep that changed something, the next one runs immediately — the observation it
-worked from describes a world that no longer exists. After a Sweep that changed nothing,
-it waits:
+A Unit sweeps on a fixed interval. What the last Sweep did makes no difference to when the
+next one runs:
 
 ```jsx
 const Light = unit({
@@ -72,8 +96,10 @@ const Light = unit({
 ```
 
 That interval is how quickly a change made outside tauler — someone hitting the physical
-switch — gets undone. Short enough to feel immediate, long enough not to hammer whatever
-`observe` talks to.
+switch — gets undone. It is also your blast radius: a Unit that can never converge, because
+its hook is failing or because it declares `state: true` where the world says `"on"`,
+retries exactly this often and no faster. Short enough to feel immediate, long enough not
+to hammer whatever `observe` talks to.
 
 :::caution
 `observe` should report only the Items this Unit manages. An `observe` that lists every
@@ -142,16 +168,14 @@ const Light = unit({
 
   // A light that Home Assistant has never heard of and one whose state is wrong
   // need the same call, so both hooks are the same call.
-  enter: (lights) => apply(lights),
-  update: (lights) => apply(lights),
+  enterOne: (light) => apply(light),
+  updateOne: (light) => apply(light),
 })
 
-function apply(lights) {
-  for (const light of lights) {
-    hass(`/api/services/light/turn_${light.state === 'on' ? 'on' : 'off'}`, {
-      entity_id: light.entity,
-    })
-  }
+function apply(light) {
+  hass(`/api/services/light/turn_${light.state === 'on' ? 'on' : 'off'}`, {
+    entity_id: light.entity,
+  })
 }
 ```
 
@@ -169,6 +193,53 @@ as an Item nobody declared.
 
 Note there is no `exit`. Dropping `<Light>` from the layout means tauler stops managing that
 light, not that it turns it off. If you want it off, declare it off.
+
+## Driving a Unit from the bar
+
+A Unit reads the same `globals` your layout does, so a button can change what a Unit
+declares:
+
+```jsx
+<root>
+  <Light entity="light.desk" state={globals.desk ? 'on' : 'off'} />
+  <panel id="bar" anchor="top" width={1920} height={32}>
+    <button on_click={() => { globals.desk = !globals.desk }}>desk</button>
+  </panel>
+</root>
+```
+
+The click updates `globals`; the next Sweep sees the new declaration and acts.
+
+`globals` is **read-only inside a hook**. The bar owns it; a hook that assigns to it throws.
+If a hook needs to record something, the thing to record it in is the world — and `observe`
+is what reads it back.
+
+## Where to put a Unit
+
+Anywhere in the tree. An Item draws nothing, so declaring one next to the UI it drives is
+the natural thing:
+
+```jsx
+function DeskLight({ on }) {
+  return (
+    <>
+      <Light entity="light.desk" state={on ? 'on' : 'off'} />
+      <button on_click={toggle}>desk</button>
+    </>
+  )
+}
+```
+
+## When it isn't working
+
+Sweeps log at debug level:
+
+```bash
+RUST_LOG=tauler::units=debug tauler
+```
+
+That gives you one line per Sweep with what entered, updated and exited, plus the exception
+from any hook that threw.
 
 ## What survives a restart
 

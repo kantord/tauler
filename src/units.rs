@@ -556,6 +556,7 @@ mod tests {
             }"#,
             serde_json::Value::Null,
             None,
+            Default::default(),
         )
         .unwrap();
 
@@ -598,6 +599,7 @@ mod tests {
             }"#,
             serde_json::Value::Null,
             None,
+            Default::default(),
         )
         .unwrap();
 
@@ -708,6 +710,7 @@ mod tests {
             }"#,
             serde_json::Value::Null,
             None,
+            Default::default(),
         )
         .unwrap();
 
@@ -813,6 +816,7 @@ mod tests {
             }"#,
             serde_json::Value::Null,
             None,
+            Default::default(),
         )
         .unwrap();
 
@@ -826,7 +830,7 @@ mod tests {
         );
     }
 
-    /// The whole loop in one turn: observe the world, diff it against what the
+    /// A whole Sweep in one turn: observe the world, diff it against what the
     /// layout declared, call the hooks the diff asks for. `light.hall` exists but
     /// holds the wrong value, `light.desk` does not exist yet, and `light.attic`
     /// exists but nobody declared it — one Item for each of the three hooks.
@@ -992,6 +996,7 @@ mod tests {
             serde_json::Value::Null,
             None,
             Arc::new(RwLock::new(HashMap::new())),
+            Default::default(),
         );
         std::thread::sleep(std::time::Duration::from_millis(900));
         drop(reconciler);
@@ -1040,6 +1045,96 @@ mod tests {
         );
         crate::parse_layout(&surfaces[0].content)
             .expect("a panel holding an Item must still lay out");
+    }
+
+    /// The thing everyone will write first: a bar button that flips a Unit's
+    /// declared state. The click runs in the render runtime and mutates its
+    /// `globals`; unless the reconciler runtime reads the same store, the Unit
+    /// never notices and the light never moves.
+    #[test]
+    fn the_reconciler_reads_the_bars_globals() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = dir.path().join("state.json");
+        let log = dir.path().join("log");
+        std::fs::write(&state, r#"[{"entity":"light.desk","state":"off"}]"#).unwrap();
+        let source = format!(
+            r#"
+            const Light = unit({{
+              key: (i) => i.entity,
+              value: (i) => i.state,
+              reconciler: optativeSet({{ observe: () => JSON.parse(sh`cat {}`) }}),
+              updateOne: (i) => sh`printf '%s\n' ${{i.state}} >> {}`,
+            }});
+            export default function render() {{
+              return (
+                <root>
+                  <Light entity="light.desk" state={{globals.desk ? "on" : "off"}} />
+                </root>
+              );
+            }}"#,
+            state.to_str().unwrap(),
+            log.to_str().unwrap()
+        );
+
+        let bar = JsxEvaluator::new(&source, serde_json::Value::Null, None).unwrap();
+        let reconciler = JsxEvaluator::new_reconciler(
+            &source,
+            serde_json::Value::Null,
+            None,
+            bar.globals_handle(),
+        )
+        .unwrap();
+
+        // Nothing asked for yet: the world is off and so is the declaration.
+        assert!(!crate::units::sweep(&reconciler, &HashMap::new()).made_progress());
+
+        // The bar flips it, exactly as an `on_click` would.
+        bar.globals_handle()
+            .lock()
+            .unwrap()
+            .insert("desk".into(), serde_json::json!(true));
+
+        let report = crate::units::sweep(&reconciler, &HashMap::new());
+
+        assert_eq!(report.updated, 1, "the Unit must see the bar's globals");
+        assert_eq!(std::fs::read_to_string(&log).unwrap(), "on\n");
+    }
+
+    /// The bar owns `globals`. A hook that assigns to one is trying to report,
+    /// and hooks do not report — the next `observe` is what says whether
+    /// anything happened (ADR 0035).
+    #[test]
+    fn a_hook_may_not_write_to_globals() {
+        let dir = tempfile::tempdir().unwrap();
+        let log = dir.path().join("log");
+        let source = format!(
+            r#"
+            const Light = unit({{
+              key: (i) => i.entity,
+              value: (i) => i.state,
+              reconciler: optativeSet({{ observe: () => [] }}),
+              enterOne: (i) => {{
+                globals.tried = true;
+                sh`printf x >> {}`;
+              }},
+            }});
+            export default function render() {{
+              return <root><Light entity="light.desk" state="on" /></root>;
+            }}"#,
+            log.to_str().unwrap()
+        );
+        let evaluator = JsxEvaluator::new_reconciler(
+            &source,
+            serde_json::Value::Null,
+            None,
+            Default::default(),
+        )
+        .unwrap();
+
+        let report = crate::units::sweep(&evaluator, &HashMap::new());
+
+        assert_eq!(report.entered, 0, "the assignment threw");
+        assert!(!log.exists(), "and the hook got no further");
     }
 
     /// A Unit is declared next to the panels, and the render side has to ignore
@@ -1094,6 +1189,7 @@ mod tests {
             serde_json::Value::Null,
             None,
             Arc::new(RwLock::new(HashMap::new())),
+            Default::default(),
         );
 
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);

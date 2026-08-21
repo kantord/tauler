@@ -9,11 +9,29 @@ hooks. Nothing about a Unit crosses between the runtimes.
 `sh`, `read`, `ls` and every other builtin that touches the world are registered only in the
 reconciler runtime. In the render runtime they do not exist.
 
+Each runtime walks the same tree shape and keeps only the half it is responsible for. The
+render side strips every Item before the layout is parsed; the reconciler side ignores every
+panel, button and span. Neither half is privileged, and nothing about a Unit crosses between
+them.
+
+What does cross, one way only, is the data the layout is evaluated against: the render loop's
+Stream values and its `globals`. `globals` is read-only on the reconciler side — a hook that
+assigns to one is trying to report, and hooks do not report
+([0035](0035-observation-is-the-truth-channel.md)).
+
 ## Why
 
-`rquickjs::Ctx` is not `Send`. A hook cannot be both arbitrary JavaScript from the layout
-file and run somewhere other than the runtime that parsed it. Something had to give, and
-there were two candidates.
+The reason is an execution budget, not a difference in kind. tauler already reconciles: five
+`Lifecycle` impls drive `OptativeSet`s for Surfaces, watched paths, built-in sources and
+traces, and a Unit's Items are the sixth. What separates them is that `Surface::enter` is
+bounded Rust that sends a command, and `Light.enter` is the user's JavaScript shelling out
+for as long as it likes. Arbitrary code with I/O cannot sit on the thing that has a frame
+budget; everything else about the two is the same machinery.
+
+Given that it must run elsewhere, `rquickjs::Ctx` is not `Send`, so "elsewhere" means its
+own runtime. A hook cannot be both arbitrary JavaScript from the layout file and run
+somewhere other than the runtime that parsed it. Something had to give, and there were two
+candidates.
 
 **Hooks as command descriptions.** Evaluation stays pure, hooks return strings, Rust runs
 them on a worker. It keeps one runtime — and it cannot host `observe`. `meta.op`'s observe
@@ -62,15 +80,26 @@ case, not a bug — the next Sweep sees the newer one.
 **Props still have to survive JSON**, because a batch is serialised into the hook call. A
 prop holding a closure reaches neither side.
 
+**A thread, not a process — for now.** A process would give crash isolation, a stuck hook
+that can be killed, and one binary serving both `--dry-run` and production. A thread gives
+none of those, and gives `globals` and Stream values for free as an `Arc` rather than as a
+protocol. The thread satisfies the actual constraint — get slow JavaScript off the frame loop
+— and the process buys robustness no failure has yet demanded. A hook that takes the bar
+down, or an `sh` timeout that proves insufficient, is what should change this.
+
 **One thread for now, so Units sweep serially.** A 40-second hook delays every other Unit's
 Sweep behind it. The bar does not stall — the render loop never waits on the reconciler
 thread — so the symptom is "converged late", not "frozen". Going to a thread per Unit is
 invisible from JavaScript, so it waits for evidence rather than for a guess; the cost when
 it comes is a runtime and a set of top-level side effects per Unit.
 
-**A hook holds its Unit until it returns.** There is no grace period and no timeout, because
-a hook that takes 40 seconds is legitimate. A hook that never returns stops its Unit
-permanently, and nothing detects that.
+**A hook holds its Unit until it returns.** There is no cancellation, because a hook that
+takes 40 seconds is legitimate — and because a stuck hook is blocked in a subprocess inside
+Rust, not in the interpreter, so `rquickjs`'s interrupt handler never gets a turn. What
+exists instead is a watchdog thread that says so, repeatedly, once a Sweep has been running
+for a minute. It fixes nothing; it turns "nothing converges and nobody knows why" into a log
+line. The realistic cause is a subprocess with no deadline, which is `sh`'s problem to solve
+and lives upstream.
 
 ## What this means on the web
 

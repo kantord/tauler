@@ -61,11 +61,30 @@ layout file. That is the whole extension point, and it is the same bargain taule
 offers for data: a Stream is any program that prints lines, and a Unit is any four functions
 that agree on a key.
 
-**Batch is the primitive; per-item is sugar.** A hook is handed the whole array of Items it
-should act on and may act on some of them; the rest are offered again on the next Sweep.
-A `unit()` that defines a per-item hook is wrapped automatically, so every existing
-`.op.tsx` keeps working. This is a change to `optative`, not to tauler — until it lands,
-tauler simulates it by looping, which is wasteful and invisible from JS.
+**Batch is the primitive; per-item is sugar, and the name says which.** A hook is handed the
+whole array of Items it should act on and may act on some of them; the rest are offered
+again on the next Sweep. `enter`, `update` and `exit` take arrays; `enterOne`, `updateOne`
+and `exitOne` take one Item each. Defining both spellings of the same hook is an error.
+
+An earlier draft of this ADR promised the two would be told apart automatically, so an
+`esto` script would keep working unchanged. They cannot be: `enter: (p) => …` and
+`enter: (ps) => …` have the same arity, the same `name`, and the same type, and
+destructuring lies in both directions (`({path}) => …` and `([first, ...rest]) => …` are
+both length 1). Everything reflection can see is identical, and the failure is silent — a
+per-Item hook handed an array reads `undefined` off it and runs a command with a missing
+argument. So the array a batch hook receives is wrapped in a `Proxy` that throws on any
+property an array does not have, naming the sugar: *did you mean `enterOne`?* An `esto`
+Unit becomes a tauler Unit by renaming three keys, and `updateOne(item, old)` is `esto`'s
+`update(new, old)` exactly.
+
+Batch `update` takes `{item, old}` pairs rather than bare Items, because dropping the
+previous Item would make tauler's `update` strictly weaker than `esto`'s. Pairs rather than
+two aligned arrays, so nothing depends on two lists staying the same length.
+
+Batches arrive in the order the layout declared them. `optative` diffs through a `HashMap`,
+so without carrying each Item's position a batch would arrive in hash order — arbitrary,
+different run to run, and enough to make any hook whose output depends on order
+nondeterministic.
 
 Batching is also how a reconciler rate-limits itself: a hook given ten Items that does three
 *is* the rate limit. No decorator, no shared pool, no context to thread.
