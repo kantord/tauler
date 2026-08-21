@@ -1322,4 +1322,50 @@ mod tests {
             </root>
           );
         }"#;
+
+    /// The authoring layer ADR 0033 promises: a component that reads its children
+    /// and fills in the prop they have in common. `<Workspace num={1}>` is not a
+    /// tauler feature and not a second authoring system — it is a function that
+    /// returns Items, the same way `<I3Layout>` is a function that returns Panels.
+    #[test]
+    fn a_component_can_group_items_and_fill_in_their_props() {
+        let evaluator = JsxEvaluator::new_reconciler(
+            r#"
+            const Managed = unit({
+              key: (a) => a.class,
+              value: (a) => a.workspace,
+              reconciler: optativeSet({ observe: () => [] }),
+            });
+            const App = (p) => p;
+            const Workspace = ({ num, children }) =>
+              [children].flat().map((c) => <Managed class={c.class} workspace={num} />);
+            export default function render() {
+              return (
+                <root>
+                  <Workspace num={1}>
+                    <App class="Chromium" />
+                    <App class="Slack" />
+                  </Workspace>
+                  <Workspace num={10}><App class="Spotify" /></Workspace>
+                </root>
+              );
+            }"#,
+            serde_json::Value::Null,
+            None,
+            Default::default(),
+        )
+        .unwrap();
+        let batches = evaluator.eval_units(&HashMap::new()).unwrap();
+
+        assert_eq!(batches.len(), 1, "one Unit, however the layout groups it");
+        assert_eq!(
+            batches[0].items,
+            vec![
+                serde_json::json!({ "class": "Chromium", "workspace": 1 }),
+                serde_json::json!({ "class": "Slack", "workspace": 1 }),
+                serde_json::json!({ "class": "Spotify", "workspace": 10 }),
+            ],
+            "each child inherits its Workspace's number"
+        );
+    }
 }
