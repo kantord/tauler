@@ -3,32 +3,34 @@ title: Units
 description: Declaring things outside the bar — lights, themes, modes — and letting tauler make the world match.
 ---
 
-A layout file usually describes a bar. A **Unit** lets it describe something else: a light
-that should be on, a theme a program should be using, a mode a machine should be in. You
-say what should be true; tauler keeps looking at the world and does what it takes.
+A layout file usually describes a bar. A **Unit** lets it describe something else: which
+workspace an app belongs on, a theme a program should be using, a light that should be on.
+You say what should be true; tauler keeps looking at the world and does what it takes.
 
 ```jsx
-const Light = unit({
-  key: (light) => light.entity,
-  value: (light) => light.state,
-  reconciler: optativeSet({ observe: () => currentLights() }),
-  enterOne: (light) => turnOn(light),
-  updateOne: (light) => turnOn(light),
+const WindowPlacement = unit({
+  key: (a) => a.class,
+  value: (a) => a.workspaces,
+  reconciler: optativeSet({ observe: () => currentPlacement() }),
+  updateOne: (a) => moveToWorkspace(a.class, a.workspace),
 })
 
 export default function render() {
   return (
     <root>
-      <Light entity="light.desk" state="on" />
+      <WindowPlacement class="Chromium" workspace={1} />
       <panel id="bar" anchor="top" width={1920} height={32}>…</panel>
     </root>
   )
 }
 ```
 
-`unit()` returns a component. Using it — `<Light entity="light.desk" state="on" />` — declares
-one **Item**: one thing that should exist, with one desired value. Items sit under `<root>`
-alongside the panels and draw nothing.
+Chromium now lives on workspace 1. Drag it somewhere else and it comes back; open it after
+a reboot and it lands where you said.
+
+`unit()` returns a component. Using it — `<WindowPlacement class="Chromium" workspace={1} />`
+— declares one **Item**: one thing that should be true, with one desired value. Items draw
+nothing.
 
 ## The four parts
 
@@ -89,21 +91,22 @@ A Unit sweeps on a fixed interval. What the last Sweep did makes no difference t
 next one runs:
 
 ```jsx
-const Light = unit({
+const WindowPlacement = unit({
   refreshInterval: 5000, // ms; 5000 is also the default
   …
 })
 ```
 
-That interval is how quickly a change made outside tauler — someone hitting the physical
-switch — gets undone. It is also your blast radius: a Unit that can never converge, because
-its hook is failing or because it declares `state: true` where the world says `"on"`,
-retries exactly this often and no faster. Short enough to feel immediate, long enough not
-to hammer whatever `observe` talks to.
+That interval is how quickly a change made outside tauler — you dragging the window
+somewhere else — gets undone. It is also your blast radius: a Unit that can never converge,
+because its hook is failing or because it declares `state: true` where the world says
+`"on"`, retries exactly this often and no faster. Short enough to feel immediate, long
+enough not to hammer whatever `observe` talks to.
 
 :::caution
-`observe` should report only the Items this Unit manages. An `observe` that lists every
-light in the house will hand `exit` every light you did not declare.
+`observe` should report only the Items this Unit manages — or define no hook for the
+transitions you do not want. An `observe` that lists every window on the machine will hand
+`exit` every one you did not declare, and a Unit with no `exit` quietly ignores them.
 :::
 
 ## Hooks run somewhere else
@@ -125,12 +128,98 @@ at module top level runs once in each. Keep the expensive things inside hooks.
 
 Units are a native-only feature. Nothing on this page applies to a browser-hosted layout.
 
-## Worked example: a Home Assistant light
+## Worked example: apps on the right workspace
+
+i3 can tell you where every window is and can move them, so a Unit that keeps apps on the
+workspaces you want is a shell command each way.
+
+```jsx
+const WindowPlacement = unit({
+  refreshInterval: 5000,
+
+  key: (a) => a.class,
+  // A class can hold several windows, so what matters is the set of workspaces it
+  // occupies — declaring one number means "all of them, there".
+  value: (a) =>
+    [...new Set(a.workspaces ?? [a.workspace])].map(Number).sort((x, y) => x - y),
+
+  reconciler: optativeSet({
+    observe: () =>
+      JSON.parse(sh`timeout 5 i3-msg -t get_tree | jq -c '
+        [ recurse(.nodes[]?)
+          | select(.type=="workspace") as $ws
+          | [ $ws
+              | recurse(.nodes[]?, .floating_nodes[]?)
+              | select(.window_properties != null)
+              | { class: .window_properties.class, num: $ws.num } ]
+          | .[] ]
+        | group_by(.class)
+        | map({ class: .[0].class, workspaces: (map(.num) | unique) })
+        | map(select(.class != null))'`),
+  }),
+
+  updateOne: (a) =>
+    sh`timeout 5 i3-msg '[class="^${a.class}$"] move --no-auto-back-and-forth to workspace number ${a.workspace}' >/dev/null`,
+})
+```
+
+Three things in there are worth pulling out, because each is a general lesson.
+
+**`value` is a set, not a number.** Five Chromium windows share one class, so one key covers
+all of them. If two are on different workspaces, `value` is `[1, 3]`, that differs from the
+declared `[1]`, and one `move` consolidates them. Comparing a single workspace number would
+have compared an arbitrary one of the five.
+
+**There is no `enterOne`.** An app that is not running is declared but not observed, which is
+an `enter` — and a Unit that defines no `enter` is a Unit that does not manage that
+transition. Without this, quitting Spotify would make tauler relaunch it five seconds later.
+A missing hook is a design decision you can make.
+
+**`timeout 5` on both commands.** i3's IPC can fail to answer, and a hook that never returns
+holds the reconciler thread for the life of the process. Put a deadline on anything that
+talks to something else.
+
+### A nicer way to say it
+
+`unit()` returns a component, so the readable spelling is a component too — and it needs
+nothing from tauler:
+
+```jsx
+const App = (p) => p
+const Workspace = ({ num, children }) =>
+  children.map((app) => <WindowPlacement class={app.class} workspace={num} />)
+```
+
+Which buys you:
+
+```jsx
+<root>
+  <Workspace num={1}>
+    <App class="Chromium" />
+    <App class="Slack" />
+  </Workspace>
+
+  <Workspace num={10}>
+    <App class="Spotify" />
+  </Workspace>
+</root>
+```
+
+`<App>` never becomes an Item — it is an inert `{class: "Chromium"}` that `Workspace` reads
+and discards. `Workspace` builds the real Item one line later, copying its own `num` onto
+each. There is no prop inheritance and no context; the parent constructs the child
+explicitly, which is why this is two ordinary functions rather than a feature.
+
+It also stays **one** Unit. Grouping is a spelling, not a scope, so a batch hook still gets
+every Item at once however the layout arranged them.
+
+## A Unit that talks to a network service
 
 Home Assistant's REST API is two calls — `GET /api/states` to see, `POST
-/api/services/light/turn_on` to act — so a Unit for it is short.
+/api/services/light/turn_on` to act — so a Unit for a light is short. What it adds to the
+example above is a secret.
 
-First, keep the token out of the process table. Anything passed as an argument is visible
+Keep the token out of the process table. Anything passed as an argument is visible
 to every process on the machine and lands in shell history and logs; a curl config file is
 not:
 

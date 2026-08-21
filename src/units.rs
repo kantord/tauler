@@ -1210,6 +1210,84 @@ mod tests {
         );
     }
 
+    /// The workspace Unit from `docs/src/content/docs/docs/units.md`, with only
+    /// its two shell commands swapped for a file read and a log write. The parts
+    /// a reader can get wrong are under test: `value` as a *set* of workspaces
+    /// rather than one number, and an app that is not running staying untouched
+    /// because the Unit defines no `enter`.
+    #[test]
+    fn the_workspace_example_from_the_docs_works() {
+        let dir = tempfile::tempdir().unwrap();
+        let tree = dir.path().join("tree.json");
+        let moves = dir.path().join("moves");
+        // Chromium is split across two workspaces; Slack is where it belongs;
+        // Spotify is not running; Telegram is running but undeclared.
+        std::fs::write(
+            &tree,
+            r#"[{"class":"Chromium","workspaces":[1,3]},
+                {"class":"Slack","workspaces":[1]},
+                {"class":"TelegramDesktop","workspaces":[10]}]"#,
+        )
+        .unwrap();
+
+        let source = WORKSPACE_LAYOUT
+            .replace("__TREE__", tree.to_str().unwrap())
+            .replace("__MOVES__", moves.to_str().unwrap());
+        let evaluator = JsxEvaluator::new_reconciler(
+            &source,
+            serde_json::Value::Null,
+            None,
+            Default::default(),
+        )
+        .unwrap();
+
+        let report = crate::units::sweep(&evaluator, &HashMap::new());
+
+        assert_eq!(report.updated, 1, "only Chromium is misplaced: {report:?}");
+        assert_eq!(
+            report.entered, 0,
+            "Spotify is not running and not our business"
+        );
+        assert_eq!(
+            report.exited, 0,
+            "Telegram is undeclared and there is no exit hook"
+        );
+        assert_eq!(std::fs::read_to_string(&moves).unwrap(), "Chromium 1\n");
+    }
+
+    /// The docs' workspace Unit, with `observe` reading a file and `updateOne`
+    /// writing one instead of talking to i3.
+    const WORKSPACE_LAYOUT: &str = r#"
+        const WindowPlacement = unit({
+          refreshInterval: 5000,
+
+          key: (a) => a.class,
+          value: (a) =>
+            [...new Set(a.workspaces ?? [a.workspace])].map(Number).sort((x, y) => x - y),
+
+          reconciler: optativeSet({ observe: () => JSON.parse(sh`cat __TREE__`) }),
+
+          updateOne: (a) => sh`printf '%s %s\n' ${a.class} ${a.workspace} >> __MOVES__`,
+        });
+
+        const App = (p) => p;
+        const Workspace = ({ num, children }) =>
+          children.map((app) => <WindowPlacement class={app.class} workspace={num} />);
+
+        export default function render() {
+          return (
+            <root>
+              <Workspace num={1}>
+                <App class="Chromium" />
+                <App class="Slack" />
+              </Workspace>
+              <Workspace num={10}>
+                <App class="Spotify" />
+              </Workspace>
+            </root>
+          );
+        }"#;
+
     /// The Home Assistant Unit from `docs/src/content/docs/docs/units.md`, with
     /// only its `hass` helper swapped for one that reads and writes files. The
     /// parts a reader can get wrong — filtering `observe` down to the entities
@@ -1338,7 +1416,7 @@ mod tests {
             });
             const App = (p) => p;
             const Workspace = ({ num, children }) =>
-              [children].flat().map((c) => <Managed class={c.class} workspace={num} />);
+              children.map((c) => <Managed class={c.class} workspace={num} />);
             export default function render() {
               return (
                 <root>
