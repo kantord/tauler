@@ -51,13 +51,83 @@ use rquickjs::{CatchResultExt, Persistent};
 
 use std::path::PathBuf;
 
-/// Fold a later module registration's props into the ones already recorded.
+/// The live `unit()` object at `unit_index` in this runtime's `__tauler_units`.
 ///
-/// Additive: a key already declared is kept, so a later registration can only
-/// fill in what an earlier one left out. That ordering matters because children
-/// are evaluated before their parent — a wrapper that derives props from its
-/// children (layout geometry, say) can only register after them, and must not be
-/// able to clobber what the author wrote by hand.
+/// Every Unit lookup goes through here so there is one place that knows where the
+/// array lives and what an out-of-range index means (nothing to do).
+fn unit_at<'js>(qjs_ctx: &rquickjs::Ctx<'js>, unit_index: usize) -> Option<rquickjs::Object<'js>> {
+    let units: rquickjs::Array<'js> = qjs_ctx.globals().get("__tauler_units").ok()?;
+    units.get(unit_index).ok()
+}
+
+/// A JS value as plain JSON, or `None` if it does not survive the trip
+/// (`undefined`, a bare function, a cycle).
+fn json_of<'js>(
+    qjs_ctx: &rquickjs::Ctx<'js>,
+    value: rquickjs::Value<'js>,
+) -> Option<serde_json::Value> {
+    let json = qjs_ctx.json_stringify(value).ok()??.to_string().ok()?;
+    serde_json::from_str(&json).ok()
+}
+
+/// Dispatches a lifecycle hook, picking the batch spelling or the per-Item sugar
+/// by whichever one the Unit defined.
+///
+/// The array handed to a batch hook is wrapped in a `Proxy` that throws on any
+/// property an array does not have. Without it, a hook written per-Item and handed
+/// a batch reads `undefined` off an `Array` and runs a command with a missing
+/// argument — no throw, no warning, wrong result. With it, the mistake names its
+/// own fix.
+fn dispatch_hook_source() -> &'static str {
+    r#"
+    globalThis.__tauler_one_item_guard = (arr, hook, one) =>
+      new Proxy(arr, {
+        get(target, prop) {
+          if (typeof prop === "symbol" || prop in target) return Reflect.get(target, prop);
+          throw new TypeError(
+            "`" + hook + "` receives an array of Items, not one Item. " +
+            "Did you mean `" + one + "`?"
+          );
+        },
+      });
+
+    globalThis.__tauler_readonly = (obj, name) =>
+      new Proxy(obj, {
+        set(_t, prop) {
+          throw new TypeError(
+            "`" + name + "." + String(prop) + "` is read-only here: the bar owns " +
+            name + ", a Unit's hooks only read it"
+          );
+        },
+        deleteProperty(_t, prop) {
+          throw new TypeError("`" + name + "." + String(prop) + "` is read-only here");
+        },
+      });
+
+    globalThis.__tauler_dispatch_hook = (unitIndex, hook, one, payload) => {
+      const unit = globalThis.__tauler_units[unitIndex];
+      if (!unit) return 0;
+      const batchFn = unit[hook];
+      const oneFn = unit[one];
+      if (batchFn && oneFn) {
+        throw new TypeError(
+          "a unit() may define `" + hook + "` or `" + one + "`, not both"
+        );
+      }
+      if (oneFn) {
+        for (const entry of payload) {
+          if (hook === "update") oneFn(entry.item, entry.old);
+          else oneFn(entry);
+        }
+        return payload.length;
+      }
+      if (!batchFn) return 0;
+      batchFn(globalThis.__tauler_one_item_guard(payload, hook, one));
+      return payload.length;
+    };
+    "#
+}
+
 /// Groups the Items in an evaluated tree by the Unit object that declared them,
 /// parking those objects in `__tauler_units` for later hook calls. Unit identity
 /// is the object itself — two `<Light/>` elements share one because `unit()` ran
@@ -95,6 +165,13 @@ fn collect_units_source() -> String {
     )
 }
 
+/// Fold a later module registration's props into the ones already recorded.
+///
+/// Additive: a key already declared is kept, so a later registration can only
+/// fill in what an earlier one left out. That ordering matters because children
+/// are evaluated before their parent — a wrapper that derives props from its
+/// children (layout geometry, say) can only register after them, and must not be
+/// able to clobber what the author wrote by hand.
 fn merge_missing(existing: &mut serde_json::Value, incoming: serde_json::Value) {
     let (Some(target), serde_json::Value::Object(source)) = (existing.as_object_mut(), incoming)
     else {
@@ -124,13 +201,16 @@ fn warn_handler_once(id: i64, error: &impl std::fmt::Display) {
 
 /// A persistent JSX evaluator that compiles the layout source once and re-evaluates
 /// cheaply on each tick by calling the pre-compiled render function.
+/// The store behind a layout file's `globals`, shareable between the two runtimes.
+pub type SharedGlobals = Arc<Mutex<serde_json::Map<String, serde_json::Value>>>;
+
 pub struct JsxEvaluator {
     context: rquickjs::Context,
     _runtime: rquickjs::Runtime,
     stream_values: StreamValues,
     calls: StreamCalls,
     module_calls: Arc<Mutex<Vec<(String, serde_json::Value)>>>,
-    global_state: Arc<Mutex<serde_json::Map<String, serde_json::Value>>>,
+    global_state: SharedGlobals,
     /// Always `Some` after construction; `None` only transiently during `drop`.
     render_fn: Option<Persistent<Function<'static>>>,
     loaded_paths: Arc<Mutex<Vec<PathBuf>>>,
@@ -201,14 +281,29 @@ impl JsxEvaluator {
         Self::with_effects(source, ctx, base_dir, Effects::Denied)
     }
 
+    /// The `globals` this evaluator reads and writes.
+    ///
+    /// Handed to the reconciler runtime so both evaluations of the layout file
+    /// see the same answer to "what has the user asked for". Without it a bar
+    /// button that flips a Unit's declared state changes only the render side's
+    /// copy, and the Unit never notices — the most obvious thing anyone will
+    /// write, silently broken.
+    pub fn globals_handle(&self) -> SharedGlobals {
+        Arc::clone(&self.global_state)
+    }
+
     /// The reconciler runtime: the same layout file, evaluated off the loop, with
-    /// `sh` and friends registered so a Unit's hooks can run.
+    /// `sh` and friends registered so a Unit's hooks can run, and reading the bar's
+    /// `globals`.
     pub fn new_reconciler(
         source: &str,
         ctx: serde_json::Value,
         base_dir: Option<&Path>,
+        globals: SharedGlobals,
     ) -> rquickjs::Result<Self> {
-        Self::with_effects(source, ctx, base_dir, Effects::Allowed)
+        let mut evaluator = Self::with_effects(source, ctx, base_dir, Effects::Allowed)?;
+        evaluator.global_state = globals;
+        Ok(evaluator)
     }
 
     fn with_effects(
@@ -463,7 +558,7 @@ impl JsxEvaluator {
                 .to_string()?;
             let layout: serde_json::Value =
                 serde_json::from_str(&json_str).map_err(|_| rquickjs::Error::Unknown)?;
-            let layout = flatten_passthrough(layout);
+            let layout = crate::units::strip_items(flatten_passthrough(layout));
             Ok(EvalOutput {
                 layout,
                 stream_calls: self.calls.lock().unwrap().clone(),
@@ -497,7 +592,13 @@ impl JsxEvaluator {
             let globals_val =
                 rquickjs_serde::to_value(qjs_ctx.clone(), &*self.global_state.lock().unwrap())
                     .map_err(|_| rquickjs::Error::Unknown)?;
-            qjs_ctx.globals().set("globals", globals_val)?;
+            qjs_ctx.globals().set("__tauler_globals_raw", globals_val)?;
+            // The bar owns `globals`; the reconciler only reads them. A hook that
+            // assigns to one is trying to report, and hooks do not report — the
+            // next `observe` is what says whether anything happened (ADR 0035).
+            qjs_ctx.eval::<(), _>(
+                "globalThis.globals = __tauler_readonly(__tauler_globals_raw, 'globals');",
+            )?;
 
             let render_fn = self.render_fn.as_ref().unwrap().clone().restore(&qjs_ctx)?;
             let tree: rquickjs::Value = render_fn
@@ -509,6 +610,7 @@ impl JsxEvaluator {
             })?;
 
             qjs_ctx.eval::<(), _>(collect_units_source())?;
+            qjs_ctx.eval::<(), _>(dispatch_hook_source())?;
             let collect: Function = qjs_ctx.globals().get("__tauler_collect_units")?;
             let batches: rquickjs::Value = collect.call((tree,))?;
             let json = qjs_ctx
@@ -519,108 +621,100 @@ impl JsxEvaluator {
         })
     }
 
-    /// Call one of a Unit's hooks with a whole batch of Items.
+    /// Run one of a Unit's lifecycle hooks over a whole batch, returning how many
+    /// Items it actually acted on.
     ///
-    /// `unit_index` comes from an [`eval_units`](Self::eval_units) on this same
-    /// evaluator; the two are only meaningful together, because the index
-    /// addresses that evaluation's `__tauler_units`. A Unit that does not define
-    /// the hook yields `None` — there is nothing to do, which is not a failure.
-    pub fn call_unit_hook(
+    /// `hook` is the batch spelling (`enter`), `one` the per-Item sugar
+    /// (`enterOne`). Which of the two a Unit defines is the Unit's choice and
+    /// cannot be guessed — `(p) => …` and `(ps) => …` are the same JavaScript —
+    /// so the name carries the contract (ADR 0033). Zero means the Unit defines
+    /// neither, which is a transition it is not managing, not a failure.
+    pub fn dispatch_unit_hook(
         &self,
         unit_index: usize,
         hook: &str,
-        items: &[serde_json::Value],
-    ) -> Option<serde_json::Value> {
-        self.call_unit_fn(unit_index, hook, &serde_json::Value::Array(items.to_vec()))
+        one: &str,
+        payload: &serde_json::Value,
+    ) -> usize {
+        self.context.with(|qjs_ctx| {
+            let Ok(dispatch) = qjs_ctx
+                .globals()
+                .get::<_, Function>("__tauler_dispatch_hook")
+            else {
+                return 0;
+            };
+            let Ok(payload) = rquickjs_serde::to_value(qjs_ctx.clone(), payload) else {
+                return 0;
+            };
+            dispatch
+                .call::<_, usize>((unit_index, hook, one, payload))
+                .catch(&qjs_ctx)
+                .map_err(|e| tracing::error!(exception = %e, hook, "Unit hook threw"))
+                .unwrap_or(0)
+        })
     }
 
     /// Call one of a Unit's projections — `key` or `value` — on a single Item.
     ///
-    /// Projections stay per-Item where the batch hooks do not: they name a part
-    /// of the Item rather than act on the world, and `esto` writes them that way
-    /// (`key: (i) => i.entity`). Batching them would buy nothing and break every
-    /// Unit that already exists.
+    /// Projections stay per-Item where the lifecycle hooks do not: they name a
+    /// part of the Item rather than act on the world, and `esto` writes them that
+    /// way (`key: (i) => i.entity`). Batching them would buy nothing and break
+    /// every Unit that already exists.
     pub fn call_unit_projection(
         &self,
         unit_index: usize,
         projection: &str,
         item: &serde_json::Value,
     ) -> Option<serde_json::Value> {
-        self.call_unit_fn(unit_index, projection, item)
-    }
-
-    /// Whether a Unit defines `hook` at all.
-    ///
-    /// Distinguishes "there is nothing to run" from "it ran and returned
-    /// nothing", which [`call_unit_hook`](Self::call_unit_hook) cannot: both come
-    /// back as `None`.
-    pub fn has_unit_hook(&self, unit_index: usize, hook: &str) -> bool {
         self.context.with(|qjs_ctx| {
-            let Ok(units) = qjs_ctx
-                .globals()
-                .get::<_, rquickjs::Array>("__tauler_units")
-            else {
-                return false;
-            };
-            units
-                .get::<rquickjs::Object>(unit_index)
-                .and_then(|unit| unit.get::<_, rquickjs::Value>(hook))
-                .is_ok_and(|v| v.is_function())
+            let f: Function = unit_at(&qjs_ctx, unit_index)?.get(projection).ok()?;
+            let arg = rquickjs_serde::to_value(qjs_ctx.clone(), item).ok()?;
+            let out: rquickjs::Value = f
+                .call((arg,))
+                .catch(&qjs_ctx)
+                .map_err(|e| tracing::error!(exception = %e, projection, "projection threw"))
+                .ok()?;
+            json_of(&qjs_ctx, out)
         })
     }
 
     /// Read a plain property off a Unit — anything that is data rather than a
-    /// hook, like `refreshInterval`.
+    /// function, like `refreshInterval`.
     pub fn unit_property(&self, unit_index: usize, name: &str) -> Option<serde_json::Value> {
         self.context.with(|qjs_ctx| {
-            let units: rquickjs::Array = qjs_ctx.globals().get("__tauler_units").ok()?;
-            let unit: rquickjs::Object = units.get(unit_index).ok()?;
-            let value: rquickjs::Value = unit.get(name).ok()?;
-            let json = qjs_ctx.json_stringify(value).ok()??.to_string().ok()?;
-            serde_json::from_str(&json).ok()
+            let value: rquickjs::Value = unit_at(&qjs_ctx, unit_index)?.get(name).ok()?;
+            json_of(&qjs_ctx, value)
         })
     }
 
-    fn call_unit_fn(
-        &self,
-        unit_index: usize,
-        name: &str,
-        arg: &serde_json::Value,
-    ) -> Option<serde_json::Value> {
+    /// Which backend a Unit's `reconciler` names — `"optativeSet"` or
+    /// `"optativeJsonSet"`.
+    pub fn reconciler_kind(&self, unit_index: usize) -> Option<String> {
         self.context.with(|qjs_ctx| {
-            let units: rquickjs::Array = qjs_ctx.globals().get("__tauler_units").ok()?;
-            let unit: rquickjs::Object = units.get(unit_index).ok()?;
-            let f: Function = unit.get(name).ok()?;
-            let arg = rquickjs_serde::to_value(qjs_ctx.clone(), arg).ok()?;
-            let out: rquickjs::Value = f
-                .call((arg,))
-                .catch(&qjs_ctx)
-                .map_err(|e| tracing::error!(exception = %e, name, "Unit hook threw"))
-                .ok()?;
-            let json = qjs_ctx.json_stringify(out).ok()??.to_string().ok()?;
-            serde_json::from_str(&json).ok()
+            let reconciler: rquickjs::Object =
+                unit_at(&qjs_ctx, unit_index)?.get("reconciler").ok()?;
+            reconciler
+                .get(optative_script::tags::ESTO_RECONCILER_KIND)
+                .ok()
         })
     }
 
     /// Ask a Unit's reconciler what the world currently holds.
     ///
     /// Unlike a hook this hangs off `reconciler`, because it belongs to the
-    /// backend rather than to the Unit — `optativeSet` supplies its own, and a
-    /// file-backed one would read the file instead. `None` means the Unit has no
-    /// `observe` to ask.
+    /// backend rather than to the Unit. `None` means the Unit has no `observe` to
+    /// ask, which for `optativeSet` is a broken Unit — see [`Self::reconciler_kind`].
     pub fn observe(&self, unit_index: usize) -> Option<serde_json::Value> {
         self.context.with(|qjs_ctx| {
-            let units: rquickjs::Array = qjs_ctx.globals().get("__tauler_units").ok()?;
-            let unit: rquickjs::Object = units.get(unit_index).ok()?;
-            let reconciler: rquickjs::Object = unit.get("reconciler").ok()?;
+            let reconciler: rquickjs::Object =
+                unit_at(&qjs_ctx, unit_index)?.get("reconciler").ok()?;
             let f: Function = reconciler.get("observe").ok()?;
             let out: rquickjs::Value = f
                 .call(())
                 .catch(&qjs_ctx)
                 .map_err(|e| tracing::error!(exception = %e, "observe threw"))
                 .ok()?;
-            let json = qjs_ctx.json_stringify(out).ok()??.to_string().ok()?;
-            serde_json::from_str(&json).ok()
+            json_of(&qjs_ctx, out)
         })
     }
 
@@ -699,6 +793,7 @@ mod tests {
             r#"export default function render() { return <root>{typeof sh}</root>; }"#,
             serde_json::Value::Null,
             None,
+            Default::default(),
         )
         .unwrap()
         .eval(&std::collections::HashMap::new())
@@ -715,6 +810,7 @@ mod tests {
             r#"export default function render() { return <root>{sh`printf hi`}</root>; }"#,
             serde_json::Value::Null,
             None,
+            Default::default(),
         )
         .unwrap()
         .eval(&std::collections::HashMap::new())

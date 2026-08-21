@@ -711,12 +711,16 @@ impl App {
     /// load, which ADR 0034 already accounts for; the cost of guessing wrong the
     /// other way would be a Unit that silently never reconciles.
     fn spawn_reconciler(&mut self, source: &str, base_dir: &std::path::Path) {
+        let Some(globals) = self.jsx_evaluator.as_ref().map(|e| e.globals_handle()) else {
+            return;
+        };
         self.reconciler = None;
         self.reconciler = Some(tauler::units::Reconciler::spawn(
             source.to_string(),
             self.jsx_ctx.clone(),
             Some(base_dir.to_path_buf()),
             std::sync::Arc::clone(&self.stream_values),
+            globals,
         ));
     }
 
