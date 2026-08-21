@@ -355,32 +355,100 @@ fn parse_config(config_path: &std::path::Path) -> TaulerConfig {
         .unwrap_or_default()
 }
 
-fn load_theme_from_config(
+/// Why a `theme.file` the config named could not be turned into a [`Theme`].
+#[derive(Debug)]
+enum ThemeLoadError {
+    Read {
+        path: std::path::PathBuf,
+        source: std::io::Error,
+    },
+    Parse {
+        path: std::path::PathBuf,
+        source: serde_yaml::Error,
+    },
+}
+
+impl std::fmt::Display for ThemeLoadError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Read { path, source } => {
+                write!(f, "cannot read theme file {}: {source}", path.display())
+            }
+            Self::Parse { path, source } => {
+                write!(f, "invalid theme YAML in {}: {source}", path.display())
+            }
+        }
+    }
+}
+
+/// What `config.yaml` asks tauler to render with: the mode, and the theme file to read if one
+/// is named.
+///
+/// Reading that file is [`load_theme`]'s job. The two are separate because naming no file is
+/// not a failure while naming one tauler cannot read is, and only the caller knows which of
+/// those it can survive.
+fn theme_selection_from_config(
     config_path: &std::path::Path,
-) -> (Theme, ThemeMode, Option<std::path::PathBuf>) {
+) -> (ThemeMode, Option<std::path::PathBuf>) {
     let config = parse_config(config_path);
-    let theme_file_path = config
+    let file = config
         .theme
         .file
         .as_deref()
         .map(tauler::config::expand_tilde);
-    let theme = match theme_file_path.as_ref() {
-        None => Theme::default_theme(),
-        Some(p) => match std::fs::read_to_string(p) {
-            Err(e) => {
-                tracing::warn!(path = %p.display(), error = %e, "failed to read theme file, using default");
-                Theme::default_theme()
-            }
-            Ok(s) => match Theme::from_yaml(&s) {
-                Err(e) => {
-                    tracing::warn!(path = %p.display(), error = %e, "invalid theme YAML, using default");
-                    Theme::default_theme()
-                }
-                Ok(t) => t,
-            },
-        },
+    (config.theme.mode, file)
+}
+
+/// The theme a `theme.file` names, or the shipped default when it names none.
+///
+/// A file that is named but unusable is an error rather than a fall back to the default —
+/// the default palette is chroma 0 on every token, so substituting it renders a bar that
+/// looks deliberate in the wrong colours. What to do about that error is the caller's, and
+/// differs between startup and a reload (`docs/adr/0033`).
+fn load_theme(file: Option<&std::path::Path>) -> Result<Theme, ThemeLoadError> {
+    let Some(path) = file else {
+        return Ok(Theme::default_theme());
     };
-    (theme, config.theme.mode, theme_file_path)
+    let source = std::fs::read_to_string(path).map_err(|source| ThemeLoadError::Read {
+        path: path.to_path_buf(),
+        source,
+    })?;
+    Theme::from_yaml(&source).map_err(|source| ThemeLoadError::Parse {
+        path: path.to_path_buf(),
+        source,
+    })
+}
+
+/// The theme to start with, or no tauler at all (`docs/adr/0033`).
+///
+/// Startup has no palette on screen to keep, so an unusable `theme.file` ends the process.
+/// The reason goes to stderr as well as the log, because a bar that never appears is read at
+/// the terminal it was launched from.
+fn load_theme_or_exit(file: Option<&std::path::Path>) -> Theme {
+    match load_theme(file) {
+        Ok(theme) => theme,
+        Err(e) => {
+            tracing::error!(error = %e, "unusable theme file");
+            eprintln!("tauler: {e}");
+            std::process::exit(1);
+        }
+    }
+}
+
+/// The theme to render with after a config reload: the newly loaded one, or the one already on
+/// screen when the file went bad (`docs/adr/0033`).
+///
+/// Unlike startup this never exits. A reload fires on every write to the file, so an editor
+/// saving it half-written is an ordinary event, and ending a running bar over one would be a
+/// worse failure than the stale palette it replaces.
+fn theme_after_reload(current: &Theme, loaded: Result<Theme, ThemeLoadError>) -> Theme {
+    match loaded {
+        Ok(theme) => theme,
+        Err(e) => {
+            tracing::error!(error = %e, "unusable theme file, keeping the theme already in use");
+            current.clone()
+        }
+    }
 }
 
 impl App {
@@ -412,7 +480,8 @@ impl App {
         let presenter_thread = thread::spawn(move || {
             run_x11_presenter_thread(pt, command_rx, events);
         });
-        let (theme, theme_mode, theme_file_path) = load_theme_from_config(&config_path);
+        let (theme_mode, theme_file_path) = theme_selection_from_config(&config_path);
+        let theme = load_theme_or_exit(theme_file_path.as_deref());
         let mut state = Self {
             theme,
             theme_mode,
@@ -478,7 +547,8 @@ impl App {
         let presenter_thread = thread::spawn(move || {
             run_wayland_presenter_thread(pt, command_rx, events);
         });
-        let (theme, theme_mode, theme_file_path) = load_theme_from_config(&config_path);
+        let (theme_mode, theme_file_path) = theme_selection_from_config(&config_path);
+        let theme = load_theme_or_exit(theme_file_path.as_deref());
         let mut state = Self {
             theme,
             theme_mode,
@@ -558,7 +628,8 @@ impl App {
                 dpr,
             },
         )]);
-        let (theme, theme_mode, theme_file_path) = load_theme_from_config(&config_path);
+        let (theme_mode, theme_file_path) = theme_selection_from_config(&config_path);
+        let theme = load_theme_or_exit(theme_file_path.as_deref());
         let mut state = Self {
             theme,
             theme_mode,
@@ -703,8 +774,9 @@ impl App {
             .outputs
             .jobs
             .send(tauler::render::worker::RenderJob::FontsChanged);
-        let (theme, mode, theme_file_path) = load_theme_from_config(&self.config_path);
-        self.theme = theme;
+        let (mode, theme_file_path) = theme_selection_from_config(&self.config_path);
+        let loaded = load_theme(theme_file_path.as_deref());
+        self.theme = theme_after_reload(&self.theme, loaded);
         self.theme_mode = mode;
 
         self.handle.set_desired(vec![]);
@@ -1022,8 +1094,9 @@ impl Drop for App {
 #[cfg(test)]
 mod tests {
     use super::{
-        apply_eval_result, load_theme_from_config, make_mod_init_value, merge_module_props,
-        stream_calls_to_specs, theme_file_watch_desired,
+        apply_eval_result, load_theme, make_mod_init_value, merge_module_props,
+        stream_calls_to_specs, theme_after_reload, theme_file_watch_desired,
+        theme_selection_from_config,
     };
     use std::collections::HashMap;
     use std::path::PathBuf;
@@ -1033,6 +1106,7 @@ mod tests {
     use tauler::presentation::SurfaceCommand;
     use tauler::render::worker::RenderJob;
     use tauler::surface::{SurfaceOutputs, SurfaceSets};
+    use tauler::theme::Theme;
 
     /// Outputs wired to a stand-in for the worker, which answers a `Now` job with
     /// a blank frame of the right size and swallows everything else.
@@ -1364,15 +1438,15 @@ mod tests {
         );
     }
 
-    /// Claim: when theme.file is set to a tilde path in config, load_theme_from_config returns the
-    /// tilde-expanded absolute path as the third tuple element.
+    /// Claim: when theme.file is set to a tilde path in config, theme_selection_from_config
+    /// returns the tilde-expanded absolute path.
     #[test]
-    fn load_theme_from_config_returns_expanded_path_when_file_is_configured() {
+    fn theme_selection_from_config_returns_expanded_path_when_file_is_configured() {
         let dir = tempfile::tempdir().expect("tempdir");
         let config_path = dir.path().join("config.yaml");
         std::fs::write(&config_path, "theme:\n  file: ~/some/theme.yaml\n").expect("write config");
 
-        let (_theme, _mode, path) = load_theme_from_config(&config_path);
+        let (_mode, path) = theme_selection_from_config(&config_path);
 
         let home = std::env::var("HOME").expect("HOME must be set");
         let expected = PathBuf::from(&home).join("some/theme.yaml");
@@ -1383,19 +1457,108 @@ mod tests {
         );
     }
 
-    /// Claim: when no theme.file is configured, load_theme_from_config returns None as the third
-    /// tuple element so the caller knows there is no file to watch.
+    /// Claim: when no theme.file is configured, theme_selection_from_config returns None so the
+    /// caller knows there is no file to watch.
     #[test]
-    fn load_theme_from_config_returns_none_when_no_file_configured() {
+    fn theme_selection_from_config_returns_none_when_no_file_configured() {
         let dir = tempfile::tempdir().expect("tempdir");
         let config_path = dir.path().join("config.yaml");
         std::fs::write(&config_path, "theme:\n  mode: dark\n").expect("write config");
 
-        let (_theme, _mode, path) = load_theme_from_config(&config_path);
+        let (_mode, path) = theme_selection_from_config(&config_path);
 
         assert_eq!(
             path, None,
             "when no theme.file is set, the returned path must be None"
+        );
+    }
+
+    fn theme_with_dark_bg(bg: &str) -> Theme {
+        Theme::from_yaml(&format!("colors:\n  dark:\n    background: \"{bg}\"\n"))
+            .expect("test theme must parse")
+    }
+
+    fn dark_background(theme: &Theme) -> Option<String> {
+        theme.colors.dark.get("background").cloned()
+    }
+
+    /// Claim: a theme.file that cannot be read is an error. Falling back to the default palette
+    /// renders a bar that looks deliberate in the wrong colours, so the caller has to be told.
+    #[test]
+    fn load_theme_errors_when_the_file_cannot_be_read() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let missing = dir.path().join("nowhere.yaml");
+
+        let err = load_theme(Some(&missing)).expect_err("an unreadable theme file must not load");
+
+        assert!(
+            err.to_string().contains(&missing.display().to_string()),
+            "the error must name the path that failed, got: {err}"
+        );
+    }
+
+    /// Claim: a theme.file that is not valid YAML is an error for the same reason an unreadable
+    /// one is — a bad indent must not read as a design choice.
+    #[test]
+    fn load_theme_errors_when_the_file_is_invalid_yaml() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("theme.yaml");
+        std::fs::write(&path, "colors:\n dark:\n   - not: a map\n").expect("write theme");
+
+        let err = load_theme(Some(&path)).expect_err("invalid theme YAML must not load");
+
+        assert!(
+            err.to_string().contains(&path.display().to_string()),
+            "the error must name the path that failed, got: {err}"
+        );
+    }
+
+    /// Claim: no theme.file at all is not a failure — it is the documented way to ask for the
+    /// shipped default. Only a theme the user named and tauler could not honour is an error.
+    #[test]
+    fn load_theme_returns_the_default_when_no_file_is_configured() {
+        let theme = load_theme(None).expect("no theme.file must not be an error");
+
+        assert_eq!(
+            theme.colors.dark,
+            Theme::default_theme().colors.dark,
+            "with no theme.file the shipped default must be used"
+        );
+    }
+
+    /// Claim: a theme.file that breaks while tauler is running leaves the palette already on
+    /// screen in place. Startup has no theme to keep and exits; a reload does, and an editor
+    /// saving a half-written file must not repaint the bar in the default grey.
+    #[test]
+    fn theme_after_reload_keeps_the_current_theme_when_the_file_goes_bad() {
+        let current = theme_with_dark_bg("#112233");
+        let dir = tempfile::tempdir().expect("tempdir");
+        let missing = dir.path().join("nowhere.yaml");
+
+        let theme = theme_after_reload(&current, load_theme(Some(&missing)));
+
+        assert_eq!(
+            dark_background(&theme).as_deref(),
+            Some("#112233"),
+            "a failed reload must keep the theme already in use, not substitute the default"
+        );
+    }
+
+    /// Claim: a reload that does load replaces the theme, or fixing the file would never take
+    /// effect.
+    #[test]
+    fn theme_after_reload_takes_the_new_theme_when_it_loads() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("theme.yaml");
+        std::fs::write(&path, "colors:\n  dark:\n    background: \"#445566\"\n")
+            .expect("write theme");
+
+        let theme = theme_after_reload(&theme_with_dark_bg("#112233"), load_theme(Some(&path)));
+
+        assert_eq!(
+            dark_background(&theme).as_deref(),
+            Some("#445566"),
+            "a successful reload must apply the newly loaded theme"
         );
     }
 
