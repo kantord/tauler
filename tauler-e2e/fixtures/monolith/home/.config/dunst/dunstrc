@@ -1,6 +1,6 @@
 # Monolith III — the galley slip, as far as dunst can take it.
 #
-# tauler already draws a galley slip as a panel (see layout.jsx). This file
+# tauler already draws a galley slip as a panel (see layout.op.mdx). This file
 # exists so the two can be photographed side by side and the difference stated
 # from evidence rather than from dunst's manual. Both are on screen in the
 # scenario: tauler's at the top right, dunst's directly below it.

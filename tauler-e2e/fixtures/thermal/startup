@@ -11,7 +11,7 @@
 # crop it shows is exactly the field's pixels and the seams across the 20px gaps
 # are as good as they will ever get. Text legibility is then entirely down to
 # the field being dark where the text sits, which is what the blob placement in
-# layout.jsx is for.
+# layout.op.mdx is for.
 set -eu
 
 client() {

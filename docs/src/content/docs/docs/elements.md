@@ -85,8 +85,8 @@ contents — a `<style>` body would otherwise render as visible text.
 Utilities neither tauler's theme layer nor the renderer recognizes pass straight through,
 so an unknown class is inert rather than an error. Theme tokens — `bg-card`,
 `text-muted-foreground`, `border-border`, `rounded-lg` — are substituted for the values in
-your `config.yaml` before rendering. See [Screen layout](/docs/layout/) for where those
-come from.
+your layout file's frontmatter (or, on the legacy path, `config.yaml`) before rendering.
+See [Screen layout](/docs/layout/) for where those come from.
 
 **`style` takes an object, not a CSS string.** That is what lets a value be computed per
 tick:
@@ -104,9 +104,10 @@ same order CSS uses.
 
 ## Fonts
 
-`fonts.primary` and `fonts.emoji` in `config.yaml` fill fixed roles — the sans-serif
-default, and the fallback used for emoji glyphs. `fonts.extra` registers further fonts
-with no assigned role, each usable by name from wherever you want it in the layout file:
+`fonts.primary` and `fonts.emoji` in the layout file's frontmatter (or, on the legacy path,
+`config.yaml`) fill fixed roles — the sans-serif default, and the fallback used for emoji
+glyphs. `fonts.extra` registers further fonts with no assigned role, each usable by name
+from wherever you want it in the layout file:
 
 ```yaml
 fonts:

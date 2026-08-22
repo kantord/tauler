@@ -5,7 +5,7 @@
 #
 # The flag colours are not theme tokens on purpose. A flag's two colours are
 # picked by a hash at render time, so they have to be values the layout file can
-# index — see INK in layout.jsx. The tokens here dress the bar around them.
+# index — see INK in layout.op.mdx. The tokens here dress the bar around them.
 colors:
   light: {}
   dark:

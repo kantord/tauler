@@ -3,7 +3,7 @@ title: The layout file
 description: The shape of a layout file, the nodes it can contain, and the props each one takes.
 ---
 
-A bar is one `.jsx` file at `~/.config/tauler/layout.jsx`. It is an ES module, and its
+A bar is one file at `~/.config/tauler/layout.op.mdx`. It is an ES module, and its
 **default export is the render function**:
 
 ```jsx
@@ -29,8 +29,39 @@ stream values are cleared, so a reload is a cold start, not a refresh.
 Components are plain JS functions that take props and return a tree. There is nothing to
 register: JSX handles `<Card />` as a function call already.
 
-Theme mode and font choice live separately, in `~/.config/tauler/config.yaml`. Everything
-about *what* a bar contains lives in the layout file.
+Theme mode and font choice live in a YAML frontmatter block at the top of the file:
+
+```jsx
+---
+theme:
+  mode: dark
+fonts:
+  primary: JetBrains Mono
+---
+import DateTimeCard from './components/DateTimeCard.jsx';
+
+export default function render() {
+  return (
+    <root>
+      ...
+    </root>
+  );
+}
+```
+
+Everything about *what* a bar contains lives in the layout file's body, never its
+frontmatter — the same distinction a `_layout.jsx` vs `config.yaml` split used to make
+across two files now lives inside one.
+
+A `layout.op.mdx` with no frontmatter block at all is valid — it just means the shipped
+defaults for theme and fonts apply, the same as an absent `config.yaml` always meant.
+The frontmatter is read with a plain text search, not a markdown parser: everything after
+the closing `---` line is passed through exactly as written, so the file above the
+frontmatter block is ordinary JSX, nothing more.
+
+**Legacy path:** `~/.config/tauler/layout.jsx` plus a sibling `~/.config/tauler/config.yaml`
+still works, and is checked when `layout.op.mdx` doesn't exist. New setups should use
+`layout.op.mdx`.
 
 ## Nodes
 
