@@ -6,6 +6,11 @@
 // than blurring it, so the art lines up pixel-for-pixel with the wallpaper
 // it covers. Highlighting is Shiki at build time via astro:components,
 // the same engine Starlight's docs pages use for fenced code.
+//
+// Cycles through several examples automatically — DemoColumn's cycling
+// script (data-demo-frame / data-demo-dot) is what drives it; this
+// component only pre-renders every state's highlighted HTML at build time
+// and gives the script the hooks to swap which one is visible.
 import { Code } from 'astro:components'
 import type { ComponentProps } from 'astro/types'
 // Passed as a theme *object*, not the bundled-theme name string: Astro's
@@ -20,12 +25,12 @@ import githubDark from 'shiki/themes/github-dark.mjs'
 interface Props {
   path: string
   state?: string
-  code: string
+  states: { id: string; code: string }[]
   lang?: ComponentProps<typeof Code>['lang']
   note?: string
 }
 
-const { path, state = 'HOT RELOAD', code, lang = 'jsx', note } = Astro.props
+const { path, state = 'HOT RELOAD', states, lang = 'jsx', note } = Astro.props
 ---
 
 <div
@@ -43,7 +48,13 @@ const { path, state = 'HOT RELOAD', code, lang = 'jsx', note } = Astro.props
       <span class="ml-auto text-accent">{state}</span>
     </div>
     <div data-code class="px-[18px] py-s5">
-      <Code code={code} lang={lang} theme={githubDark} />
+      {
+        states.map((s, i) => (
+          <div data-demo-frame={s.id} hidden={i !== 0}>
+            <Code code={s.code} lang={lang} theme={githubDark} />
+          </div>
+        ))
+      }
     </div>
     {
       note ? (
