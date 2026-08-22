@@ -138,6 +138,12 @@ fn every_mount_still_renders_its_component() {
             .screenshot_clip(clip, 1.0)
             .unwrap_or_else(|e| panic!("screenshotting {component}: {e}"));
         std::fs::write(shots_dir.join(format!("{component}.png")), &png).expect("write the shot");
+        // Also copied beside the hidden devtools gallery reads — `shots_dir` is gitignored
+        // scratch, so without this the gallery would show nothing after a fresh checkout.
+        let devtools_dir = workspace_root().join("docs/src/assets/devtools/web-components");
+        std::fs::create_dir_all(&devtools_dir).expect("create the devtools gallery directory");
+        std::fs::write(devtools_dir.join(format!("{component}.png")), &png)
+            .expect("write the devtools gallery shot");
         session
             .restore(component)
             .unwrap_or_else(|e| panic!("restoring {component}: {e}"));

@@ -37,3 +37,10 @@ docker run --rm -e CI=true \
 # to the invoking user so a plain `pnpm test` still works afterward.
 docker run --rm -v "$(pwd)/..:/repo" alpine \
   chown -R "$(id -u):$(id -g)" /repo/docs/dist /repo/docs/test-results 2>/dev/null || true
+
+# The hidden devtools gallery reads its own copy, not the Playwright baselines
+# directly — keeping the two in sync is this script's job, not the gallery's.
+if [ "${1:-}" = '--update' ]; then
+  mkdir -p src/assets/devtools/landing
+  cp tests/landing.spec.ts-snapshots/*.png src/assets/devtools/landing/
+fi
