@@ -3,14 +3,22 @@
 // found on disk at build time, so a suite gaining or losing a screenshot never needs a
 // matching edit here — the page just reflects what's currently committed.
 interface Props {
-  images: Record<string, { default: { src: string; width: number; height: number } }>
+  images: Record<
+    string,
+    { default: { src: string; width: number; height: number } }
+  >
 }
 
 const { images } = Astro.props
 const entries = Object.entries(images).sort(([a], [b]) => a.localeCompare(b))
 
 function nameOf(path: string) {
-  return path.split('/').pop()?.replace(/\.png$/, '') ?? path
+  return (
+    path
+      .split('/')
+      .pop()
+      ?.replace(/\.png$/, '') ?? path
+  )
 }
 ---
 

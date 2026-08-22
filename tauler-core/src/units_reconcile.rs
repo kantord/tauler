@@ -143,3 +143,84 @@ pub fn reconcile(desired: Vec<SweepItem>, observed: Vec<SweepItem>) -> (Value, V
     let enter = json_items(&Batches::ordered(acc.enter));
     (exit, update, enter)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    fn item(key: &str, value: Value, order: usize) -> SweepItem {
+        SweepItem {
+            key: key.to_string(),
+            props: json!({ "key": key, "value": value.clone() }),
+            value,
+            order,
+        }
+    }
+
+    // Kept deliberately independent of `units.rs`'s tests: those exercise this
+    // same diff through a real `JsxEvaluator`; these exercise the wasm-facing
+    // entry point directly, with no QuickJS involved at all.
+
+    #[test]
+    fn declared_but_not_observed_is_an_enter() {
+        let desired = vec![item("a", json!(1), 0)];
+        let observed = vec![];
+        let (exit, update, enter) = reconcile(desired, observed);
+        assert_eq!(exit, json!([]));
+        assert_eq!(update, json!([]));
+        assert_eq!(enter, json!([{ "key": "a", "value": 1 }]));
+    }
+
+    #[test]
+    fn observed_but_not_declared_is_an_exit() {
+        let desired = vec![];
+        let observed = vec![item("a", json!(1), 0)];
+        let (exit, update, enter) = reconcile(desired, observed);
+        assert_eq!(exit, json!([{ "key": "a", "value": 1 }]));
+        assert_eq!(update, json!([]));
+        assert_eq!(enter, json!([]));
+    }
+
+    #[test]
+    fn same_key_different_value_is_an_update_carrying_the_old_props() {
+        let desired = vec![item("a", json!(2), 0)];
+        let observed = vec![item("a", json!(1), 0)];
+        let (exit, update, enter) = reconcile(desired, observed);
+        assert_eq!(exit, json!([]));
+        assert_eq!(
+            update,
+            json!([{
+                "item": { "key": "a", "value": 2 },
+                "old": { "key": "a", "value": 1 },
+            }])
+        );
+        assert_eq!(enter, json!([]));
+    }
+
+    #[test]
+    fn same_key_same_value_makes_no_progress() {
+        let desired = vec![item("a", json!(1), 0)];
+        let observed = vec![item("a", json!(1), 0)];
+        let (exit, update, enter) = reconcile(desired, observed);
+        assert_eq!(exit, json!([]));
+        assert_eq!(update, json!([]));
+        assert_eq!(enter, json!([]));
+    }
+
+    #[test]
+    fn batches_are_ordered_by_layout_position_not_observation_order() {
+        // Observed in b, a order; declared in a, b order — enter/update should
+        // come back in the declared (desired) order regardless.
+        let desired = vec![item("a", json!(2), 0), item("b", json!(2), 1)];
+        let observed = vec![item("b", json!(1), 0), item("a", json!(1), 1)];
+        let (_, update, _) = reconcile(desired, observed);
+        let keys: Vec<&str> = update
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|pair| pair["item"]["key"].as_str().unwrap())
+            .collect();
+        assert_eq!(keys, vec!["a", "b"]);
+    }
+}
