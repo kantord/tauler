@@ -55,8 +55,22 @@ across two files now lives inside one.
 
 A `layout.op.mdx` with no frontmatter block at all is valid — it just means the shipped
 defaults for theme and fonts apply, the same as an absent `config.yaml` always meant.
-Everything after the closing `---` line is ordinary JSX, passed through exactly as
-written — nothing above the frontmatter block is markdown.
+
+Despite the extension, nothing here parses markdown into content — everything after the
+closing `---` line is ordinary JSX, passed through exactly as written. A bare heading or
+paragraph at flow position is a JS syntax error, not content: markdown syntax is only
+safe inside a comment, where it's just text nobody renders. You can still *write* it in
+markdown format there, for a person reading the file — headings, bold, lists all work as
+markdown once you're reading the comment as markdown, tauler just never converts it to
+HTML:
+
+```jsx
+/*
+# Sidebar
+
+Workspace list on top, status cards below.
+*/
+```
 
 **Legacy path:** `~/.config/tauler/layout.jsx` plus a sibling `~/.config/tauler/config.yaml`
 still works, and is checked when `layout.op.mdx` doesn't exist. New setups should use
