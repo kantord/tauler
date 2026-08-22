@@ -38,9 +38,15 @@ cargo install tauler-notify  # desktop notifications
 
 ## Quick start
 
-Write `~/.config/tauler/layout.jsx`:
+Write `~/.config/tauler/layout.op.mdx`:
 
 ```jsx
+---
+theme:
+  mode: dark        # or light
+fonts:
+  primary: "Inter"
+---
 export default function render() {
   const time = useStringStream("/bin/sh", "while true; do date +%H:%M; sleep 1; done");
 
@@ -62,14 +68,11 @@ The module has to `export default` a render function. `ctx` is injected before e
 evaluation and carries `output`, `dpi`, `screen_width` and `screen_height`. Styling
 uses Tailwind-style classes in the `class` attribute.
 
-`~/.config/tauler/config.yaml` is optional and holds the theme and font settings:
+The YAML frontmatter block is optional and holds the theme and font settings. Everything
+after the closing `---` is passed through unchanged — it's ordinary JSX, not markdown.
 
-```yaml
-theme:
-  mode: dark        # or light
-fonts:
-  primary: "Inter"
-```
+A `~/.config/tauler/layout.jsx` plus a sibling `~/.config/tauler/config.yaml` also still
+works, and is used when `layout.op.mdx` doesn't exist.
 
 ## Companion crates
 

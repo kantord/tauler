@@ -1,3 +1,23 @@
+---
+# Monolith III wants two typefaces: a Didone serif for folios and numerals, a
+# mono for everything functional. tauler registers exactly three generic
+# families — sans-serif, monospace, emoji — plus whatever `fonts.primary` names,
+# and a layout file cannot name a fourth. There is no `serif` slot.
+#
+# So the serif takes the sans-serif slot. `fontFamily: "monospace"` in the
+# layout file still reaches JetBrains Mono (the image's fonts.conf names it),
+# and every unstyled node inherits the serif. Two typefaces, one of them living
+# under the wrong generic name.
+#
+# Nimbus Roman is a Times clone, not a Didone. The image ships no high-contrast
+# serif at all — see the report for what that costs the design.
+theme:
+  mode: dark
+  file: ~/.config/tauler/theme.yaml
+
+fonts:
+  primary: Nimbus Roman
+---
 // Monolith III — engraved surfaces.
 //
 // Exploratory scenario for the "three rices" handoff brief. The brief targets
@@ -75,7 +95,7 @@ const MOIRE = {
 
 // ── Type ────────────────────────────────────────────────────────────────────
 //
-// `fonts.primary` in config.yaml puts Nimbus Roman in the sans-serif slot, so
+// `fonts.primary` in this file's frontmatter puts Nimbus Roman in the sans-serif slot, so
 // the serif is the default and the mono has to be asked for. That is backwards
 // from how the brief writes it and it is the only way to get two faces.
 const MONO = { fontFamily: "monospace" };

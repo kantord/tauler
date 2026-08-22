@@ -2,7 +2,7 @@
 #
 # AeroSpace reads gaps at config load time and exposes no command to change
 # them, so this is where the rail's 148pt is reserved. `outer.left` must match
-# RAIL in ~/.config/tauler/layout.jsx.
+# RAIL in ~/.config/tauler/layout.op.mdx.
 start-at-login = true
 
 [gaps]

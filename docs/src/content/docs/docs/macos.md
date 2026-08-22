@@ -51,9 +51,8 @@ is a small dotfiles repo — a `home/` tree you copy over your own. It configure
 because a desktop is more than a bar.
 
 ```
-home/.config/tauler/layout.jsx           the rail
-home/.config/tauler/config.yaml          theme and font
-home/.config/aerospace/aerospace.toml    the space the rail sits in
+home/.config/tauler/layout.op.mdx       the rail, theme and font
+home/.config/aerospace/aerospace.toml   the space the rail sits in
 ```
 
 Read it first: the AeroSpace config is a minimal one and will replace yours.
@@ -72,7 +71,7 @@ same offset, or the two will not line up. This prints every value you need:
 ```sh
 osascript -l JavaScript -e 'ObjC.import("AppKit"); var s = $.NSScreen.mainScreen;
   var i = s.frame.size.height - s.visibleFrame.size.height;
-  ["layout.jsx:  MENU_BAR = " + i,
+  ["layout.op.mdx:  MENU_BAR = " + i,
    "aerospace.toml:  inner.horizontal = " + Math.round(i / 2),
    "aerospace.toml:  inner.vertical = " + Math.round(i / 2),
    "aerospace.toml:  outer.top = 0",

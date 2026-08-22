@@ -37,5 +37,5 @@ Use subagents for each stage:
 
 - Rust code changes: `cargo build --release` — tauler watches its own binary and re-execs automatically
 - `tauler-i3` is a separate binary; build with `cargo build --release -p tauler-i3` and replace atomically: `cp target/release/tauler-i3 ~/.cargo/bin/tauler-i3.new && mv ~/.cargo/bin/tauler-i3.new ~/.cargo/bin/tauler-i3`
-- Config-only changes: `chezmoi apply ~/.config/tauler/config.yaml` — tauler hot-reloads it within 500ms, no restart needed
+- Config-only changes: `chezmoi apply ~/.config/tauler/layout.op.mdx` (or `config.yaml`/`layout.jsx` on the legacy path) — tauler hot-reloads within 500ms, no restart needed
 - `bar_width` or `outer_gap` changes trigger a full re-exec automatically

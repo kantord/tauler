@@ -4,7 +4,7 @@
 ! strength, so what it shows is exactly the heat field's pixels and the seams
 ! across i3's gaps are as good as they get. Legibility is then entirely down to
 ! the field being dark where the text sits, which is what the blob placement in
-! layout.jsx is for.
+! layout.op.mdx is for.
 
 URxvt.font:           xft:JetBrains Mono:pixelsize=14,xft:Symbols Nerd Font Mono:pixelsize=14
 URxvt.foreground:     #F1E7E2

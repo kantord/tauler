@@ -5,9 +5,8 @@ click-to-switch. Shaped like a dotfiles repo, because a desktop is configured by
 tauler — the reservation lives in `aerospace.toml`, not in the layout file.
 
 ```
-home/.config/tauler/layout.jsx      the rail
-home/.config/tauler/config.yaml     theme and font
-home/.config/aerospace/aerospace.toml   the space it sits in
+home/.config/tauler/layout.op.mdx      the rail, theme and font
+home/.config/aerospace/aerospace.toml  the space it sits in
 ```
 
 ## Requirements
@@ -42,7 +41,7 @@ number is declared twice and the two have to agree:
 
 | where | what |
 | --- | --- |
-| `layout.jsx` | `RAIL = 148`, `RAIL_PAD = 10`, `MENU_BAR = 38` |
+| `layout.op.mdx` | `RAIL = 148`, `RAIL_PAD = 10`, `MENU_BAR = 38` |
 | `aerospace.toml` | `outer.left = 176` — that is `RAIL - RAIL_PAD + GAP` |
 
 Change one and you get dead space, or windows sliding under the rail. Regenerating

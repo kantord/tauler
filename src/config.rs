@@ -1,8 +1,8 @@
 use crate::theme::ThemeMode;
 use serde::Deserialize;
 
-/// Expand a leading `~/` in a path the user wrote — in `config.yaml`, or in a
-/// layout file's `bin`.
+/// Expand a leading `~/` in a path the user wrote — in a layout file's frontmatter (or,
+/// on the legacy path, `config.yaml`), or in a layout file's `bin`.
 ///
 /// Lives here rather than next to either caller because both are the same
 /// thing: a path supplied as configuration, which a person expects to be able

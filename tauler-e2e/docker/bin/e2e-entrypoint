@@ -33,15 +33,17 @@ done
 # A fixture comes in one of two shapes.
 #
 # A *rice* is a dotfiles repo: a `home/` tree copied over $HOME wholesale, so
-# `~/.config/tauler/layout.jsx`, `~/.config/i3/config`, `~/.Xresources` and
-# `~/.local/bin` sit exactly where they would on a real machine. Everything the
-# rice configures that tauler does not own — the window manager, the terminal,
-# the notifier, the launcher — lives there rather than being smuggled in as
-# command-line flags. The whole directory can be copied onto a real $HOME.
+# `~/.config/tauler/layout.op.mdx` (or the legacy `layout.jsx` + `config.yaml`),
+# `~/.config/i3/config`, `~/.Xresources` and `~/.local/bin` sit exactly where
+# they would on a real machine. Everything the rice configures that tauler
+# does not own — the window manager, the terminal, the notifier, the launcher
+# — lives there rather than being smuggled in as command-line flags. The whole
+# directory can be copied onto a real $HOME.
 #
-# A *contract scenario* is a bare `layout.jsx` plus, optionally, `config.yaml`
-# and `i3.config`. That shape is the point of those fixtures: they demonstrate
-# that a tauler desktop needs one file. It keeps working.
+# A *contract scenario* is a bare `layout.op.mdx` — or, on the legacy path, a
+# bare `layout.jsx` plus, optionally, `config.yaml` and `i3.config`. That shape
+# is the point of those fixtures: they demonstrate that a tauler desktop needs
+# one file. It keeps working either way.
 #
 # `cp -a` so the mode bits on ~/.local/bin survive; the bind mount is read-only
 # from the fixture's side and $HOME is not, which is also why this copies rather
@@ -49,6 +51,8 @@ done
 mkdir -p "$HOME/.config/tauler"
 if [ -d "$FIXTURE/home" ]; then
     cp -a "$FIXTURE/home/." "$HOME/"
+elif [ -f "$FIXTURE/layout.op.mdx" ]; then
+    cp "$FIXTURE/layout.op.mdx" "$HOME/.config/tauler/layout.op.mdx"
 else
     cp "$FIXTURE/layout.jsx" "$HOME/.config/tauler/layout.jsx"
     # An `&&` here would take the shell down with `set -e` whenever the fixture
@@ -58,8 +62,8 @@ else
     fi
 fi
 
-[ -f "$HOME/.config/tauler/layout.jsx" ] \
-    || { echo "e2e: fixture $SCENARIO installed no layout.jsx" >&2; exit 1; }
+[ -f "$HOME/.config/tauler/layout.op.mdx" ] || [ -f "$HOME/.config/tauler/layout.jsx" ] \
+    || { echo "e2e: fixture $SCENARIO installed no layout file" >&2; exit 1; }
 
 # Everything below is what a session's .xinitrc does before it execs a window
 # manager: merge the user's X resources, state the DPI, name a primary output,

@@ -5,6 +5,7 @@ pub mod display_manager;
 pub mod hit_test;
 pub mod jsx;
 pub mod layout;
+pub mod layout_source;
 pub mod managed_set;
 pub mod outbox;
 pub mod pointer;

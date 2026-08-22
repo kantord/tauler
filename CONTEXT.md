@@ -127,15 +127,19 @@ how often it does)
 ### The layout file
 
 **Layout file**:
-The single `.jsx` file that declares everything a bar *is*. A sibling `config.yaml`
-carries theme mode and font choice — what to render with, never what to render. Anything
-describing a surface, its contents or its data belongs in the layout file.
-_Avoid_: config, config file, theme file (all three name the `.yaml`, not this)
+The single `layout.op.mdx` file that declares everything a bar *is*, plus — in a YAML
+frontmatter block at its top — theme mode and font choice: what to render with, never what
+to render. Anything describing a surface, its contents or its data belongs in the layout
+file's body, not its frontmatter. On the legacy split-file path, the frontmatter's place is
+taken by a sibling `config.yaml` instead, and the file itself is `layout.jsx`.
+_Avoid_: config, config file, theme file (all three name the frontmatter or `config.yaml`,
+not this)
 
 **Extra font**:
-A font registered under `fonts.extra` in `config.yaml`, usable directly by name in a
-layout file (`font-[Name]`) with no assigned role. Distinct from `primary`, the default,
-and `emoji`, the fallback used for emoji glyphs.
+A font registered under `fonts.extra` in the layout file's frontmatter (or, on the legacy
+path, `config.yaml`), usable directly by name in a layout file (`font-[Name]`) with no
+assigned role. Distinct from `primary`, the default, and `emoji`, the fallback used for
+emoji glyphs.
 _Avoid_: custom font, additional font
 
 **Font role**:

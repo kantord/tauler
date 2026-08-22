@@ -1,6 +1,6 @@
 /* Monolith III — the launcher, as far as rofi can take it.
  *
- * tauler already draws a launcher as a panel (see layout.jsx). This file exists
+ * tauler already draws a launcher as a panel (see layout.op.mdx). This file exists
  * so the two can be photographed side by side. tauler's sits in the middle of
  * the screen; rofi's sits bottom-left.
  *
