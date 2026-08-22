@@ -5,7 +5,16 @@ keywords = ["tauler", "statusbar", "jsx", "macro"]
 categories = ["development-tools::procedural-macro-helpers", "gui"]
 readme = "README.md"
 edition = "2021"
-version.workspace = true
+# Not `version.workspace = true`: this crate has no path dependents through
+# release-plz's normal cycle-to-cycle changes, so lockstepping it with the
+# rest of the workspace only sweeps its manifest version along on cycles
+# where it has no commits of its own — exactly the state release-plz's own
+# internal `cargo update` cannot reconcile before it even opens a release PR
+# (release-plz/release-plz#2878). Versioning it independently means it moves
+# only when release-plz decides *this* crate needs releasing, which is the
+# one code path release-plz gets right: rewriting every dependent's
+# `version = "..."` requirement to match.
+version = "0.1.10"
 authors.workspace = true
 license.workspace = true
 repository.workspace = true

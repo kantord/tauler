@@ -10,15 +10,26 @@
 //! Nothing goes wrong while the two agree. The failure appears the moment a rename or a
 //! signature change makes them differ, and it appears only in CI, as an error about an
 //! item that plainly exists locally.
+//!
+//! One exception: a crate in [`INDEPENDENTLY_VERSIONED_CRATES`] opts out of workspace-
+//! version lockstep on purpose (see the comment on `tauler-ui-macro`'s `version` field),
+//! specifically so release-plz stops sweeping it into a version bump on cycles where it
+//! has no commits of its own — release-plz/release-plz#2878. A dependency on one of
+//! those crates is checked against nothing here; `scripts/sync-workspace-versions.sh`
+//! leaves it alone the same way.
 
 use std::fs;
 use std::path::{Path, PathBuf};
+
+/// Crate names this test does not expect to require the shared workspace version —
+/// see the module doc comment.
+const INDEPENDENTLY_VERSIONED_CRATES: &[&str] = &["tauler-ui-macro"];
 
 fn repo_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
 }
 
-/// The `version` under `[workspace.package]`, which every member inherits.
+/// The `version` under `[workspace.package]`, which every lockstepped member inherits.
 fn workspace_version(root_manifest: &str) -> String {
     let after = root_manifest
         .split_once("[workspace.package]")
@@ -56,6 +67,12 @@ fn path_dependencies_require_the_current_workspace_version() {
         for line in text.lines() {
             let line = line.trim();
             if line.starts_with('#') || !line.contains("path =") || !line.contains("version =") {
+                continue;
+            }
+            if INDEPENDENTLY_VERSIONED_CRATES
+                .iter()
+                .any(|name| line.starts_with(&format!("{name} =")))
+            {
                 continue;
             }
             let Some(required) = line
