@@ -3,7 +3,7 @@ use std::collections::HashMap;
 
 /// Rewrite theme tokens in every `class` attribute in the tree.
 ///
-/// Only tokens this project defines are touched — a colour, a radius. Everything else
+/// Only tokens this project defines are touched — a colour, a radius, a font. Everything else
 /// is passed through verbatim, which is what lets one attribute carry both theme
 /// tokens and plain Tailwind utilities takumi resolves on its own.
 pub fn resolve_theme_tokens(value: &mut serde_json::Value, theme: &Theme, mode: ThemeMode) {
