@@ -95,12 +95,15 @@ fn dispatch_hook_source() -> &'static str {
       new Proxy(obj, {
         set(_t, prop) {
           throw new TypeError(
-            "`" + name + "." + String(prop) + "` is read-only here: the bar owns " +
-            name + ", a Unit's hooks only read it"
+            "`" + name + "." + String(prop) + "` is read-only in a hook. " +
+            "The bar owns " + name + ". A hook can only read " + name + "."
           );
         },
         deleteProperty(_t, prop) {
-          throw new TypeError("`" + name + "." + String(prop) + "` is read-only here");
+          throw new TypeError(
+            "`" + name + "." + String(prop) + "` is read-only in a hook. " +
+            "A hook cannot delete it."
+          );
         },
       });
 
@@ -111,7 +114,8 @@ fn dispatch_hook_source() -> &'static str {
       const oneFn = unit[one];
       if (batchFn && oneFn) {
         throw new TypeError(
-          "a unit() may define `" + hook + "` or `" + one + "`, not both"
+          "a unit() must define `" + hook + "` or `" + one + "`. " +
+          "It cannot define both."
         );
       }
       if (oneFn) {
@@ -653,7 +657,9 @@ impl JsxEvaluator {
             dispatch
                 .call::<_, usize>((unit_index, hook, one, payload))
                 .catch(&qjs_ctx)
-                .map_err(|e| tracing::error!(exception = %e, hook, "Unit hook threw"))
+                .map_err(
+                    |e| tracing::error!(exception = %e, hook, "the Unit hook threw an exception"),
+                )
                 .unwrap_or(0)
         })
     }
@@ -676,7 +682,7 @@ impl JsxEvaluator {
             let out: rquickjs::Value = f
                 .call((arg,))
                 .catch(&qjs_ctx)
-                .map_err(|e| tracing::error!(exception = %e, projection, "projection threw"))
+                .map_err(|e| tracing::error!(exception = %e, projection, "the projection threw an exception"))
                 .ok()?;
             json_of(&qjs_ctx, out)
         })
@@ -716,7 +722,7 @@ impl JsxEvaluator {
             let out: rquickjs::Value = f
                 .call(())
                 .catch(&qjs_ctx)
-                .map_err(|e| tracing::error!(exception = %e, "observe threw"))
+                .map_err(|e| tracing::error!(exception = %e, "observe threw an exception"))
                 .ok()?;
             json_of(&qjs_ctx, out)
         })

@@ -5,7 +5,7 @@ description: Declaring things outside the bar — lights, themes, modes — and 
 
 A layout file usually describes a bar. A **Unit** lets it describe something else: which
 workspace an app belongs on, a theme a program should be using, a light that should be on.
-You say what should be true; tauler keeps looking at the world and does what it takes.
+You say what should be true. tauler keeps looking at the world and does what it takes.
 
 ```jsx
 const WindowPlacement = unit({
@@ -25,7 +25,7 @@ export default function render() {
 }
 ```
 
-Chromium now lives on workspace 1. Drag it somewhere else and it comes back; open it after
+Chromium now lives on workspace 1. Drag it somewhere else and it comes back. Open it after
 a reboot and it lands where you said.
 
 `unit()` returns a component. Using it — `<WindowPlacement class="Chromium" workspace={1} />`
@@ -34,15 +34,16 @@ nothing.
 
 ## The four parts
 
-`key` names an Item. Two Items with the same key are the same thing; the key is what lets
+`key` names an Item. Two Items with the same key are the same thing. The key is what lets
 tauler match what it sees in the world against what you asked for.
 
 `value` is what decides "changed". If the observed value and the declared value differ, the
-Item needs an `update`. Return whatever comparison you want — a string, a number, an object.
+Item needs an `update`. Return whatever you want to compare — a string, a number, an
+object.
 
 `observe` reports what the world actually holds, as an array of Items in the same shape you
 declare them. This is the only thing tauler believes. A hook that says it succeeded proves
-nothing; the next `observe` does.
+nothing. The next `observe` does.
 
 The hooks act. Each comes in two spellings and you pick one:
 
@@ -85,14 +86,14 @@ hooks the comparison asks for.
 | present | not declared | `exit` |
 
 Sweeps run on their own thread, off the render loop. A hook that takes forty seconds makes
-its Unit converge late; it never drops a frame.
+its Unit converge late. It never drops a frame.
 
 A Unit sweeps on a fixed interval. What the last Sweep did makes no difference to when the
 next one runs:
 
 ```jsx
 const WindowPlacement = unit({
-  refreshInterval: 5000, // ms; 5000 is also the default
+  refreshInterval: 5000, // ms. 5000 is also the default
   …
 })
 ```
@@ -207,7 +208,7 @@ Which buys you:
 
 `<App>` never becomes an Item — it is an inert `{class: "Chromium"}` that `Workspace` reads
 and discards. `Workspace` builds the real Item one line later, copying its own `num` onto
-each. There is no prop inheritance and no context; the parent constructs the child
+each. There is no prop inheritance and no context. The parent constructs the child
 explicitly, which is why this is two ordinary functions rather than a feature.
 
 It also stays **one** Unit. Grouping is a spelling, not a scope, so a batch hook still gets
@@ -219,8 +220,8 @@ Home Assistant's REST API is two calls — `GET /api/states` to see, `POST
 /api/services/light/turn_on` to act — so a Unit for a light is short. What it adds to the
 example above is a secret.
 
-Keep the token out of the process table. Anything passed as an argument is visible
-to every process on the machine and lands in shell history and logs; a curl config file is
+Keep the token out of the process table. Anything passed as an argument is visible to every
+process on the machine, and it lands in shell history and logs. A curl config file does
 not:
 
 ```bash
@@ -297,9 +298,9 @@ declares:
 </root>
 ```
 
-The click updates `globals`; the next Sweep sees the new declaration and acts.
+The click updates `globals`. The next Sweep sees the new declaration and acts.
 
-`globals` is **read-only inside a hook**. The bar owns it; a hook that assigns to it throws.
+`globals` is **read-only inside a hook**. The bar owns it. A hook that assigns to it throws.
 If a hook needs to record something, the thing to record it in is the world — and `observe`
 is what reads it back.
 

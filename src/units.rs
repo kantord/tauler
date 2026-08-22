@@ -221,7 +221,7 @@ pub fn sweep(
     stream_values: &HashMap<(String, Option<String>), String>,
 ) -> SweepReport {
     let Ok(batches) = evaluator.eval_units(stream_values) else {
-        tracing::error!("layout file failed to evaluate in the reconciler runtime");
+        tracing::error!("the reconciler runtime failed to evaluate the layout file");
         return SweepReport::default();
     };
     if batches.is_empty() {
@@ -251,8 +251,8 @@ fn sweep_unit(evaluator: &JsxEvaluator, batch: &UnitBatch) -> SweepReport {
     // Item enters on every Sweep forever, silently.
     if evaluator.reconciler_kind(unit).as_deref() == Some("optativeJsonSet") {
         tracing::error!(
-            "optativeJsonSet is not supported in a layout file: a Unit needs an \
-             `observe` for tauler to know what the world holds (ADR 0035)"
+            "a layout file cannot use optativeJsonSet. A Unit must define `observe`, \
+             because tauler reads it to find what the world holds. See ADR 0035"
         );
         return SweepReport {
             next_sweep: refresh_interval(evaluator, unit),
@@ -422,7 +422,7 @@ impl Reconciler {
                 ) {
                     Ok(e) => e,
                     Err(e) => {
-                        tracing::error!(error = ?e, "reconciler runtime failed to start");
+                        tracing::error!(error = ?e, "the reconciler runtime failed to start");
                         return;
                     }
                 };
@@ -480,7 +480,7 @@ fn watch_sweeps(started: &AtomicU64, stop: &AtomicBool) {
         if running >= SWEEP_WATCHDOG_AFTER.as_millis() as u64 {
             tracing::error!(
                 running_secs = running / 1000,
-                "a Sweep has not returned; every Unit is blocked behind it"
+                "a Sweep has not returned. Every other Unit waits for it"
             );
         }
     }

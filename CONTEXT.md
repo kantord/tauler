@@ -307,7 +307,7 @@ A kind of reconcilable thing: what identifies one, what value decides whether it
 changed, how to observe the world for it, and what to do when one appears, changes or goes
 away. Declared by a `unit()` call, which returns a component — so a Unit is never a node,
 only its Items are. See ADR 0033.
-A Surface is reconciled by the same machinery; what makes a Unit its own term is that its
+A Surface is reconciled by the same machinery. What makes a Unit its own term is that its
 hooks are the layout file's own JavaScript, and so may take as long as they like.
 _Avoid_: resource (that is a subprocess argument), target (that is a Render target), kind
 (that is a Component kind), type
