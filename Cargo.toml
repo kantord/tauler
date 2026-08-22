@@ -3,7 +3,7 @@ members = [".", "tauler-core", "tauler-web", "tauler-i3", "tauler-aerospace", "t
 resolver = "2"
 
 [workspace.package]
-version = "0.1.9"
+version = "0.1.10"
 authors = ["Dániel Kántor <github@daniel-kantor.com>"]
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/kantord/tauler"
@@ -78,10 +78,10 @@ serde_yaml = "0.9.34"
 # requirement admits one, so a stale floor silently verifies `tauler` against
 # the *published* macro. That is invisible until the two disagree — which is
 # exactly what happened when the macro stopped hard-coding its tag list.
-tauler-ui-macro = { path = "tauler-ui-macro", version = "0.1.9" }
+tauler-ui-macro = { path = "tauler-ui-macro", version = "0.1.10" }
 # The wasm-clean subset, with the QuickJS half switched on. Same version pinning
 # rationale as `tauler-ui-macro` above.
-tauler-core = { path = "tauler-core", version = "0.1.9", features = ["quickjs"] }
+tauler-core = { path = "tauler-core", version = "0.1.10", features = ["quickjs"] }
 optative = "=0.1.4"
 optative-process-pool = "=0.0.9"
 optative-derive = "=0.0.4"
