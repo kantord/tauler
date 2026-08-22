@@ -10,9 +10,14 @@ current data snapshot, and its output is a static tree rather than a live hierar
 ## Why
 
 The thing being rendered is a status bar — a few hundred nodes that change when a
-subprocess prints a line. Re-evaluating all of it costs 100–200μs. A reconciler would add a
+subprocess prints a line. Re-evaluating all of it costs about 2ms. A reconciler would add a
 tree diff, a component-identity scheme, and a mount/unmount lifecycle to save a fraction of
-that, against a rasterization pass that dominates everything by two orders of magnitude.
+that, against a rasterization pass that still dominates everything.
+
+This ADR originally said 100–200μs. That number was never measured; ~2ms is. The decision
+does not change — 2ms against a rasterization pass an order of magnitude larger is still
+not worth a reconciler — but the margin is smaller than the original argument implied, and
+a future reader should weigh it at its real size.
 
 Skipping work still happens — just at a coarser grain, and without identity. Each panel is
 cached by the canonical JSON of its own subtree, so a panel whose content did not change is

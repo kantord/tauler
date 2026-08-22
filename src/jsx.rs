@@ -11,10 +11,10 @@
 //!    render function is called. No reparse, no recompile. It returns a JS object tree
 //!    that Rust walks to extract surfaces and build takumi nodes.
 //!
-//! The `Runtime` and `Context` are created once and live forever, which is what makes the
-//! second phase cost 100–200μs — small enough that re-rendering everything on every tick
-//! is affordable (ADR 0007). The transform is under a millisecond and happens only in the
-//! first phase. Rasterization dominates both by two orders of magnitude.
+//! The `Runtime` and `Context` are created once and live forever, which is what keeps the
+//! second phase to about 2ms — small enough that re-rendering everything on every tick is
+//! affordable (ADR 0007). The transform is under a millisecond and happens only in the
+//! first phase. Rasterization still dominates both, by roughly an order of magnitude.
 //!
 //! `_jsx` is registered from Rust as a global. It takes `(tag, props, ...children)` and
 //! returns `{ type, ...props, children }` — a plain object, no intermediate
@@ -50,6 +50,124 @@ use rquickjs::loader::{Loader, Resolver};
 use rquickjs::{CatchResultExt, Persistent};
 
 use std::path::PathBuf;
+
+/// The live `unit()` object at `unit_index` in this runtime's `__tauler_units`.
+///
+/// Every Unit lookup goes through here so there is one place that knows where the
+/// array lives and what an out-of-range index means (nothing to do).
+fn unit_at<'js>(qjs_ctx: &rquickjs::Ctx<'js>, unit_index: usize) -> Option<rquickjs::Object<'js>> {
+    let units: rquickjs::Array<'js> = qjs_ctx.globals().get("__tauler_units").ok()?;
+    units.get(unit_index).ok()
+}
+
+/// A JS value as plain JSON, or `None` if it does not survive the trip
+/// (`undefined`, a bare function, a cycle).
+fn json_of<'js>(
+    qjs_ctx: &rquickjs::Ctx<'js>,
+    value: rquickjs::Value<'js>,
+) -> Option<serde_json::Value> {
+    let json = qjs_ctx.json_stringify(value).ok()??.to_string().ok()?;
+    serde_json::from_str(&json).ok()
+}
+
+/// Dispatches a lifecycle hook, picking the batch spelling or the per-Item sugar
+/// by whichever one the Unit defined.
+///
+/// The array handed to a batch hook is wrapped in a `Proxy` that throws on any
+/// property an array does not have. Without it, a hook written per-Item and handed
+/// a batch reads `undefined` off an `Array` and runs a command with a missing
+/// argument — no throw, no warning, wrong result. With it, the mistake names its
+/// own fix.
+fn dispatch_hook_source() -> &'static str {
+    r#"
+    globalThis.__tauler_one_item_guard = (arr, hook, one) =>
+      new Proxy(arr, {
+        get(target, prop) {
+          if (typeof prop === "symbol" || prop in target) return Reflect.get(target, prop);
+          throw new TypeError(
+            "`" + hook + "` receives an array of Items, not one Item. " +
+            "Did you mean `" + one + "`?"
+          );
+        },
+      });
+
+    globalThis.__tauler_readonly = (obj, name) =>
+      new Proxy(obj, {
+        set(_t, prop) {
+          throw new TypeError(
+            "`" + name + "." + String(prop) + "` is read-only in a hook. " +
+            "The bar owns " + name + ". A hook can only read " + name + "."
+          );
+        },
+        deleteProperty(_t, prop) {
+          throw new TypeError(
+            "`" + name + "." + String(prop) + "` is read-only in a hook. " +
+            "A hook cannot delete it."
+          );
+        },
+      });
+
+    globalThis.__tauler_dispatch_hook = (unitIndex, hook, one, payload) => {
+      const unit = globalThis.__tauler_units[unitIndex];
+      if (!unit) return 0;
+      const batchFn = unit[hook];
+      const oneFn = unit[one];
+      if (batchFn && oneFn) {
+        throw new TypeError(
+          "a unit() must define `" + hook + "` or `" + one + "`. " +
+          "It cannot define both."
+        );
+      }
+      if (oneFn) {
+        for (const entry of payload) {
+          if (hook === "update") oneFn(entry.item, entry.old);
+          else oneFn(entry);
+        }
+        return payload.length;
+      }
+      if (!batchFn) return 0;
+      batchFn(globalThis.__tauler_one_item_guard(payload, hook, one));
+      return payload.length;
+    };
+    "#
+}
+
+/// Groups the Items in an evaluated tree by the Unit object that declared them,
+/// parking those objects in `__tauler_units` for later hook calls. Unit identity
+/// is the object itself — two `<Light/>` elements share one because `unit()` ran
+/// once — so no id or name has to be agreed on.
+fn collect_units_source() -> String {
+    format!(
+        r#"
+        globalThis.__tauler_collect_units = (tree) => {{
+          const units = [];
+          const batches = [];
+          const walk = (node) => {{
+            if (node === null || typeof node !== "object") return;
+            const t = node.type;
+            if (t && typeof t === "object" && t.{kind} === true) {{
+              let i = units.indexOf(t);
+              if (i < 0) {{
+                i = units.length;
+                units.push(t);
+                batches.push({{ unit_index: i, items: [] }});
+              }}
+              const props = {{}};
+              for (const k of Object.keys(node)) {{
+                if (k !== "type" && k !== "children") props[k] = node[k];
+              }}
+              batches[i].items.push(props);
+            }}
+            if (Array.isArray(node.children)) node.children.forEach(walk);
+          }};
+          walk(tree);
+          globalThis.__tauler_units = units;
+          return batches;
+        }};
+        "#,
+        kind = optative_script::tags::ESTO_KIND,
+    )
+}
 
 /// Fold a later module registration's props into the ones already recorded.
 ///
@@ -87,13 +205,16 @@ fn warn_handler_once(id: i64, error: &impl std::fmt::Display) {
 
 /// A persistent JSX evaluator that compiles the layout source once and re-evaluates
 /// cheaply on each tick by calling the pre-compiled render function.
+/// The store behind a layout file's `globals`, shareable between the two runtimes.
+pub type SharedGlobals = Arc<Mutex<serde_json::Map<String, serde_json::Value>>>;
+
 pub struct JsxEvaluator {
     context: rquickjs::Context,
     _runtime: rquickjs::Runtime,
     stream_values: StreamValues,
     calls: StreamCalls,
     module_calls: Arc<Mutex<Vec<(String, serde_json::Value)>>>,
-    global_state: Arc<Mutex<serde_json::Map<String, serde_json::Value>>>,
+    global_state: SharedGlobals,
     /// Always `Some` after construction; `None` only transiently during `drop`.
     render_fn: Option<Persistent<Function<'static>>>,
     loaded_paths: Arc<Mutex<Vec<PathBuf>>>,
@@ -144,11 +265,56 @@ impl Loader for NoFsLoader {
     }
 }
 
+/// Whether an evaluator's runtime may touch the world. The render runtime may not:
+/// a Tick runs on the loop, and `sh` blocking it for the length of a subprocess is
+/// what the latency budgets forbid. The reconciler runtime must, because that is
+/// where hooks and `observe` run. See ADR 0034.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Effects {
+    Denied,
+    Allowed,
+}
+
 impl JsxEvaluator {
+    /// The render runtime: evaluated every Tick, and unable to touch the world.
     pub fn new(
         source: &str,
         ctx: serde_json::Value,
         base_dir: Option<&Path>,
+    ) -> rquickjs::Result<Self> {
+        Self::with_effects(source, ctx, base_dir, Effects::Denied)
+    }
+
+    /// The `globals` this evaluator reads and writes.
+    ///
+    /// Handed to the reconciler runtime so both evaluations of the layout file
+    /// see the same answer to "what has the user asked for". Without it a bar
+    /// button that flips a Unit's declared state changes only the render side's
+    /// copy, and the Unit never notices — the most obvious thing anyone will
+    /// write, silently broken.
+    pub fn globals_handle(&self) -> SharedGlobals {
+        Arc::clone(&self.global_state)
+    }
+
+    /// The reconciler runtime: the same layout file, evaluated off the loop, with
+    /// `sh` and friends registered so a Unit's hooks can run, and reading the bar's
+    /// `globals`.
+    pub fn new_reconciler(
+        source: &str,
+        ctx: serde_json::Value,
+        base_dir: Option<&Path>,
+        globals: SharedGlobals,
+    ) -> rquickjs::Result<Self> {
+        let mut evaluator = Self::with_effects(source, ctx, base_dir, Effects::Allowed)?;
+        evaluator.global_state = globals;
+        Ok(evaluator)
+    }
+
+    fn with_effects(
+        source: &str,
+        ctx: serde_json::Value,
+        base_dir: Option<&Path>,
+        effects: Effects,
     ) -> rquickjs::Result<Self> {
         let loaded_paths: Arc<Mutex<Vec<PathBuf>>> = Arc::new(Mutex::new(Vec::new()));
 
@@ -179,6 +345,34 @@ impl JsxEvaluator {
             context.with(|qjs_ctx| {
                 qjs_ctx.eval::<(), _>(JSX_GLOBALS_JS)?;
                 optative_script::register_h(&qjs_ctx)?;
+                // The reconciler vocabulary, registered but not wired as an `esto`
+                // module: a layout file reaches `unit` the way it reaches
+                // `useJSONStream`, as a global. The effectful half of that crate's
+                // builtins (`sh`, `read`, `ls`) is deliberately absent — evaluating a
+                // layout file must not touch the world, and leaving them unregistered
+                // is what makes that a guarantee rather than a convention (ADR 0034).
+                optative_script::builtins::register_all(
+                    &qjs_ctx,
+                    optative_script::builtins::RECONCILER_BUILTINS,
+                )?;
+                qjs_ctx.eval::<(), _>(
+                    "globalThis.unit = __esto_unit;
+                    globalThis.optativeSet = __esto_optative_set;
+                    globalThis.optativeJsonSet = __esto_optative_json_set;",
+                )?;
+                if effects == Effects::Allowed {
+                    optative_script::builtins::register_all(
+                        &qjs_ctx,
+                        optative_script::builtins::EFFECTFUL_BUILTINS,
+                    )?;
+                    qjs_ctx.eval::<(), _>(
+                        "globalThis.sh = __esto_sh;
+                        globalThis.read = __esto_read;
+                        globalThis.ls = __esto_ls;
+                        globalThis.exists = __esto_exists;
+                        globalThis.hash = __esto_hash;",
+                    )?;
+                }
                 // `h` isn't aliased directly to `__esto_h`: its generic-tag output nests
                 // props under a `props` key (`{type, props, children}`), but Rust-backed UI
                 // components (e.g. `@ui/card`) deserialize their `children: Vec<Node>` prop
@@ -240,6 +434,12 @@ impl JsxEvaluator {
                         .map_err(|_| rquickjs::Error::Unknown)?;
                     qjs_ctx.globals().set("ctx", js_ctx)?;
                 }
+
+                // Installed once, before the layout file can run: the collector and
+                // the hook dispatcher are the only JavaScript tauler adds to a
+                // reconciler runtime, and both are needed before the first Sweep.
+                qjs_ctx.eval::<(), _>(collect_units_source())?;
+                qjs_ctx.eval::<(), _>(dispatch_hook_source())?;
 
                 let js_source = optative_script::jsx::transform_source(source, "layout.jsx");
                 let module = rquickjs::Module::declare(qjs_ctx.clone(), "layout.jsx", js_source)?;
@@ -368,12 +568,163 @@ impl JsxEvaluator {
                 .to_string()?;
             let layout: serde_json::Value =
                 serde_json::from_str(&json_str).map_err(|_| rquickjs::Error::Unknown)?;
-            let layout = flatten_passthrough(layout);
+            let layout = crate::units::strip_items(flatten_passthrough(layout));
             Ok(EvalOutput {
                 layout,
                 stream_calls: self.calls.lock().unwrap().clone(),
                 module_calls: self.module_calls.lock().unwrap().clone(),
             })
+        })
+    }
+
+    /// Evaluate for the reconciler: the same render call, but what comes back is
+    /// the Items grouped by the live `unit()` object that declared them, not a
+    /// JSON tree.
+    ///
+    /// The walk happens in JavaScript because that is the only place a Unit is
+    /// still an object with callable hooks; once it goes through
+    /// `json_stringify` it is a bag of props and a number nobody else can
+    /// resolve. The Unit objects are parked in `__tauler_units` so a hook call
+    /// can address one by index (ADR 0034).
+    pub fn eval_units(
+        &self,
+        new_stream_values: &HashMap<(String, Option<String>), String>,
+    ) -> rquickjs::Result<Vec<crate::units::UnitBatch>> {
+        self.stream_values
+            .write()
+            .unwrap()
+            .clone_from(new_stream_values);
+        self.calls.lock().unwrap().clear();
+        self.module_calls.lock().unwrap().clear();
+        self.reset_handlers();
+
+        self.context.with(|qjs_ctx| {
+            let globals_val =
+                rquickjs_serde::to_value(qjs_ctx.clone(), &*self.global_state.lock().unwrap())
+                    .map_err(|_| rquickjs::Error::Unknown)?;
+            qjs_ctx.globals().set("__tauler_globals_raw", globals_val)?;
+            // The bar owns `globals`; the reconciler only reads them. A hook that
+            // assigns to one is trying to report, and hooks do not report — the
+            // next `observe` is what says whether anything happened (ADR 0035).
+            qjs_ctx.eval::<(), _>(
+                "globalThis.globals = __tauler_readonly(__tauler_globals_raw, 'globals');",
+            )?;
+
+            let render_fn = self.render_fn.as_ref().unwrap().clone().restore(&qjs_ctx)?;
+            let tree: rquickjs::Value = render_fn
+                .call::<(), rquickjs::Value>(())
+                .catch(&qjs_ctx)
+                .map_err(|e| {
+                tracing::error!(exception = %e, "JS exception");
+                rquickjs::Error::Exception
+            })?;
+
+            let collect: Function = qjs_ctx.globals().get("__tauler_collect_units")?;
+            let batches: rquickjs::Value = collect.call((tree,))?;
+            let json = qjs_ctx
+                .json_stringify(batches)?
+                .ok_or(rquickjs::Error::Unknown)?
+                .to_string()?;
+            serde_json::from_str(&json).map_err(|_| rquickjs::Error::Unknown)
+        })
+    }
+
+    /// Run one of a Unit's lifecycle hooks over a whole batch, returning how many
+    /// Items it actually acted on.
+    ///
+    /// `hook` is the batch spelling (`enter`), `one` the per-Item sugar
+    /// (`enterOne`). Which of the two a Unit defines is the Unit's choice and
+    /// cannot be guessed — `(p) => …` and `(ps) => …` are the same JavaScript —
+    /// so the name carries the contract (ADR 0033). Zero means the Unit defines
+    /// neither, which is a transition it is not managing, not a failure.
+    pub fn dispatch_unit_hook(
+        &self,
+        unit_index: usize,
+        hook: &str,
+        one: &str,
+        payload: &serde_json::Value,
+    ) -> usize {
+        self.context.with(|qjs_ctx| {
+            let Ok(dispatch) = qjs_ctx
+                .globals()
+                .get::<_, Function>("__tauler_dispatch_hook")
+            else {
+                return 0;
+            };
+            let Ok(payload) = rquickjs_serde::to_value(qjs_ctx.clone(), payload) else {
+                return 0;
+            };
+            dispatch
+                .call::<_, usize>((unit_index, hook, one, payload))
+                .catch(&qjs_ctx)
+                .map_err(
+                    |e| tracing::error!(exception = %e, hook, "the Unit hook threw an exception"),
+                )
+                .unwrap_or(0)
+        })
+    }
+
+    /// Call one of a Unit's projections — `key` or `value` — on a single Item.
+    ///
+    /// Projections stay per-Item where the lifecycle hooks do not: they name a
+    /// part of the Item rather than act on the world, and `esto` writes them that
+    /// way (`key: (i) => i.entity`). Batching them would buy nothing and break
+    /// every Unit that already exists.
+    pub fn call_unit_projection(
+        &self,
+        unit_index: usize,
+        projection: &str,
+        item: &serde_json::Value,
+    ) -> Option<serde_json::Value> {
+        self.context.with(|qjs_ctx| {
+            let f: Function = unit_at(&qjs_ctx, unit_index)?.get(projection).ok()?;
+            let arg = rquickjs_serde::to_value(qjs_ctx.clone(), item).ok()?;
+            let out: rquickjs::Value = f
+                .call((arg,))
+                .catch(&qjs_ctx)
+                .map_err(|e| tracing::error!(exception = %e, projection, "the projection threw an exception"))
+                .ok()?;
+            json_of(&qjs_ctx, out)
+        })
+    }
+
+    /// Read a plain property off a Unit — anything that is data rather than a
+    /// function, like `refreshInterval`.
+    pub fn unit_property(&self, unit_index: usize, name: &str) -> Option<serde_json::Value> {
+        self.context.with(|qjs_ctx| {
+            let value: rquickjs::Value = unit_at(&qjs_ctx, unit_index)?.get(name).ok()?;
+            json_of(&qjs_ctx, value)
+        })
+    }
+
+    /// Which backend a Unit's `reconciler` names — `"optativeSet"` or
+    /// `"optativeJsonSet"`.
+    pub fn reconciler_kind(&self, unit_index: usize) -> Option<String> {
+        self.context.with(|qjs_ctx| {
+            let reconciler: rquickjs::Object =
+                unit_at(&qjs_ctx, unit_index)?.get("reconciler").ok()?;
+            reconciler
+                .get(optative_script::tags::ESTO_RECONCILER_KIND)
+                .ok()
+        })
+    }
+
+    /// Ask a Unit's reconciler what the world currently holds.
+    ///
+    /// Unlike a hook this hangs off `reconciler`, because it belongs to the
+    /// backend rather than to the Unit. `None` means the Unit has no `observe` to
+    /// ask, which for `optativeSet` is a broken Unit — see [`Self::reconciler_kind`].
+    pub fn observe(&self, unit_index: usize) -> Option<serde_json::Value> {
+        self.context.with(|qjs_ctx| {
+            let reconciler: rquickjs::Object =
+                unit_at(&qjs_ctx, unit_index)?.get("reconciler").ok()?;
+            let f: Function = reconciler.get("observe").ok()?;
+            let out: rquickjs::Value = f
+                .call(())
+                .catch(&qjs_ctx)
+                .map_err(|e| tracing::error!(exception = %e, "observe threw an exception"))
+                .ok()?;
+            json_of(&qjs_ctx, out)
         })
     }
 
@@ -393,6 +744,93 @@ mod tests {
             .unwrap()
             .eval(&std::collections::HashMap::new())
             .unwrap()
+    }
+
+    /// A layout file can declare a Unit and render an Item of it. `unit()` is a
+    /// global here rather than an import, like every other name a layout file gets
+    /// `unit()` works in a layout file, and its Items do not reach the layout
+    /// tree: an Item is a statement about the world, not about the bar, and the
+    /// reconciler reads it from its own evaluation (ADR 0034). Leaving it in was
+    /// worse than useless — `layout::first_child` takes a panel's first child as
+    /// its whole content, so a Unit written above the UI would swallow it.
+    #[test]
+    fn a_layout_file_can_declare_a_unit_and_the_item_does_not_render() {
+        let result = eval(
+            r#"
+            const Light = unit({
+              key: (i) => i.entity,
+              value: (i) => i.state,
+              reconciler: optativeSet({ observe: () => [] }),
+              enterOne: (i) => `on ${i.entity}`,
+            });
+            export default function render() {
+              return <root><Light entity="light.desk" state="on" /><div>bar</div></root>;
+            }"#,
+        )
+        .layout;
+        assert_eq!(
+            result["children"].as_array().map(Vec::len),
+            Some(1),
+            "only the div survives: {result}"
+        );
+        assert_eq!(result["children"][0]["type"], "div");
+    }
+
+    /// The other half of ADR 0034: evaluating a layout file must not be able to
+    /// touch the world. `sh` exists in `optative-script` and is deliberately not
+    /// registered here, so a layout file that reaches for it fails rather than
+    /// blocking the loop on a subprocess.
+    #[test]
+    fn the_render_runtime_has_no_shell() {
+        let evaluator = JsxEvaluator::new(
+            r#"export default function render() { return <root>{typeof sh}</root>; }"#,
+            serde_json::Value::Null,
+            None,
+        )
+        .unwrap();
+        let result = evaluator
+            .eval(&std::collections::HashMap::new())
+            .unwrap()
+            .layout;
+        assert_eq!(
+            result["children"][0], "undefined",
+            "sh must not exist in the render runtime"
+        );
+    }
+
+    /// The reconciler runtime is the same evaluator with the world switched on.
+    /// A hook and an `observe` need `sh` (ADR 0034); this is the half the render
+    /// runtime is not allowed to have.
+    #[test]
+    fn the_reconciler_runtime_has_a_shell() {
+        let result = JsxEvaluator::new_reconciler(
+            r#"export default function render() { return <root>{typeof sh}</root>; }"#,
+            serde_json::Value::Null,
+            None,
+            Default::default(),
+        )
+        .unwrap()
+        .eval(&std::collections::HashMap::new())
+        .unwrap()
+        .layout;
+        assert_eq!(result["children"][0], "function");
+    }
+
+    /// And it really runs: `typeof sh` only proves a binding exists, not that the
+    /// subprocess half of it survived the trip through two crates.
+    #[test]
+    fn the_reconciler_runtimes_shell_actually_runs_a_command() {
+        let result = JsxEvaluator::new_reconciler(
+            r#"export default function render() { return <root>{sh`printf hi`}</root>; }"#,
+            serde_json::Value::Null,
+            None,
+            Default::default(),
+        )
+        .unwrap()
+        .eval(&std::collections::HashMap::new())
+        .unwrap()
+        .layout;
+        assert_eq!(result["children"][0], "hi");
     }
 
     #[test]

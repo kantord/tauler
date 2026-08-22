@@ -3670,9 +3670,9 @@ dependencies = [
 
 [[package]]
 name = "optative-script"
-version = "0.0.9"
+version = "0.0.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "36a5c8c05fcb6a24b754ad52aeeb5b73e8b16099fe92d931feee7e7e758f3444"
+checksum = "a7ba7836950a3639ab36937f643f69eaef5b83ec9c6478edd9e8b2150fbd0cce"
 dependencies = [
  "optative",
  "oxc_allocator",

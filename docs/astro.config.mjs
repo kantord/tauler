@@ -54,6 +54,7 @@ export default defineConfig({
         { slug: 'docs/layout-file' },
         { slug: 'docs/elements' },
         { slug: 'docs/data' },
+        { slug: 'docs/units' },
         { slug: 'docs/layout' },
         { slug: 'docs/components' },
         { slug: 'docs/macos' },

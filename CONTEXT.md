@@ -300,7 +300,44 @@ one tauler ships; a JavaScript module inside a page is another. A layout file na
 bin, never the transport that answers to it.
 _Avoid_: glue, backend, adapter, driver, bridge
 
-### Units
+### Reconcilers
+
+**Unit**:
+A kind of reconcilable thing: what identifies one, what value decides whether it has
+changed, how to observe the world for it, and what to do when one appears, changes or goes
+away. Declared by a `unit()` call, which returns a component — so a Unit is never a node,
+only its Items are. See ADR 0033.
+A Surface is reconciled by the same machinery. What makes a Unit its own term is that its
+hooks are the layout file's own JavaScript, and so may take as long as they like.
+_Avoid_: resource (that is a subprocess argument), target (that is a Render target), kind
+(that is a Component kind), type
+_Elsewhere_: custom resource definition (Kubernetes), provider resource (Terraform)
+
+**Item**:
+One instance of a Unit, identified by its key. What the layout tree yields, what an
+Observation reports, and what a hook receives. Two Items with the same key are the same
+thing, whether one came from the tree and the other from the world.
+_Avoid_: instance, entry, record
+
+**Observation**:
+The set of Items the world currently holds, as a Unit reports it. The only thing that
+establishes what is really there: a hook's return value is not one, and neither is the fact
+that a hook was run. See ADR 0035.
+_Avoid_: state, snapshot, current state, actual state
+
+**Sweep**:
+One turn of a Unit's reconciliation: observe, diff against what the layout declared, run
+the hooks the diff calls for. A Sweep belongs to one Unit and runs on the reconciler thread,
+so it is never a **Pass** and never a **Tick** — neither of those may wait for it.
+_Avoid_: pass, tick, cycle, loop, run
+
+**Refresh interval**:
+How often a Unit sweeps. Independent of what the last Sweep did: it is the gap between
+Sweeps, not a response to what one found. It is also the Unit's blast radius, since a Unit
+that can never converge retries exactly this often. See ADR 0035.
+_Avoid_: poll interval, retry delay, backoff (it is not a response to failure)
+
+### Measurement
 
 **Logical pixel**:
 The unit every length in a layout file is written in, and the unit i3 states gaps in.

@@ -312,8 +312,13 @@ pub(crate) struct App {
     import_watches: OptativeSet<WatchedPath>,
     theme_file_watch: OptativeSet<WatchedPath>,
     watcher: SharedWatcher,
-    stream_values: HashMap<(String, Option<String>), String>,
+    /// Shared with the reconciler thread, which evaluates the same layout file
+    /// against the same data on its own schedule (ADR 0034).
+    stream_values: tauler::units::SharedStreamValues,
     jsx_evaluator: Option<tauler::jsx::JsxEvaluator>,
+    /// Dropped and respawned on every layout reload; `None` until the first
+    /// layout loads.
+    reconciler: Option<tauler::units::Reconciler>,
     handle: DataLoopHandle,
     jsx_ctx: serde_json::Value,
     item_rx: mpsc::Receiver<((String, Option<String>), String)>,
@@ -496,7 +501,8 @@ impl App {
             import_watches: OptativeSet::new(),
             theme_file_watch: OptativeSet::new(),
             watcher,
-            stream_values: HashMap::new(),
+            stream_values: Default::default(),
+            reconciler: None,
             jsx_evaluator: None,
             handle,
             jsx_ctx,
@@ -563,7 +569,8 @@ impl App {
             import_watches: OptativeSet::new(),
             theme_file_watch: OptativeSet::new(),
             watcher,
-            stream_values: HashMap::new(),
+            stream_values: Default::default(),
+            reconciler: None,
             jsx_evaluator: None,
             handle,
             jsx_ctx,
@@ -644,7 +651,8 @@ impl App {
             import_watches: OptativeSet::new(),
             theme_file_watch: OptativeSet::new(),
             watcher,
-            stream_values: HashMap::new(),
+            stream_values: Default::default(),
+            reconciler: None,
             jsx_evaluator: None,
             handle,
             jsx_ctx,
@@ -741,9 +749,10 @@ impl App {
         let base_dir = self
             .layout_jsx_path
             .parent()
-            .unwrap_or(&self.layout_jsx_path);
+            .unwrap_or(&self.layout_jsx_path)
+            .to_path_buf();
         let evaluator =
-            match tauler::jsx::JsxEvaluator::new(&source, self.jsx_ctx.clone(), Some(base_dir)) {
+            match tauler::jsx::JsxEvaluator::new(&source, self.jsx_ctx.clone(), Some(&base_dir)) {
                 Ok(e) => e,
                 Err(e) => {
                     tracing::error!(error = %e, "JSX compile error");
@@ -751,16 +760,39 @@ impl App {
                 }
             };
         let loaded = evaluator.loaded_paths();
-        let eval_out = evaluator.eval(&self.stream_values);
+        let eval_out = evaluator.eval(&self.stream_values.read().unwrap());
         match eval_out {
             Ok(out) => {
                 tracing::debug!(elapsed_ms = t.elapsed().as_millis(), "jsx eval");
                 self.apply_eval_result_dispatch(&out);
                 self.jsx_evaluator = Some(evaluator);
                 self.reconcile_import_watches(loaded);
+                self.spawn_reconciler(&source, &base_dir);
             }
             Err(e) => tracing::error!(error = %e, "JSX eval error"),
         }
+    }
+
+    /// Hand the layout file to a fresh reconciler thread, stopping the one it
+    /// replaces first.
+    ///
+    /// This happens whether or not the layout declares a Unit, because only the
+    /// reconciler runtime can answer that and a layout can start declaring one
+    /// between two Ticks. The cost of being wrong is one module evaluation per
+    /// load, which ADR 0034 already accounts for; the cost of guessing wrong the
+    /// other way would be a Unit that silently never reconciles.
+    fn spawn_reconciler(&mut self, source: &str, base_dir: &std::path::Path) {
+        let Some(globals) = self.jsx_evaluator.as_ref().map(|e| e.globals_handle()) else {
+            return;
+        };
+        self.reconciler = None;
+        self.reconciler = Some(tauler::units::Reconciler::spawn(
+            source.to_string(),
+            self.jsx_ctx.clone(),
+            Some(base_dir.to_path_buf()),
+            std::sync::Arc::clone(&self.stream_values),
+            globals,
+        ));
     }
 
     fn handle_layout_reload(&mut self) -> bool {
@@ -780,8 +812,9 @@ impl App {
         self.theme_mode = mode;
 
         self.handle.set_desired(vec![]);
-        self.stream_values.clear();
+        self.stream_values.write().unwrap().clear();
         self.jsx_evaluator = None;
+        self.reconciler = None;
 
         if self.layout_jsx_path.exists() {
             match std::fs::read_to_string(&self.layout_jsx_path) {
@@ -789,19 +822,22 @@ impl App {
                     let base_dir = self
                         .layout_jsx_path
                         .parent()
-                        .unwrap_or(&self.layout_jsx_path);
+                        .unwrap_or(&self.layout_jsx_path)
+                        .to_path_buf();
                     match tauler::jsx::JsxEvaluator::new(
                         &source,
                         self.jsx_ctx.clone(),
-                        Some(base_dir),
+                        Some(&base_dir),
                     ) {
                         Ok(evaluator) => {
                             let loaded = evaluator.loaded_paths();
-                            match evaluator.eval(&self.stream_values) {
+                            let values = self.stream_values.read().unwrap().clone();
+                            match evaluator.eval(&values) {
                                 Ok(out) => {
                                     self.apply_eval_result_dispatch(&out);
                                     self.jsx_evaluator = Some(evaluator);
                                     self.reconcile_import_watches(loaded);
+                                    self.spawn_reconciler(&source, &base_dir);
                                 }
                                 Err(e) => tracing::error!(error = %e, "JSX eval error"),
                             }
@@ -987,8 +1023,9 @@ impl App {
         let mut answered: Vec<String> = Vec::new();
         while let Ok((key, value)) = self.item_rx.try_recv() {
             answered.push(key.0.clone());
-            if self.stream_values.get(&key).map(|s| s.as_str()) != Some(value.as_str()) {
-                self.stream_values.insert(key, value);
+            let stale = self.stream_values.read().unwrap().get(&key) != Some(&value);
+            if stale {
+                self.stream_values.write().unwrap().insert(key, value);
                 changed = true;
             }
         }
@@ -1013,7 +1050,7 @@ impl App {
             let eval_out = self
                 .jsx_evaluator
                 .as_ref()
-                .map(|e| e.eval(&self.stream_values));
+                .map(|e| e.eval(&self.stream_values.read().unwrap()));
             if let Some(eval_result) = eval_out {
                 match eval_result {
                     Ok(out) => {
@@ -1063,7 +1100,7 @@ impl App {
                     let eval_out = self
                         .jsx_evaluator
                         .as_ref()
-                        .map(|e| e.eval(&self.stream_values));
+                        .map(|e| e.eval(&self.stream_values.read().unwrap()));
                     if let Some(eval_result) = eval_out {
                         match eval_result {
                             Ok(out) => {
