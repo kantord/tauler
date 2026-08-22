@@ -1,0 +1,81 @@
+---
+// A file on screen: path + state in the titlebar, syntax-highlighted code,
+// and a footnote naming what it binds. Sits over the wallpaper field and is
+// opaque — DemoColumn redraws the exact field slice behind it (see
+// data-slice-host / data-field-slice, painted by Stage's script) rather
+// than blurring it, so the art lines up pixel-for-pixel with the wallpaper
+// it covers. Highlighting is Shiki at build time via astro:components,
+// the same engine Starlight's docs pages use for fenced code.
+//
+// Cycles through several examples automatically — DemoColumn's cycling
+// script (data-demo-frame / data-demo-dot) is what drives it; this
+// component only pre-renders every state's highlighted HTML at build time
+// and gives the script the hooks to swap which one is visible.
+import { Code } from 'astro:components'
+import type { ComponentProps } from 'astro/types'
+// Passed as a theme *object*, not the bundled-theme name string: Astro's
+// <Code> resolves a named theme against its own compiled shiki theme
+// registry, which (astro 7.2.4 + shiki 4.4.3, this lockfile) throws
+// "Theme `github-dark` is not included in this bundle" for every preset
+// name at build time even though the same lookup works outside Vite's SSR
+// bundle — passing the theme's data directly bypasses that lookup. Same
+// theme Starlight's Expressive Code uses for the docs' own fenced code.
+import githubDark from 'shiki/themes/github-dark.mjs'
+
+interface Props {
+  path: string
+  state?: string
+  states: { id: string; code: string }[]
+  lang?: ComponentProps<typeof Code>['lang']
+  note?: string
+}
+
+const { path, state = 'HOT RELOAD', states, lang = 'jsx', note } = Astro.props
+---
+
+<div
+  data-slice-host
+  class="relative overflow-hidden border border-line-2 shadow-panel"
+>
+  <canvas data-field-slice class="absolute top-0 left-0" aria-hidden="true"
+  ></canvas>
+  <div class="absolute inset-0 bg-surface-frame/85"></div>
+  <div class="relative">
+    <div
+      class="flex gap-s3 border-b border-line-2 px-s4 py-s3 font-ui text-chrome-sm tracking-chrome text-ink-3"
+    >
+      <span>{path}</span>
+      <span class="ml-auto text-accent">{state}</span>
+    </div>
+    <div data-code class="px-[18px] py-s5">
+      {
+        states.map((s, i) => (
+          <div data-demo-frame={s.id} hidden={i !== 0}>
+            <Code code={s.code} lang={lang} theme={githubDark} />
+          </div>
+        ))
+      }
+    </div>
+    {
+      note ? (
+        <div class="border-t border-line-2 px-s4 py-[13px] font-ui text-label-sm tracking-chrome text-accent">
+          {note}
+        </div>
+      ) : null
+    }
+  </div>
+</div>
+
+<style>
+  /* astro:components' <Code> inlines its own background/font/line-height
+     on the <pre> it emits; only !important can outrank an inline style. */
+  [data-code] :global(pre.astro-code) {
+    margin: 0;
+    padding: 0;
+    overflow: auto;
+    background: transparent !important;
+    font-family: var(--font-ui) !important;
+    font-size: 13.5px !important;
+    line-height: 1.72 !important;
+  }
+</style>

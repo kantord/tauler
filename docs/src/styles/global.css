@@ -66,6 +66,9 @@
   --color-line-1: oklch(1 0 0 / 0.11);
   --color-line-2: oklch(1 0 0 / 0.16);
 
+  /* Panel lift — a surface sitting over the wallpaper, not a card. */
+  --shadow-panel: 0 20px 55px oklch(0.03 0.01 265 / 0.75);
+
   /* Accent-1 (flow field). The other four workspace accents return with
      the full scroll-story page; accent-2 arrived early for the docs'
      second sidebar group (ADR-pending: see the docs revamp handoff §6).

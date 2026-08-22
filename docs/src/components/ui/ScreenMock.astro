@@ -1,0 +1,179 @@
+---
+// A schematic screenshot of what layout.jsx (in CodePanel above it)
+// produces: bezel, capture header, a terminal building and reloading it,
+// and a browser window — proof a tiled workspace isn't just terminals. It
+// depicts a screen — it is not an interface, so it carries no focusable
+// content and is hidden from assistive tech entirely; the code that
+// produces it is what's readable.
+//
+// The terminal's last two lines track CodePanel's cycling states
+// (data-demo-frame, driven by DemoColumn's script) so the reload log
+// always matches whichever example is on screen.
+//
+// Secondary text here is ink-3, not the usual ink-4: at this scale (10.5–
+// 11.5px, well under the "large text" AA threshold) ink-4 on surface-frame
+// measures ~4.46:1 — just under WCAG AA's 4.5:1 floor for small text.
+interface Props {
+  states: { id: string; reload: string }[]
+}
+
+const { states } = Astro.props
+
+// A real 1920×1080 page rendered at this pane's true size would be a few
+// hundred px wide — its text would be a couple of pixels tall, not a
+// legible sentence. Greeked bars, not real headlines: this is a
+// screenshot, not a webpage you're meant to read. Widths are fixed (not
+// random) so the build — and its visual-regression baseline — stays
+// deterministic. The same goes for the URL bar: if the page's own text
+// doesn't get to be readable, the address bar doesn't either — it's one
+// more greeked bar, not a smaller font.
+const feedRows = [
+  { title: 82, meta: 32 },
+  { title: 64, meta: 44 },
+  { title: 90, meta: 28 },
+  { title: 58, meta: 50 },
+  { title: 75, meta: 34 },
+  { title: 68, meta: 40 },
+]
+
+const tabs = [
+  { active: false, title: 26 },
+  { active: true, title: 30 },
+  { active: false, title: 22 },
+]
+---
+
+<div
+  aria-hidden="true"
+  class="flex flex-col gap-[5px] border border-line-2 bg-surface-frame p-[5px] font-ui shadow-panel"
+>
+  <div
+    class="flex items-center gap-s3 border-b border-line-1 px-s2 pb-1 text-label-sm tracking-chrome text-ink-3"
+  >
+    <span class="text-accent">■</span>
+    <span>SCREEN 1920×1080 · kantord@desk</span>
+    <span class="ml-auto" data-clock>--:--</span>
+  </div>
+  <div class="grid grid-cols-2 gap-px bg-line-1 p-px">
+    <div class="flex flex-col bg-surface-frame">
+      <div
+        class="flex gap-s2 border-b border-line-1 px-s3 py-s2 text-label-sm tracking-chrome text-ink-3"
+      >
+        <span>1: kantord@desk: ~</span>
+        <span class="ml-auto text-accent">FOCUSED</span>
+      </div>
+      <div class="flex flex-col gap-s2 px-s3 py-s3 text-chrome-sm text-ink-2">
+        <p><span class="text-accent">❯</span> cargo run --release</p>
+        <p class="text-ink-3">Compiling tauler v0.4.2</p>
+        <p class="text-ink-3">Finished release [optimized]</p>
+        {
+          states.map((s, i) => (
+            <div data-demo-frame={s.id} hidden={i !== 0}>
+              <p>
+                <span class="text-accent">❯</span> tauler reload layout.jsx
+              </p>
+              <p class="text-ink-3">{s.reload}</p>
+            </div>
+          ))
+        }
+        <p><span class="text-accent">❯</span> _</p>
+      </div>
+    </div>
+    <div class="flex flex-col bg-surface-frame">
+      <div class="flex items-end gap-px bg-line-1 px-[3px] pt-[3px]">
+        {
+          tabs.map((tab) => (
+            <div
+              class:list={[
+                'flex items-center gap-[3px] border-x border-t border-line-2 px-[5px] py-[3px]',
+                tab.active ? 'bg-surface-control' : 'bg-surface-frame',
+              ]}
+            >
+              <span
+                class:list={[
+                  'h-[4px] w-[4px] shrink-0',
+                  tab.active ? 'bg-accent' : 'bg-ink-4/60',
+                ]}
+              />
+              <div
+                class:list={[
+                  'h-[2px]',
+                  tab.active ? 'bg-ink-2/55' : 'bg-ink-4/40',
+                ]}
+                style={`width:${tab.title}px`}
+              />
+              {tab.active && <span class="text-[7px] text-ink-4">×</span>}
+            </div>
+          ))
+        }
+        <span class="pb-[3px] pl-[3px] text-[9px] text-ink-4">+</span>
+      </div>
+      <div
+        class="flex items-center gap-s2 border-b border-line-1 bg-surface-control px-s2 py-1"
+      >
+        <span class="text-[8px] text-ink-3">←</span>
+        <span class="text-[8px] text-ink-4/60">→</span>
+        <span class="text-[8px] text-ink-3">↻</span>
+        <div
+          class="flex min-w-0 flex-1 items-center border border-line-2 bg-surface-frame px-s2 py-[2px]"
+        >
+          <div class="h-[2px] w-24 bg-ink-3/40"></div>
+        </div>
+        <span class="text-[9px] text-ink-3">⋮</span>
+        <span class="shrink-0 text-label-sm text-accent">TILED</span>
+      </div>
+      {
+        /* Real Hacker News has no dark mode — it's always its own cream
+           page under whatever chrome is around it. The rest of this mock
+           is our dark UI; this one surface deliberately isn't, because
+           that's what the actual site looks like, tiled or not. */
+      }
+      <div class="flex flex-col bg-[#f6f6ef]">
+        <div class="flex items-center gap-s2 bg-accent px-s2 py-[3px]">
+          <span class="font-display text-[10px] font-semibold text-accent-ink">
+            Y
+          </span>
+          <div class="h-[3px] w-10 bg-accent-ink/45"></div>
+          <div class="ml-auto h-[2px] w-14 bg-accent-ink/30"></div>
+        </div>
+        <div class="flex flex-col">
+          {
+            feedRows.map((row) => (
+              <div class="flex items-center gap-s2 border-b border-black/10 px-s2 py-[5px] tight:py-1">
+                <span class="shrink-0 text-[8px] text-black/45">▲</span>
+                <div class="flex min-w-0 flex-1 flex-col gap-[3px]">
+                  <div
+                    class="h-[3px] bg-black/55"
+                    style={`width:${row.title}%`}
+                  />
+                  <div
+                    class="h-[2px] bg-black/30"
+                    style={`width:${row.meta}%`}
+                  />
+                </div>
+              </div>
+            ))
+          }
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+  // The visitor's own real clock — the one thing in the mock that is
+  // genuinely live, not a picture of liveness. See CLAUDE.md / the demo
+  // handoff: everything else in this schematic is static on purpose.
+  function tick(): void {
+    const now = new Date()
+    const text =
+      String(now.getHours()).padStart(2, '0') +
+      ':' +
+      String(now.getMinutes()).padStart(2, '0')
+    for (const el of document.querySelectorAll<HTMLElement>('[data-clock]')) {
+      el.textContent = text
+    }
+  }
+  tick()
+  setInterval(tick, 1000)
+</script>

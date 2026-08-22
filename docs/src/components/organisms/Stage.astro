@@ -19,6 +19,33 @@ import PageWidth from '../ui/PageWidth.astro'
   const canvas = document.getElementById('field') as HTMLCanvasElement
   const stage = canvas.parentElement as HTMLElement
 
+  /* A panel over the field never blurs what it covers — it redraws the
+     exact slice of the same field it sits on top of, offset by its own
+     position in the stage, so the art lines up pixel-for-pixel with the
+     wallpaper behind it. The slice canvas is the full stage-sized field
+     copy, positioned with a negative offset inside its own
+     overflow-hidden host so only the aligned sliver shows; that's what
+     guarantees "exact slice" rather than an independently-drawn
+     approximation. See CodePanel.astro / the demo handoff §6. */
+  function paintSlices(): void {
+    const sr = stage.getBoundingClientRect()
+    for (const host of stage.querySelectorAll<HTMLElement>(
+      '[data-slice-host]',
+    )) {
+      const slice = host.querySelector<HTMLCanvasElement>('[data-field-slice]')
+      if (!slice) continue
+      const hr = host.getBoundingClientRect()
+      slice.width = canvas.width
+      slice.height = canvas.height
+      slice.style.width = stage.clientWidth + 'px'
+      slice.style.height = stage.clientHeight + 'px'
+      slice.style.left = -(hr.left - sr.left) + 'px'
+      slice.style.top = -(hr.top - sr.top) + 'px'
+      const sctx = slice.getContext('2d')
+      if (sctx) sctx.drawImage(canvas, 0, 0)
+    }
+  }
+
   /* Draw once; repaint only on width change, debounced ≥200ms
      (height-only changes are ignored — mobile browser chrome).
      The design mandates a 2× backing store — hairline art aliases at 1× —
@@ -36,6 +63,7 @@ import PageWidth from '../ui/PageWidth.astro'
     // Hex because the canvas parses it into RGB; the token (--color-accent)
     // is oklch, which parseInt can't read. Keep in sync with global.css.
     drawField(canvas, 'flow', '#F0855A', 0, scale)
+    paintSlices()
   }
   /* Off the critical path: first paint waits for a frame so LCP text
      renders before ~90K line segments hit the main thread. */

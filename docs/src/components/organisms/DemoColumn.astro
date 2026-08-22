@@ -1,0 +1,175 @@
+---
+// The demo column: the layout.jsx panel and the schematic screen it
+// produces, standing in beside the hero's type column wherever there's
+// room for it. Hidden below xl — no design exists yet for showing both the
+// hero copy and a 560px panel column without squeezing one of them past
+// its own type ramp (see the demo handoff, "decisions you must not make
+// alone" §14).
+//
+// It cycles through a few real tauler examples on its own — the same
+// exception the workspace-scroll design made for its "reservation cycle"
+// (the demo handoff's motion budget, §7): everywhere else nothing animates
+// unless the user or real data moved it, but a demo whose whole point is
+// "describe it once, tauler runs it live" says nothing if it never
+// changes. Direct-access dots and a prefers-reduced-motion pause carry
+// over from that same precedent.
+import CodePanel from '../ui/CodePanel.astro'
+import ScreenMock from '../ui/ScreenMock.astro'
+import DemoDots from '../ui/DemoDots.astro'
+
+const demoStates = [
+  {
+    id: 'load',
+    label: 'SYSTEM METRICS',
+    reload: 'panels: top(48) · surfaces bound',
+    code: `const load = useStringStream("/bin/sh",
+  "while :; do cut -d' ' -f1 /proc/loadavg; sleep 1; done");
+
+<panel anchor="top" height={48} width={ctx.screen_width}>
+  <div class="flex h-full items-center gap-3 px-5
+              bg-card/70 text-foreground">
+    <Chart data={load.window(16)} class="w-40" />
+    <span class="ml-auto">load {load}</span>
+  </div>
+</panel>`,
+  },
+  {
+    id: 'lights',
+    label: 'SMART HOME',
+    reload: 'panels: right(64) · surfaces bound',
+    code: `const kitchen = useHomeAssistant("light.kitchen");
+
+<panel anchor="right" width={64} height={ctx.screen_height}>
+  <div class="flex h-full flex-col items-center gap-4
+              py-5 bg-card/70 text-foreground">
+    <Toggle bind={kitchen.on} onChange={kitchen.set} />
+    <span class="text-[10px]">{kitchen.on ? "ON" : "OFF"}</span>
+  </div>
+</panel>`,
+  },
+  {
+    id: 'feed',
+    label: 'LIVE DATA',
+    reload: 'panels: left(320) · surfaces bound',
+    code: `const top = useJson(
+  "https://hn.algolia.com/api/v1/search?tags=front_page");
+
+<panel anchor="left" width={320} height={ctx.screen_height}>
+  <div class="flex h-full flex-col gap-2 p-4
+              bg-card/70 text-foreground">
+    <List items={top.hits.slice(0, 5)} />
+  </div>
+</panel>`,
+  },
+]
+---
+
+<div
+  data-reveal
+  data-demo
+  class="flex w-[560px] flex-col gap-s5 max-xl:hidden tight:gap-s4"
+>
+  <CodePanel
+    path="~/.config/tauler/layout.jsx"
+    states={demoStates}
+    note="tauler:root-bg — THE FIELD BEHIND THIS PANEL IS THE SAME FIELD INSIDE IT."
+  />
+  <DemoDots states={demoStates} />
+  <ScreenMock states={demoStates} />
+</div>
+
+<script>
+  // Swaps which pre-rendered (build-time-highlighted) frame is visible,
+  // in lockstep across CodePanel and ScreenMock's terminal — both just
+  // mark their alternatives with the same data-demo-frame id. Direct
+  // access via the dots is not just a convenience: it's also the
+  // mechanism that satisfies "give the user a way to stop this" for
+  // auto-advancing content, alongside the reduced-motion pause below.
+  const root = document.querySelector<HTMLElement>('[data-demo]')
+  const frames = root
+    ? Array.from(root.querySelectorAll<HTMLElement>('[data-demo-frame]'))
+    : []
+  const dots = root
+    ? Array.from(root.querySelectorAll<HTMLButtonElement>('[data-demo-dot]'))
+    : []
+  const label = root?.querySelector<HTMLElement>('[data-demo-label]')
+  const ids = [
+    ...new Set(
+      dots
+        .map((d) => d.dataset.stateId)
+        .filter((id): id is string => Boolean(id)),
+    ),
+  ]
+
+  if (root && ids.length > 1) {
+    let index = 0
+
+    function show(id: string): void {
+      for (const frame of frames) frame.hidden = frame.dataset.demoFrame !== id
+      for (const dot of dots) {
+        if (dot.dataset.stateId === id) {
+          dot.setAttribute('aria-current', 'true')
+          if (label && dot.dataset.label) label.textContent = dot.dataset.label
+        } else {
+          dot.removeAttribute('aria-current')
+        }
+      }
+    }
+
+    const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)').matches
+    let timer: ReturnType<typeof setInterval> | undefined
+
+    function showAt(i: number): void {
+      const id = ids[i]
+      if (id) show(id)
+    }
+
+    function restart(): void {
+      clearInterval(timer)
+      if (reduceMotion) return
+      timer = setInterval(() => {
+        index = (index + 1) % ids.length
+        showAt(index)
+      }, 4500)
+    }
+
+    for (const dot of dots) {
+      dot.addEventListener('click', () => {
+        index = ids.indexOf(dot.dataset.stateId ?? '')
+        showAt(index)
+        restart()
+      })
+    }
+
+    restart()
+  }
+</script>
+
+<style>
+  /* The one thing that moves on its own here beyond the demo cycle above:
+     a single reveal on load, nothing ambient or looping (see
+     tokens/effects.css's motion budget — --dur-reveal / --ease upstream).
+     Reduced motion skips straight to the end state instead of disabling
+     the property, since a hidden-until-JS element must still end up
+     visible if the animation never plays. A data attribute, not a class,
+     so this stays outside the Tailwind class-layer contract (see
+     check-class-layers.ts). */
+  [data-reveal] {
+    animation: demo-column-reveal 620ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    [data-reveal] {
+      animation-duration: 1ms;
+    }
+  }
+  @keyframes demo-column-reveal {
+    from {
+      opacity: 0;
+      transform: translateY(10px);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+</style>
