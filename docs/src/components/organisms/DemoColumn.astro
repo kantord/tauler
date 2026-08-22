@@ -130,7 +130,13 @@ const demoStates = [
   // DemoDots' first aria-current) — there is nothing to converge until the
   // declared panel actually changes, so booting the wasm module costs
   // nothing visible even before it resolves.
-  if (root && ids.length > 1) {
+  // `max-xl:hidden` (below) means most loads never show this column at all —
+  // booting a ~1MB wasm module for a decorative widget nobody can see is the
+  // one cost this page cannot excuse itself. `display` is what that utility
+  // actually sets, so it's what's checked, not the breakpoint value itself.
+  const columnVisible = root ? getComputedStyle(root).display !== 'none' : false
+
+  if (root && ids.length > 1 && columnVisible) {
     let desiredIndex = 0
     // What the page currently shows — the Unit's own "observed world",
     // read back rather than assumed, the same rule native Units follow
@@ -177,11 +183,12 @@ const demoStates = [
         enter: converge,
         update: (pairs: { item: { id: string } }[]) =>
           converge(pairs.map((p) => p.item)),
-        // How fast the reconciler notices the declared panel changed, not
-        // how often it changes — that cadence is `advance`, below. Real
-        // Units default to 5000ms for the same reason: a fast poll here
-        // costs one tiny JSON diff, not an evaluation.
-        refreshInterval: 250,
+        // Every place `desiredIndex` changes — `advance` below, a dot click —
+        // calls `unit.sweep()` itself the same tick, so nothing here needs to
+        // poll to notice a change. This interval is only the safety net a
+        // real Unit always keeps in case a caller forgets to, at native's own
+        // default cadence — not the thing driving the cycle.
+        refreshInterval: 5000,
       })
 
       const reduceMotion = matchMedia(
@@ -189,6 +196,7 @@ const demoStates = [
       ).matches
       function advance(): void {
         desiredIndex = (desiredIndex + 1) % ids.length
+        unit.sweep()
       }
       let timer: ReturnType<typeof setInterval> | undefined
       if (!reduceMotion) timer = setInterval(advance, 4500)
