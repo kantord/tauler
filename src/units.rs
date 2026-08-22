@@ -14,10 +14,13 @@ use std::sync::RwLock;
 use std::thread::JoinHandle;
 use std::time::Duration;
 
-use optative::{Lifecycle, OptativeSet, Reconcile};
 use serde_json::Value;
 
 use crate::jsx::JsxEvaluator;
+// The diff itself — key/value projected Items in, enter/update/exit batches
+// out — is QuickJS-independent and shared with a browser Unit's identical
+// reconciliation. See `tauler_core::units_reconcile` and ADR 0036.
+use tauler_core::units_reconcile::SweepItem;
 
 /// Every Item of one Unit, as the reconciler runtime sees them.
 ///
@@ -127,88 +130,6 @@ impl SweepReport {
     }
 }
 
-/// One Item of one Unit, as the diff sees it.
-///
-/// `key` decides which Items are the same Item across a Sweep; `value` decides
-/// whether one has changed. Both come from the Unit's own projections, so what
-/// counts as "changed" is the layout file's business, not tauler's.
-struct SweepItem {
-    key: String,
-    value: Value,
-    props: Value,
-    /// Where this Item sat in the layout. `optative` diffs through a `HashMap`,
-    /// so without carrying the position a batch arrives in hash order — which is
-    /// arbitrary, varies run to run, and would make any hook whose output depends
-    /// on order (writing a file, say) nondeterministic.
-    order: usize,
-}
-
-/// What the set carries between Sweeps: the value the world last showed, the
-/// props to hand `exit` once the Item is gone from the layout and only the store
-/// remembers it, and where `observe` reported it — an exiting Item has no
-/// position in the layout, so its batch is ordered by the observation instead.
-type ItemState = (Value, Value, usize);
-
-/// The three batches a diff fills. They are flushed to JavaScript after
-/// `reconcile` returns rather than during it, because `optative`'s lifecycle is
-/// per-Item and tauler's hooks take a batch (ADR 0033) — the diff decides *which*
-/// Items, one call decides *when*.
-///
-/// `update` carries pairs rather than bare Items: `esto`'s `update(new, old)`
-/// hands the hook the previous Item so it can compute a delta, and dropping that
-/// would make tauler's `update` strictly weaker. Pairs rather than two aligned
-/// arrays, so nothing depends on two `Vec`s staying the same length.
-#[derive(Default)]
-struct Batches {
-    enter: Vec<(usize, Value)>,
-    update: Vec<(usize, (Value, Value))>,
-    exit: Vec<(usize, Value)>,
-}
-
-impl Batches {
-    /// Drop the ordering keys once they have done their job.
-    fn ordered<T>(mut batch: Vec<(usize, T)>) -> Vec<T> {
-        batch.sort_by_key(|(order, _)| *order);
-        batch.into_iter().map(|(_, item)| item).collect()
-    }
-}
-
-impl Lifecycle for SweepItem {
-    type Key = String;
-    type State = ItemState;
-    type Context = Batches;
-    type Output = ();
-    type Error = std::convert::Infallible;
-
-    fn key(&self) -> String {
-        self.key.clone()
-    }
-
-    fn enter(self, ctx: &mut Batches, _: &mut ()) -> Result<ItemState, Self::Error> {
-        ctx.enter.push((self.order, self.props.clone()));
-        Ok((self.value, self.props, self.order))
-    }
-
-    fn reconcile_self(
-        self,
-        state: &mut ItemState,
-        ctx: &mut Batches,
-        _: &mut (),
-    ) -> Result<(), Self::Error> {
-        if state.0 != self.value {
-            ctx.update
-                .push((self.order, (self.props.clone(), state.1.clone())));
-            *state = (self.value, self.props, self.order);
-        }
-        Ok(())
-    }
-
-    fn exit(state: ItemState, ctx: &mut Batches, _: &mut ()) -> Result<(), Self::Error> {
-        ctx.exit.push((state.2, state.1));
-        Ok(())
-    }
-}
-
 /// One turn of reconciliation for every Unit the layout declares: observe, diff,
 /// run the hooks the diff calls for.
 ///
@@ -264,19 +185,24 @@ fn sweep_unit(evaluator: &JsxEvaluator, batch: &UnitBatch) -> SweepReport {
     // The store is rebuilt from the observation every Sweep rather than carried
     // over, because the observation is the only thing that knows the truth —
     // a hook's return value does not (ADR 0035).
-    let observed = evaluator
+    let observed: Vec<SweepItem> = evaluator
         .observe(unit)
         .and_then(|v| match v {
             Value::Array(a) => Some(a),
             _ => None,
         })
-        .unwrap_or_default();
-    let mut set = OptativeSet::<SweepItem>::with_initial_state(
-        observed
-            .into_iter()
-            .enumerate()
-            .filter_map(|(order, item)| Some((key_of(&item)?, (value_of(&item), item, order)))),
-    );
+        .unwrap_or_default()
+        .into_iter()
+        .enumerate()
+        .filter_map(|(order, item)| {
+            Some(SweepItem {
+                key: key_of(&item)?,
+                value: value_of(&item),
+                props: item,
+                order,
+            })
+        })
+        .collect();
 
     let desired: Vec<SweepItem> = batch
         .items
@@ -292,19 +218,14 @@ fn sweep_unit(evaluator: &JsxEvaluator, batch: &UnitBatch) -> SweepReport {
         })
         .collect();
 
-    let mut acc = Batches::default();
-    set.reconcile(desired, &mut acc, &mut ());
-
-    // Exits first, so a Unit that has to free something before claiming it again
-    // — a port, a lock, a single physical device — can.
+    // The diff itself is QuickJS-independent — see `tauler_core::units_reconcile`
+    // and ADR 0036, which is also what a browser Unit reconciles through.
     //
     // A batch whose hook the Unit defines neither spelling of runs nothing and
     // counts nothing: a Unit with no `exit` is not managing what it did not
     // declare, and an `observe` that reports the whole world would otherwise hand
     // `exit` every stranger's Item on every Sweep.
-    let exit = json_items(&Batches::ordered(acc.exit));
-    let update = json_pairs(&Batches::ordered(acc.update));
-    let enter = json_items(&Batches::ordered(acc.enter));
+    let (exit, update, enter) = tauler_core::units_reconcile::reconcile(desired, observed);
     let exited = evaluator.dispatch_unit_hook(unit, "exit", "exitOne", &exit);
     let updated = evaluator.dispatch_unit_hook(unit, "update", "updateOne", &update);
     let entered = evaluator.dispatch_unit_hook(unit, "enter", "enterOne", &enter);
@@ -316,24 +237,6 @@ fn sweep_unit(evaluator: &JsxEvaluator, batch: &UnitBatch) -> SweepReport {
         next_sweep: refresh_interval(evaluator, unit),
         units: 1,
     }
-}
-
-/// The payload a batch hook receives: the Items themselves, in the order the
-/// layout declared them.
-fn json_items(items: &[Value]) -> Value {
-    Value::Array(items.to_vec())
-}
-
-/// The payload `update` receives: `{item, old}` per changed Item, so a hook can
-/// diff against what the world had before without depending on two arrays lining
-/// up.
-fn json_pairs(pairs: &[(Value, Value)]) -> Value {
-    Value::Array(
-        pairs
-            .iter()
-            .map(|(item, old)| serde_json::json!({ "item": item, "old": old }))
-            .collect(),
-    )
 }
 
 /// How often this Unit sweeps, in milliseconds, or the default.
