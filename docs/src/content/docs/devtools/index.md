@@ -12,5 +12,4 @@ Each page below is a gallery of the screenshots one test suite produces, plus wh
 suite lives and how to regenerate its shots.
 
 - [Landing page](/devtools/screenshots/landing/)
-- [Web components](/devtools/screenshots/web-components/)
 - [i3 desktop scenarios](/devtools/screenshots/i3-scenarios/)

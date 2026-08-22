@@ -1,0 +1,14 @@
+---
+title: devtools · i3 scenario screenshots
+description: Full-desktop captures from the i3/X11 end-to-end scenarios.
+---
+
+import ScreenshotGallery from '../../../../components/devtools/ScreenshotGallery.astro'
+
+export const images = import.meta.glob('../../../../assets/devtools/i3-scenarios/*.png', { eager: true })
+
+**Source:** `tauler-e2e/tests/scenarios.rs`
+
+**Regenerate:** `just e2e`
+
+<ScreenshotGallery images={images} />
