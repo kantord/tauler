@@ -132,15 +132,28 @@ const demoStates = [
     let shownId = ids[0]
 
     async function driveWithRealUnit(): Promise<void> {
-      // Both are served build products (see units.js's own header), not
-      // something Vite's bundle graph or astro check resolves: @vite-ignore
-      // leaves the import for the browser to resolve at runtime instead of
-      // Rollup failing the build over it; @ts-expect-error is the same gap
-      // on the type-checking side.
-      // @ts-expect-error — /tauler/*.js is a build product astro check never sees
-      const { boot } = await import(/* @vite-ignore */ '/tauler/runtime.js')
-      // @ts-expect-error — /tauler/*.js is a build product astro check never sees
-      const { defineUnit } = await import(/* @vite-ignore */ '/tauler/units.js')
+      // Both are served build products (see units.js's own header) living
+      // in public/, not something Vite's own module graph owns — and
+      // Vite refuses to import a public/ file at all ("can only be
+      // referenced via <script src>"). Neither @vite-ignore nor hiding
+      // the specifier behind a variable is enough to dodge that: Vite's
+      // dev-server transform rewrites *any* `import(...)` expression it
+      // sees in a file it processes (this script is one), appending its
+      // own `?import` marker regardless of whether the target was
+      // statically known — which then 500s the same way. The only
+      // reliable way to keep an `import()` invisible to that AST-level
+      // rewrite is to keep it out of the AST: `new Function` builds it
+      // from a string Vite never parses, so both dev and build hand the
+      // call to the browser's own native dynamic import, untouched. Its
+      // return type is necessarily `any` — there is no module for astro
+      // check to resolve either, the same gap `@ts-expect-error` filled
+      // before this stopped being a literal `import()` at all.
+      const dynamicImport = new Function(
+        'specifier',
+        'return import(specifier)',
+      ) as (specifier: string) => Promise<any>
+      const { boot } = await dynamicImport('/tauler/runtime.js')
+      const { defineUnit } = await dynamicImport('/tauler/units.js')
       await boot('/tauler/tauler_web_bg.wasm')
 
       function converge(items: { id: string }[]): void {
