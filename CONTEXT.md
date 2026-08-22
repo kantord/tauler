@@ -138,6 +138,13 @@ layout file (`font-[Name]`) with no assigned role. Distinct from `primary`, the 
 and `emoji`, the fallback used for emoji glyphs.
 _Avoid_: custom font, additional font
 
+**Font role**:
+A name in the active theme's `fonts` map, resolved by `font-<role>` in a layout file to
+whichever font that theme assigns it — the same mechanism `bg-primary` and `rounded-lg`
+use for `colors` and `radius`. Distinct from an **Extra font**, which a layout file
+addresses directly by its own family name with no theme involved.
+_Avoid_: theme font, font token
+
 **Tick**:
 One full re-evaluation of the layout file, triggered by any stream value changing. Every
 tick rebuilds the whole tree from scratch; nothing survives between ticks except

@@ -3,7 +3,7 @@ use std::collections::HashMap;
 
 /// Rewrite theme tokens in every `class` attribute in the tree.
 ///
-/// Only tokens this project defines are touched — a colour, a radius. Everything else
+/// Only tokens this project defines are touched — a colour, a radius, a font. Everything else
 /// is passed through verbatim, which is what lets one attribute carry both theme
 /// tokens and plain Tailwind utilities takumi resolves on its own.
 pub fn resolve_theme_tokens(value: &mut serde_json::Value, theme: &Theme, mode: ThemeMode) {
@@ -36,7 +36,7 @@ pub fn resolve_tw(classes: &str, theme: &Theme, mode: ThemeMode) -> String {
             let (modifier, inner) = split_modifier(token);
             let (important, inner) = strip_important(inner);
             let (inner, opacity) = strip_opacity(inner);
-            let resolved = resolve_inner(inner, colors, &theme.radius);
+            let resolved = resolve_inner(inner, colors, &theme.radius, &theme.fonts);
             let resolved = if let Some(op) = opacity {
                 format!("{}{}", resolved, op)
             } else {
@@ -86,6 +86,10 @@ fn try_color(prefix: &str, input: &str, colors: &HashMap<String, String>) -> Opt
     Some(format!("{}[{}]", prefix, value.replace(' ', "_")))
 }
 
+fn try_font(input: &str, fonts: &HashMap<String, String>) -> Option<String> {
+    try_color("font-", input, fonts)
+}
+
 fn try_radius(input: &str, radius: &HashMap<String, String>) -> Option<String> {
     let suffix = input.strip_prefix("rounded-")?;
     if let Some(value) = radius.get(suffix) {
@@ -109,11 +113,13 @@ fn resolve_inner(
     inner: &str,
     colors: &HashMap<String, String>,
     radius: &HashMap<String, String>,
+    fonts: &HashMap<String, String>,
 ) -> String {
     try_color("bg-", inner, colors)
         .or_else(|| try_color("text-", inner, colors))
         .or_else(|| try_color("border-", inner, colors))
         .or_else(|| try_radius(inner, radius))
+        .or_else(|| try_font(inner, fonts))
         .unwrap_or_else(|| inner.to_string())
 }
 
@@ -147,6 +153,9 @@ colors:
 radius:
   sm: "0.375rem"
   lg: "0.625rem"
+fonts:
+  heading: "Lora"
+  display: "JetBrains Mono"
 "#,
         )
         .unwrap()
@@ -214,6 +223,18 @@ radius:
         "foobar:bg-[oklch(0.922_0_0)]"
     )]
     #[case::bg_primary_opacity_50("bg-primary/50", ThemeMode::Dark, "bg-[oklch(0.922_0_0)]/50")]
+    #[case::font_heading_resolves_to_theme_value("font-heading", ThemeMode::Dark, "font-[Lora]")]
+    #[case::font_unknown_key_passes_through("font-unknown", ThemeMode::Dark, "font-unknown")]
+    #[case::font_sans_not_defined_in_theme_passes_through_unchanged(
+        "font-sans",
+        ThemeMode::Dark,
+        "font-sans"
+    )]
+    #[case::font_display_value_with_space_replaces_space_with_underscore(
+        "font-display",
+        ThemeMode::Dark,
+        "font-[JetBrains_Mono]"
+    )]
     fn resolve_tw_token_cases(
         #[case] input: &str,
         #[case] mode: ThemeMode,

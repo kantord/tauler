@@ -13,5 +13,12 @@ theme:
 # is InterVariable.ttf and `fc-list Inter` matches nothing. The image also makes
 # this the default sans-serif, so naming it here is belt and braces — and a
 # worked example of the field.
+#
+# `extra` registers JetBrains Mono under its own name rather than only as the
+# `monospace` generic the image's fonts.conf already provides — the same belt
+# and braces as `primary`, and a worked example of the field. theme.yaml's
+# `fonts.readout` points at it, so the clock in the bar renders in it.
 fonts:
   primary: Inter Variable
+  extra:
+    - JetBrains Mono
