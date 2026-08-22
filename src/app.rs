@@ -372,10 +372,16 @@ fn spawn_render_worker(command_tx: mpsc::Sender<SurfaceCommand>) -> SurfaceOutpu
 pub(crate) fn load_layout_or_exit(
     source: Option<&tauler::layout_source::LayoutSource>,
 ) -> Option<tauler::layout_source::LoadedLayout> {
-    let source = source?;
+    let Some(source) = source else {
+        tracing::error!("no layout file found (checked layout.op.mdx and layout.jsx)");
+        return None;
+    };
     match tauler::layout_source::load(source) {
         Ok(loaded) => Some(loaded),
-        Err(e @ tauler::layout_source::LayoutLoadError::Config { .. }) => {
+        Err(
+            e @ (tauler::layout_source::LayoutLoadError::Config { .. }
+            | tauler::layout_source::LayoutLoadError::Frontmatter { .. }),
+        ) => {
             tracing::error!(error = %e, "unusable layout config");
             eprintln!("tauler: {e}");
             std::process::exit(1);
@@ -1165,8 +1171,9 @@ impl Drop for App {
 #[cfg(test)]
 mod tests {
     use super::{
-        apply_eval_result, load_theme, make_mod_init_value, merge_module_props,
-        stream_calls_to_specs, theme_after_reload, theme_file_watch_desired, theme_selection,
+        apply_eval_result, load_layout_or_exit, load_theme, make_mod_init_value,
+        merge_module_props, stream_calls_to_specs, theme_after_reload, theme_file_watch_desired,
+        theme_selection,
     };
     use std::collections::HashMap;
     use std::path::PathBuf;
@@ -1593,6 +1600,14 @@ mod tests {
             Theme::default_theme().colors.dark,
             "with no theme.file the shipped default must be used"
         );
+    }
+
+    /// Claim: no layout file at all is not a crash — it draws nothing, the same way a missing
+    /// `layout.jsx` always has. This must stay reachable, not exit(1): a fresh install with
+    /// nothing configured yet is a normal state, not an unusable config (docs/adr/0036).
+    #[test]
+    fn load_layout_or_exit_returns_none_when_no_source_is_detected() {
+        assert!(load_layout_or_exit(None).is_none());
     }
 
     /// Claim: a theme.file that breaks while tauler is running leaves the palette already on

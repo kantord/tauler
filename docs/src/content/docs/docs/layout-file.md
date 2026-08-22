@@ -55,9 +55,8 @@ across two files now lives inside one.
 
 A `layout.op.mdx` with no frontmatter block at all is valid — it just means the shipped
 defaults for theme and fonts apply, the same as an absent `config.yaml` always meant.
-The frontmatter is read with a plain text search, not a markdown parser: everything after
-the closing `---` line is passed through exactly as written, so the file above the
-frontmatter block is ordinary JSX, nothing more.
+Everything after the closing `---` line is ordinary JSX, passed through exactly as
+written — nothing above the frontmatter block is markdown.
 
 **Legacy path:** `~/.config/tauler/layout.jsx` plus a sibling `~/.config/tauler/config.yaml`
 still works, and is checked when `layout.op.mdx` doesn't exist. New setups should use
