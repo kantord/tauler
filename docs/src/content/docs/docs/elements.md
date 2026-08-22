@@ -136,8 +136,8 @@ tauler's part is only registering the font so the class has something to resolve
 
 A theme can also assign fonts to **roles** — the same idea as `bg-card` or `rounded-lg`
 in [Styling: `class` and `style`](#styling-class-and-style), just for fonts. The theme
-file's `fonts:` map names a role and points it at a font; a layout file reaches it with
-`font-<role>`:
+file's `fonts:` map names a role and points it at a font. A layout file reaches that
+role with `font-<role>`:
 
 ```yaml
 # theme file
@@ -149,12 +149,12 @@ fonts:
 <h2 class="font-heading">DISK</h2>
 ```
 
-`font-heading` resolves to `font-[Lora]` at render time — but only because `"Lora"` is
-registered above via `fonts.primary` or `fonts.extra`. A role the active theme doesn't
-define passes through unchanged, and that includes `font-sans`, `font-serif` and
-`font-mono`: a theme may claim those keys to override the generics, but if it doesn't
-they still resolve through takumi's own built-in font handling exactly as before — no
-special-casing.
+`font-heading` resolves to `font-[Lora]` at render time — but only because you
+registered `"Lora"` above, via `fonts.primary` or `fonts.extra`. A role the active
+theme doesn't define passes through unchanged. This includes `font-sans`, `font-serif`,
+and `font-mono`. A theme may claim those keys to override the generic fonts. If it
+doesn't, they still resolve through takumi's built-in font handling, exactly as before
+— with no special-casing.
 
 ## Clicks
 
