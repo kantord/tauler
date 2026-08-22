@@ -29,6 +29,10 @@ const demoStates = [
     id: 'load',
     label: 'SYSTEM METRICS',
     reload: 'panels: top(48) · surfaces bound',
+    // Matches the sample's own `anchor="top"` — ScreenMock's preview reads
+    // this rather than re-deriving it from the code string, so the two can
+    // never say different things.
+    anchor: 'top' as const,
     code: `const load = useStringStream("/bin/sh",
   "while :; do cut -d' ' -f1 /proc/loadavg; sleep 1; done");
 
@@ -44,6 +48,7 @@ const demoStates = [
     id: 'lights',
     label: 'SMART HOME',
     reload: 'panels: right(64) · surfaces bound',
+    anchor: 'right' as const,
     code: `const kitchen = useHomeAssistant("light.kitchen");
 
 <panel anchor="right" width={64} height={ctx.screen_height}>
@@ -58,6 +63,7 @@ const demoStates = [
     id: 'feed',
     label: 'LIVE DATA',
     reload: 'panels: left(320) · surfaces bound',
+    anchor: 'left' as const,
     code: `const top = useJson(
   "https://hn.algolia.com/api/v1/search?tags=front_page");
 
