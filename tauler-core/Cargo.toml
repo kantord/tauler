@@ -21,7 +21,7 @@ serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"
 serde_yaml = "0.9.34"
 thiserror = "2.0.20"
-tauler-ui-macro = { path = "../tauler-ui-macro", version = "0.1.8" }
+tauler-ui-macro = { path = "../tauler-ui-macro", version = "0.1.9" }
 
 # The QuickJS half: registration, the `EsEntry` table and `UiComponent::js_fn`. Enabled by
 # `tauler`, never by the web build — `rquickjs-sys` compiles QuickJS from C and there is no

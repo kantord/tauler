@@ -5943,7 +5943,7 @@ dependencies = [
 
 [[package]]
 name = "tauler"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "anyhow",
  "cached",
@@ -5980,7 +5980,7 @@ dependencies = [
 
 [[package]]
 name = "tauler-accumulate"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "clap",
  "serde_json",
@@ -5988,7 +5988,7 @@ dependencies = [
 
 [[package]]
 name = "tauler-aerospace"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "serde_json",
  "tracing",
@@ -5997,7 +5997,7 @@ dependencies = [
 
 [[package]]
 name = "tauler-core"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "optative-script",
  "rquickjs",
@@ -6014,7 +6014,7 @@ dependencies = [
 
 [[package]]
 name = "tauler-docgen"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "clap",
  "image",
@@ -6026,7 +6026,7 @@ dependencies = [
 
 [[package]]
 name = "tauler-e2e"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "anyhow",
  "image",
@@ -6036,7 +6036,7 @@ dependencies = [
 
 [[package]]
 name = "tauler-i3"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "serde_json",
  "swayipc",
@@ -6046,7 +6046,7 @@ dependencies = [
 
 [[package]]
 name = "tauler-notify"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "serde",
  "serde_json",
@@ -6056,7 +6056,7 @@ dependencies = [
 
 [[package]]
 name = "tauler-screenshot"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "clap",
  "image",
@@ -6066,7 +6066,7 @@ dependencies = [
 
 [[package]]
 name = "tauler-ui-macro"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -6076,7 +6076,7 @@ dependencies = [
 
 [[package]]
 name = "tauler-web"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "tauler-core",
  "wasm-bindgen",
@@ -6084,7 +6084,7 @@ dependencies = [
 
 [[package]]
 name = "tauler-web-e2e"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "anyhow",
  "headless_chrome",

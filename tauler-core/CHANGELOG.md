@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.9](https://github.com/kantord/tauler/compare/tauler-core-v0.1.8...tauler-core-v0.1.9) - 2026-08-22
+
+### Added
+
+- make it easy to make anything reconcilable ([#447](https://github.com/kantord/tauler/pull/447))
+
 ## [0.1.7](https://github.com/kantord/tauler/compare/tauler-core-v0.1.6...tauler-core-v0.1.7) - 2026-08-18
 
 ### Added
