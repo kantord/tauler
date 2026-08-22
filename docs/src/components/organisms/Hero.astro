@@ -1,33 +1,13 @@
 ---
-// Workspace 01's type column: label, display line, body, install command,
-// the one accent action, and the fine print.
-import Body from '../text/Body.astro'
-import Display from '../text/Display.astro'
-import Label from '../text/Label.astro'
-import Meta from '../text/Meta.astro'
-import Button from '../ui/Button.astro'
-import CommandLine from '../ui/CommandLine.astro'
-import GithubMark from '../ui/GithubMark.astro'
-import SeamGroup from '../ui/SeamGroup.astro'
+// The hero row: the type column always, and — once there's room for both
+// without squeezing the type ramp (see DemoColumn) — the demo column
+// beside it. When DemoColumn hides itself, its grid track collapses to
+// nothing and HeroCopy simply owns the row.
+import HeroCopy from './HeroCopy.astro'
+import DemoColumn from './DemoColumn.astro'
 ---
 
-<div
-  class="relative flex max-w-hero flex-col gap-s6 py-s8 tight:gap-s5 tight:py-s6 short:gap-s2 short:py-s4"
->
-  <Label>STATUS BARS · AUTOMATIONS · SMART HOME · DATA DASHBOARDS</Label>
-  <Display>Describe your workspace once.<br />tauler runs it live.</Display>
-  <Body>
-    Unlike a dotfile manager, tauler doesn't just template config files — it
-    holds live state across the programs it drives, and keeps them matching your
-    layout on every change.
-  </Body>
-  <CommandLine>cargo install tauler</CommandLine>
-  <SeamGroup>
-    <Button href="/docs/" variant="accent">DOCS →</Button>
-    <Button href="https://github.com/kantord/tauler">
-      <GithubMark />
-      GITHUB
-    </Button>
-  </SeamGroup>
-  <Meta>Linux · X11 or Wayland · Rust 1.95+ · MIT / Apache-2.0</Meta>
+<div class="grid w-full grid-cols-[1fr_auto] items-center gap-s8">
+  <HeroCopy />
+  <DemoColumn />
 </div>

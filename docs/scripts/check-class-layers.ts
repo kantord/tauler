@@ -26,7 +26,7 @@ const TYPOGRAPHY =
   /^(font-|text-|tracking-|uppercase|lowercase|capitalize|italic|underline|no-underline|whitespace-|break-|truncate)/
 
 const SURFACE =
-  /^(bg-|border(-|$)|outline|ring|cursor-|select-|opacity-|brightness-|transition|duration-|ease-)/
+  /^(bg-|border(-|$)|shadow-|outline|ring|cursor-|select-|opacity-|brightness-|transition|duration-|ease-)/
 
 const MARKERS = /^(above-fold|crt-[\w-]+)$/
 
@@ -61,8 +61,14 @@ function astroFiles(dir: string): string[] {
     .map((e) => join(e.parentPath, e.name))
 }
 
-function classesIn(source: string): string[] {
+function classesIn(rawSource: string): string[] {
   // class="..." attributes plus string literals inside class:list={[...]}.
+  // Template literals hold sample code shown to visitors (e.g. DemoColumn's
+  // syntax-highlighted snippet) — illustrative text, not our own markup —
+  // and can legitimately contain the literal substring `class="..."`;
+  // strip them before scanning so that text is never mistaken for a real
+  // attribute on this file's own elements.
+  const source = rawSource.replace(/`[\s\S]*?`/g, '')
   const out: string[] = []
   for (const m of source.matchAll(/\bclass="([^"]*)"/g))
     out.push(...m[1].split(/\s+/))

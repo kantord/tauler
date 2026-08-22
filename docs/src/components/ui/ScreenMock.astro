@@ -1,0 +1,68 @@
+---
+// A schematic screenshot of what layout.jsx (in CodePanel above it)
+// produces: bezel, capture header, a terminal building and reloading it,
+// and the panel it just declared. It depicts a screen — it is not an
+// interface, so it carries no focusable content and is hidden from
+// assistive tech entirely; the code that produces it is what's readable.
+---
+
+<div
+  aria-hidden="true"
+  class="flex flex-col gap-[5px] border border-line-2 bg-surface-frame p-[5px] font-ui shadow-panel"
+>
+  <div
+    class="flex items-center gap-s3 border-b border-line-1 px-s2 pb-1 text-label-sm tracking-chrome text-ink-4"
+  >
+    <span class="text-accent">■</span>
+    <span>SCREEN 1920×1080 · kantord@desk</span>
+    <span class="ml-auto" data-clock>--:--</span>
+  </div>
+  <div class="grid grid-cols-2 gap-px bg-line-1 p-px">
+    <div class="flex flex-col bg-surface-frame">
+      <div
+        class="flex gap-s2 border-b border-line-1 px-s3 py-s2 text-label-sm tracking-chrome text-ink-4"
+      >
+        <span>1: kantord@desk: ~</span>
+        <span class="ml-auto text-accent">FOCUSED</span>
+      </div>
+      <div class="flex flex-col gap-s2 px-s3 py-s3 text-chrome-sm text-ink-2">
+        <p><span class="text-accent">❯</span> cargo run --release</p>
+        <p class="text-ink-4">Compiling tauler v0.4.2</p>
+        <p class="text-ink-4">Finished release [optimized]</p>
+        <p><span class="text-accent">❯</span> tauler reload layout.jsx</p>
+        <p class="text-ink-4">panels: top(48) · surfaces bound</p>
+        <p><span class="text-accent">❯</span> _</p>
+      </div>
+    </div>
+    <div class="flex flex-col bg-surface-frame">
+      <div
+        class="border-b border-line-1 px-s3 py-s2 text-label-sm tracking-chrome text-ink-4"
+      >
+        2: nvim layout.jsx
+      </div>
+      <div class="flex flex-col gap-s2 px-s3 py-s3 text-chrome-sm text-ink-3">
+        <p>&lt;panel anchor="top" height={'{48}'}&gt;</p>
+        <p>&nbsp;&nbsp;&lt;Chart data={'{load.window(16)}'} /&gt;</p>
+        <p>&nbsp;&nbsp;&lt;span&gt;load {'{load}'}&lt;/span&gt;</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+  // The visitor's own real clock — the one thing in the mock that is
+  // genuinely live, not a picture of liveness. See CLAUDE.md / the demo
+  // handoff: everything else in this schematic is static on purpose.
+  function tick(): void {
+    const now = new Date()
+    const text =
+      String(now.getHours()).padStart(2, '0') +
+      ':' +
+      String(now.getMinutes()).padStart(2, '0')
+    for (const el of document.querySelectorAll<HTMLElement>('[data-clock]')) {
+      el.textContent = text
+    }
+  }
+  tick()
+  setInterval(tick, 1000)
+</script>

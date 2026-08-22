@@ -1,0 +1,58 @@
+---
+// The demo column: the layout.jsx panel and the schematic screen it
+// produces, standing in beside the hero's type column wherever there's
+// room for it. Hidden below xl — no design exists yet for showing both the
+// hero copy and a 560px panel column without squeezing one of them past
+// its own type ramp (see the demo handoff, "decisions you must not make
+// alone" §14).
+import CodePanel from '../ui/CodePanel.astro'
+import ScreenMock from '../ui/ScreenMock.astro'
+
+const layoutSample = `const load = useStringStream("/bin/sh",
+  "while :; do cut -d' ' -f1 /proc/loadavg; sleep 1; done");
+
+<panel anchor="top" height={48} width={ctx.screen_width}>
+  <div class="flex h-full items-center gap-3 px-5
+              bg-card/70 text-foreground">
+    <Chart data={load.window(16)} class="w-40" />
+    <span class="ml-auto">load {load}</span>
+  </div>
+</panel>`
+---
+
+<div data-reveal class="flex w-[560px] flex-col gap-s5 max-xl:hidden">
+  <CodePanel
+    path="~/.config/tauler/layout.jsx"
+    code={layoutSample}
+    note="tauler:root-bg — THE FIELD BEHIND THIS PANEL IS THE SAME FIELD INSIDE IT."
+  />
+  <ScreenMock />
+</div>
+
+<style>
+  /* The one thing that moves on its own here: a single reveal on load,
+     nothing ambient or looping (see tokens/effects.css's motion budget —
+     --dur-reveal / --ease upstream). Reduced motion skips straight to the
+     end state instead of disabling the property, since a hidden-until-JS
+     element must still end up visible if the animation never plays. A
+     data attribute, not a class, so this stays outside the Tailwind
+     class-layer contract (see check-class-layers.ts). */
+  [data-reveal] {
+    animation: demo-column-reveal 620ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    [data-reveal] {
+      animation-duration: 1ms;
+    }
+  }
+  @keyframes demo-column-reveal {
+    from {
+      opacity: 0;
+      transform: translateY(10px);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+</style>
