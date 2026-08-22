@@ -3,7 +3,6 @@ use std::sync::{mpsc, Arc};
 use std::thread;
 use std::time::Duration;
 
-use tauler::config::{FontConfig, TaulerConfig};
 use tauler::data::data_loop::DataLoop;
 #[cfg(not(target_os = "macos"))]
 use tauler::data::data_loop::StreamItem;
@@ -96,9 +95,13 @@ fn spawn_freeze_watchdog(last_tick: Arc<std::sync::atomic::AtomicU64>, log_path:
     });
 }
 
+/// Watches for both layout formats at once — `layout.op.mdx`, and the legacy
+/// `layout.jsx` + `config.yaml` pair — regardless of which one is actually active. This
+/// is what lets a config created after tauler booted with nothing configured still be
+/// picked up (`App::handle_layout_reload` re-detects while nothing was found yet); it is
+/// also just as correct for the common case where one of the three never appears at all.
 fn setup_file_watchers(
-    layout_jsx_path: &std::path::Path,
-    config_yaml_path: &std::path::Path,
+    config_dir: &std::path::Path,
     exe_path: &std::path::Path,
     reload_tx: mpsc::Sender<()>,
     bin_reload_tx: mpsc::Sender<()>,
@@ -107,8 +110,11 @@ fn setup_file_watchers(
     use notify::{EventKind, RecursiveMode, Watcher};
 
     let exe = exe_path.to_path_buf();
-    let layout_jsx = layout_jsx_path.to_path_buf();
-    let config_yaml = config_yaml_path.to_path_buf();
+    let watched_layout_paths = [
+        config_dir.join("layout.op.mdx"),
+        config_dir.join("layout.jsx"),
+        config_dir.join("config.yaml"),
+    ];
 
     let watcher = notify::recommended_watcher(move |res: notify::Result<notify::Event>| {
         let Ok(event) = res else { return };
@@ -120,7 +126,7 @@ fn setup_file_watchers(
             if *path == exe {
                 let _ = bin_reload_tx.send(());
                 let _ = dl_wake_tx.try_send(());
-            } else if *path == layout_jsx || *path == config_yaml {
+            } else if watched_layout_paths.contains(path) {
                 let _ = reload_tx.send(());
                 let _ = dl_wake_tx.try_send(());
             }
@@ -132,11 +138,12 @@ fn setup_file_watchers(
 
     {
         let mut w = watcher.lock().unwrap();
-        for dir in [layout_jsx_path, config_yaml_path, exe_path]
-            .iter()
-            .filter_map(|p| p.parent())
-            .collect::<std::collections::HashSet<_>>()
-        {
+        let dirs: std::collections::HashSet<&std::path::Path> =
+            [Some(config_dir), exe_path.parent()]
+                .into_iter()
+                .flatten()
+                .collect();
+        for dir in dirs {
             if dir.exists() {
                 let _ = w.watch(dir, RecursiveMode::NonRecursive);
             }
@@ -144,14 +151,6 @@ fn setup_file_watchers(
     }
 
     watcher
-}
-
-fn load_font_config(config_path: &std::path::Path) -> FontConfig {
-    std::fs::read_to_string(config_path)
-        .ok()
-        .and_then(|yaml| TaulerConfig::from_yaml(&yaml).ok())
-        .map(|c| c.fonts)
-        .unwrap_or_default()
 }
 
 #[cfg(not(target_os = "macos"))]
@@ -248,10 +247,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let exe_path = std::env::current_exe().unwrap_or_default();
 
     let home = std::env::var("HOME").unwrap_or_default();
-    let layout_jsx_path = std::path::PathBuf::from(&home).join(".config/tauler/layout.jsx");
-    let config_yaml_path = std::path::PathBuf::from(&home).join(".config/tauler/config.yaml");
+    let config_dir = std::path::PathBuf::from(&home).join(".config/tauler");
 
-    let font_config = load_font_config(&config_yaml_path);
+    // `layout.op.mdx` if it exists, else the legacy `layout.jsx` + `config.yaml` pair,
+    // else nothing configured yet (`docs/adr/0036`) — decided once, here, for the
+    // process's lifetime; a reload only re-detects if this is `None`.
+    let layout_source = tauler::layout_source::LayoutSource::detect(&config_dir);
+    let font_config = app::load_layout_or_exit(layout_source.as_ref())
+        .map(|l| l.config.fonts)
+        .unwrap_or_default();
 
     let last_tick = Arc::new(std::sync::atomic::AtomicU64::new(0));
     spawn_freeze_watchdog(Arc::clone(&last_tick), log_path);
@@ -267,8 +271,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let (reload_tx, reload_rx) = mpsc::channel::<()>();
     let (bin_reload_tx, bin_reload_rx) = mpsc::channel::<()>();
     let _watcher = setup_file_watchers(
-        &layout_jsx_path,
-        &config_yaml_path,
+        &config_dir,
         &exe_path,
         reload_tx,
         bin_reload_tx,
@@ -295,8 +298,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         handle,
         rx,
         item_tx,
-        layout_jsx_path,
-        config_yaml_path,
+        config_dir,
+        layout_source,
         module_event_txs,
         stop: Arc::clone(&stop),
         last_tick,
@@ -311,8 +314,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             server,
             handle,
             rx,
-            layout_jsx_path,
-            config_yaml_path,
+            config_dir,
+            layout_source,
             Arc::clone(&module_event_txs),
             Arc::clone(&stop),
             Arc::clone(&last_tick),
@@ -333,8 +336,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             x11,
             handle,
             rx,
-            layout_jsx_path,
-            config_yaml_path,
+            config_dir,
+            layout_source,
             module_event_txs,
             Arc::clone(&stop),
             Arc::clone(&last_tick),

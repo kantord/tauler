@@ -301,7 +301,15 @@ pub(crate) struct MacInit {
 pub(crate) struct App {
     theme: Theme,
     theme_mode: ThemeMode,
-    config_path: std::path::PathBuf,
+    /// The directory a layout is resolved from — `~/.config/tauler` in practice. Kept
+    /// unconditionally (unlike `layout_source`, which may be `None`) so a reload can
+    /// retry detection if nothing was found at boot.
+    config_dir: std::path::PathBuf,
+    /// Which files the layout is made of, chosen once — `None` if neither format was
+    /// found. Re-detected on a reload only while still `None`; once a format is found it
+    /// is locked in for the process's lifetime (`docs/adr/0036`: switching formats needs
+    /// a restart).
+    layout_source: Option<tauler::layout_source::LayoutSource>,
     dpr: f32,
     dpi: f32,
     output_name: String,
@@ -324,7 +332,6 @@ pub(crate) struct App {
     item_rx: mpsc::Receiver<((String, Option<String>), String)>,
     bin_reload_rx: mpsc::Receiver<()>,
     reload_rx: mpsc::Receiver<()>,
-    layout_jsx_path: std::path::PathBuf,
     stop: Arc<AtomicBool>,
     last_tick: Arc<std::sync::atomic::AtomicU64>,
     outputs: SurfaceOutputs,
@@ -353,11 +360,31 @@ fn spawn_render_worker(command_tx: mpsc::Sender<SurfaceCommand>) -> SurfaceOutpu
     SurfaceOutputs { commands, jobs }
 }
 
-fn parse_config(config_path: &std::path::Path) -> TaulerConfig {
-    std::fs::read_to_string(config_path)
-        .ok()
-        .and_then(|s| TaulerConfig::from_yaml(&s).ok())
-        .unwrap_or_default()
+/// The layout and config a [`tauler::layout_source::LayoutSource`] resolves to right now,
+/// or `None` when nothing is configured or the layout/JS itself is unreadable — the
+/// caller draws nothing rather than crash, same as a missing file always has.
+///
+/// An unusable *config* (invalid frontmatter, or invalid `config.yaml` on the legacy
+/// path) is different: it ends the process, same reasoning `docs/adr/0033` gives for an
+/// unusable `theme.file`, extended in `docs/adr/0036` to the whole config. This is a
+/// startup-only policy — call it from a constructor or `initial_load`, never from a
+/// reload handler, which must never exit.
+pub(crate) fn load_layout_or_exit(
+    source: Option<&tauler::layout_source::LayoutSource>,
+) -> Option<tauler::layout_source::LoadedLayout> {
+    let source = source?;
+    match tauler::layout_source::load(source) {
+        Ok(loaded) => Some(loaded),
+        Err(e @ tauler::layout_source::LayoutLoadError::Config { .. }) => {
+            tracing::error!(error = %e, "unusable layout config");
+            eprintln!("tauler: {e}");
+            std::process::exit(1);
+        }
+        Err(e) => {
+            tracing::error!(error = %e, "layout load error");
+            None
+        }
+    }
 }
 
 /// Why a `theme.file` the config named could not be turned into a [`Theme`].
@@ -386,16 +413,13 @@ impl std::fmt::Display for ThemeLoadError {
     }
 }
 
-/// What `config.yaml` asks tauler to render with: the mode, and the theme file to read if one
-/// is named.
+/// What a loaded config asks tauler to render with: the mode, and the theme file to read if
+/// one is named.
 ///
 /// Reading that file is [`load_theme`]'s job. The two are separate because naming no file is
 /// not a failure while naming one tauler cannot read is, and only the caller knows which of
 /// those it can survive.
-fn theme_selection_from_config(
-    config_path: &std::path::Path,
-) -> (ThemeMode, Option<std::path::PathBuf>) {
-    let config = parse_config(config_path);
+fn theme_selection(config: &TaulerConfig) -> (ThemeMode, Option<std::path::PathBuf>) {
     let file = config
         .theme
         .file
@@ -463,8 +487,8 @@ impl App {
         x11: X11Init,
         handle: DataLoopHandle,
         rx: TickReceivers,
-        layout_jsx_path: std::path::PathBuf,
-        config_path: std::path::PathBuf,
+        config_dir: std::path::PathBuf,
+        layout_source: Option<tauler::layout_source::LayoutSource>,
         module_event_txs: ModuleEventTxs,
         stop: Arc<AtomicBool>,
         last_tick: Arc<std::sync::atomic::AtomicU64>,
@@ -485,12 +509,16 @@ impl App {
         let presenter_thread = thread::spawn(move || {
             run_x11_presenter_thread(pt, command_rx, events);
         });
-        let (theme_mode, theme_file_path) = theme_selection_from_config(&config_path);
+        let config = load_layout_or_exit(layout_source.as_ref())
+            .map(|l| l.config)
+            .unwrap_or_default();
+        let (theme_mode, theme_file_path) = theme_selection(&config);
         let theme = load_theme_or_exit(theme_file_path.as_deref());
         let mut state = Self {
             theme,
             theme_mode,
-            config_path,
+            config_dir,
+            layout_source,
             dpr,
             dpi,
             output_name,
@@ -509,7 +537,6 @@ impl App {
             item_rx: rx.item_rx,
             bin_reload_rx: rx.bin_reload_rx,
             reload_rx: rx.reload_rx,
-            layout_jsx_path,
             stop,
             last_tick,
             outputs: spawn_render_worker(command_tx),
@@ -530,8 +557,8 @@ impl App {
         server: WaylandDisplayServer,
         handle: DataLoopHandle,
         rx: TickReceivers,
-        layout_jsx_path: std::path::PathBuf,
-        config_path: std::path::PathBuf,
+        config_dir: std::path::PathBuf,
+        layout_source: Option<tauler::layout_source::LayoutSource>,
         module_event_txs: ModuleEventTxs,
         stop: Arc<AtomicBool>,
         last_tick: Arc<std::sync::atomic::AtomicU64>,
@@ -553,12 +580,16 @@ impl App {
         let presenter_thread = thread::spawn(move || {
             run_wayland_presenter_thread(pt, command_rx, events);
         });
-        let (theme_mode, theme_file_path) = theme_selection_from_config(&config_path);
+        let config = load_layout_or_exit(layout_source.as_ref())
+            .map(|l| l.config)
+            .unwrap_or_default();
+        let (theme_mode, theme_file_path) = theme_selection(&config);
         let theme = load_theme_or_exit(theme_file_path.as_deref());
         let mut state = Self {
             theme,
             theme_mode,
-            config_path,
+            config_dir,
+            layout_source,
             dpr: initial_dpr,
             dpi: 96.0,
             output_name: String::new(),
@@ -577,7 +608,6 @@ impl App {
             item_rx: rx.item_rx,
             bin_reload_rx: rx.bin_reload_rx,
             reload_rx: rx.reload_rx,
-            layout_jsx_path,
             stop,
             last_tick,
             outputs: spawn_render_worker(command_tx),
@@ -600,8 +630,8 @@ impl App {
         mac: MacInit,
         handle: DataLoopHandle,
         rx: TickReceivers,
-        layout_jsx_path: std::path::PathBuf,
-        config_path: std::path::PathBuf,
+        config_dir: std::path::PathBuf,
+        layout_source: Option<tauler::layout_source::LayoutSource>,
         module_event_txs: ModuleEventTxs,
         stop: Arc<AtomicBool>,
         last_tick: Arc<std::sync::atomic::AtomicU64>,
@@ -635,12 +665,16 @@ impl App {
                 dpr,
             },
         )]);
-        let (theme_mode, theme_file_path) = theme_selection_from_config(&config_path);
+        let config = load_layout_or_exit(layout_source.as_ref())
+            .map(|l| l.config)
+            .unwrap_or_default();
+        let (theme_mode, theme_file_path) = theme_selection(&config);
         let theme = load_theme_or_exit(theme_file_path.as_deref());
         let mut state = Self {
             theme,
             theme_mode,
-            config_path,
+            config_dir,
+            layout_source,
             dpr,
             dpi: dpr * DEFAULT_DPI,
             output_name,
@@ -659,7 +693,6 @@ impl App {
             item_rx: rx.item_rx,
             bin_reload_rx: rx.bin_reload_rx,
             reload_rx: rx.reload_rx,
-            layout_jsx_path,
             stop,
             last_tick,
             outputs: spawn_render_worker(command_tx),
@@ -735,22 +768,12 @@ impl App {
     }
 
     fn initial_load(&mut self) {
-        if !self.layout_jsx_path.exists() {
+        let Some(loaded) = load_layout_or_exit(self.layout_source.as_ref()) else {
             return;
-        }
-        let source = match std::fs::read_to_string(&self.layout_jsx_path) {
-            Ok(s) => s,
-            Err(e) => {
-                tracing::error!(error = %e, "JSX file error");
-                return;
-            }
         };
+        let source = loaded.js_source;
         let t = std::time::Instant::now();
-        let base_dir = self
-            .layout_jsx_path
-            .parent()
-            .unwrap_or(&self.layout_jsx_path)
-            .to_path_buf();
+        let base_dir = self.config_dir.clone();
         let evaluator =
             match tauler::jsx::JsxEvaluator::new(&source, self.jsx_ctx.clone(), Some(&base_dir)) {
                 Ok(e) => e,
@@ -799,16 +822,38 @@ impl App {
         if self.reload_rx.try_recv().is_err() {
             return false;
         }
-        let config = parse_config(&self.config_path);
-        tauler::reload_font_config(config.fonts);
+
+        // A format found at boot is locked in for the process's lifetime — switching
+        // formats needs a restart (`docs/adr/0036`). Only retry detection here while
+        // nothing was found yet, so a config created after a from-empty boot is still
+        // picked up without one.
+        if self.layout_source.is_none() {
+            self.layout_source = tauler::layout_source::LayoutSource::detect(&self.config_dir);
+        }
+        let Some(source) = self.layout_source.clone() else {
+            tracing::error!("no layout file found (checked layout.op.mdx and layout.jsx)");
+            return false;
+        };
+        let loaded = match tauler::layout_source::load(&source) {
+            Ok(loaded) => loaded,
+            Err(e) => {
+                tracing::error!(
+                    error = %e,
+                    "layout/config load error, keeping the layout already in use"
+                );
+                return false;
+            }
+        };
+
+        let (mode, theme_file_path) = theme_selection(&loaded.config);
+        tauler::reload_font_config(loaded.config.fonts);
         // Every frame the worker has kept was drawn with the fonts just replaced.
         let _ = self
             .outputs
             .jobs
             .send(tauler::render::worker::RenderJob::FontsChanged);
-        let (mode, theme_file_path) = theme_selection_from_config(&self.config_path);
-        let loaded = load_theme(theme_file_path.as_deref());
-        self.theme = theme_after_reload(&self.theme, loaded);
+        let theme_loaded = load_theme(theme_file_path.as_deref());
+        self.theme = theme_after_reload(&self.theme, theme_loaded);
         self.theme_mode = mode;
 
         self.handle.set_desired(vec![]);
@@ -816,37 +861,26 @@ impl App {
         self.jsx_evaluator = None;
         self.reconciler = None;
 
-        if self.layout_jsx_path.exists() {
-            match std::fs::read_to_string(&self.layout_jsx_path) {
-                Ok(source) => {
-                    let base_dir = self
-                        .layout_jsx_path
-                        .parent()
-                        .unwrap_or(&self.layout_jsx_path)
-                        .to_path_buf();
-                    match tauler::jsx::JsxEvaluator::new(
-                        &source,
-                        self.jsx_ctx.clone(),
-                        Some(&base_dir),
-                    ) {
-                        Ok(evaluator) => {
-                            let loaded = evaluator.loaded_paths();
-                            let values = self.stream_values.read().unwrap().clone();
-                            match evaluator.eval(&values) {
-                                Ok(out) => {
-                                    self.apply_eval_result_dispatch(&out);
-                                    self.jsx_evaluator = Some(evaluator);
-                                    self.reconcile_import_watches(loaded);
-                                    self.spawn_reconciler(&source, &base_dir);
-                                }
-                                Err(e) => tracing::error!(error = %e, "JSX eval error"),
-                            }
-                        }
-                        Err(e) => tracing::error!(error = %e, "JSX compile error"),
+        let base_dir = self.config_dir.clone();
+        match tauler::jsx::JsxEvaluator::new(
+            &loaded.js_source,
+            self.jsx_ctx.clone(),
+            Some(&base_dir),
+        ) {
+            Ok(evaluator) => {
+                let loaded_paths = evaluator.loaded_paths();
+                let values = self.stream_values.read().unwrap().clone();
+                match evaluator.eval(&values) {
+                    Ok(out) => {
+                        self.apply_eval_result_dispatch(&out);
+                        self.jsx_evaluator = Some(evaluator);
+                        self.reconcile_import_watches(loaded_paths);
+                        self.spawn_reconciler(&loaded.js_source, &base_dir);
                     }
+                    Err(e) => tracing::error!(error = %e, "JSX eval error"),
                 }
-                Err(e) => tracing::error!(error = %e, "JSX file error"),
             }
+            Err(e) => tracing::error!(error = %e, "JSX compile error"),
         }
         self.reconcile_theme_file_watch(theme_file_path);
         tracing::info!("layout reloaded");
@@ -1132,12 +1166,12 @@ impl Drop for App {
 mod tests {
     use super::{
         apply_eval_result, load_theme, make_mod_init_value, merge_module_props,
-        stream_calls_to_specs, theme_after_reload, theme_file_watch_desired,
-        theme_selection_from_config,
+        stream_calls_to_specs, theme_after_reload, theme_file_watch_desired, theme_selection,
     };
     use std::collections::HashMap;
     use std::path::PathBuf;
     use std::sync::mpsc;
+    use tauler::config::TaulerConfig;
     use tauler::data::data_loop::{DataLoop, StreamSource};
     use tauler::layout::OutputInfo;
     use tauler::presentation::SurfaceCommand;
@@ -1475,15 +1509,14 @@ mod tests {
         );
     }
 
-    /// Claim: when theme.file is set to a tilde path in config, theme_selection_from_config
-    /// returns the tilde-expanded absolute path.
+    /// Claim: when theme.file is set to a tilde path in config, theme_selection returns
+    /// the tilde-expanded absolute path.
     #[test]
-    fn theme_selection_from_config_returns_expanded_path_when_file_is_configured() {
-        let dir = tempfile::tempdir().expect("tempdir");
-        let config_path = dir.path().join("config.yaml");
-        std::fs::write(&config_path, "theme:\n  file: ~/some/theme.yaml\n").expect("write config");
+    fn theme_selection_returns_expanded_path_when_file_is_configured() {
+        let config = TaulerConfig::from_yaml("theme:\n  file: ~/some/theme.yaml\n")
+            .expect("valid yaml should parse");
 
-        let (_mode, path) = theme_selection_from_config(&config_path);
+        let (_mode, path) = theme_selection(&config);
 
         let home = std::env::var("HOME").expect("HOME must be set");
         let expected = PathBuf::from(&home).join("some/theme.yaml");
@@ -1494,15 +1527,14 @@ mod tests {
         );
     }
 
-    /// Claim: when no theme.file is configured, theme_selection_from_config returns None so the
+    /// Claim: when no theme.file is configured, theme_selection returns None so the
     /// caller knows there is no file to watch.
     #[test]
-    fn theme_selection_from_config_returns_none_when_no_file_configured() {
-        let dir = tempfile::tempdir().expect("tempdir");
-        let config_path = dir.path().join("config.yaml");
-        std::fs::write(&config_path, "theme:\n  mode: dark\n").expect("write config");
+    fn theme_selection_returns_none_when_no_file_configured() {
+        let config =
+            TaulerConfig::from_yaml("theme:\n  mode: dark\n").expect("valid yaml should parse");
 
-        let (_mode, path) = theme_selection_from_config(&config_path);
+        let (_mode, path) = theme_selection(&config);
 
         assert_eq!(
             path, None,
