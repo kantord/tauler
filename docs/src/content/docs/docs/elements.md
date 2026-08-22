@@ -102,6 +102,36 @@ Property names are camelCase (`backgroundColor`, `maxWidth`), and a bare number 
 logical pixels. `style` wins over `class`, and `class` wins over the tag's preset — the
 same order CSS uses.
 
+## Fonts
+
+`fonts.primary` and `fonts.emoji` in `config.yaml` fill fixed roles — the sans-serif
+default, and the fallback used for emoji glyphs. `fonts.extra` registers further fonts
+with no assigned role, each usable by name from wherever you want it in the layout file:
+
+```yaml
+fonts:
+  primary: "Inter Variable"
+  emoji: "Noto Color Emoji"
+  extra:
+    - "Lora"
+    - "JetBrains Mono"
+    - path: "~/.fonts/MyIconFont.ttf"
+```
+
+An entry is either a family name — resolved through fontconfig the same way `primary`
+is — or a `path:` to one exact file, for a font that isn't installed system-wide.
+
+Reach an extra font with a Tailwind-style arbitrary class, `font-[Name]`. Spaces in a
+multi-word family become underscores:
+
+```jsx
+<span class="font-[Lora]">Heading</span>
+<span class="font-[JetBrains_Mono]">12:45</span>
+```
+
+This is takumi's own arbitrary-class parsing, the same mechanism behind `text-[10px]`;
+tauler's part is only registering the font so the class has something to resolve to.
+
 ## Clicks
 
 `on_click` goes on the element you want clickable, and only fires on elements that have a

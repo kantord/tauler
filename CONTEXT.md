@@ -132,6 +132,12 @@ carries theme mode and font choice — what to render with, never what to render
 describing a surface, its contents or its data belongs in the layout file.
 _Avoid_: config, config file, theme file (all three name the `.yaml`, not this)
 
+**Extra font**:
+A font registered under `fonts.extra` in `config.yaml`, usable directly by name in a
+layout file (`font-[Name]`) with no assigned role. Distinct from `primary`, the default,
+and `emoji`, the fallback used for emoji glyphs.
+_Avoid_: custom font, additional font
+
 **Tick**:
 One full re-evaluation of the layout file, triggered by any stream value changing. Every
 tick rebuilds the whole tree from scratch; nothing survives between ticks except
