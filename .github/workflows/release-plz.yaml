@@ -113,14 +113,30 @@ jobs:
       # cycle where a sibling crate has no commits of its own therefore produces a
       # release PR that fails `workspace_manifests_test`. Correct it in place rather
       # than by hand on every such PR.
+      #
+      # `steps.release-pr.outputs.pr` is a JSON string, or empty when the previous
+      # step didn't get far enough to open a PR (e.g. it hit
+      # release-plz/release-plz#2878). Parsing happens in bash, not a YAML `fromJSON`
+      # expression: a step's `env:` block evaluates before its `if:` is checked, so a
+      # `fromJSON('')` there throws regardless of any `if:` guard on the step -- which
+      # is exactly what took this step down the day it was written to fix the case
+      # above.
       - name: Sync intra-workspace version requirements
-        if: ${{ fromJSON(steps.release-pr.outputs.pr).head_branch != '' }}
         env:
-          HEAD_BRANCH: ${{ fromJSON(steps.release-pr.outputs.pr).head_branch }}
+          RELEASE_PR_JSON: ${{ steps.release-pr.outputs.pr }}
         run: |
           set -euo pipefail
-          git fetch origin "$HEAD_BRANCH"
-          git checkout "$HEAD_BRANCH"
+          if [ -z "${RELEASE_PR_JSON:-}" ]; then
+            echo "release-pr produced no output; nothing to sync."
+            exit 0
+          fi
+          head_branch=$(printf '%s' "$RELEASE_PR_JSON" | jq -r '.head_branch // empty')
+          if [ -z "$head_branch" ]; then
+            echo "release-pr output had no head_branch; nothing to sync."
+            exit 0
+          fi
+          git fetch origin "$head_branch"
+          git checkout "$head_branch"
           ./scripts/sync-workspace-versions.sh
           if git diff --quiet; then
             echo "Version requirements already in sync."
@@ -129,4 +145,4 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git commit -am "chore: sync intra-workspace version requirements"
-          git push origin "$HEAD_BRANCH"
+          git push origin "$head_branch"

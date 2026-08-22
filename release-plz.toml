@@ -31,9 +31,12 @@ version_group = "tauler"
 name = "tauler-accumulate"
 version_group = "tauler"
 
+# Deliberately NOT in the "tauler" version_group: `tauler` and `tauler-core` depend on
+# it by path *and* version, and lockstepping its version with the rest of the workspace
+# means release-plz moves its manifest version even on cycles with no commits of its
+# own -- see the comment on its `version` field in tauler-ui-macro/Cargo.toml.
 [[package]]
 name = "tauler-ui-macro"
-version_group = "tauler"
 
 [[package]]
 name = "tauler-docgen"
