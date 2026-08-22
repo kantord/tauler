@@ -8,29 +8,58 @@ is deliberately kept on it so the legacy path stays under screenshot-test covera
 
 ## Why frontmatter, not a plain JS export
 
-The alternative that needed no upstream work at all was a single `.jsx`/`.tsx` file
+The alternative that needed no new convention at all was a single `.jsx`/`.tsx` file
 exporting `const config = {...}` alongside the existing `export default render`. It was
-rejected in favor of real `.op.mdx` frontmatter, even though frontmatter requires a new
-feature in `optative-script-mdx` and the plain-JS route requires nothing upstream.
+rejected in favor of frontmatter, on the same reasoning [0008](0008-layout-files-are-jsx-on-quickjs.md)
+already used against declarative config formats, read the other way: `theme.mode` and
+`fonts.primary` are data, not a tree that grows conditionals and loops the way a layout
+does. 0008's argument was about the *layout*, which stays JSX; the config half was never
+the part doing that growing, in `config.yaml` or anywhere else. Frontmatter names that
+boundary in the file itself instead of leaving it implicit across two files.
 
-This is a partial retreat from [0008](0008-layout-files-are-jsx-on-quickjs.md), which
-argued against declarative config formats in favor of a real language, for exactly the
-reason 0008 gives: `theme.mode` and `fonts.primary` are data, not a tree that grows
-conditionals and loops the way a layout does. 0008's argument was about the *layout*,
-which stays JSX; the config half was never the part doing that growing, in `config.yaml`
-or anywhere else. Frontmatter names that boundary in the file itself instead of leaving it
-implicit across two files.
+## Why `.op.mdx` doesn't mean real mdx lowering
 
-## Why `.op.mdx`, not a new bare `.mdx`
+`optative-script-mdx` (the crate behind esto's own `.op.mdx` documents) turned out to be
+the wrong tool here, for a reason only surfaced by testing it against a real layout file
+rather than a synthetic one. Its lowering *synthesizes* the module's `export default`
+from whatever flow JSX it finds — the crate's own docs say outright that "the author
+never writes the default export themselves." Tauler's layout files do the opposite: they
+declare `export default function render() { ...local consts, useJSONStream() calls...;
+return <tree>; }` themselves, per [0008](0008-layout-files-are-jsx-on-quickjs.md) and
+[0007](0007-every-tick-re-renders-everything.md) (a plain function, called fresh every
+tick — deliberately not a reconciler/diffing model, for the same performance reasoning
+0007 gives). Feeding a real layout file through `lower_to_tsx_with_frontmatter` produces
+two competing `export default`s — the author's, plus the crate's synthesized empty one —
+which is simply a syntax error, not a subtle bug.
 
-`optative-script-mdx` already dispatches its markdown lowering on a `.op.mdx` suffix
-(`MDX_EXTENSION` in that crate's `lib.rs`); a bare `.mdx` would need a second upstream
-change purely to teach it a new extension, for no behavioral gain. Reusing `.op.mdx` means
-the only upstream work is the frontmatter feature itself.
+This is not a gap in optative-script-mdx: it was built for esto's prompt-authoring
+documents, which have no render function and no concept of "re-render this tree from
+live data" at all — reconciliation there is about converging external side effects
+([0033](0033-reconcilers-are-esto-units.md)), not producing a tree. Making tauler's
+render side fit `.op.mdx`'s model would mean reverting 0007, not adopting a library
+feature — a full rearchitecture for an unrelated, still-valid decision, not something
+this change does.
 
-The JSX-body lowering underneath needs no change either way: a layout file has no
-headings or prose, so `lower_to_tsx`'s `compile_root` already takes the array-of-elements
-fallback path that a heading-free document gets today.
+So `layout.op.mdx`'s frontmatter is extracted by tauler itself, with a plain text search
+(`layout_source::split_frontmatter`): a line that is exactly `---`, then arbitrary YAML
+lines, then another line that is exactly `---`. Everything after the closing fence is the
+JS/JSX body, passed to `JsxEvaluator` **byte-for-byte unchanged** — the same
+`export default function render() {...}` shape a layout file has always used. No markdown
+parsing, no lowering, no dependency on `optative-script-mdx` at all.
+
+The `.op.mdx` extension is kept anyway, for two reasons: it still reads as "an optative
+script, markdown-flavored" to a human, and it stays open to a real future feature —
+opt-in markdown-as-content via a runtime component (something like `<Markdown
+source={...} />` turning a string into HTML nodes at render time) is a plausible later
+addition, and it would be fully decoupled from this file-format question: no lowering
+step would need reopening to add it, since it would operate on a string value at
+evaluation time, not on the file itself.
+
+One artifact of this reversal: `optative-script-mdx` 0.0.5 already ships
+`lower_to_tsx_with_frontmatter`, built and published before this dead end was found. It
+is not being reverted upstream — it is a legitimate, tested feature for esto's own
+prose-document use case, which has no render function to collide with. Tauler simply
+never calls it.
 
 ## Why coexist instead of a hard cutover
 
@@ -59,12 +88,13 @@ startup, report-and-keep-last-good on reload — extends from `theme.file` to th
 config. This closes a standing bug where `config.yaml`'s own parse failure was swallowed
 silently (`load_font_config` in `main.rs`, via an `.ok()` chain) and fonts fell back to
 defaults with no warning at all. A missing layout file in *either* format also stops being
-silent: today it draws a blank bar with no log line at all.
+silent: today it draws a blank bar with no log line at all. An opened-but-never-closed
+`---` fence is its own distinct failure (`LayoutLoadError::Frontmatter`) rather than
+silently reading as "no frontmatter" — a typo'd closing fence would otherwise swallow the
+whole config block into the JS body and fail as a confusing JS syntax error instead.
 
-`optative-script-mdx` gains a new function returning `(Option<String>, String)` — the raw
-frontmatter YAML text, unparsed, alongside the lowered JS source — leaving `lower_to_tsx`
-and the `run_script*` family untouched, so esto's own `.op.mdx` prose-document use is
-unaffected. Tauler already bypasses `run_script*` for its layout (`jsx.rs` calls
-`optative_script::jsx::transform_source` directly); it calls the new function the same
-way, and parses the returned YAML with the `TaulerConfig::from_yaml` that already exists
-for `config.yaml` today — one config schema, two source locations, no duplication.
+`TaulerConfig::from_yaml` — already used for `config.yaml` today — is reused unchanged for
+the frontmatter text; one config schema, two source locations, no duplication.
+`src/layout_source.rs` is where both formats converge into one `(TaulerConfig, String)`
+pair the rest of `app.rs`/`main.rs` treats identically regardless of which format
+produced it.
