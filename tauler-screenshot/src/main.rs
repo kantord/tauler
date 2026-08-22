@@ -103,7 +103,7 @@ fn main() {
         .unwrap_or_else(|e| panic!("failed to read {}: {}", args.input, e));
 
     tauler::init_global_ctx(tauler::config::FontConfig {
-        primary_path: args.font_path,
+        primary_path: args.font_path.map(|p| p.to_string_lossy().to_string()),
         ..Default::default()
     });
     let theme = tauler::theme::Theme::default_theme();

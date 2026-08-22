@@ -48,8 +48,20 @@ impl Default for ThemeConfig {
 #[derive(Debug, Clone, Default, Deserialize)]
 pub struct FontConfig {
     pub primary: Option<String>,
-    pub primary_path: Option<std::path::PathBuf>,
+    pub primary_path: Option<String>,
     pub emoji: Option<String>,
+    #[serde(default)]
+    pub extra: Vec<ExtraFont>,
+}
+
+/// One entry in `fonts.extra`: either a plain font-family name looked up on
+/// the system, or an explicit `path:` to a font file — raw and unexpanded,
+/// same as `primary_path`.
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(untagged)]
+pub enum ExtraFont {
+    Name(String),
+    Path { path: String },
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -66,17 +78,26 @@ impl TaulerConfig {
     }
 }
 
+/// `HOME` is a process-wide env var, and three tests across this crate (this
+/// one, plus two in `render::tests`) mutate it. `cargo test` runs the whole
+/// binary's tests in parallel threads by default, so without serialization
+/// those three race each other and see torn/overwritten values. Every test
+/// that touches `HOME` must hold this lock for the entire time `HOME`'s value
+/// matters to it.
+#[cfg(test)]
+pub(crate) static HOME_ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::theme::ThemeMode;
 
-    /// `HOME` is process-wide, so these three assertions share one guarded
-    /// setting of it rather than racing each other across test threads.
     #[test]
     fn expand_tilde_expands_only_a_leading_home_slash() {
-        // SAFETY: single-threaded within this test, and no other test in this
-        // module reads HOME.
+        // SAFETY: HOME is process-wide and this test mutates it, but
+        // HOME_ENV_LOCK serializes every test in the crate that touches HOME,
+        // so no other thread can observe or clobber it while this guard is held.
+        let _guard = HOME_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         unsafe { std::env::set_var("HOME", "/home/someone") };
 
         assert_eq!(
@@ -118,6 +139,47 @@ mod tests {
         assert_eq!(
             config.theme.file.as_deref(),
             Some("~/.config/tauler/my-theme.yaml")
+        );
+    }
+
+    #[test]
+    fn config_from_yaml_defaults_fonts_extra_to_empty_when_absent() {
+        let config = TaulerConfig::from_yaml("").expect("empty yaml should parse");
+        assert_eq!(config.fonts.extra, Vec::new());
+    }
+
+    #[test]
+    fn config_from_yaml_parses_fonts_extra_plain_string_names() {
+        let yaml = "fonts:\n  extra:\n    - Lora\n    - JetBrains Mono";
+        let config = TaulerConfig::from_yaml(yaml).expect("valid yaml should parse");
+        assert_eq!(
+            config.fonts.extra,
+            vec![
+                ExtraFont::Name("Lora".to_string()),
+                ExtraFont::Name("JetBrains Mono".to_string()),
+            ]
+        );
+    }
+
+    #[test]
+    fn config_from_yaml_parses_fonts_extra_path_object_without_expanding() {
+        let yaml = "fonts:\n  extra:\n    - path: ~/.fonts/MyIconFont.ttf";
+        let config = TaulerConfig::from_yaml(yaml).expect("valid yaml should parse");
+        assert_eq!(
+            config.fonts.extra,
+            vec![ExtraFont::Path {
+                path: "~/.fonts/MyIconFont.ttf".to_string()
+            }]
+        );
+    }
+
+    #[test]
+    fn config_from_yaml_parses_primary_path_as_raw_unexpanded_string() {
+        let yaml = "fonts:\n  primary_path: ~/.fonts/Custom.ttf";
+        let config = TaulerConfig::from_yaml(yaml).expect("valid yaml should parse");
+        assert_eq!(
+            config.fonts.primary_path,
+            Some("~/.fonts/Custom.ttf".to_string())
         );
     }
 }

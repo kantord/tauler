@@ -29,7 +29,7 @@ pub mod cache;
 pub mod worker;
 
 use crate::backdrop::{Backdrop, ROOT_BG_KEY};
-use crate::config::FontConfig;
+use crate::config::{ExtraFont, FontConfig};
 use crate::layout::parse_layout;
 
 /// Everything a render needs that outlives a single frame.
@@ -305,24 +305,36 @@ fn register_family(fonts: &mut Fonts, family: &str, generic: Option<GenericFamil
     register_files(fonts, &matching_files(family), generic, false)
 }
 
+/// Expand `~/` in `path` and register the one file it names.
+fn register_path_font(fonts: &mut Fonts, path: &str, generic: Option<GenericFamily>) -> bool {
+    let path = crate::config::expand_tilde(path);
+    register_files(fonts, std::slice::from_ref(&path), generic, false)
+}
+
 /// Register the configured fonts. Runs before [`load_targeted_fonts`] so that it
 /// takes precedence — see [`rebuild_font_context`] on why order is priority.
 pub(crate) fn apply_font_config(fonts: &mut Fonts, config: &FontConfig) {
     // `primary_path` names one exact file; `primary` names a family, which is
     // registered with all of its faces.
     if let Some(path) = &config.primary_path {
-        register_files(
-            fonts,
-            std::slice::from_ref(path),
-            Some(GenericFamily::SANS_SERIF),
-            false,
-        );
+        register_path_font(fonts, path, Some(GenericFamily::SANS_SERIF));
     } else if let Some(primary) = config.primary.as_deref() {
         register_family(fonts, primary, Some(GenericFamily::SANS_SERIF));
     }
 
     if let Some(emoji) = config.emoji.as_deref() {
         register_family(fonts, emoji, Some(GenericFamily::EMOJI));
+    }
+
+    for extra in &config.extra {
+        match extra {
+            ExtraFont::Name(name) => {
+                register_family(fonts, name, None);
+            }
+            ExtraFont::Path { path } => {
+                register_path_font(fonts, path, None);
+            }
+        }
     }
 }
 
@@ -503,6 +515,7 @@ pub fn measure_layout_frame(
 #[cfg(test)]
 mod tests {
     use super::{apply_font_config, init_global_ctx, FontConfig, Fonts, RenderContext};
+    use crate::config::ExtraFont;
 
     // -----------------------------------------------------------------------
     // Font coverage: the registered set is deliberately tiny (see
@@ -548,6 +561,83 @@ mod tests {
         ink(&render(options).expect("render").into_raw())
     }
 
+    /// Like [`ink_of`], but addresses `family` directly via `font-family` instead of
+    /// leaving it to whatever the sans-serif generic resolves to — the only way to prove
+    /// a specific named family is resolvable rather than just "some font is default".
+    fn ink_of_family(fonts: &Fonts, text: &str, weight: u32, family: &str) -> usize {
+        use takumi::prelude::{RenderOptions, Viewport};
+        use takumi::render;
+
+        let content = serde_json::json!({
+            "type": "div",
+            "style": {"width": 120, "height": 48},
+            "children": [{
+                "type": "span",
+                "style": {
+                    "fontSize": 28,
+                    "color": "white",
+                    "fontWeight": weight,
+                    "fontFamily": family
+                },
+                "children": [text]
+            }]
+        });
+        let node = crate::layout::parse_layout(&content).expect("probe layout should parse");
+        let options = RenderOptions::builder()
+            .fonts(fonts)
+            .viewport(Viewport::new((Some(120), Some(48))))
+            .node(node)
+            .build();
+        ink(&render(options).expect("render").into_raw())
+    }
+
+    /// Like [`ink_of_family`], but drives the real layout-file-author path instead of a
+    /// hand-set `style.fontFamily`: `class` is a plain string (e.g. `"font-[Lora]"`) run
+    /// through `resolve_theme_tokens` — the only thing it rewrites is a theme token, so
+    /// an arbitrary Tailwind class like `font-[Name]` passes through untouched — and
+    /// then `parse_layout`, which is where takumi's own class engine (not tauler code)
+    /// turns `font-[Name]` into a resolved `font-family`.
+    fn ink_of_class(fonts: &Fonts, text: &str, weight: u32, class: &str) -> usize {
+        use takumi::prelude::{RenderOptions, Viewport};
+        use takumi::render;
+
+        let mut content = serde_json::json!({
+            "type": "div",
+            "style": {"width": 120, "height": 48},
+            "children": [{
+                "type": "span",
+                "class": class,
+                "style": {"fontSize": 28, "color": "white", "fontWeight": weight},
+                "children": [text]
+            }]
+        });
+        crate::theme::resolver::resolve_theme_tokens(
+            &mut content,
+            &crate::theme::Theme::default_theme(),
+            crate::theme::ThemeMode::Dark,
+        );
+        let node = crate::layout::parse_layout(&content).expect("probe layout should parse");
+        let options = RenderOptions::builder()
+            .fonts(fonts)
+            .viewport(Viewport::new((Some(120), Some(48))))
+            .node(node)
+            .build();
+        ink(&render(options).expect("render").into_raw())
+    }
+
+    /// Resolves a fontconfig pattern (e.g. `"sans-serif"`) to the real file fontconfig
+    /// would pick for it, via the `fc-match` CLI. Returns `None` if `fc-match` isn't
+    /// available or the resolved path doesn't exist.
+    fn fc_match_path(pattern: &str) -> Option<std::path::PathBuf> {
+        let out = std::process::Command::new("fc-match")
+            .args(["--format", "%{file}", pattern])
+            .output()
+            .ok()?;
+        let s = String::from_utf8(out.stdout).ok()?;
+        let p = std::path::PathBuf::from(s.trim());
+        p.exists().then_some(p)
+    }
+
     /// Only the fontconfig-resolved generics, as `load_targeted_fonts` installs them.
     fn targeted_fonts() -> Fonts {
         let mut fonts = Fonts::default();
@@ -567,6 +657,7 @@ mod tests {
             primary: Some(primary.to_string()),
             emoji: None,
             primary_path: None,
+            extra: Vec::new(),
         }
     }
 
@@ -664,6 +755,153 @@ mod tests {
         );
     }
 
+    /// `config.extra` entries are addressed directly by family name in layout files
+    /// (`font-[Name]`), not through a generic bucket like sans-serif/monospace/emoji —
+    /// so this must prove the family is resolvable by name, not merely that the sans-
+    /// serif default (unrelated to `extra`) still renders something.
+    #[test]
+    fn apply_font_config_registers_extra_named_fonts() {
+        let Some(extra_family) =
+            installed_family(&["JetBrains Mono", "Liberation Serif", "DejaVu Serif"])
+        else {
+            eprintln!("SKIP: none of the candidate extra fonts are installed");
+            return;
+        };
+
+        let baseline_ink = ink_of_family(
+            &fonts_for(&FontConfig::default()),
+            "ABC",
+            400,
+            &extra_family,
+        );
+
+        let configured = fonts_for(&FontConfig {
+            extra: vec![ExtraFont::Name(extra_family.clone())],
+            ..Default::default()
+        });
+        let configured_ink = ink_of_family(&configured, "ABC", 400, &extra_family);
+
+        assert!(
+            configured_ink > 0,
+            "text addressed directly at font-family: {extra_family:?} drew nothing — \
+             it was never registered by apply_font_config even though it was listed \
+             in config.extra"
+        );
+        assert_ne!(
+            baseline_ink, configured_ink,
+            "font-family: {extra_family:?} rendered identically with and without it \
+             listed in config.extra — the family isn't actually being registered, \
+             whatever drew this text came from somewhere else (e.g. the sans-serif \
+             default)"
+        );
+    }
+
+    /// `apply_font_config_registers_extra_named_fonts` proves the family is registered
+    /// by writing `style.fontFamily` directly — but that is never how a layout file
+    /// actually addresses it. The real path is a `class="font-[Name]"` string, which
+    /// takes a different route entirely: it survives `resolve_theme_tokens` (only theme
+    /// tokens are rewritten there; `font-[Name]` isn't one) and is resolved by takumi's
+    /// own Tailwind class engine inside `parse_layout`, not by any tauler code. This
+    /// proves that full chain, end to end.
+    #[test]
+    fn extra_font_resolves_through_font_arbitrary_class_end_to_end() {
+        let Some(extra_family) =
+            installed_family(&["JetBrains Mono", "Liberation Serif", "DejaVu Serif"])
+        else {
+            eprintln!("SKIP: none of the candidate extra fonts are installed");
+            return;
+        };
+        // Tailwind's arbitrary-value syntax reads `_` as a space.
+        let class = format!("font-[{}]", extra_family.replace(' ', "_"));
+
+        let baseline_ink = ink_of_class(&fonts_for(&FontConfig::default()), "ABC", 400, &class);
+
+        let configured = fonts_for(&FontConfig {
+            extra: vec![ExtraFont::Name(extra_family.clone())],
+            ..Default::default()
+        });
+        let configured_ink = ink_of_class(&configured, "ABC", 400, &class);
+
+        assert!(
+            configured_ink > 0,
+            "text addressed via class {class:?} drew nothing — the class-driven \
+             font-[Name] path never resolved to a registered font"
+        );
+        assert_ne!(
+            baseline_ink, configured_ink,
+            "text rendered identically via class {class:?} with and without \
+             {extra_family:?} listed in config.extra — the class-driven path isn't \
+             actually reaching the registered font, whatever drew this text came from \
+             somewhere else (e.g. the sans-serif default)"
+        );
+    }
+
+    /// `ExtraFont::Path { path }` is the escape hatch for a font that lives outside
+    /// fontconfig's search directories entirely — the whole point of that case is
+    /// files a `~/…` path is likely to name, so registration is worthless unless the
+    /// tilde is expanded first. Proves both together, the same differential way
+    /// `apply_font_config_registers_extra_named_fonts` proves the `Name` variant and
+    /// `apply_font_config_expands_tilde_in_primary_path` proves tilde expansion: the
+    /// family is resolvable by name via the `~/…` path AND it wasn't already
+    /// resolvable some other way (e.g. already sitting in the targeted default set).
+    #[test]
+    fn apply_font_config_registers_extra_path_fonts_with_tilde_expansion() {
+        let Some(extra_family) =
+            installed_family(&["JetBrains Mono", "Liberation Serif", "DejaVu Serif"])
+        else {
+            eprintln!("SKIP: none of the candidate extra fonts are installed");
+            return;
+        };
+        let Some(real_font) = super::first_matching_file(&extra_family) else {
+            eprintln!("SKIP: fc-list reported {extra_family:?} installed but no file for it");
+            return;
+        };
+
+        // Copy the real font into a fake HOME so it can be referenced as
+        // `~/<name>`, then point HOME there.
+        //
+        // SAFETY: HOME is process-wide and this test mutates it, but
+        // crate::config::HOME_ENV_LOCK serializes every test in the crate that
+        // touches HOME (see
+        // `config::tests::expand_tilde_expands_only_a_leading_home_slash`), so
+        // no other thread can observe or clobber it while this guard is held.
+        let _guard = crate::config::HOME_ENV_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let fake_home = tempfile::tempdir().expect("tempdir");
+        let file_name = real_font.file_name().expect("font path has a file name");
+        std::fs::copy(&real_font, fake_home.path().join(file_name))
+            .expect("copy font into fake HOME");
+        let tilde_path = format!("~/{}", file_name.to_string_lossy());
+
+        unsafe { std::env::set_var("HOME", fake_home.path()) };
+
+        let baseline_ink = ink_of_family(
+            &fonts_for(&FontConfig::default()),
+            "ABC",
+            400,
+            &extra_family,
+        );
+
+        let configured = fonts_for(&FontConfig {
+            extra: vec![ExtraFont::Path { path: tilde_path }],
+            ..Default::default()
+        });
+        let configured_ink = ink_of_family(&configured, "ABC", 400, &extra_family);
+
+        assert!(
+            configured_ink > 0,
+            "text addressed directly at font-family: {extra_family:?} drew nothing — \
+             the ~/-path extra font was never registered by apply_font_config"
+        );
+        assert_ne!(
+            baseline_ink, configured_ink,
+            "font-family: {extra_family:?} rendered identically with and without the \
+             ~/-path extra font listed in config.extra — either the path was never \
+             registered, or the tilde was never expanded so it silently no-opped"
+        );
+    }
+
     /// Guards the choice of `fc-list` over `fc-match` for family lookups:
     /// `fc-match` answers an unknown name with an arbitrary substitute.
     #[test]
@@ -727,6 +965,7 @@ mod tests {
                 emoji: Some(family.clone()),
                 primary: None,
                 primary_path: None,
+                extra: Vec::new(),
             },
         );
         assert!(
@@ -786,18 +1025,86 @@ mod tests {
         );
     }
 
+    /// `apply_font_config` must expand a leading `~/` in `primary_path` before
+    /// handing it to `register_files` (which reads the path with
+    /// `std::fs::read` and silently skips whatever it can't find).
+    ///
+    /// A single font can't prove this: `rebuild_font_context` always follows
+    /// `apply_font_config` with `load_targeted_fonts`, which registers a real
+    /// system sans-serif font regardless, so `ink_of("ABC") > 0` alone is true
+    /// whether or not `primary_path` ever resolved. Instead, as in
+    /// `rebuilding_with_a_different_primary_font_remaps_sans_serif` above, two
+    /// *different* real fonts are each pointed to by a `~/…` path; if tilde
+    /// expansion works, `apply_font_config` registers each one with priority
+    /// over the fontconfig default, so the two rebuilds render "ABC"
+    /// differently. If tilde expansion is missing, both `primary_path`
+    /// registrations silently no-op, both rebuilds fall through to the same
+    /// fontconfig default, and the inks come out equal.
+    #[test]
+    fn apply_font_config_expands_tilde_in_primary_path() {
+        let sans_path = fc_match_path("sans-serif");
+        let mono_path = fc_match_path("monospace");
+
+        let (first_font, second_font) = match (sans_path, mono_path) {
+            (Some(s), Some(m)) if s != m => (s, m),
+            _ => {
+                eprintln!("SKIP: could not resolve two distinct font paths via fc-match");
+                return;
+            }
+        };
+
+        // Copy both real fonts into a fake HOME so each can be referenced as
+        // `~/<name>`, then point HOME there.
+        //
+        // SAFETY: HOME is process-wide and this test mutates it, but
+        // crate::config::HOME_ENV_LOCK serializes every test in the crate that
+        // touches HOME (see
+        // `config::tests::expand_tilde_expands_only_a_leading_home_slash`), so
+        // no other thread can observe or clobber it while this guard is held.
+        let _guard = crate::config::HOME_ENV_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let fake_home = tempfile::tempdir().expect("tempdir");
+        let tilde_path_for = |real: &std::path::Path| -> String {
+            let file_name = real.file_name().expect("font path has a file name");
+            std::fs::copy(real, fake_home.path().join(file_name))
+                .expect("copy font into fake HOME");
+            format!("~/{}", file_name.to_string_lossy())
+        };
+        let first_tilde = tilde_path_for(&first_font);
+        let second_tilde = tilde_path_for(&second_font);
+
+        unsafe { std::env::set_var("HOME", fake_home.path()) };
+
+        let mut ctx = RenderContext::default();
+        super::rebuild_font_context(
+            &mut ctx,
+            &FontConfig {
+                primary_path: Some(first_tilde),
+                ..Default::default()
+            },
+        );
+        let first_ink = ink_of(&ctx.fonts, "ABC", 400);
+
+        super::rebuild_font_context(
+            &mut ctx,
+            &FontConfig {
+                primary_path: Some(second_tilde),
+                ..Default::default()
+            },
+        );
+        let second_ink = ink_of(&ctx.fonts, "ABC", 400);
+
+        assert!(first_ink > 0, "first ~/-path font should map sans-serif");
+        assert_ne!(
+            first_ink, second_ink,
+            "rebuilding with a different ~/-path font should remap sans-serif, \
+             which only happens if primary_path's tilde was expanded"
+        );
+    }
+
     #[test]
     fn reload_font_config_updates_global_ctx_sans_serif_mapping() {
-        fn fc_match_path(pattern: &str) -> Option<std::path::PathBuf> {
-            let out = std::process::Command::new("fc-match")
-                .args(["--format", "%{file}", pattern])
-                .output()
-                .ok()?;
-            let s = String::from_utf8(out.stdout).ok()?;
-            let p = std::path::PathBuf::from(s.trim());
-            p.exists().then_some(p)
-        }
-
         let sans_path = fc_match_path("sans-serif");
         let mono_path = fc_match_path("monospace");
 
@@ -812,7 +1119,8 @@ mod tests {
         init_global_ctx(FontConfig {
             primary: None,
             emoji: None,
-            primary_path: Some(first_path),
+            primary_path: Some(first_path.to_string_lossy().to_string()),
+            extra: Vec::new(),
         });
 
         let first_ink = super::with_global_ctx(|ctx| ink_of(&ctx.fonts, "ABC", 400));
@@ -824,7 +1132,8 @@ mod tests {
         super::reload_font_config(FontConfig {
             primary: None,
             emoji: None,
-            primary_path: Some(second_path),
+            primary_path: Some(second_path.to_string_lossy().to_string()),
+            extra: Vec::new(),
         });
 
         let second_ink = super::with_global_ctx(|ctx| ink_of(&ctx.fonts, "ABC", 400));
