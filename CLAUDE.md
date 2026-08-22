@@ -7,7 +7,11 @@
 - `docs/adr/` — decisions that are hard to reverse and surprising without context. Check
   here before "fixing" something that looks wrong.
 - `docs/src/content/docs/` — the published site. Everything a person writing a layout file
-  needs; nothing about how tauler is built inside.
+  needs; nothing about how tauler is built inside. Exception: `docs/src/content/docs/devtools/`
+  is maintainer-only tooling that happens to live in this tree to reuse the Astro/Starlight
+  build (image galleries, routing) — it is unlisted from the sidebar and documents build/test
+  internals on purpose. The "nothing about how tauler is built" rule applies to every other
+  page here.
 - **Module-level `//!` docs** — how a given piece actually works. This is where
   implementation detail belongs: next to the code, where it goes stale loudly.
 
