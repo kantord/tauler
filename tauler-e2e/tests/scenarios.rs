@@ -9,7 +9,7 @@
 //! them from the edge-stack arithmetic would make the test agree with the
 //! implementation by construction, including when the implementation is wrong.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use anyhow::Result;
 use tauler_e2e::i3::{self, Gaps};
@@ -44,6 +44,7 @@ fn rect(x: i32, y: i32, width: u32, height: u32) -> Rect {
 fn sidebar_reserves_the_left_edge() -> Result<()> {
     run(
         "sidebar",
+        "sidebar-reserves-the-left-edge",
         Expected {
             gaps: Gaps {
                 left: 272,
@@ -63,6 +64,7 @@ fn sidebar_reserves_the_left_edge() -> Result<()> {
 fn three_edge_stack_reserves_each_edge_in_order() -> Result<()> {
     run(
         "three-edge",
+        "three-edge-stack-reserves-each-edge-in-order",
         Expected {
             gaps: Gaps {
                 left: 272,
@@ -92,6 +94,7 @@ fn three_edge_stack_reserves_each_edge_in_order() -> Result<()> {
 fn showcase_floats_a_bar_over_its_own_wallpaper() -> Result<()> {
     let (_desktop, screenshot) = run(
         "showcase",
+        "showcase-floats-a-bar-over-its-own-wallpaper",
         Expected {
             gaps: Gaps {
                 left: 0,
@@ -152,6 +155,7 @@ fn showcase_floats_a_bar_over_its_own_wallpaper() -> Result<()> {
 fn monolith_floats_a_launcher_and_a_slip_without_reserving_for_them() -> Result<()> {
     let (_desktop, screenshot) = run(
         "monolith",
+        "monolith-floats-a-launcher-and-a-slip-without-reserving-for-them",
         Expected {
             gaps: Gaps {
                 left: 60,
@@ -201,6 +205,7 @@ fn monolith_floats_a_launcher_and_a_slip_without_reserving_for_them() -> Result<
 fn signal_flies_a_different_flag_per_workspace() -> Result<()> {
     let (_desktop, screenshot) = run(
         "signal",
+        "signal-flies-a-different-flag-per-workspace",
         Expected {
             gaps: Gaps {
                 left: 0,
@@ -252,6 +257,7 @@ fn signal_flies_a_different_flag_per_workspace() -> Result<()> {
 fn signal_reseeds_a_band_when_a_window_opens() -> Result<()> {
     let (desktop, _) = run(
         "signal",
+        "signal-reseeds-a-band-when-a-window-opens",
         Expected {
             gaps: Gaps {
                 left: 0,
@@ -337,6 +343,7 @@ fn signal_reseeds_a_band_when_a_window_opens() -> Result<()> {
 fn thermal_crops_one_field_across_every_window() -> Result<()> {
     let (desktop, screenshot) = run(
         "thermal",
+        "thermal-crops-one-field-across-every-window",
         Expected {
             gaps: Gaps {
                 left: 0,
@@ -434,7 +441,11 @@ fn thermal_crops_one_field_across_every_window() -> Result<()> {
 
 /// Assert the reservation contract, then hand back the desktop and its
 /// screenshot so a scenario can add claims of its own.
-fn run(scenario: &str, expected: Expected) -> Result<(Desktop, PathBuf)> {
+///
+/// `devtools_name` is separate from `scenario`: several tests share a fixture (`signal`
+/// runs twice), so keying the devtools gallery on the fixture name would let the second
+/// test's screenshot silently overwrite the first's.
+fn run(scenario: &str, devtools_name: &str, expected: Expected) -> Result<(Desktop, PathBuf)> {
     let screen = Screen::default();
     let desktop = Desktop::start(scenario, screen)?;
 
@@ -501,5 +512,22 @@ fn run(scenario: &str, expected: Expected) -> Result<(Desktop, PathBuf)> {
     }
 
     eprintln!("e2e: {scenario} → {}", screenshot.display());
+    save_devtools_shot(devtools_name, &screenshot)?;
     Ok((desktop, screenshot))
+}
+
+/// Copy the screenshot into the hidden devtools gallery's tree, so it survives past this
+/// test run without depending on `target/e2e`, which is gitignored and scenario-keyed.
+fn save_devtools_shot(name: &str, screenshot: &Path) -> Result<()> {
+    let dir = workspace_root()?.join("docs/src/assets/devtools/i3-scenarios");
+    std::fs::create_dir_all(&dir)?;
+    std::fs::copy(screenshot, dir.join(format!("{name}.png")))?;
+    Ok(())
+}
+
+fn workspace_root() -> Result<PathBuf> {
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .map(Path::to_path_buf)
+        .ok_or_else(|| anyhow::anyhow!("CARGO_MANIFEST_DIR has no parent"))
 }

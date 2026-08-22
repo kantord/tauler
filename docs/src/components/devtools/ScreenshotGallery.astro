@@ -1,0 +1,62 @@
+---
+// A devtools screenshot gallery: `images` is whatever `import.meta.glob(..., { eager: true })`
+// found on disk at build time, so a suite gaining or losing a screenshot never needs a
+// matching edit here — the page just reflects what's currently committed.
+interface Props {
+  images: Record<string, { default: { src: string; width: number; height: number } }>
+}
+
+const { images } = Astro.props
+const entries = Object.entries(images).sort(([a], [b]) => a.localeCompare(b))
+
+function nameOf(path: string) {
+  return path.split('/').pop()?.replace(/\.png$/, '') ?? path
+}
+---
+
+{
+  entries.length === 0 && (
+    <p>
+      <em>No screenshots committed yet.</em>
+    </p>
+  )
+}
+
+<div class="devtools-gallery">
+  {
+    entries.map(([path, mod]) => (
+      <figure>
+        <img
+          src={mod.default.src}
+          width={mod.default.width}
+          height={mod.default.height}
+          alt={nameOf(path)}
+        />
+        <figcaption>{nameOf(path)}</figcaption>
+      </figure>
+    ))
+  }
+</div>
+
+<style>
+  .devtools-gallery {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1rem;
+  }
+  .devtools-gallery figure {
+    margin: 0;
+    max-width: 320px;
+  }
+  .devtools-gallery img {
+    max-width: 100%;
+    height: auto;
+    display: block;
+  }
+  .devtools-gallery figcaption {
+    font-size: 0.8rem;
+    opacity: 0.7;
+    margin-top: 0.25rem;
+    word-break: break-word;
+  }
+</style>

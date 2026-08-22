@@ -1,0 +1,17 @@
+---
+title: devtools · landing screenshots
+description: Playwright visual-regression baselines for the landing page, one per breakpoint.
+---
+
+import ScreenshotGallery from '../../../../components/devtools/ScreenshotGallery.astro'
+
+export const images = import.meta.glob('../../../../assets/devtools/landing/*.png', { eager: true })
+
+**Source:** `docs/tests/landing.spec.ts`
+
+**Regenerate:** `pnpm run test:update` (from `docs/`) — runs the suite inside the pinned
+Playwright container (ADR 0031) and copies the resulting baselines here.
+
+One screenshot per breakpoint `landing.spec.ts` tests against.
+
+<ScreenshotGallery images={images} />
