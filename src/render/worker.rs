@@ -476,7 +476,12 @@ mod tests {
 
         #[test]
         fn a_forgotten_target_is_not_drawn() {
-            let (jobs, commands) = spawn_worker();
+            crate::render::init_global_ctx(crate::config::FontConfig::default());
+            let (jobs, job_rx) = channel();
+            let (commands, command_rx) = channel();
+
+            // All three land before the worker thread even exists, so there is
+            // no race between sending them and the worker draining its queue:
             // p1 is forgotten before the worker can get to it; p2 is what tells
             // us the worker got that far at all.
             jobs.send(RenderJob::Repaint(request("p1", "doomed")))
@@ -485,8 +490,10 @@ mod tests {
             jobs.send(RenderJob::Repaint(request("p2", "wanted")))
                 .unwrap();
 
+            std::thread::spawn(move || run(job_rx, commands));
+
             assert_eq!(
-                painted(&commands).as_deref(),
+                painted(&command_rx).as_deref(),
                 Some("p2"),
                 "a target forgotten before its request was drawn must not be drawn"
             );

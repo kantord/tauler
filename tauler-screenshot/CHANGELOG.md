@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.10](https://github.com/kantord/tauler/compare/tauler-screenshot-v0.1.9...tauler-screenshot-v0.1.10) - 2026-08-22
+
+### Added
+
+- support extra fonts ([#459](https://github.com/kantord/tauler/pull/459))
+
 ## [0.1.9](https://github.com/kantord/tauler/compare/tauler-screenshot-v0.1.8...tauler-screenshot-v0.1.9) - 2026-08-22
 
 ### Other
