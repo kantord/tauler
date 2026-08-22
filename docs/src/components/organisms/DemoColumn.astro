@@ -13,6 +13,13 @@
 // "describe it once, tauler runs it live" says nothing if it never
 // changes. Direct-access dots and a prefers-reduced-motion pause carry
 // over from that same precedent.
+//
+// The cycle itself runs on a real browser Unit (`defineUnit`, ADR 0036) —
+// the same wasm module and the same reconciler native tauler uses, not a
+// second "looks like tauler" timer standing in for it. Which panel is
+// declared changes on its own interval or a dot click; which panel is
+// actually shown is the Unit converging to match, through its `update`
+// hook.
 import CodePanel from '../ui/CodePanel.astro'
 import ScreenMock from '../ui/ScreenMock.astro'
 import DemoDots from '../ui/DemoDots.astro'
@@ -101,47 +108,92 @@ const demoStates = [
     ),
   ]
 
-  if (root && ids.length > 1) {
-    let index = 0
+  function show(id: string): void {
+    for (const frame of frames) frame.hidden = frame.dataset.demoFrame !== id
+    for (const dot of dots) {
+      if (dot.dataset.stateId === id) {
+        dot.setAttribute('aria-current', 'true')
+        if (label && dot.dataset.label) label.textContent = dot.dataset.label
+      } else {
+        dot.removeAttribute('aria-current')
+      }
+    }
+  }
 
-    function show(id: string): void {
-      for (const frame of frames) frame.hidden = frame.dataset.demoFrame !== id
-      for (const dot of dots) {
-        if (dot.dataset.stateId === id) {
-          dot.setAttribute('aria-current', 'true')
-          if (label && dot.dataset.label) label.textContent = dot.dataset.label
-        } else {
-          dot.removeAttribute('aria-current')
+  // The server already rendered the first state (CodePanel's i===0 frame,
+  // DemoDots' first aria-current) — there is nothing to converge until the
+  // declared panel actually changes, so booting the wasm module costs
+  // nothing visible even before it resolves.
+  if (root && ids.length > 1) {
+    let desiredIndex = 0
+    // What the page currently shows — the Unit's own "observed world",
+    // read back rather than assumed, the same rule native Units follow
+    // (ADR 0035).
+    let shownId = ids[0]
+
+    async function driveWithRealUnit(): Promise<void> {
+      // Both are served build products (see units.js's own header), not
+      // something Vite's bundle graph or astro check resolves: @vite-ignore
+      // leaves the import for the browser to resolve at runtime instead of
+      // Rollup failing the build over it; @ts-expect-error is the same gap
+      // on the type-checking side.
+      // @ts-expect-error — /tauler/*.js is a build product astro check never sees
+      const { boot } = await import(/* @vite-ignore */ '/tauler/runtime.js')
+      // @ts-expect-error — /tauler/*.js is a build product astro check never sees
+      const { defineUnit } = await import(/* @vite-ignore */ '/tauler/units.js')
+      await boot('/tauler/tauler_web_bg.wasm')
+
+      function converge(items: { id: string }[]): void {
+        for (const item of items) {
+          shownId = item.id
+          show(item.id)
         }
+      }
+
+      const unit = defineUnit({
+        key: () => 'demo-panel',
+        value: (item: { id: string }) => item.id,
+        items: () => [{ id: ids[desiredIndex] }],
+        observe: () => [{ id: shownId }],
+        enter: converge,
+        update: (pairs: { item: { id: string } }[]) =>
+          converge(pairs.map((p) => p.item)),
+        // How fast the reconciler notices the declared panel changed, not
+        // how often it changes — that cadence is `advance`, below. Real
+        // Units default to 5000ms for the same reason: a fast poll here
+        // costs one tiny JSON diff, not an evaluation.
+        refreshInterval: 250,
+      })
+
+      const reduceMotion = matchMedia(
+        '(prefers-reduced-motion: reduce)',
+      ).matches
+      function advance(): void {
+        desiredIndex = (desiredIndex + 1) % ids.length
+      }
+      let timer: ReturnType<typeof setInterval> | undefined
+      if (!reduceMotion) timer = setInterval(advance, 4500)
+
+      for (const dot of dots) {
+        dot.addEventListener('click', () => {
+          const i = ids.indexOf(dot.dataset.stateId ?? '')
+          if (i === -1) return
+          desiredIndex = i
+          unit.sweep()
+          if (timer) {
+            clearInterval(timer)
+            timer = setInterval(advance, 4500)
+          }
+        })
       }
     }
 
-    const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)').matches
-    let timer: ReturnType<typeof setInterval> | undefined
-
-    function showAt(i: number): void {
-      const id = ids[i]
-      if (id) show(id)
-    }
-
-    function restart(): void {
-      clearInterval(timer)
-      if (reduceMotion) return
-      timer = setInterval(() => {
-        index = (index + 1) % ids.length
-        showAt(index)
-      }, 4500)
-    }
-
-    for (const dot of dots) {
-      dot.addEventListener('click', () => {
-        index = ids.indexOf(dot.dataset.stateId ?? '')
-        showAt(index)
-        restart()
-      })
-    }
-
-    restart()
+    // No fallback timer on failure: the page stays on the server-rendered
+    // first state rather than faking motion with something that isn't
+    // tauler running it.
+    driveWithRealUnit().catch((error: unknown) => {
+      console.error('tauler: the browser Unit demo did not start', error)
+    })
   }
 </script>
 
