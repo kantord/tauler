@@ -61,3 +61,10 @@ radius:
   2xl: "17px"
   3xl: "21px"
   4xl: "25px"
+
+# The role map: a layout file writes `font-readout` and the resolver turns it
+# into `font-[JetBrains_Mono]`, same mechanism as `bg-primary` above but for
+# fonts. JetBrains Mono has to be reachable by name for this to render as
+# anything but tofu — config.yaml's `fonts.extra` is what makes that true.
+fonts:
+  readout: "JetBrains Mono"

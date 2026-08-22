@@ -27,6 +27,8 @@ pub struct Theme {
     pub colors: ThemeColors,
     #[serde(default)]
     pub radius: HashMap<String, String>,
+    #[serde(default)]
+    pub fonts: HashMap<String, String>,
 }
 
 impl Theme {
@@ -43,5 +45,28 @@ impl Theme {
             ThemeMode::Light => &self.colors.light,
             ThemeMode::Dark | ThemeMode::Auto => &self.colors.dark,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn theme_from_yaml_defaults_fonts_to_empty_when_absent() {
+        let yaml = "colors:\n  light: {}\n  dark: {}";
+        let theme = Theme::from_yaml(yaml).expect("valid yaml should parse");
+        assert_eq!(theme.fonts, HashMap::new());
+    }
+
+    #[test]
+    fn theme_from_yaml_parses_fonts() {
+        let yaml = "colors:\n  light: {}\n  dark: {}\nfonts:\n  heading: \"Lora\"\n  base: \"Inter Variable\"";
+        let theme = Theme::from_yaml(yaml).expect("valid yaml should parse");
+        assert_eq!(theme.fonts.get("heading").map(String::as_str), Some("Lora"));
+        assert_eq!(
+            theme.fonts.get("base").map(String::as_str),
+            Some("Inter Variable")
+        );
     }
 }

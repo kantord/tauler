@@ -155,7 +155,12 @@ export default function render() {
                       </div>
                       <div class="flex flex-row items-center gap-[6px]">
                         <Icon name="md-clock_outline" class="text-[13px] text-primary" />
-                        <span class="text-[13px] text-foreground">{data?.time ?? "--:--"}</span>
+                        {/* font-readout: theme.yaml's `fonts.readout` role,
+                            resolved through the theme like `bg-primary` above
+                            but for a font instead of a colour. Figures in a
+                            monospace face don't shift width as they change,
+                            which a live clock would actually need. */}
+                        <span class="text-[13px] text-foreground font-readout">{data?.time ?? "--:--"}</span>
                       </div>
                     </div>
                   )}
