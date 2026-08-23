@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test'
 
 // Exercises `defineUnit` (tauler-web/js/units.js) end-to-end in a real browser: the
 // actual wasm module, reconciled through the actual `taulerReconcileUnit` export — not a
-// mock of either half. See ADR 0036.
+// mock of either half. See ADR 0037.
 //
 // `refreshInterval` is set absurdly high and every sweep after the first is driven by the
 // returned handle's `sweep()` directly, so the test is deterministic and fast rather than
