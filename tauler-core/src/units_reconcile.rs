@@ -10,7 +10,7 @@
 //! directly rather than through QuickJS) gets the identical diff behaviour
 //! through `tauler_core::web`, not a second implementation to keep in sync.
 //!
-//! See ADR 0036.
+//! See ADR 0037.
 
 use optative::{Lifecycle, OptativeSet, Reconcile};
 use serde::Deserialize;

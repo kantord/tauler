@@ -68,6 +68,9 @@ same message in a browser as on a desktop.
 **`observe` is synchronous for now.** A `Promise`-returning `observe` (an actual `fetch`) is
 a reasonable next step and does not change anything decided here; it just is not built yet.
 
-**Nothing here is wired into a real page.** This is the capability, verified on its own
-(`tauler-core/src/units_reconcile.rs`'s tests, `docs/tests/units.spec.ts`). Whether and how a
-specific page's layout uses `defineUnit` is a separate decision.
+**The landing page's demo column is the first caller.** `DemoColumn.astro` drives its cycling
+preview through `defineUnit` rather than a hand-rolled timer, so what visitors see there is a
+real Unit converging, not an animation that only looks like one. The capability is also
+verified on its own, independent of that one caller (`tauler-core/src/units_reconcile.rs`'s
+tests, `docs/tests/units.spec.ts`) — a future page adopting `defineUnit` is not required to
+retest the diff itself, only its own use of it.

@@ -19,7 +19,7 @@ use serde_json::Value;
 use crate::jsx::JsxEvaluator;
 // The diff itself — key/value projected Items in, enter/update/exit batches
 // out — is QuickJS-independent and shared with a browser Unit's identical
-// reconciliation. See `tauler_core::units_reconcile` and ADR 0036.
+// reconciliation. See `tauler_core::units_reconcile` and ADR 0037.
 use tauler_core::units_reconcile::SweepItem;
 
 /// Every Item of one Unit, as the reconciler runtime sees them.
@@ -219,7 +219,7 @@ fn sweep_unit(evaluator: &JsxEvaluator, batch: &UnitBatch) -> SweepReport {
         .collect();
 
     // The diff itself is QuickJS-independent — see `tauler_core::units_reconcile`
-    // and ADR 0036, which is also what a browser Unit reconciles through.
+    // and ADR 0037, which is also what a browser Unit reconciles through.
     //
     // A batch whose hook the Unit defines neither spelling of runs nothing and
     // counts nothing: a Unit with no `exit` is not managing what it did not

@@ -14,12 +14,16 @@
 // changes. Direct-access dots and a prefers-reduced-motion pause carry
 // over from that same precedent.
 //
-// The cycle itself runs on a real browser Unit (`defineUnit`, ADR 0036) —
+// The cycle itself runs on a real browser Unit (`defineUnit`, ADR 0037) —
 // the same wasm module and the same reconciler native tauler uses, not a
 // second "looks like tauler" timer standing in for it. Which panel is
 // declared changes on its own interval or a dot click; which panel is
-// actually shown is the Unit converging to match, through its `update`
-// hook.
+// actually shown is the Unit converging to match. Keyed by the sample's own
+// id rather than one constant slot name: the three samples are genuinely
+// different declared things (different anchor, different widget), so a
+// declaration change is a real exit-then-enter, not one Item's props being
+// updated in place — `update` never has anything to do here and isn't
+// defined.
 import CodePanel from '../ui/CodePanel.astro'
 import ScreenMock from '../ui/ScreenMock.astro'
 import DemoDots from '../ui/DemoDots.astro'
@@ -75,6 +79,20 @@ const demoStates = [
 </panel>`,
   },
 ]
+
+// Each sample is a different real length (10 / 9 / 8 lines) — since only the
+// current state's frame is ever visible (the others are `hidden`, not
+// zero-height), CodePanel's height jumped by a line or two on every switch.
+// Padding every sample to the tallest one's line count means the *code*
+// fills the extra space, not a CSS height nobody would remember to keep in
+// sync as samples change.
+const maxCodeLines = Math.max(
+  ...demoStates.map((s) => s.code.split('\n').length),
+)
+for (const s of demoStates) {
+  const lines = s.code.split('\n').length
+  if (lines < maxCodeLines) s.code += '\n'.repeat(maxCodeLines - lines)
+}
 ---
 
 <div
@@ -176,13 +194,19 @@ const demoStates = [
       }
 
       const unit = defineUnit({
-        key: () => 'demo-panel',
+        // Keyed by id, not a constant slot name: swapping to a different
+        // sample is that id entering and the previous one exiting, the same
+        // as a real Unit whose declared set of Items changes — not the same
+        // Item's props updating in place, which is why `update` is absent
+        // below rather than dead code that never fires.
+        key: (item: { id: string }) => item.id,
         value: (item: { id: string }) => item.id,
         items: () => [{ id: ids[desiredIndex] }],
         observe: () => [{ id: shownId }],
+        // No `exit` hook: `enter`'s own `show()` call already hides every
+        // frame but the one just entered, so the outgoing sample has
+        // nothing left to undo.
         enter: converge,
-        update: (pairs: { item: { id: string } }[]) =>
-          converge(pairs.map((p) => p.item)),
         // Every place `desiredIndex` changes — `advance` below, a dot click —
         // calls `unit.sweep()` itself the same tick, so nothing here needs to
         // poll to notice a change. This interval is only the safety net a

@@ -18,6 +18,8 @@
 // Secondary text here is ink-3, not the usual ink-4: at this scale (10.5–
 // 11.5px, well under the "large text" AA threshold) ink-4 on surface-frame
 // measures ~4.46:1 — just under WCAG AA's 4.5:1 floor for small text.
+import PanelPositionStrip from './PanelPositionStrip.astro'
+
 interface Props {
   states: { id: string; reload: string; anchor: 'top' | 'right' | 'left' }[]
 }
@@ -64,68 +66,39 @@ const tabs = [
       /* The panel the current code actually declares — real position,
          real widget shape, not a picture of one. Reuses the same
          data-demo-frame toggling DemoColumn's script already drives; no
-         script changes needed for this to cycle with everything else. */
+         script changes needed for this to cycle with everything else.
+         PanelPositionStrip owns the shared wrapper/hidden-guard shell;
+         only each anchor's own glyph shape lives here. */
     }
     {
-      /* `hidden` has to sit alone on the toggled element: paired with a
-         `flex`/`grid` utility on the *same* element, the browser's default
-         `[hidden] { display: none }` and Tailwind's `.flex { display:
-         flex }` land at equal specificity, and whichever the stylesheet
-         happens to define later wins — silently, with all three strips
-         shown at once. Keeping layout on an inner wrapper sidesteps the
-         tie instead of depending on it. */
-    }
-    {
-      states.map((s, i) => {
-        if (s.anchor === 'top') {
-          return (
-            <div
-              data-demo-frame={s.id}
-              hidden={i !== 0}
-              class="absolute inset-x-0 top-0 h-[8px] bg-accent"
-            >
-              <div class="flex h-full items-center gap-[3px] px-[3px]">
-                <span class="flex h-[5px] items-end gap-[1px]">
-                  <span class="h-[2px] w-[2px] bg-accent-ink/70" />
-                  <span class="h-[4px] w-[2px] bg-accent-ink/70" />
-                  <span class="h-[3px] w-[2px] bg-accent-ink/70" />
-                  <span class="h-[5px] w-[2px] bg-accent-ink/70" />
-                </span>
-                <span class="ml-auto h-[2px] w-6 bg-accent-ink/60" />
-              </div>
-            </div>
-          )
-        }
-        if (s.anchor === 'right') {
-          return (
-            <div
-              data-demo-frame={s.id}
-              hidden={i !== 0}
-              class="absolute inset-y-0 right-0 w-[14px] bg-accent"
-            >
-              <div class="flex h-full flex-col items-center justify-center gap-[3px]">
-                <span class="h-[6px] w-[6px] bg-accent-ink" />
-                <span class="text-[5px] tracking-chrome text-accent-ink">
-                  ON
-                </span>
-              </div>
-            </div>
-          )
-        }
-        return (
-          <div
-            data-demo-frame={s.id}
-            hidden={i !== 0}
-            class="absolute inset-y-0 left-0 w-[14px] bg-accent"
-          >
-            <div class="flex h-full flex-col justify-center gap-[3px] p-[3px]">
+      states.map((s, i) => (
+        <PanelPositionStrip id={s.id} hidden={i !== 0} anchor={s.anchor}>
+          {s.anchor === 'top' && (
+            <>
+              <span class="flex h-[5px] items-end gap-[1px]">
+                <span class="h-[2px] w-[2px] bg-accent-ink/70" />
+                <span class="h-[4px] w-[2px] bg-accent-ink/70" />
+                <span class="h-[3px] w-[2px] bg-accent-ink/70" />
+                <span class="h-[5px] w-[2px] bg-accent-ink/70" />
+              </span>
+              <span class="ml-auto h-[2px] w-6 bg-accent-ink/60" />
+            </>
+          )}
+          {s.anchor === 'right' && (
+            <>
+              <span class="h-[6px] w-[6px] bg-accent-ink" />
+              <span class="text-[5px] tracking-chrome text-accent-ink">ON</span>
+            </>
+          )}
+          {s.anchor === 'left' && (
+            <>
               <span class="h-[2px] w-full bg-accent-ink/70" />
               <span class="h-[2px] w-[70%] bg-accent-ink/50" />
               <span class="h-[2px] w-[85%] bg-accent-ink/70" />
-            </div>
-          </div>
-        )
-      })
+            </>
+          )}
+        </PanelPositionStrip>
+      ))
     }
     <div class="grid grid-cols-2 gap-px bg-line-1 p-px">
       <div class="flex flex-col bg-surface-frame">

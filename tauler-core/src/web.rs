@@ -84,7 +84,7 @@ pub fn globals_js() -> String {
 }
 
 /// Diff declared Items against observed ones for one Unit — the identical
-/// reconciliation a native Unit runs (`units_reconcile`, ADR 0036). No shell,
+/// reconciliation a native Unit runs (`units_reconcile`, ADR 0037). No shell,
 /// no second runtime: the caller already *is* the browser's own JS engine, so
 /// `key`/`value`/`observe` stay plain JS and only the diff crosses into Rust.
 ///

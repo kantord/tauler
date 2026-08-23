@@ -7,7 +7,7 @@
 // called directly, on a `setInterval` instead of a thread. There is also no shell here —
 // `observe` returns synthetic or fetched data, never `sh`. Only the diff itself crosses
 // into wasm, via `taulerReconcileUnit`, so it stays byte-identical to what a native Unit
-// reconciles (`units_reconcile`, ADR 0036).
+// reconciles (`units_reconcile`, ADR 0037).
 //
 // Declarative, JSX-declared Units (`<WindowPlacement .../>`) are not implemented here —
 // `defineUnit` is imperative: `items` is a function returning the currently-declared Items,
@@ -85,8 +85,10 @@ function project(key, value, rawItems) {
  * (ADR 0033), minus the shell `observe` can't have in a browser.
  *
  * Sweeps once immediately, then every `refreshInterval` ms (default 5000, the
- * same as native's default). Returns `{ stop }`; call it to clear the Unit's
- * interval.
+ * same as native's default). Returns `{ stop, sweep }`: `stop` clears the
+ * Unit's interval; `sweep` runs one convergence immediately, for a caller
+ * that already knows the declared world just changed and doesn't want to
+ * wait out the interval.
  */
 export function defineUnit({
   key,
