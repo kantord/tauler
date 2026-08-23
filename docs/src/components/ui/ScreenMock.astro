@@ -1,10 +1,33 @@
 ---
 // A schematic screenshot of what layout.jsx (in CodePanel above it)
-// produces: bezel, workspace buttons, two terminals and a browser window
-// tiled edge to edge — proof a tiled workspace isn't just one terminal.
-// It depicts a screen — it is not an interface, so it carries no
-// focusable content and is hidden from assistive tech entirely; the code
-// that produces it is what's readable.
+// produces: workspace buttons, two terminals and a browser window tiled
+// edge to edge — proof a tiled workspace isn't just one terminal. It
+// depicts a screen — it is not an interface, so it carries no focusable
+// content and is hidden from assistive tech entirely; the code that
+// produces it is what's readable.
+//
+// None of this markup is tauler's own output — real tauler rasterizes a
+// layout file itself, it doesn't build a DOM. Every pane below is
+// hand-authored to look like what layout.jsx would produce, not rendered
+// by anything that ran it. The one real tauler code in this demo is
+// DemoColumn's own script: a `defineUnit` Unit (tauler-web/js/units.js,
+// ADR 0037) decides *which* example is active. That Unit doesn't touch
+// this file — it toggles `data-demo-frame`/`hidden` on markup this
+// component already rendered.
+//
+// [data-screen] itself has no border, no padding and no gap between its
+// bar row and the tiled area below — a screenshot has none of those
+// either. A monitor bezel was tempting to draw here once, but this mock
+// isn't framing a photo of a monitor, it's standing in for the pixels a
+// screen actually shows; every inset here would be exactly the kind of
+// empty reserved space this mock has already ruled out elsewhere (see
+// the [data-gap-root] comment below).
+//
+// bg-black on [data-screen] is a backstop, not a design choice: every
+// pane already paints its own background, so this should never actually
+// show through. It exists so a future pane that forgets one fails
+// obviously (a black hole) instead of leaking whatever's behind this
+// component on the real page.
 //
 // The workspace-button strip up top isn't a simulated i3bar — it's what
 // this whole page is arguing for: tauler replaces i3bar/polybar, so that
@@ -83,7 +106,7 @@ const fillerLines = [72, 45, 88, 30, 60, 50]
   aria-hidden="true"
   data-screen
   data-active-anchor={states[0]?.anchor}
-  class="flex flex-col gap-[5px] border border-line-2 bg-surface-frame p-[5px] font-ui shadow-panel"
+  class="flex flex-col bg-black font-ui shadow-panel"
 >
   {
     /* The workspace/clock bar is a tauler panel too — the whole page's
@@ -99,7 +122,7 @@ const fillerLines = [72, 45, 88, 30, 60, 50]
   }
   <div
     data-top-bar
-    class="flex items-center gap-[3px] border-b border-line-1 px-s2 pb-1"
+    class="flex items-center gap-[3px] border-b border-line-1 bg-surface-frame px-s2 py-1"
   >
     {
       workspaces.map((ws) => (
@@ -311,16 +334,20 @@ const fillerLines = [72, 45, 88, 30, 60, 50]
   }
 
   /* A real screenshot has fixed pixel dimensions — a monitor doesn't
-     resize itself. box-sizing: border-box is what makes that compatible
-     with the workspace bar collapsing: that frees space inside this fixed
-     box rather than shrinking it, so cycling through examples changes
-     what's inside the screen, never the screen's own size. 560×315 is
-     16:9 — a common basic laptop's aspect ratio, and the same ratio as the
-     1920×1080 this mock is standing in for — not this content's own
-     natural rendered height (which is shorter): the flex-1 stretch chain
-     below, plus the browser pane's own flex-1 fill (see the markup
-     comment on its white HN box), is what makes the extra height read as
-     "more room in a real window" instead of dead space. */
+     resize itself. [data-screen] has no border or padding of its own (see
+     the markup comment up top), so box-sizing: border-box isn't currently
+     absorbing anything — it's here so a future border/padding addition
+     stays compatible with the fixed size below instead of silently
+     growing it. That fixed size is what makes the workspace bar's
+     collapse free space inside the box rather than shrinking the box
+     itself, so cycling through examples changes what's inside the screen,
+     never the screen's own size. 560×315 is 16:9 — a common basic
+     laptop's aspect ratio, and the same ratio as the 1920×1080 this mock
+     is standing in for — not this content's own natural rendered height
+     (which is shorter): the flex-1 stretch chain below, plus the browser
+     pane's own flex-1 fill (see the markup comment on its white HN box),
+     is what makes the extra height read as "more room in a real window"
+     instead of dead space. */
   [data-screen] {
     box-sizing: border-box;
     width: 560px;
