@@ -145,7 +145,7 @@ pub fn render_frame_keyed(
 ) -> Arc<Vec<u8>> {
     let rgba = raster(content, width, height, dpr, backdrop);
     let mut bgrx = Vec::with_capacity(rgba.len());
-    for px in rgba.chunks_exact(4) {
+    for px in rgba.as_chunks::<4>().0 {
         bgrx.extend_from_slice(&[px[2], px[1], px[0], 0x00]);
     }
     Arc::new(bgrx)
