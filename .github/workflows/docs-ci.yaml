@@ -59,11 +59,16 @@ jobs:
           toolchain: "1.97.1"
           targets: wasm32-unknown-unknown
 
+      # deploy-docs.yaml's own version of this step uses `sudo` — it runs on a
+      # bare ubuntu-latest runner, where the default user isn't root. This job
+      # runs inside the Playwright container instead (see the `container:` key
+      # above), which runs as root by default and has no `sudo` binary at all —
+      # confirmed directly against mcr.microsoft.com/playwright:v1.62.1-noble.
       - name: Install system dependencies
         working-directory: .
         run: |
-          sudo apt-get update
-          sudo apt-get install -y libwayland-dev libxkbcommon-dev libfontconfig-dev libxcb1-dev pkg-config
+          apt-get update
+          apt-get install -y libwayland-dev libxkbcommon-dev libfontconfig-dev libxcb1-dev pkg-config
 
       - name: Cache cargo
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0

@@ -82,6 +82,17 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           tmp=$(mktemp -d)
           cp screenshots/*.png "$tmp/"
+          # The "Run scenarios" step above leaves tracked fixture PNGs
+          # (docs/src/assets/devtools/i3-scenarios/*.png) modified in the
+          # working tree as a side effect of running the scenarios — reproduced
+          # and confirmed directly: `git checkout -B` refuses to switch branches
+          # over that ("local changes would be overwritten"), where a plain
+          # `git checkout <branch>` used to tolerate it by merging the
+          # modification across instead. None of that state is wanted here —
+          # only the copies already sitting in $tmp are — so discard it up
+          # front rather than depend on checkout's merge behavior to paper over
+          # it on every retry.
+          git reset --hard HEAD
           # Every PR writes its own pr-<N>/ subdirectory, so a losing race here is
           # never a real conflict — just a rebuild against whatever origin looks
           # like now. Retry instead of failing the job outright when a concurrent
