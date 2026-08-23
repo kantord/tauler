@@ -21,7 +21,7 @@ serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"
 serde_yaml = "0.9.34"
 thiserror = "2.0.20"
-tauler-ui-macro = { path = "../tauler-ui-macro", version = "0.1.10" }
+tauler-ui-macro = { path = "../tauler-ui-macro", version = "0.1.11" }
 # The Unit reconciler's diff core (units_reconcile.rs): pure, no QuickJS, so it
 # belongs here rather than behind the `quickjs` feature — a browser Unit needs
 # the same diffing native Units get (ADR 0037).

@@ -14,7 +14,7 @@ edition = "2021"
 # only when release-plz decides *this* crate needs releasing, which is the
 # one code path release-plz gets right: rewriting every dependent's
 # `version = "..."` requirement to match.
-version = "0.1.10"
+version = "0.1.11"
 authors.workspace = true
 license.workspace = true
 repository.workspace = true

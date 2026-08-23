@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0](https://github.com/kantord/tauler/compare/tauler-core-v0.1.10...tauler-core-v0.2.0) - 2026-08-23
+
+### Added
+
+- use "real" optative on landing page demo ([#468](https://github.com/kantord/tauler/pull/468))
+- support custom font rules ([#463](https://github.com/kantord/tauler/pull/463))
+
 ## [0.1.9](https://github.com/kantord/tauler/compare/tauler-core-v0.1.8...tauler-core-v0.1.9) - 2026-08-22
 
 ### Added
