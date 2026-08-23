@@ -1,16 +1,19 @@
 ---
-// A file on screen: path + state in the titlebar, syntax-highlighted code.
-// Sits over the wallpaper field and is opaque — DemoColumn redraws the
+// A file on screen: path, the current example's name, and syntax-highlighted
+// code. Sits over the wallpaper field and is opaque — DemoColumn redraws the
 // exact field slice behind it (see
 // data-slice-host / data-field-slice, painted by Stage's script) rather
 // than blurring it, so the art lines up pixel-for-pixel with the wallpaper
 // it covers. Highlighting is Shiki at build time via astro:components,
 // the same engine Starlight's docs pages use for fenced code.
 //
-// Cycles through several examples automatically — DemoColumn's cycling
-// script (data-demo-frame / data-demo-dot) is what drives it; this
+// Cycles through several examples — DemoColumn's script drives it via
+// data-demo-frame, data-demo-prev/-next and data-demo-label; this
 // component only pre-renders every state's highlighted HTML at build time
-// and gives the script the hooks to swap which one is visible.
+// and gives the script the hooks to swap which one is visible. There's no
+// separate dot row for this any more — the chevrons here are the whole
+// switcher, so nothing else on the page repeats what this bar already
+// says.
 import { Code } from 'astro:components'
 import type { ComponentProps } from 'astro/types'
 // Passed as a theme *object*, not the bundled-theme name string: Astro's
@@ -24,12 +27,11 @@ import githubDark from 'shiki/themes/github-dark.mjs'
 
 interface Props {
   path: string
-  state?: string
-  states: { id: string; code: string }[]
+  states: { id: string; label: string; code: string }[]
   lang?: ComponentProps<typeof Code>['lang']
 }
 
-const { path, state = 'HOT RELOAD', states, lang = 'jsx' } = Astro.props
+const { path, states, lang = 'jsx' } = Astro.props
 ---
 
 <div
@@ -41,15 +43,53 @@ const { path, state = 'HOT RELOAD', states, lang = 'jsx' } = Astro.props
   <div class="absolute inset-0 bg-surface-frame/85"></div>
   <div class="relative">
     <div
-      class="flex gap-s3 border-b border-line-2 px-s4 py-s3 font-ui text-chrome-sm tracking-chrome text-ink-3"
+      class="flex items-center gap-s3 border-b border-line-2 px-s4 py-s3 font-ui text-chrome-sm tracking-chrome text-ink-3"
     >
       <span>{path}</span>
-      <span class="ml-auto text-accent">{state}</span>
+      <div class="ml-auto flex items-center gap-s2">
+        <button
+          type="button"
+          data-demo-prev
+          aria-label="Show the previous example"
+          data-demo-chevron
+          class="cursor-pointer px-[2px] text-[13px] leading-none text-ink-4 transition hover:text-accent"
+        >
+          ◂
+        </button>
+        <span data-demo-label class="text-accent">{states[0]?.label}</span>
+        <button
+          type="button"
+          data-demo-next
+          aria-label="Show the next example"
+          data-demo-chevron
+          class="cursor-pointer px-[2px] text-[13px] leading-none text-ink-4 transition hover:text-accent"
+        >
+          ▸
+        </button>
+      </div>
     </div>
-    <div data-code class="px-[18px] py-s5">
+    {
+      /* Every state's frame lives in the same grid cell (`col-start-1
+         row-start-1` on each) rather than being toggled with `hidden`:
+         `hidden` forces `display:none`, which drops an element from
+         sizing entirely, so the container only ever reflected the
+         *current* sample's height — a real jump every time the cycle
+         moved to a shorter one. Stacking them and hiding all but the
+         active one with `visibility:hidden` (the <style> block below —
+         Tailwind's `invisible` utility isn't in this layer's allowed set,
+         and `[grid-area:...]` isn't a recognized class either, so both
+         live there instead) keeps every sample in the sizing calculation,
+         so the grid row is always the tallest one's height, whichever is
+         showing. */
+    }
+    <div data-code class="grid px-[18px] py-s5">
       {
         states.map((s, i) => (
-          <div data-demo-frame={s.id} hidden={i !== 0}>
+          <div
+            data-demo-frame={s.id}
+            data-demo-inactive={i !== 0 ? '' : undefined}
+            class="col-start-1 row-start-1"
+          >
             <Code code={s.code} lang={lang} theme={githubDark} />
           </div>
         ))
@@ -59,6 +99,23 @@ const { path, state = 'HOT RELOAD', states, lang = 'jsx' } = Astro.props
 </div>
 
 <style>
+  /* Plain text, not a button that happens to sit in JSX-shaped chrome:
+     `appearance` isn't a Tailwind-classifiable surface/spacing/text
+     utility (check-class-layers.ts rejects it as a class), and the
+     browser's native <button> chrome (a visible background box, in
+     Chromium) is exactly what "just use regular chevrons" ruled out. */
+  [data-demo-chevron] {
+    appearance: none;
+    border: 0;
+    background: transparent;
+  }
+
+  /* See the comment above this element in the markup: kept in the grid's
+     sizing calculation on purpose, just not painted. */
+  [data-demo-frame][data-demo-inactive] {
+    visibility: hidden;
+  }
+
   /* astro:components' <Code> inlines its own background/font/line-height
      on the <pre> it emits; only !important can outrank an inline style. */
   [data-code] :global(pre.astro-code) {

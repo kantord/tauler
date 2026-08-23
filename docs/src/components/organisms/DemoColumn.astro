@@ -11,13 +11,14 @@
 // (the demo handoff's motion budget, §7): everywhere else nothing animates
 // unless the user or real data moved it, but a demo whose whole point is
 // "describe it once, tauler runs it live" says nothing if it never
-// changes. Direct-access dots and a prefers-reduced-motion pause carry
-// over from that same precedent.
+// changes. Direct-access chevrons (in CodePanel's own bar, not a separate
+// row) and a prefers-reduced-motion pause carry over from that same
+// precedent.
 //
 // The cycle itself runs on a real browser Unit (`defineUnit`, ADR 0037) —
 // the same wasm module and the same reconciler native tauler uses, not a
 // second "looks like tauler" timer standing in for it. Which panel is
-// declared changes on its own interval or a dot click; which panel is
+// declared changes on its own interval or a chevron click; which panel is
 // actually shown is the Unit converging to match. Keyed by the sample's own
 // id rather than one constant slot name: the three samples are genuinely
 // different declared things (different anchor, different widget), so a
@@ -26,13 +27,12 @@
 // defined.
 import CodePanel from '../ui/CodePanel.astro'
 import ScreenMock from '../ui/ScreenMock.astro'
-import DemoDots from '../ui/DemoDots.astro'
 
 const demoStates = [
   {
     id: 'load',
     label: 'SYSTEM METRICS',
-    reload: 'panels: top(48) · surfaces bound',
+    reload: 'top(48) bound',
     // Matches the sample's own `anchor="top"` — ScreenMock's preview reads
     // this rather than re-deriving it from the code string, so the two can
     // never say different things.
@@ -51,7 +51,7 @@ const demoStates = [
   {
     id: 'lights',
     label: 'SMART HOME',
-    reload: 'panels: right(64) · surfaces bound',
+    reload: 'right(64) bound',
     anchor: 'right' as const,
     code: `const kitchen = useHomeAssistant("light.kitchen");
 
@@ -66,7 +66,7 @@ const demoStates = [
   {
     id: 'feed',
     label: 'LIVE DATA',
-    reload: 'panels: left(320) · surfaces bound',
+    reload: 'left(320) bound',
     anchor: 'left' as const,
     code: `const top = useJson(
   "https://hn.algolia.com/api/v1/search?tags=front_page");
@@ -79,29 +79,17 @@ const demoStates = [
 </panel>`,
   },
 ]
-
-// Each sample is a different real length (10 / 9 / 8 lines) — since only the
-// current state's frame is ever visible (the others are `hidden`, not
-// zero-height), CodePanel's height jumped by a line or two on every switch.
-// Padding every sample to the tallest one's line count means the *code*
-// fills the extra space, not a CSS height nobody would remember to keep in
-// sync as samples change.
-const maxCodeLines = Math.max(
-  ...demoStates.map((s) => s.code.split('\n').length),
-)
-for (const s of demoStates) {
-  const lines = s.code.split('\n').length
-  if (lines < maxCodeLines) s.code += '\n'.repeat(maxCodeLines - lines)
-}
 ---
 
 <div
   data-reveal
   data-demo
+  data-demo-states={JSON.stringify(
+    demoStates.map((s) => ({ id: s.id, label: s.label })),
+  )}
   class="flex w-[560px] flex-col gap-s5 max-xl:hidden tight:gap-s4"
 >
-  <CodePanel path="~/.config/tauler/layout.jsx" states={demoStates} />
-  <DemoDots states={demoStates} />
+  <CodePanel path="layout.op.mdx" states={demoStates} />
   <ScreenMock states={demoStates} />
 </div>
 
@@ -109,50 +97,60 @@ for (const s of demoStates) {
   // Swaps which pre-rendered (build-time-highlighted) frame is visible,
   // in lockstep across CodePanel and ScreenMock's terminal — both just
   // mark their alternatives with the same data-demo-frame id. Direct
-  // access via the dots is not just a convenience: it's also the
-  // mechanism that satisfies "give the user a way to stop this" for
-  // auto-advancing content, alongside the reduced-motion pause below.
+  // access via CodePanel's own chevrons is not just a convenience: it's
+  // also the mechanism that satisfies "give the user a way to stop this"
+  // for auto-advancing content, alongside the reduced-motion pause below.
   const root = document.querySelector<HTMLElement>('[data-demo]')
   const frames = root
     ? Array.from(root.querySelectorAll<HTMLElement>('[data-demo-frame]'))
     : []
-  const dots = root
-    ? Array.from(root.querySelectorAll<HTMLButtonElement>('[data-demo-dot]'))
-    : []
+  const prevBtn = root?.querySelector<HTMLButtonElement>('[data-demo-prev]')
+  const nextBtn = root?.querySelector<HTMLButtonElement>('[data-demo-next]')
   const label = root?.querySelector<HTMLElement>('[data-demo-label]')
-  // Only PanelPositionStrip's own frames carry this — CodePanel's and the
-  // terminal log's data-demo-frame divs don't declare an edge, so they're
-  // silently skipped below rather than needing a separate frame list.
-  const gapRoot = root?.querySelector<HTMLElement>('[data-gap-root]') ?? null
-  const ids = [
-    ...new Set(
-      dots
-        .map((d) => d.dataset.stateId)
-        .filter((id): id is string => Boolean(id)),
-    ),
-  ]
+  // data-active-anchor lives on ScreenMock's own outer [data-screen], not
+  // [data-gap-root] itself — its CSS needs to reach both the gap padding
+  // (a [data-gap-root] descendant) and the workspace bar (a [data-top-bar]
+  // sibling of [data-gap-root]), which only a shared ancestor can do.
+  const screenEl = root?.querySelector<HTMLElement>('[data-screen]') ?? null
+  // The server-rendered id/label pairs, same order as the frontmatter's own
+  // demoStates (distinct name — this is the client-side JS scope, not the
+  // build-time one) — the chevrons only need to step through this list, not
+  // address a specific entry the way a dot's own data-state-id used to.
+  const cycleStates: { id: string; label: string }[] = root?.dataset.demoStates
+    ? JSON.parse(root.dataset.demoStates)
+    : []
+  const ids = cycleStates.map((s) => s.id)
+  const labelById = new Map(cycleStates.map((s) => [s.id, s.label]))
 
   function show(id: string): void {
     for (const frame of frames) {
-      frame.hidden = frame.dataset.demoFrame !== id
-      if (gapRoot && frame.dataset.demoFrame === id && frame.dataset.anchor) {
-        gapRoot.dataset.activeAnchor = frame.dataset.anchor
-      }
-    }
-    for (const dot of dots) {
-      if (dot.dataset.stateId === id) {
-        dot.setAttribute('aria-current', 'true')
-        if (label && dot.dataset.label) label.textContent = dot.dataset.label
+      const active = frame.dataset.demoFrame === id
+      // CodePanel's own frames stay in the layout and toggle
+      // data-demo-inactive (styled visibility:hidden in CodePanel's own
+      // <style>) instead of `hidden` — see its comment for why (`hidden`
+      // forces `display:none`, which drops a frame from sizing, which is
+      // what caused the panel to jump height on every switch). Everywhere
+      // else (ScreenMock's terminal log) still uses `hidden`: those frames
+      // are all the same line count, so there's no height to protect.
+      if (frame.closest('[data-code]')) {
+        frame.toggleAttribute('data-demo-inactive', !active)
       } else {
-        dot.removeAttribute('aria-current')
+        frame.hidden = !active
+      }
+      // Only PanelPositionStrip's own frames carry this — CodePanel's and
+      // the terminal log's data-demo-frame divs don't declare an edge, so
+      // they're silently skipped here.
+      if (screenEl && active && frame.dataset.anchor) {
+        screenEl.dataset.activeAnchor = frame.dataset.anchor
       }
     }
+    if (label) label.textContent = labelById.get(id) ?? label.textContent
   }
 
-  // The server already rendered the first state (CodePanel's i===0 frame,
-  // DemoDots' first aria-current) — there is nothing to converge until the
-  // declared panel actually changes, so booting the wasm module costs
-  // nothing visible even before it resolves.
+  // The server already rendered the first state (CodePanel's i===0 frame
+  // and its label) — there is nothing to converge until the declared panel
+  // actually changes, so booting the wasm module costs nothing visible
+  // even before it resolves.
   // `max-xl:hidden` (below) means most loads never show this column at all —
   // booting a ~1MB wasm module for a decorative widget nobody can see is the
   // one cost this page cannot excuse itself. `display` is what that utility
@@ -230,18 +228,16 @@ for (const s of demoStates) {
       let timer: ReturnType<typeof setInterval> | undefined
       if (!reduceMotion) timer = setInterval(advance, 4500)
 
-      for (const dot of dots) {
-        dot.addEventListener('click', () => {
-          const i = ids.indexOf(dot.dataset.stateId ?? '')
-          if (i === -1) return
-          desiredIndex = i
-          unit.sweep()
-          if (timer) {
-            clearInterval(timer)
-            timer = setInterval(advance, 4500)
-          }
-        })
+      function step(delta: number): void {
+        desiredIndex = (desiredIndex + delta + ids.length) % ids.length
+        unit.sweep()
+        if (timer) {
+          clearInterval(timer)
+          timer = setInterval(advance, 4500)
+        }
       }
+      prevBtn?.addEventListener('click', () => step(-1))
+      nextBtn?.addEventListener('click', () => step(1))
     }
 
     // No fallback timer on failure: the page stays on the server-rendered
