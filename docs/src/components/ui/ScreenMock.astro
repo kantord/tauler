@@ -19,19 +19,19 @@
 //
 // The terminal's last two lines track CodePanel's cycling states
 // (data-demo-frame, driven by DemoColumn's script) so the reload log
-// always matches whichever example is on screen. The panel-position strip
-// below the header does too — the one thing this mock previously got wrong:
-// the *code* changed but nothing showed the *panel* actually moving, which
-// is exactly the claim the page is making. Only the active anchor's edge is
-// reserved, same as a real tiling WM only reflows the tiled area where a
-// bar actually sits — DemoColumn's script sets [data-gap-root]'s
-// data-active-anchor from the entering strip's own data-anchor, and the
-// padding transition below does the rest.
+// always matches whichever example is on screen.
+//
+// There used to be a second indicator here too — a thin accent strip at
+// whichever edge the active example's `anchor` declared, reserving space
+// there even for examples this screen shows no other trace of. That's
+// exactly the i3-gaps move this mock isn't making: empty space held open
+// for its own sake. Reserved space only happens for the workspace bar
+// below, because that one shows something real (workspace numbers, a
+// clock) — not because an example merely *has* an anchor.
 //
 // Secondary text here is ink-3, not the usual ink-4: at this scale (10.5–
 // 11.5px, well under the "large text" AA threshold) ink-4 on surface-frame
 // measures ~4.46:1 — just under WCAG AA's 4.5:1 floor for small text.
-import PanelPositionStrip from './PanelPositionStrip.astro'
 
 interface Props {
   states: { id: string; reload: string; anchor: 'top' | 'right' | 'left' }[]
@@ -92,10 +92,10 @@ const fillerLines = [72, 45, 88, 30, 60, 50]
        it only shows when the active example actually declares a
        top-anchored panel (`load`, the only `anchor="top"` state). The
        other examples declare right/left panels instead, so there's
-       nothing here for tauler to have rendered, and this stays blank —
-       `visibility`, not `hidden`, so the row's own height never moves
-       when it does. Driven by [data-screen]'s data-active-anchor, the
-       same attribute the panel-position padding below already reads. */
+       nothing here for tauler to have rendered, and this row collapses
+       entirely — see the <style> block for why that's `display`, not
+       `visibility`. Driven by [data-screen]'s data-active-anchor, set by
+       DemoColumn's script from whichever example is currently shown. */
   }
   <div
     data-top-bar
@@ -121,61 +121,30 @@ const fillerLines = [72, 45, 88, 30, 60, 50]
   </div>
   <div data-gap-root class="relative">
     {
-      /* The panel the current code actually declares — real position,
-         real widget shape, not a picture of one. Reuses the same
-         data-demo-frame toggling DemoColumn's script already drives.
-         PanelPositionStrip owns the shared wrapper/hidden-guard shell;
-         only each anchor's own glyph shape lives here. The reserved edge
-         itself is driven by data-active-anchor below, from CSS, not a
-         permanent pt/pr/pl — see the <style> block for why.
-
-         No `top` case: a top-anchored example already has the workspace
-         bar above to show it declared something there. A second accent
-         strip repeating that, right underneath, read as two top bars for
-         the same panel — this mock draws it once. */
-    }
-    {
-      states
-        .filter((s) => s.anchor !== 'top')
-        .map((s) => (
-          // Always hidden on first paint: the default state (states[0]) is
-          // the top-anchored one, filtered out above, so neither remaining
-          // strip is ever the initial state — the client script takes over
-          // from here once a cycle actually reaches one of them.
-          <PanelPositionStrip id={s.id} hidden anchor={s.anchor}>
-            {s.anchor === 'right' && (
-              <>
-                <span class="h-[6px] w-[6px] bg-accent-ink" />
-                <span class="text-[5px] tracking-chrome text-accent-ink">
-                  ON
-                </span>
-              </>
-            )}
-            {s.anchor === 'left' && (
-              <>
-                <span class="h-[2px] w-full bg-accent-ink/70" />
-                <span class="h-[2px] w-[70%] bg-accent-ink/50" />
-                <span class="h-[2px] w-[85%] bg-accent-ink/70" />
-              </>
-            )}
-          </PanelPositionStrip>
-        ))
-    }
-    {
       /* No title bars anywhere below — checked against a real i3 config's
          `for_window [all] border pixel 1`: every window is *just* a
-         border, no decoration. No gaps between panes either (that config
-         leaves `gaps inner`/`gaps outer` commented out), so panes sit edge
-         to edge and each one's own border is the only seam. Every pane
-         gets the same muted border — this mock isn't claiming to know
-         which one has focus, only that a tiled screen holds more than one
-         window at once. */
+         border, no decoration, and nothing wraps the tiled area itself —
+         a border there wouldn't belong to any window, it'd be a container
+         chrome i3 has no equivalent of. So every pane below draws its own
+         full border independently, the way a real i3 window does, on
+         every side including the ones flush against another pane: two
+         windows sitting edge to edge (no `gaps inner`/`outer` — that real
+         i3 config leaves both commented out) each still draw their own
+         border, so a shared seam is two 1px lines, not one. That's a
+         thicker line at the seam, not a gap — nothing opens up between
+         the panes, which is the distinction that matters (see the
+         [data-gap-root] comment below for the actual thing this mock
+         doesn't simulate). Every pane gets the same muted border — this
+         mock isn't claiming to know which one has focus, only that a
+         tiled screen holds more than one window at once. */
     }
     <div class="grid grid-cols-[2.6fr_1.4fr]">
       {
         /* Stacked top/bottom, not side by side — a horizontal split, one
            terminal above the other, sharing this column's width rather
-           than each getting half of it. */
+           than each getting half of it. This wrapper is layout only, no
+           border of its own — the two i3 windows inside it are what draw
+           borders, not the column they happen to share. */
       }
       <div class="flex flex-col">
         <div class="flex flex-1 flex-col border border-line-2 bg-surface-frame">
@@ -254,9 +223,16 @@ const fillerLines = [72, 45, 88, 30, 60, 50]
           /* Real Hacker News has no dark mode — it's always its own cream
            page under whatever chrome is around it. The rest of this mock
            is our dark UI; this one surface deliberately isn't, because
-           that's what the actual site looks like, tiled or not. */
+           that's what the actual site looks like, tiled or not.
+
+           flex-1: neither the tab strip nor the toolbar above it grow, so
+           without this the cream page would stop at its own content height
+           and whatever's left of the pane (16:9 leaves more room than this
+           mock's content needs — see [data-screen]'s own comment) would
+           show the pane's background instead — a dark stripe under a
+           browser window, not more of the page. */
         }
-        <div class="flex flex-col bg-[#f6f6ef]">
+        <div class="flex flex-1 flex-col bg-[#f6f6ef]">
           <div class="flex items-center gap-s2 bg-accent px-s2 py-[3px]">
             <span
               class="font-display text-[10px] font-semibold text-accent-ink"
@@ -310,64 +286,62 @@ const fillerLines = [72, 45, 88, 30, 60, 50]
 </script>
 
 <style>
-  /* Only the active anchor's edge is reserved — DemoColumn's script keeps
-     [data-screen]'s data-active-anchor in sync with whichever strip just
-     entered (see its `show()`). No `top` case here any more — the
-     top-anchored example reserves nothing in the tiled area, since it's
-     the workspace bar above that shows it, not a strip down here (see the
-     markup comment by the PanelPositionStrip loop). The transition reads
-     as a real WM reflowing the tiled area when a bar appears on a
-     different edge, not motion for its own sake: i3/sway do this too,
-     they just don't animate it. Sizes match each anchor's own strip
-     thickness in PanelPositionStrip.astro. */
+  /* [data-gap-root] no longer reserves anything of its own — no strip
+     lives here any more (see the markup comment above the grid), so there
+     is nothing left to make room for. It still needs to fill whatever
+     column space [data-screen] has left over once the workspace bar
+     (below) collapses, rather than leaving a gap where the bar used to
+     be. */
   [data-gap-root] {
-    padding: 0;
-    transition: padding 260ms cubic-bezier(0.2, 0.8, 0.2, 1);
-    /* Fills [data-screen]'s remaining column space once the workspace bar
-       (below) collapses, rather than leaving a gap where it used to
-       reserve height. */
     display: flex;
     flex: 1;
     flex-direction: column;
-  }
-  [data-screen][data-active-anchor='right'] [data-gap-root] {
-    padding-right: 14px;
-  }
-  [data-screen][data-active-anchor='left'] [data-gap-root] {
-    padding-left: 14px;
-  }
-  @media (prefers-reduced-motion: reduce) {
-    [data-gap-root] {
-      transition: none;
-    }
   }
 
   /* The workspace/clock bar only has anything to show for the top-anchored
      example — see the markup comment above [data-top-bar]. `display`, not
      `visibility`: reserving its row's height for an example that never
-     declared a bar there is exactly the dead-space problem the gap-reset
-     fix above already solved once for the panel-position strip; the row
-     actually collapses, and the flex-1/stretch chain below (.relative,
-     then its grid) is what lets the tiled area grow to fill the space
-     that opens up instead of leaving it blank. */
+     declared a bar there is exactly the empty-gap problem this mock
+     doesn't simulate elsewhere either; the row actually collapses, and
+     the flex-1/stretch chain below ([data-gap-root], then its grid) is
+     what lets the tiled area grow to fill the space that opens up instead
+     of leaving it blank. */
   [data-screen]:not([data-active-anchor='top']) [data-top-bar] {
     display: none;
   }
 
   /* A real screenshot has fixed pixel dimensions — a monitor doesn't
      resize itself. box-sizing: border-box is what makes that compatible
-     with both the padding above and the workspace bar collapsing: they
-     eat into (or free up, respectively) this fixed box rather than
-     resizing it, so cycling through examples changes what's inside the
-     screen, never the screen's own size. The number below is this mock's
-     own natural rendered size with the bar showing — the tallest case, so
-     nothing else needs more. */
+     with the workspace bar collapsing: that frees space inside this fixed
+     box rather than shrinking it, so cycling through examples changes
+     what's inside the screen, never the screen's own size. 560×315 is
+     16:9 — a common basic laptop's aspect ratio, and the same ratio as the
+     1920×1080 this mock is standing in for — not this content's own
+     natural rendered height (which is shorter): the flex-1 stretch chain
+     below, plus the browser pane's own flex-1 fill (see the markup
+     comment on its white HN box), is what makes the extra height read as
+     "more room in a real window" instead of dead space. */
   [data-screen] {
     box-sizing: border-box;
     width: 560px;
-    height: 243px;
+    height: 315px;
     display: flex;
     flex-direction: column;
+  }
+
+  /* Same 16:9, scaled down — not a different ratio for cramped viewports.
+     432×243 is this mock's pre-16:9-fix size (560×243), which fit the
+     laptop breakpoint's vertical budget; pairing 243 with a narrower 432
+     width instead of 560 is what makes that height 16:9 again rather than
+     a one-off exception. Threshold matches global.css's `tight` custom
+     variant (max-width: 720px or max-height: 860px) — plain media query
+     because `tight:` is a Tailwind class variant, not something a raw CSS
+     value in a scoped <style> block can use. */
+  @media ((max-width: 720px) or (max-height: 860px)) {
+    [data-screen] {
+      width: 432px;
+      height: 243px;
+    }
   }
 
   /* The other half of the stretch chain above: [data-gap-root]'s own

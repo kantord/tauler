@@ -31,21 +31,30 @@ import ScreenMock from '../ui/ScreenMock.astro'
 const demoStates = [
   {
     id: 'load',
-    label: 'SYSTEM METRICS',
-    reload: 'top(48) bound',
+    label: 'WORKSPACE BAR',
+    reload: 'top(24) bound',
     // Matches the sample's own `anchor="top"` — ScreenMock's preview reads
     // this rather than re-deriving it from the code string, so the two can
-    // never say different things.
+    // never say different things. The screen it renders (workspace buttons,
+    // a clock — ScreenMock's own top-bar markup) has to be the actual thing
+    // this code declares, not a generic mock unrelated to it: `tauler-i3`'s
+    // `data.workspaces` and `WorkspaceList` are the real Module/component
+    // names from docs/src/content/docs/docs/data.md's own `<Module>`
+    // example.
     anchor: 'top' as const,
-    code: `const load = useStringStream("/bin/sh",
-  "while :; do cut -d' ' -f1 /proc/loadavg; sleep 1; done");
+    code: `const time = useStringStream("/usr/bin/bash",
+  'while true; do date +"%H:%M"; sleep 1; done');
 
-<panel anchor="top" height={48} width={ctx.screen_width}>
-  <div class="flex items-center gap-3">
-    {/* ...surface styling */}
-    <Chart data={load.window(16)} />
-    <span>load {load}</span>
-  </div>
+<panel anchor="top" height={24} width={ctx.screen_width}>
+  <Module bin="~/.cargo/bin/tauler-i3">
+    {(data, events) => (
+      <div class="flex items-center gap-3">
+        {/* ...surface styling */}
+        <WorkspaceList workspaces={data?.workspaces} events={events} />
+        <span class="ml-auto">{time}</span>
+      </div>
+    )}
+  </Module>
 </panel>`,
   },
   {
@@ -85,9 +94,9 @@ const demoStates = [
   data-reveal
   data-demo
   data-demo-states={JSON.stringify(
-    demoStates.map((s) => ({ id: s.id, label: s.label })),
+    demoStates.map((s) => ({ id: s.id, label: s.label, anchor: s.anchor })),
   )}
-  class="flex w-[560px] flex-col gap-s5 max-xl:hidden tight:gap-s4"
+  class="flex w-[560px] flex-col gap-s5 max-xl:hidden tight:w-[432px] tight:gap-s4"
 >
   <CodePanel path="layout.op.mdx" states={demoStates} />
   <ScreenMock states={demoStates} />
@@ -107,20 +116,23 @@ const demoStates = [
   const prevBtn = root?.querySelector<HTMLButtonElement>('[data-demo-prev]')
   const nextBtn = root?.querySelector<HTMLButtonElement>('[data-demo-next]')
   const label = root?.querySelector<HTMLElement>('[data-demo-label]')
-  // data-active-anchor lives on ScreenMock's own outer [data-screen], not
-  // [data-gap-root] itself — its CSS needs to reach both the gap padding
-  // (a [data-gap-root] descendant) and the workspace bar (a [data-top-bar]
-  // sibling of [data-gap-root]), which only a shared ancestor can do.
+  // data-active-anchor drives ScreenMock's own workspace-bar visibility —
+  // see its <style> block. Set directly from cycleStates below rather than
+  // read off a frame's own data-anchor: ScreenMock no longer renders any
+  // per-anchor element to read that from (the old panel-position strips
+  // are gone), so the anchor has to travel through the same JSON as the
+  // label.
   const screenEl = root?.querySelector<HTMLElement>('[data-screen]') ?? null
-  // The server-rendered id/label pairs, same order as the frontmatter's own
-  // demoStates (distinct name — this is the client-side JS scope, not the
-  // build-time one) — the chevrons only need to step through this list, not
-  // address a specific entry the way a dot's own data-state-id used to.
-  const cycleStates: { id: string; label: string }[] = root?.dataset.demoStates
+  // The server-rendered id/label/anchor triples, same order as the
+  // frontmatter's own demoStates (distinct name — this is the client-side
+  // JS scope, not the build-time one).
+  const cycleStates: { id: string; label: string; anchor: string }[] = root
+    ?.dataset.demoStates
     ? JSON.parse(root.dataset.demoStates)
     : []
   const ids = cycleStates.map((s) => s.id)
   const labelById = new Map(cycleStates.map((s) => [s.id, s.label]))
+  const anchorById = new Map(cycleStates.map((s) => [s.id, s.anchor]))
 
   function show(id: string): void {
     for (const frame of frames) {
@@ -137,13 +149,9 @@ const demoStates = [
       } else {
         frame.hidden = !active
       }
-      // Only PanelPositionStrip's own frames carry this — CodePanel's and
-      // the terminal log's data-demo-frame divs don't declare an edge, so
-      // they're silently skipped here.
-      if (screenEl && active && frame.dataset.anchor) {
-        screenEl.dataset.activeAnchor = frame.dataset.anchor
-      }
     }
+    const anchor = anchorById.get(id)
+    if (screenEl && anchor) screenEl.dataset.activeAnchor = anchor
     if (label) label.textContent = labelById.get(id) ?? label.textContent
   }
 
