@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0](https://github.com/kantord/tauler/compare/tauler-v0.1.10...tauler-v0.2.0) - 2026-08-23
+
+### Added
+
+- use "real" optative on landing page demo ([#468](https://github.com/kantord/tauler/pull/468))
+- support .op.mdx files ([#467](https://github.com/kantord/tauler/pull/467))
+- support custom font rules ([#463](https://github.com/kantord/tauler/pull/463))
+
+### Fixed
+
+- stop release-plz sweeping tauler-ui-macro's version ([#465](https://github.com/kantord/tauler/pull/465))
+
 ## [0.1.10](https://github.com/kantord/tauler/compare/tauler-v0.1.9...tauler-v0.1.10) - 2026-08-22
 
 ### Added
