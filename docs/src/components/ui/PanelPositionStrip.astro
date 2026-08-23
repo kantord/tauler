@@ -32,7 +32,12 @@ const INNER_CLASS = {
 } as const
 ---
 
-<div data-demo-frame={id} hidden={hidden} class={WRAPPER_CLASS[anchor]}>
+<div
+  data-demo-frame={id}
+  data-anchor={anchor}
+  hidden={hidden}
+  class={WRAPPER_CLASS[anchor]}
+>
   <div class={INNER_CLASS[anchor]}>
     <slot />
   </div>

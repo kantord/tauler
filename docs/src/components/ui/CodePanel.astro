@@ -1,7 +1,7 @@
 ---
-// A file on screen: path + state in the titlebar, syntax-highlighted code,
-// and a footnote naming what it binds. Sits over the wallpaper field and is
-// opaque — DemoColumn redraws the exact field slice behind it (see
+// A file on screen: path + state in the titlebar, syntax-highlighted code.
+// Sits over the wallpaper field and is opaque — DemoColumn redraws the
+// exact field slice behind it (see
 // data-slice-host / data-field-slice, painted by Stage's script) rather
 // than blurring it, so the art lines up pixel-for-pixel with the wallpaper
 // it covers. Highlighting is Shiki at build time via astro:components,
@@ -27,10 +27,9 @@ interface Props {
   state?: string
   states: { id: string; code: string }[]
   lang?: ComponentProps<typeof Code>['lang']
-  note?: string
 }
 
-const { path, state = 'HOT RELOAD', states, lang = 'jsx', note } = Astro.props
+const { path, state = 'HOT RELOAD', states, lang = 'jsx' } = Astro.props
 ---
 
 <div
@@ -56,13 +55,6 @@ const { path, state = 'HOT RELOAD', states, lang = 'jsx', note } = Astro.props
         ))
       }
     </div>
-    {
-      note ? (
-        <div class="border-t border-line-2 px-s4 py-[13px] font-ui text-label-sm tracking-chrome text-accent">
-          {note}
-        </div>
-      ) : null
-    }
   </div>
 </div>
 

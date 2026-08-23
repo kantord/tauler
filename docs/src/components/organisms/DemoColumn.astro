@@ -41,10 +41,10 @@ const demoStates = [
   "while :; do cut -d' ' -f1 /proc/loadavg; sleep 1; done");
 
 <panel anchor="top" height={48} width={ctx.screen_width}>
-  <div class="flex h-full items-center gap-3 px-5
-              bg-card/70 text-foreground">
-    <Chart data={load.window(16)} class="w-40" />
-    <span class="ml-auto">load {load}</span>
+  <div class="flex items-center gap-3">
+    {/* ...surface styling */}
+    <Chart data={load.window(16)} />
+    <span>load {load}</span>
   </div>
 </panel>`,
   },
@@ -56,10 +56,10 @@ const demoStates = [
     code: `const kitchen = useHomeAssistant("light.kitchen");
 
 <panel anchor="right" width={64} height={ctx.screen_height}>
-  <div class="flex h-full flex-col items-center gap-4
-              py-5 bg-card/70 text-foreground">
+  <div class="flex flex-col items-center gap-4">
+    {/* ...surface styling */}
     <Toggle bind={kitchen.on} onChange={kitchen.set} />
-    <span class="text-[10px]">{kitchen.on ? "ON" : "OFF"}</span>
+    <span>{kitchen.on ? "ON" : "OFF"}</span>
   </div>
 </panel>`,
   },
@@ -72,8 +72,8 @@ const demoStates = [
   "https://hn.algolia.com/api/v1/search?tags=front_page");
 
 <panel anchor="left" width={320} height={ctx.screen_height}>
-  <div class="flex h-full flex-col gap-2 p-4
-              bg-card/70 text-foreground">
+  <div class="flex flex-col gap-2">
+    {/* ...surface styling */}
     <List items={top.hits.slice(0, 5)} />
   </div>
 </panel>`,
@@ -100,11 +100,7 @@ for (const s of demoStates) {
   data-demo
   class="flex w-[560px] flex-col gap-s5 max-xl:hidden tight:gap-s4"
 >
-  <CodePanel
-    path="~/.config/tauler/layout.jsx"
-    states={demoStates}
-    note="tauler:root-bg — THE FIELD BEHIND THIS PANEL IS THE SAME FIELD INSIDE IT."
-  />
+  <CodePanel path="~/.config/tauler/layout.jsx" states={demoStates} />
   <DemoDots states={demoStates} />
   <ScreenMock states={demoStates} />
 </div>
@@ -124,6 +120,10 @@ for (const s of demoStates) {
     ? Array.from(root.querySelectorAll<HTMLButtonElement>('[data-demo-dot]'))
     : []
   const label = root?.querySelector<HTMLElement>('[data-demo-label]')
+  // Only PanelPositionStrip's own frames carry this — CodePanel's and the
+  // terminal log's data-demo-frame divs don't declare an edge, so they're
+  // silently skipped below rather than needing a separate frame list.
+  const gapRoot = root?.querySelector<HTMLElement>('[data-gap-root]') ?? null
   const ids = [
     ...new Set(
       dots
@@ -133,7 +133,12 @@ for (const s of demoStates) {
   ]
 
   function show(id: string): void {
-    for (const frame of frames) frame.hidden = frame.dataset.demoFrame !== id
+    for (const frame of frames) {
+      frame.hidden = frame.dataset.demoFrame !== id
+      if (gapRoot && frame.dataset.demoFrame === id && frame.dataset.anchor) {
+        gapRoot.dataset.activeAnchor = frame.dataset.anchor
+      }
+    }
     for (const dot of dots) {
       if (dot.dataset.stateId === id) {
         dot.setAttribute('aria-current', 'true')
