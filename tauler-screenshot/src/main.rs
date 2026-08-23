@@ -200,7 +200,10 @@ fn main() {
     let mut rgba: Vec<u8> = Vec::with_capacity((crop_w * crop_h * 4) as usize);
     for y in y0..y1 {
         let row = y as usize * src_row;
-        for px in bgrx[row + x0 as usize * 4..row + x1 as usize * 4].chunks_exact(4) {
+        for px in bgrx[row + x0 as usize * 4..row + x1 as usize * 4]
+            .as_chunks::<4>()
+            .0
+        {
             rgba.extend_from_slice(&[px[2], px[1], px[0], 255u8]);
         }
     }

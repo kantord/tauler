@@ -80,7 +80,7 @@ struct MacPanel {
 /// Mismatched lengths are clipped, not panicked: a frame can arrive either side
 /// of a resize.
 fn write_0rgb(dst: &mut [u32], bgrx: &[u8]) {
-    for (word, px) in dst.iter_mut().zip(bgrx.chunks_exact(4)) {
+    for (word, px) in dst.iter_mut().zip(bgrx.as_chunks::<4>().0) {
         *word = (u32::from(px[2]) << 16) | (u32::from(px[1]) << 8) | u32::from(px[0]);
     }
 }
