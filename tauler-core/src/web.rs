@@ -82,3 +82,20 @@ pub fn bootstrap_js() -> String {
 pub fn globals_js() -> String {
     crate::globals::JSX_GLOBALS_JS.to_string()
 }
+
+/// Diff declared Items against observed ones for one Unit — the identical
+/// reconciliation a native Unit runs (`units_reconcile`, ADR 0037). No shell,
+/// no second runtime: the caller already *is* the browser's own JS engine, so
+/// `key`/`value`/`observe` stay plain JS and only the diff crosses into Rust.
+///
+/// `desired`/`observed` are arrays already projected to `{key, value, props,
+/// order}` — the shape `units_reconcile::SweepItem` deserializes from.
+/// Returns `{exit, update, enter}`, each ready to hand a hook straight.
+#[wasm_bindgen(js_name = taulerReconcileUnit)]
+pub fn reconcile_unit(desired: JsValue, observed: JsValue) -> Result<JsValue, JsValue> {
+    let desired: Vec<crate::units_reconcile::SweepItem> = serde_wasm_bindgen::from_value(desired)?;
+    let observed: Vec<crate::units_reconcile::SweepItem> =
+        serde_wasm_bindgen::from_value(observed)?;
+    let (exit, update, enter) = crate::units_reconcile::reconcile(desired, observed);
+    to_js(&serde_json::json!({ "exit": exit, "update": update, "enter": enter }))
+}

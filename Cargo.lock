@@ -5999,6 +5999,7 @@ dependencies = [
 name = "tauler-core"
 version = "0.1.10"
 dependencies = [
+ "optative",
  "optative-script",
  "rquickjs",
  "rquickjs-serde",

@@ -640,6 +640,11 @@ fn generate_web(
     let runtime = workspace_root().join("tauler-web/js/runtime.js");
     fs::copy(&runtime, args.web_dir.join("runtime.js"))?;
 
+    // Units are opt-in — most pages never import this — so it stays its own
+    // file rather than growing runtime.js (ADR 0037).
+    let units = workspace_root().join("tauler-web/js/units.js");
+    fs::copy(&units, args.web_dir.join("units.js"))?;
+
     let fonts_dir = args.web_dir.join("fonts");
     fs::create_dir_all(&fonts_dir)?;
     fs::copy(

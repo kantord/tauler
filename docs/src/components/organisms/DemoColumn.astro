@@ -11,52 +11,78 @@
 // (the demo handoff's motion budget, §7): everywhere else nothing animates
 // unless the user or real data moved it, but a demo whose whole point is
 // "describe it once, tauler runs it live" says nothing if it never
-// changes. Direct-access dots and a prefers-reduced-motion pause carry
-// over from that same precedent.
+// changes. Direct-access chevrons (in CodePanel's own bar, not a separate
+// row) and a prefers-reduced-motion pause carry over from that same
+// precedent.
+//
+// The cycle itself runs on a real browser Unit (`defineUnit`, ADR 0037) —
+// the same wasm module and the same reconciler native tauler uses, not a
+// second "looks like tauler" timer standing in for it. Which panel is
+// declared changes on its own interval or a chevron click; which panel is
+// actually shown is the Unit converging to match. Keyed by the sample's own
+// id rather than one constant slot name: the three samples are genuinely
+// different declared things (different anchor, different widget), so a
+// declaration change is a real exit-then-enter, not one Item's props being
+// updated in place — `update` never has anything to do here and isn't
+// defined.
 import CodePanel from '../ui/CodePanel.astro'
 import ScreenMock from '../ui/ScreenMock.astro'
-import DemoDots from '../ui/DemoDots.astro'
 
 const demoStates = [
   {
     id: 'load',
-    label: 'SYSTEM METRICS',
-    reload: 'panels: top(48) · surfaces bound',
-    code: `const load = useStringStream("/bin/sh",
-  "while :; do cut -d' ' -f1 /proc/loadavg; sleep 1; done");
+    label: 'WORKSPACE BAR',
+    reload: 'top(24) bound',
+    // Matches the sample's own `anchor="top"` — ScreenMock's preview reads
+    // this rather than re-deriving it from the code string, so the two can
+    // never say different things. The screen it renders (workspace buttons,
+    // a clock — ScreenMock's own top-bar markup) has to be the actual thing
+    // this code declares, not a generic mock unrelated to it: `tauler-i3`'s
+    // `data.workspaces` and `WorkspaceList` are the real Module/component
+    // names from docs/src/content/docs/docs/data.md's own `<Module>`
+    // example.
+    anchor: 'top' as const,
+    code: `const time = useStringStream("/usr/bin/bash",
+  'while true; do date +"%H:%M"; sleep 1; done');
 
-<panel anchor="top" height={48} width={ctx.screen_width}>
-  <div class="flex h-full items-center gap-3 px-5
-              bg-card/70 text-foreground">
-    <Chart data={load.window(16)} class="w-40" />
-    <span class="ml-auto">load {load}</span>
-  </div>
+<panel anchor="top" height={24} width={ctx.screen_width}>
+  <Module bin="~/.cargo/bin/tauler-i3">
+    {(data, events) => (
+      <div class="flex items-center gap-3">
+        {/* ...surface styling */}
+        <WorkspaceList workspaces={data?.workspaces} events={events} />
+        <span class="ml-auto">{time}</span>
+      </div>
+    )}
+  </Module>
 </panel>`,
   },
   {
     id: 'lights',
     label: 'SMART HOME',
-    reload: 'panels: right(64) · surfaces bound',
+    reload: 'right(64) bound',
+    anchor: 'right' as const,
     code: `const kitchen = useHomeAssistant("light.kitchen");
 
 <panel anchor="right" width={64} height={ctx.screen_height}>
-  <div class="flex h-full flex-col items-center gap-4
-              py-5 bg-card/70 text-foreground">
+  <div class="flex flex-col items-center gap-4">
+    {/* ...surface styling */}
     <Toggle bind={kitchen.on} onChange={kitchen.set} />
-    <span class="text-[10px]">{kitchen.on ? "ON" : "OFF"}</span>
+    <span>{kitchen.on ? "ON" : "OFF"}</span>
   </div>
 </panel>`,
   },
   {
     id: 'feed',
     label: 'LIVE DATA',
-    reload: 'panels: left(320) · surfaces bound',
+    reload: 'left(320) bound',
+    anchor: 'left' as const,
     code: `const top = useJson(
   "https://hn.algolia.com/api/v1/search?tags=front_page");
 
 <panel anchor="left" width={320} height={ctx.screen_height}>
-  <div class="flex h-full flex-col gap-2 p-4
-              bg-card/70 text-foreground">
+  <div class="flex flex-col gap-2">
+    {/* ...surface styling */}
     <List items={top.hits.slice(0, 5)} />
   </div>
 </panel>`,
@@ -67,14 +93,12 @@ const demoStates = [
 <div
   data-reveal
   data-demo
-  class="flex w-[560px] flex-col gap-s5 max-xl:hidden tight:gap-s4"
+  data-demo-states={JSON.stringify(
+    demoStates.map((s) => ({ id: s.id, label: s.label, anchor: s.anchor })),
+  )}
+  class="flex w-[560px] flex-col gap-s5 max-xl:hidden tight:w-[432px] tight:gap-s4"
 >
-  <CodePanel
-    path="~/.config/tauler/layout.jsx"
-    states={demoStates}
-    note="tauler:root-bg — THE FIELD BEHIND THIS PANEL IS THE SAME FIELD INSIDE IT."
-  />
-  <DemoDots states={demoStates} />
+  <CodePanel path="layout.op.mdx" states={demoStates} />
   <ScreenMock states={demoStates} />
 </div>
 
@@ -82,66 +106,154 @@ const demoStates = [
   // Swaps which pre-rendered (build-time-highlighted) frame is visible,
   // in lockstep across CodePanel and ScreenMock's terminal — both just
   // mark their alternatives with the same data-demo-frame id. Direct
-  // access via the dots is not just a convenience: it's also the
-  // mechanism that satisfies "give the user a way to stop this" for
-  // auto-advancing content, alongside the reduced-motion pause below.
+  // access via CodePanel's own chevrons is not just a convenience: it's
+  // also the mechanism that satisfies "give the user a way to stop this"
+  // for auto-advancing content, alongside the reduced-motion pause below.
   const root = document.querySelector<HTMLElement>('[data-demo]')
   const frames = root
     ? Array.from(root.querySelectorAll<HTMLElement>('[data-demo-frame]'))
     : []
-  const dots = root
-    ? Array.from(root.querySelectorAll<HTMLButtonElement>('[data-demo-dot]'))
-    : []
+  const prevBtn = root?.querySelector<HTMLButtonElement>('[data-demo-prev]')
+  const nextBtn = root?.querySelector<HTMLButtonElement>('[data-demo-next]')
   const label = root?.querySelector<HTMLElement>('[data-demo-label]')
-  const ids = [
-    ...new Set(
-      dots
-        .map((d) => d.dataset.stateId)
-        .filter((id): id is string => Boolean(id)),
-    ),
-  ]
+  // data-active-anchor drives ScreenMock's own workspace-bar visibility —
+  // see its <style> block. Set directly from cycleStates below rather than
+  // read off a frame's own data-anchor: ScreenMock no longer renders any
+  // per-anchor element to read that from (the old panel-position strips
+  // are gone), so the anchor has to travel through the same JSON as the
+  // label.
+  const screenEl = root?.querySelector<HTMLElement>('[data-screen]') ?? null
+  // The server-rendered id/label/anchor triples, same order as the
+  // frontmatter's own demoStates (distinct name — this is the client-side
+  // JS scope, not the build-time one).
+  const cycleStates: { id: string; label: string; anchor: string }[] = root
+    ?.dataset.demoStates
+    ? JSON.parse(root.dataset.demoStates)
+    : []
+  const ids = cycleStates.map((s) => s.id)
+  const labelById = new Map(cycleStates.map((s) => [s.id, s.label]))
+  const anchorById = new Map(cycleStates.map((s) => [s.id, s.anchor]))
 
-  if (root && ids.length > 1) {
-    let index = 0
-
-    function show(id: string): void {
-      for (const frame of frames) frame.hidden = frame.dataset.demoFrame !== id
-      for (const dot of dots) {
-        if (dot.dataset.stateId === id) {
-          dot.setAttribute('aria-current', 'true')
-          if (label && dot.dataset.label) label.textContent = dot.dataset.label
-        } else {
-          dot.removeAttribute('aria-current')
-        }
+  function show(id: string): void {
+    for (const frame of frames) {
+      const active = frame.dataset.demoFrame === id
+      // CodePanel's own frames stay in the layout and toggle
+      // data-demo-inactive (styled visibility:hidden in CodePanel's own
+      // <style>) instead of `hidden` — see its comment for why (`hidden`
+      // forces `display:none`, which drops a frame from sizing, which is
+      // what caused the panel to jump height on every switch). Everywhere
+      // else (ScreenMock's terminal log) still uses `hidden`: those frames
+      // are all the same line count, so there's no height to protect.
+      if (frame.closest('[data-code]')) {
+        frame.toggleAttribute('data-demo-inactive', !active)
+      } else {
+        frame.hidden = !active
       }
     }
+    const anchor = anchorById.get(id)
+    if (screenEl && anchor) screenEl.dataset.activeAnchor = anchor
+    if (label) label.textContent = labelById.get(id) ?? label.textContent
+  }
 
-    const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)').matches
-    let timer: ReturnType<typeof setInterval> | undefined
+  // The server already rendered the first state (CodePanel's i===0 frame
+  // and its label) — there is nothing to converge until the declared panel
+  // actually changes, so booting the wasm module costs nothing visible
+  // even before it resolves.
+  // `max-xl:hidden` (below) means most loads never show this column at all —
+  // booting a ~1MB wasm module for a decorative widget nobody can see is the
+  // one cost this page cannot excuse itself. `display` is what that utility
+  // actually sets, so it's what's checked, not the breakpoint value itself.
+  const columnVisible = root ? getComputedStyle(root).display !== 'none' : false
 
-    function showAt(i: number): void {
-      const id = ids[i]
-      if (id) show(id)
-    }
+  if (root && ids.length > 1 && columnVisible) {
+    let desiredIndex = 0
+    // What the page currently shows — the Unit's own "observed world",
+    // read back rather than assumed, the same rule native Units follow
+    // (ADR 0035).
+    let shownId = ids[0]
 
-    function restart(): void {
-      clearInterval(timer)
-      if (reduceMotion) return
-      timer = setInterval(() => {
-        index = (index + 1) % ids.length
-        showAt(index)
-      }, 4500)
-    }
+    async function driveWithRealUnit(): Promise<void> {
+      // Both are served build products (see units.js's own header) living
+      // in public/, not something Vite's own module graph owns — and
+      // Vite refuses to import a public/ file at all ("can only be
+      // referenced via <script src>"). Neither @vite-ignore nor hiding
+      // the specifier behind a variable is enough to dodge that: Vite's
+      // dev-server transform rewrites *any* `import(...)` expression it
+      // sees in a file it processes (this script is one), appending its
+      // own `?import` marker regardless of whether the target was
+      // statically known — which then 500s the same way. The only
+      // reliable way to keep an `import()` invisible to that AST-level
+      // rewrite is to keep it out of the AST: `new Function` builds it
+      // from a string Vite never parses, so both dev and build hand the
+      // call to the browser's own native dynamic import, untouched. Its
+      // return type is necessarily `any` — there is no module for astro
+      // check to resolve either, the same gap `@ts-expect-error` filled
+      // before this stopped being a literal `import()` at all.
+      const dynamicImport = new Function(
+        'specifier',
+        'return import(specifier)',
+      ) as (specifier: string) => Promise<any>
+      const { boot } = await dynamicImport('/tauler/runtime.js')
+      const { defineUnit } = await dynamicImport('/tauler/units.js')
+      await boot('/tauler/tauler_web_bg.wasm')
 
-    for (const dot of dots) {
-      dot.addEventListener('click', () => {
-        index = ids.indexOf(dot.dataset.stateId ?? '')
-        showAt(index)
-        restart()
+      function converge(items: { id: string }[]): void {
+        for (const item of items) {
+          shownId = item.id
+          show(item.id)
+        }
+      }
+
+      const unit = defineUnit({
+        // Keyed by id, not a constant slot name: swapping to a different
+        // sample is that id entering and the previous one exiting, the same
+        // as a real Unit whose declared set of Items changes — not the same
+        // Item's props updating in place, which is why `update` is absent
+        // below rather than dead code that never fires.
+        key: (item: { id: string }) => item.id,
+        value: (item: { id: string }) => item.id,
+        items: () => [{ id: ids[desiredIndex] }],
+        observe: () => [{ id: shownId }],
+        // No `exit` hook: `enter`'s own `show()` call already hides every
+        // frame but the one just entered, so the outgoing sample has
+        // nothing left to undo.
+        enter: converge,
+        // Every place `desiredIndex` changes — `advance` below, a dot click —
+        // calls `unit.sweep()` itself the same tick, so nothing here needs to
+        // poll to notice a change. This interval is only the safety net a
+        // real Unit always keeps in case a caller forgets to, at native's own
+        // default cadence — not the thing driving the cycle.
+        refreshInterval: 5000,
       })
+
+      const reduceMotion = matchMedia(
+        '(prefers-reduced-motion: reduce)',
+      ).matches
+      function advance(): void {
+        desiredIndex = (desiredIndex + 1) % ids.length
+        unit.sweep()
+      }
+      let timer: ReturnType<typeof setInterval> | undefined
+      if (!reduceMotion) timer = setInterval(advance, 4500)
+
+      function step(delta: number): void {
+        desiredIndex = (desiredIndex + delta + ids.length) % ids.length
+        unit.sweep()
+        if (timer) {
+          clearInterval(timer)
+          timer = setInterval(advance, 4500)
+        }
+      }
+      prevBtn?.addEventListener('click', () => step(-1))
+      nextBtn?.addEventListener('click', () => step(1))
     }
 
-    restart()
+    // No fallback timer on failure: the page stays on the server-rendered
+    // first state rather than faking motion with something that isn't
+    // tauler running it.
+    driveWithRealUnit().catch((error: unknown) => {
+      console.error('tauler: the browser Unit demo did not start', error)
+    })
   }
 </script>
 

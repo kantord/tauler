@@ -1,20 +1,65 @@
 ---
 // A schematic screenshot of what layout.jsx (in CodePanel above it)
-// produces: bezel, capture header, a terminal building and reloading it,
-// and a browser window — proof a tiled workspace isn't just terminals. It
+// produces: workspace buttons, two terminals and a browser window tiled
+// edge to edge — proof a tiled workspace isn't just one terminal. It
 // depicts a screen — it is not an interface, so it carries no focusable
 // content and is hidden from assistive tech entirely; the code that
 // produces it is what's readable.
+//
+// None of this markup is tauler's own output — real tauler rasterizes a
+// layout file itself, it doesn't build a DOM. Every pane below is
+// hand-authored to look like what layout.jsx would produce, not rendered
+// by anything that ran it. The one real tauler code in this demo is
+// DemoColumn's own script: a `defineUnit` Unit (tauler-web/js/units.js,
+// ADR 0037) decides *which* example is active. That Unit doesn't touch
+// this file — it toggles `data-demo-frame`/`hidden` on markup this
+// component already rendered.
+//
+// [data-screen] itself has no border, no padding and no gap between its
+// bar row and the tiled area below — a screenshot has none of those
+// either. A monitor bezel was tempting to draw here once, but this mock
+// isn't framing a photo of a monitor, it's standing in for the pixels a
+// screen actually shows; every inset here would be exactly the kind of
+// empty reserved space this mock has already ruled out elsewhere (see
+// the [data-gap-root] comment below).
+//
+// bg-black on [data-screen] is a backstop, not a design choice: every
+// pane already paints its own background, so this should never actually
+// show through. It exists so a future pane that forgets one fails
+// obviously (a black hole) instead of leaking whatever's behind this
+// component on the real page.
+//
+// The workspace-button strip up top isn't a simulated i3bar — it's what
+// this whole page is arguing for: tauler replaces i3bar/polybar, so that
+// strip is drawn exactly like the three cycling examples below it would
+// draw one, not a separate "here's what a status bar looks like" bit.
+//
+// Every tiled pane below it is `border`, nothing else — no title bar, no
+// on-screen "FOCUSED" label, no highlighted pane. Checked against a real
+// i3 config's own `for_window [all] border pixel 1`: focus there is a
+// border color, but this mock skips even that — which window has input
+// isn't the story being told here, so nothing claims one does.
 //
 // The terminal's last two lines track CodePanel's cycling states
 // (data-demo-frame, driven by DemoColumn's script) so the reload log
 // always matches whichever example is on screen.
 //
+// There used to be a decorative version of this idea — a thin accent
+// strip at whichever edge the active example's `anchor` declared,
+// reserving space for examples this screen otherwise showed no trace of.
+// That was exactly the i3-gaps move this mock rules out elsewhere: empty
+// space held open for its own sake. `lights` and `feed`'s own right/left
+// panels below fix the actual bug that strip was standing in for —
+// showing something real (a toggle, a list) instead of a strip, the same
+// way the workspace bar is what `load`'s own panel actually renders,
+// rather than being restored as a wider version of the same decoration.
+//
 // Secondary text here is ink-3, not the usual ink-4: at this scale (10.5–
 // 11.5px, well under the "large text" AA threshold) ink-4 on surface-frame
 // measures ~4.46:1 — just under WCAG AA's 4.5:1 floor for small text.
+
 interface Props {
-  states: { id: string; reload: string }[]
+  states: { id: string; reload: string; anchor: 'top' | 'right' | 'left' }[]
 }
 
 const { states } = Astro.props
@@ -41,121 +86,241 @@ const tabs = [
   { active: true, title: 30 },
   { active: false, title: 22 },
 ]
+
+// i3bar's own workspace buttons (see draw_button/draw_bars in i3bar's
+// xcb.c): a bordered box per workspace, three states — focused, active
+// (visible on another output but not focused), inactive. One output only
+// here, so "active" never applies.
+const workspaces = [
+  { number: 1, focused: true },
+  { number: 2, focused: false },
+  { number: 3, focused: false },
+]
+
+// The second terminal has nothing to say — it exists to prove tiling isn't
+// one lucky terminal, the same job the browser's greeked feed rows already
+// do. Widths fixed, not random, for the same determinism reason as
+// feedRows above.
+const fillerLines = [72, 45, 88, 30, 60, 50]
+
+// `feed`'s own panel — `<List items={top.hits.slice(0, 5)} />` — five
+// rows, greeked the same way the browser's HN feed is.
+const sideFeedRows = [70, 45, 82, 55, 68]
 ---
 
 <div
   aria-hidden="true"
-  class="flex flex-col gap-[5px] border border-line-2 bg-surface-frame p-[5px] font-ui shadow-panel"
+  data-screen
+  data-active-anchor={states[0]?.anchor}
+  class="flex flex-col bg-black font-ui shadow-panel"
 >
+  {
+    /* The workspace/clock bar is a tauler panel too — the whole page's
+       argument is that tauler renders bars, not just this one demo's
+       three examples — so it isn't fixed chrome sitting above the cycle;
+       it only shows when the active example actually declares a
+       top-anchored panel (`load`, the only `anchor="top"` state). The
+       other examples declare right/left panels instead, so there's
+       nothing here for tauler to have rendered, and this row collapses
+       entirely — see the <style> block for why that's `display`, not
+       `visibility`. Driven by [data-screen]'s data-active-anchor, set by
+       DemoColumn's script from whichever example is currently shown. */
+  }
   <div
-    class="flex items-center gap-s3 border-b border-line-1 px-s2 pb-1 text-label-sm tracking-chrome text-ink-3"
+    data-top-bar
+    class="flex items-center gap-[3px] border-b border-line-1 bg-surface-frame px-s2 py-1"
   >
-    <span class="text-accent">■</span>
-    <span>SCREEN 1920×1080 · kantord@desk</span>
-    <span class="ml-auto" data-clock>--:--</span>
+    {
+      workspaces.map((ws) => (
+        <span
+          class:list={[
+            'border px-[4px] py-[1px] text-label-sm tracking-chrome',
+            ws.focused
+              ? 'border-accent bg-accent text-accent-ink'
+              : 'border-line-2 text-ink-3',
+          ]}
+        >
+          {ws.number}
+        </span>
+      ))
+    }
+    <span class="ml-auto text-label-sm tracking-chrome text-ink-3" data-clock
+      >--:--</span
+    >
   </div>
-  <div class="grid grid-cols-2 gap-px bg-line-1 p-px">
-    <div class="flex flex-col bg-surface-frame">
-      <div
-        class="flex gap-s2 border-b border-line-1 px-s3 py-s2 text-label-sm tracking-chrome text-ink-3"
-      >
-        <span>1: kantord@desk: ~</span>
-        <span class="ml-auto text-accent">FOCUSED</span>
-      </div>
-      <div class="flex flex-col gap-s2 px-s3 py-s3 text-chrome-sm text-ink-2">
-        <p><span class="text-accent">❯</span> cargo run --release</p>
-        <p class="text-ink-3">Compiling tauler v0.4.2</p>
-        <p class="text-ink-3">Finished release [optimized]</p>
-        {
-          states.map((s, i) => (
-            <div data-demo-frame={s.id} hidden={i !== 0}>
-              <p>
-                <span class="text-accent">❯</span> tauler reload layout.jsx
-              </p>
-              <p class="text-ink-3">{s.reload}</p>
-            </div>
-          ))
-        }
-        <p><span class="text-accent">❯</span> _</p>
-      </div>
+  <div data-gap-root class="relative">
+    {
+      /* No title bars anywhere below — checked against a real i3 config's
+         `for_window [all] border pixel 1`: every window is *just* a
+         border, no decoration, and nothing wraps the tiled area itself —
+         a border there wouldn't belong to any window, it'd be a container
+         chrome i3 has no equivalent of. So every pane below draws its own
+         full border independently, the way a real i3 window does, on
+         every side including the ones flush against another pane: two
+         windows sitting edge to edge (no `gaps inner`/`outer` — that real
+         i3 config leaves both commented out) each still draw their own
+         border, so a shared seam is two 1px lines, not one. That's a
+         thicker line at the seam, not a gap — nothing opens up between
+         the panes, which is the distinction that matters (see the
+         [data-gap-root] comment below for the actual thing this mock
+         doesn't simulate). Every pane gets the same muted border — this
+         mock isn't claiming to know which one has focus, only that a
+         tiled screen holds more than one window at once. */
+    }
+    {
+      /* `feed`'s own panel — visible only for that example, same
+         `display:none` collapse the workspace bar uses (see the <style>
+         block), so this reserves nothing when a different example is
+         active. */
+    }
+    <div
+      data-side-panel="left"
+      class="flex w-[88px] flex-col gap-s2 border-r border-line-2 bg-surface-frame p-s2"
+    >
+      {
+        sideFeedRows.map((w) => (
+          <div class="h-[2px] bg-ink-3/50" style={`width:${w}%`} />
+        ))
+      }
     </div>
-    <div class="flex flex-col bg-surface-frame">
-      <div class="flex items-end gap-px bg-line-1 px-[3px] pt-[3px]">
-        {
-          tabs.map((tab) => (
-            <div
-              class:list={[
-                'flex items-center gap-[3px] border-x border-t border-line-2 px-[5px] py-[3px]',
-                tab.active ? 'bg-surface-control' : 'bg-surface-frame',
-              ]}
-            >
-              <span
-                class:list={[
-                  'h-[4px] w-[4px] shrink-0',
-                  tab.active ? 'bg-accent' : 'bg-ink-4/60',
-                ]}
-              />
+    <div class="grid grid-cols-[2.6fr_1.4fr]">
+      {
+        /* Stacked top/bottom, not side by side — a horizontal split, one
+           terminal above the other, sharing this column's width rather
+           than each getting half of it. This wrapper is layout only, no
+           border of its own — the two i3 windows inside it are what draw
+           borders, not the column they happen to share. */
+      }
+      <div class="flex flex-col">
+        <div class="flex flex-1 flex-col border border-line-2 bg-surface-frame">
+          <div
+            class="flex flex-col gap-s2 px-s3 py-s3 text-chrome-sm text-ink-2"
+          >
+            <p><span class="text-accent">❯</span> cargo run --release</p>
+            <p class="text-ink-3">Compiling tauler</p>
+            <p class="text-ink-3">Finished [optimized]</p>
+            {
+              states.map((s, i) => (
+                <div data-demo-frame={s.id} hidden={i !== 0}>
+                  <p>
+                    <span class="text-accent">❯</span> tauler reload
+                  </p>
+                  <p class="text-ink-3">{s.reload}</p>
+                </div>
+              ))
+            }
+            <p><span class="text-accent">❯</span> _</p>
+          </div>
+        </div>
+        <div class="flex flex-1 flex-col border border-line-2 bg-surface-frame">
+          <div class="flex flex-col gap-s2 px-s3 py-s3">
+            {
+              fillerLines.map((w) => (
+                <div class="h-[2px] bg-ink-4/40" style={`width:${w}%`} />
+              ))
+            }
+          </div>
+        </div>
+      </div>
+      <div class="flex flex-col border border-line-2 bg-surface-frame">
+        <div class="flex items-end gap-px bg-line-1 px-[3px] pt-[3px]">
+          {
+            tabs.map((tab) => (
               <div
                 class:list={[
-                  'h-[2px]',
-                  tab.active ? 'bg-ink-2/55' : 'bg-ink-4/40',
+                  'flex items-center gap-[3px] border-x border-t border-line-2 px-[5px] py-[3px]',
+                  tab.active ? 'bg-surface-control' : 'bg-surface-frame',
                 ]}
-                style={`width:${tab.title}px`}
-              />
-              {tab.active && <span class="text-[7px] text-ink-4">×</span>}
-            </div>
-          ))
-        }
-        <span class="pb-[3px] pl-[3px] text-[9px] text-ink-4">+</span>
-      </div>
-      <div
-        class="flex items-center gap-s2 border-b border-line-1 bg-surface-control px-s2 py-1"
-      >
-        <span class="text-[8px] text-ink-3">←</span>
-        <span class="text-[8px] text-ink-4/60">→</span>
-        <span class="text-[8px] text-ink-3">↻</span>
-        <div
-          class="flex min-w-0 flex-1 items-center border border-line-2 bg-surface-frame px-s2 py-[2px]"
-        >
-          <div class="h-[2px] w-24 bg-ink-3/40"></div>
-        </div>
-        <span class="text-[9px] text-ink-3">⋮</span>
-        <span class="shrink-0 text-label-sm text-accent">TILED</span>
-      </div>
-      {
-        /* Real Hacker News has no dark mode — it's always its own cream
-           page under whatever chrome is around it. The rest of this mock
-           is our dark UI; this one surface deliberately isn't, because
-           that's what the actual site looks like, tiled or not. */
-      }
-      <div class="flex flex-col bg-[#f6f6ef]">
-        <div class="flex items-center gap-s2 bg-accent px-s2 py-[3px]">
-          <span class="font-display text-[10px] font-semibold text-accent-ink">
-            Y
-          </span>
-          <div class="h-[3px] w-10 bg-accent-ink/45"></div>
-          <div class="ml-auto h-[2px] w-14 bg-accent-ink/30"></div>
-        </div>
-        <div class="flex flex-col">
-          {
-            feedRows.map((row) => (
-              <div class="flex items-center gap-s2 border-b border-black/10 px-s2 py-[5px] tight:py-1">
-                <span class="shrink-0 text-[8px] text-black/45">▲</span>
-                <div class="flex min-w-0 flex-1 flex-col gap-[3px]">
-                  <div
-                    class="h-[3px] bg-black/55"
-                    style={`width:${row.title}%`}
-                  />
-                  <div
-                    class="h-[2px] bg-black/30"
-                    style={`width:${row.meta}%`}
-                  />
-                </div>
+              >
+                <span
+                  class:list={[
+                    'h-[4px] w-[4px] shrink-0',
+                    tab.active ? 'bg-accent' : 'bg-ink-4/60',
+                  ]}
+                />
+                <div
+                  class:list={[
+                    'h-[2px]',
+                    tab.active ? 'bg-ink-2/55' : 'bg-ink-4/40',
+                  ]}
+                  style={`width:${tab.title}px`}
+                />
+                {tab.active && <span class="text-[7px] text-ink-4">×</span>}
               </div>
             ))
           }
+          <span class="pb-[3px] pl-[3px] text-[9px] text-ink-4">+</span>
+        </div>
+        <div
+          class="flex items-center gap-s2 border-b border-line-1 bg-surface-control px-s2 py-1"
+        >
+          <span class="text-[8px] text-ink-3">←</span>
+          <span class="text-[8px] text-ink-4/60">→</span>
+          <span class="text-[8px] text-ink-3">↻</span>
+          <div
+            class="flex min-w-0 flex-1 items-center border border-line-2 bg-surface-frame px-s2 py-[2px]"
+          >
+            <div class="h-[2px] w-24 bg-ink-3/40"></div>
+          </div>
+          <span class="text-[9px] text-ink-3">⋮</span>
+        </div>
+        {
+          /* Real Hacker News has no dark mode — it's always its own cream
+           page under whatever chrome is around it. The rest of this mock
+           is our dark UI; this one surface deliberately isn't, because
+           that's what the actual site looks like, tiled or not.
+
+           flex-1: neither the tab strip nor the toolbar above it grow, so
+           without this the cream page would stop at its own content height
+           and whatever's left of the pane (16:9 leaves more room than this
+           mock's content needs — see [data-screen]'s own comment) would
+           show the pane's background instead — a dark stripe under a
+           browser window, not more of the page. */
+        }
+        <div class="flex flex-1 flex-col bg-[#f6f6ef]">
+          <div class="flex items-center gap-s2 bg-accent px-s2 py-[3px]">
+            <span
+              class="font-display text-[10px] font-semibold text-accent-ink"
+            >
+              Y
+            </span>
+            <div class="h-[3px] w-10 bg-accent-ink/45"></div>
+            <div class="ml-auto h-[2px] w-14 bg-accent-ink/30"></div>
+          </div>
+          <div class="flex flex-col">
+            {
+              feedRows.map((row) => (
+                <div class="flex items-center gap-s2 border-b border-black/10 px-s2 py-[5px] tight:py-1">
+                  <span class="shrink-0 text-[8px] text-black/45">▲</span>
+                  <div class="flex min-w-0 flex-1 flex-col gap-[3px]">
+                    <div
+                      class="h-[3px] bg-black/55"
+                      style={`width:${row.title}%`}
+                    />
+                    <div
+                      class="h-[2px] bg-black/30"
+                      style={`width:${row.meta}%`}
+                    />
+                  </div>
+                </div>
+              ))
+            }
+          </div>
         </div>
       </div>
+    </div>
+    {
+      /* `lights`' own panel — the same collapse mechanism as the left
+         panel above. The filled box is this mock's existing "on" language
+         (see the workspace buttons' bg-accent for focused), not a new
+         rounded-switch shape this mock has nothing else to match. */
+    }
+    <div
+      data-side-panel="right"
+      class="flex w-[52px] flex-col items-center justify-center gap-s2 border-l border-line-2 bg-surface-frame"
+    >
+      <div class="h-[10px] w-[24px] border border-line-2 bg-accent"></div>
+      <span class="text-[7px] tracking-chrome text-ink-3">ON</span>
     </div>
   </div>
 </div>
@@ -177,3 +342,88 @@ const tabs = [
   tick()
   setInterval(tick, 1000)
 </script>
+
+<style>
+  /* Row, not column: [data-gap-root] now lays its own children out
+     side by side — the left panel, the tiled grid, the right panel — the
+     same shape a real screen has when a left/right-anchored panel and a
+     tiled area share the width. It still fills whatever height
+     [data-screen] has left over once the workspace bar (below) collapses,
+     rather than leaving a gap where the bar used to be. */
+  [data-gap-root] {
+    display: flex;
+    flex: 1;
+    flex-direction: row;
+  }
+
+  /* Each side panel only has anything to show for the example that
+     declares it — same `display:none` collapse as the workspace bar
+     below, and the same reason: reserving either one's width for an
+     example that never declared a panel there would be the empty-gap
+     problem this mock rules out everywhere else. The tiled grid's own
+     flex: 1 (further down) is what lets it grow into whichever width
+     that frees. */
+  [data-screen]:not([data-active-anchor='left']) [data-side-panel='left'],
+  [data-screen]:not([data-active-anchor='right']) [data-side-panel='right'] {
+    display: none;
+  }
+
+  /* The workspace/clock bar only has anything to show for the top-anchored
+     example — see the markup comment above [data-top-bar]. `display`, not
+     `visibility`: reserving its row's height for an example that never
+     declared a bar there is exactly the empty-gap problem this mock
+     doesn't simulate elsewhere either; the row actually collapses, and
+     the flex-1/stretch chain below ([data-gap-root], then its grid) is
+     what lets the tiled area grow to fill the space that opens up instead
+     of leaving it blank. */
+  [data-screen]:not([data-active-anchor='top']) [data-top-bar] {
+    display: none;
+  }
+
+  /* A real screenshot has fixed pixel dimensions — a monitor doesn't
+     resize itself. [data-screen] has no border or padding of its own (see
+     the markup comment up top), so box-sizing: border-box isn't currently
+     absorbing anything — it's here so a future border/padding addition
+     stays compatible with the fixed size below instead of silently
+     growing it. That fixed size is what makes the workspace bar's
+     collapse free space inside the box rather than shrinking the box
+     itself, so cycling through examples changes what's inside the screen,
+     never the screen's own size. 560×315 is 16:9 — a common basic
+     laptop's aspect ratio, and the same ratio as the 1920×1080 this mock
+     is standing in for — not this content's own natural rendered height
+     (which is shorter): the flex-1 stretch chain below, plus the browser
+     pane's own flex-1 fill (see the markup comment on its white HN box),
+     is what makes the extra height read as "more room in a real window"
+     instead of dead space. */
+  [data-screen] {
+    box-sizing: border-box;
+    width: 560px;
+    height: 315px;
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* Same 16:9, scaled down — not a different ratio for cramped viewports.
+     432×243 is this mock's pre-16:9-fix size (560×243), which fit the
+     laptop breakpoint's vertical budget; pairing 243 with a narrower 432
+     width instead of 560 is what makes that height 16:9 again rather than
+     a one-off exception. Threshold matches global.css's `tight` custom
+     variant (max-width: 720px or max-height: 860px) — plain media query
+     because `tight:` is a Tailwind class variant, not something a raw CSS
+     value in a scoped <style> block can use. */
+  @media ((max-width: 720px) or (max-height: 860px)) {
+    [data-screen] {
+      width: 432px;
+      height: 243px;
+    }
+  }
+
+  /* The tiled grid grows to fill whatever width [data-gap-root]'s row has
+     left over — full width when neither side panel is showing, narrower
+     once one of them claims its own share, the same reflow the workspace
+     bar's own collapse relies on above. Height still comes from CSS
+     Grid's default stretch alignment against the row's own height. */
+  [data-gap-root] > .grid {
+    flex: 1;
+  }
+</style>

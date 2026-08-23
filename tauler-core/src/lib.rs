@@ -20,6 +20,7 @@ pub mod globals;
 pub mod preview;
 pub mod theme;
 pub mod ui;
+pub mod units_reconcile;
 
 #[cfg(target_arch = "wasm32")]
 pub mod web;
