@@ -82,15 +82,31 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           tmp=$(mktemp -d)
           cp screenshots/*.png "$tmp/"
-          git fetch origin ci-screenshots || true
-          git checkout ci-screenshots 2>/dev/null || git checkout --orphan ci-screenshots
-          git rm -rf . >/dev/null 2>&1 || true
-          git clean -fdx -e screenshots -e target >/dev/null 2>&1 || true
-          mkdir -p "$DEST"
-          cp "$tmp"/*.png "$DEST/"
-          git add "$DEST"
-          git commit -m "screenshots for PR #${{ github.event.pull_request.number }} (${GITHUB_SHA::7})" || exit 0
-          git push origin ci-screenshots
+          # Every PR writes its own pr-<N>/ subdirectory, so a losing race here is
+          # never a real conflict — just a rebuild against whatever origin looks
+          # like now. Retry instead of failing the job outright when a concurrent
+          # run (another PR, or a re-run of this one) wins the push first.
+          for attempt in 1 2 3 4 5; do
+            git fetch origin ci-screenshots || true
+            if git show-ref --verify --quiet refs/remotes/origin/ci-screenshots; then
+              git checkout -B ci-screenshots origin/ci-screenshots
+            else
+              git checkout --orphan ci-screenshots
+              git rm -rf . >/dev/null 2>&1 || true
+            fi
+            git clean -fdx -e screenshots -e target >/dev/null 2>&1 || true
+            mkdir -p "$DEST"
+            cp "$tmp"/*.png "$DEST/"
+            git add "$DEST"
+            git commit -m "screenshots for PR #${{ github.event.pull_request.number }} (${GITHUB_SHA::7})" || exit 0
+            if git push origin ci-screenshots; then
+              exit 0
+            fi
+            echo "push race on attempt $attempt, retrying..."
+            sleep $((attempt * 2))
+          done
+          echo "failed to publish screenshots after 5 attempts"
+          exit 1
 
       - name: Comment with the screenshots
         if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
