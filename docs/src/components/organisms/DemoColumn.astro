@@ -27,6 +27,7 @@
 // defined.
 import CodePanel from '../ui/CodePanel.astro'
 import ScreenMock from '../ui/ScreenMock.astro'
+import DeviceMockup from '../ui/DeviceMockup.astro'
 
 const demoStates = [
   {
@@ -96,10 +97,12 @@ const demoStates = [
   data-demo-states={JSON.stringify(
     demoStates.map((s) => ({ id: s.id, label: s.label, anchor: s.anchor })),
   )}
-  class="flex w-[560px] flex-col gap-s5 max-xl:hidden tight:w-[432px] tight:gap-s4"
+  class="flex w-[560px] flex-col gap-s5 max-xl:hidden tight:w-[432px] tight:gap-0"
 >
   <CodePanel path="layout.op.mdx" states={demoStates} />
-  <ScreenMock states={demoStates} />
+  <DeviceMockup>
+    <ScreenMock states={demoStates} />
+  </DeviceMockup>
 </div>
 
 <script>

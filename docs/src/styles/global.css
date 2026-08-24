@@ -69,6 +69,10 @@
   /* Panel lift — a surface sitting over the wallpaper, not a card. */
   --shadow-panel: 0 20px 55px oklch(0.03 0.01 265 / 0.75);
 
+  /* The one radius on the site — see ADR 0030's amendment. Only reachable
+     via [data-physical-object]; every other surface stays radius-0. */
+  --radius-device: 4px;
+
   /* Accent-1 (flow field). The other four workspace accents return with
      the full scroll-story page; accent-2 arrived early for the docs'
      second sidebar group (ADR-pending: see the docs revamp handoff §6).
@@ -136,6 +140,22 @@
 @layer design {
   * {
     border-radius: 0;
+  }
+
+  /* Named, narrow exception — see ADR 0030's amendment. An attribute
+     selector (0,0,1,0) beats the universal selector above (0,0,0,0) by
+     ordinary specificity within this same layer, no !important needed.
+     Reserved for hardware mockups standing in for a real object, not UI
+     chrome — reach for this only when that's genuinely what the element is.
+     "lid" and "base" round asymmetrically, the way a real laptop does: the
+     lid rounds only its top corners (away from the hinge), the base rounds
+     only its bottom corners (the front edge resting on the desk) — the
+     hinge line where the two meet stays flush (radius 0) on both sides. */
+  [data-physical-object='lid'] {
+    border-radius: var(--radius-device) var(--radius-device) 0 0;
+  }
+  [data-physical-object='base'] {
+    border-radius: 0 0 var(--radius-device) var(--radius-device);
   }
 
   /* Landing-page ground; Starlight's own layers repaint it for docs pages. */
