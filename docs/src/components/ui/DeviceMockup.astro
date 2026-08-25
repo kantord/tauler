@@ -1,0 +1,136 @@
+---
+// A low-profile laptop frame around ScreenMock's schematic screenshot. Two
+// shapes, stacked: a bezel enclosing the screen on all 4 sides (so it reads
+// as a closed display, not a stray top/bottom rule), and below it a base bar
+// that's visibly WIDER than the bezel and protrudes past it on both sides —
+// the one silhouette cue that reads as "laptop" rather than "monitor": a
+// screen sitting on top of a wider base. Deliberately not a literal
+// keyboard rendering — see the base's own comment below. An earlier version
+// used two same-width horizontal bars (top + bottom) with no side bezel;
+// screenshotting it at real page scale showed a plain screen with a header
+// and footer bar, not a device — the enclosing frame and the wider base are
+// what a monitor lacks and a laptop has.
+//
+// This stays outside ScreenMock itself — that component deliberately draws
+// no bezel of its own (see its own comment: it stands for the pixels a
+// screen shows, not a framed photo of one). The frame lives here instead,
+// one layer further out, so ScreenMock's own "no inset" argument still
+// holds for the mock itself.
+//
+// The bezel border grows outward from ScreenMock's own fixed width (border
+// is outside the content box), and the base is wider still — both overflow
+// past the 560px/432px width CodePanel and ScreenMock otherwise share. That
+// horizontal growth is deliberate here (unlike the old same-width bars): a
+// laptop base overhanging its screen is the point, not a bug to budget away.
+// DemoColumn sits at the end of the hero's `1fr auto` row with room to
+// spare, so the overflow lands in that slack rather than causing a
+// horizontal scrollbar — verified against tests/landing.spec.ts's
+// never-scrolls-horizontally check across every breakpoint.
+//
+// gray-700, not gray-600 or gray-800: gray-600 (oklch 0.4) reads as brushed
+// aluminum, not matte black. gray-800 (oklch 0.175) reads as matte black but
+// turned out too close to the wallpaper's own darkness (0.13) to survive the
+// wallpaper's diagonal line texture — confirmed by sampling the rendered
+// side bezel at 4x zoom against the wallpaper and finding the two nearly
+// indistinguishable there, even with a 1px line-2 (16%-alpha white) edge
+// ring. gray-700 (0.26) is the value that stayed dark enough to read as
+// "matte charcoal plastic" while still holding a real contrast margin
+// against the 0.13 wallpaper on all 4 sides, not just the sides that happen
+// to sit next to a plainer part of the wallpaper. The edge ring itself also
+// moved from line-2 to ink-3 (opaque, not 16%-alpha) for the same reason: an
+// alpha line blends into whatever's behind it, an opaque one doesn't.
+//
+// The deck is a plain flat bar — no key ticks, no trackpoint square. Both
+// were tried and both dropped: the tick pattern read as a barcode rather
+// than keys (see git history), and a trackpoint with no keys around it was
+// an inconsistent detail on its own. More fundamentally, this whole mockup
+// draws the screen face-on; a literal top-down keyboard surface doesn't
+// belong in the same flat view as a face-on screen — that combination is
+// the "perspective is broken" a real 3D or isometric laptop render would
+// need to reconcile, which this schematic, flat-color site deliberately
+// doesn't attempt. The deck stays purely abstract: "there's a wider chassis
+// under here," nothing claiming to be a literal rendering of its surface.
+// The enclosing bezel plus the wider base alone already carry the "laptop,
+// not monitor" read (confirmed separately) without needing any surface
+// detail to back it up.
+//
+// shadow-panel (folded into the same edge-ring shadow) lifts each shape off
+// the wallpaper the same way CodePanel already does above — free "this is a
+// physical object" weight, since a box-shadow costs no layout space to
+// compensate for.
+//
+// data-physical-object="lid"/"base" round each shape's own corners — the
+// site's one deliberate exception to radius-0 (see ADR 0030's amendment):
+// this mockup is standing in for a real object next to the screen it wraps,
+// not more UI chrome, and a sharp-cornered frame around a sharp-cornered
+// ScreenMock had no visual signal telling the two apart. The rounding is
+// asymmetric on purpose, the way a real laptop's is: the lid rounds only
+// its top corners (away from the hinge), the base only its bottom corners
+// (the front edge resting on the desk) — the hinge line where the two meet
+// stays flush (radius 0) on both, since that's not a corner a real hinge
+// has. overflow-hidden on the bezel clips ScreenMock's own sharp corners to
+// match its now-rounded top — border-radius rounds a border's own
+// rendering but doesn't clip already-sharp content inside it.
+//
+// The base is noticeably taller than the bezel border (12px vs 6px, not
+// matched 1:1) — an earlier version matched the bezel's own 6px, which read
+// as a thin trim rather than a chassis with real depth. A laptop base is
+// physically thicker than its screen bezel; this gives that some visual
+// weight without growing so tall it threatens the above-fold budget below.
+//
+// data-screen-glass is a radial vignette layered over ScreenMock, inside the
+// bezel — the same technique crt.css's own .crt-vignette already uses on
+// this site (radial-gradient, transparent center, dark oklch edges), just
+// scoped to one screen instead of the whole viewport. crt-vignette's own
+// 0.37 alpha, copied verbatim, read as basically invisible here — pixel-
+// sampled the rendered corners to confirm rather than re-guess, and the
+// value that actually reads at normal page scale (0.4, tighter ellipse,
+// earlier transparent-to-dark transition) is closer to crt-vignette's than
+// the first, too-cautious attempt was. A full-viewport effect stays legible
+// at low alpha because it's already large; the same alpha over a ~300px
+// area needs to work harder to register at all. This is glass sitting over
+// ScreenMock, not ScreenMock drawing itself differently, so its own
+// "stands for pixels, not a photo of pixels" argument still holds — the
+// vignette lives in this component's own physical-object layer instead.
+// It's wrapped in its own plain `relative` div rather than making the
+// bezel itself `relative` — the bezel carries a box-shadow, and promoting
+// it to a positioned element made it paint (shadow included) *above* its
+// static `base` sibling regardless of DOM order, instead of behind it like
+// before. Positioned elements always paint after non-positioned siblings in
+// the same stacking context, with or without z-index — confirmed by
+// bounding-box measurement that the layout itself was never wrong, only
+// the paint order after `relative` was added.
+//
+// Decorative only, same as the screen it wraps — aria-hidden, no focusable
+// content.
+---
+
+<div aria-hidden="true" class="flex flex-col items-center">
+  <div
+    data-physical-object="lid"
+    class="overflow-hidden border-[6px] border-gray-700 shadow-[0_0_0_1px_var(--color-ink-3),var(--shadow-panel)] tight:border-[4px]"
+  >
+    <div class="relative">
+      <slot />
+      <div data-screen-glass class="absolute inset-0"></div>
+    </div>
+  </div>
+  <div
+    data-physical-object="base"
+    class="h-[12px] w-[588px] bg-gray-700 shadow-[0_0_0_1px_var(--color-ink-3),var(--shadow-panel)] tight:h-[8px] tight:w-[456px]"
+  >
+  </div>
+</div>
+
+<style>
+  /* A data attribute, not a class, so this stays outside the Tailwind
+     class-layer contract (see check-class-layers.ts) — the same convention
+     [data-reveal] (DemoColumn.astro) already uses. */
+  [data-screen-glass] {
+    background-image: radial-gradient(
+      ellipse 70% 60% at 50% 42%,
+      transparent 30%,
+      oklch(0 0 0 / 0.4) 100%
+    );
+  }
+</style>
