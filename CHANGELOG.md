@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.1](https://github.com/kantord/tauler/compare/tauler-v0.2.0...tauler-v0.2.1) - 2026-08-26
+
+### Fixed
+
+- *(deps)* update rust crate takumi to v2.11.0 ([#477](https://github.com/kantord/tauler/pull/477))
+- *(deps)* update rust crate optative-script to v0.0.11 ([#476](https://github.com/kantord/tauler/pull/476))
+
+### Other
+
+- *(deps)* lock file maintenance ([#474](https://github.com/kantord/tauler/pull/474))
+- *(deps)* update dependency rust to v1.98.0 ([#472](https://github.com/kantord/tauler/pull/472))
+
 ## [0.2.0](https://github.com/kantord/tauler/compare/tauler-v0.1.10...tauler-v0.2.0) - 2026-08-23
 
 ### Added

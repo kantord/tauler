@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.1](https://github.com/kantord/tauler/compare/tauler-screenshot-v0.2.0...tauler-screenshot-v0.2.1) - 2026-08-26
+
+### Other
+
+- updated the following local packages: tauler
+
 ## [0.1.11](https://github.com/kantord/tauler/compare/tauler-screenshot-v0.1.10...tauler-screenshot-v0.1.11) - 2026-08-23
 
 ### Other
