@@ -1,17 +1,60 @@
 ---
 // The wallpaper surface. Owns the generative flow field: one canvas,
-// drawn once, decorative, absent without JavaScript.
+// drawn once, decorative, absent without JavaScript. The canvas is fixed
+// to the viewport rather than scoped to this stage, so scrollytelling
+// content below the hero scrolls over the same wallpaper.
 import PageWidth from '../ui/PageWidth.astro'
 ---
 
-<main
-  class="relative flex flex-1 items-center overflow-hidden bg-surface-wallpaper"
->
-  <canvas id="field" class="absolute inset-0 h-full w-full" aria-hidden="true"
-  ></canvas>
+{
+  /* overflow-clip, not overflow-hidden: `hidden` establishes a scroll
+     container, which would become the reference for the fade's view()
+     timeline below — a scrollport that never scrolls, freezing the
+     animation. `clip` clips the same content without becoming one. */
+}
+<main class="relative flex items-center overflow-clip bg-surface-wallpaper">
+  <canvas
+    id="field"
+    class="fixed inset-0 h-dvh w-full bg-surface-wallpaper"
+    aria-hidden="true"></canvas>
   <div class="crt-beam" aria-hidden="true"></div>
-  <PageWidth><slot /></PageWidth>
+  <PageWidth><div data-stage-content><slot /></div></PageWidth>
 </main>
+
+<style>
+  /* The hero screen is panel + stage + footer adding up to exactly one
+     viewport. The page scrolls past the stage now (scrollytelling zones
+     follow it), so `flex-1` can no longer size it — there is no fixed
+     container to grow into — and the height is stated directly instead.
+     A calc of theme tokens isn't a classifiable utility, so it lives
+     here (same pattern as CodePanel's <style>). */
+  main {
+    min-height: calc(100dvh - var(--spacing-panel) - var(--spacing-footer));
+  }
+
+  /* The hero content fades out as it scrolls off toward the zones — the
+     same scroll-driven fade the zones use (see ScrollZone.astro), on the
+     content only: the wallpaper canvas and the sticky panel/footer stay
+     fully opaque. */
+  @media (prefers-reduced-motion: no-preference) {
+    @supports (animation-timeline: view()) {
+      [data-stage-content] {
+        animation: stage-fade-out linear both;
+        animation-timeline: view();
+        animation-range: exit 0% exit 70%;
+      }
+    }
+  }
+
+  @keyframes stage-fade-out {
+    from {
+      opacity: 1;
+    }
+    to {
+      opacity: 0;
+    }
+  }
+</style>
 
 <script>
   import { drawField } from '../../scripts/field.ts'
@@ -26,24 +69,38 @@ import PageWidth from '../ui/PageWidth.astro'
      copy, positioned with a negative offset inside its own
      overflow-hidden host so only the aligned sliver shows; that's what
      guarantees "exact slice" rather than an independently-drawn
-     approximation. See CodePanel.astro / the demo handoff §6. */
-  function paintSlices(): void {
-    const sr = stage.getBoundingClientRect()
+     approximation. See CodePanel.astro / the demo handoff §6.
+
+     The wallpaper canvas is viewport-fixed, so a panel's offset into it
+     is simply the panel's viewport position — and it changes on every
+     scroll, not just on resize. placeSlices() is the cheap style-only
+     realignment run per scrolled frame; paintSlices() additionally
+     re-copies the pixels and only runs when the field itself repaints. */
+  function placeSlices(): void {
     for (const host of stage.querySelectorAll<HTMLElement>(
       '[data-slice-host]',
     )) {
       const slice = host.querySelector<HTMLCanvasElement>('[data-field-slice]')
       if (!slice) continue
       const hr = host.getBoundingClientRect()
+      slice.style.width = canvas.clientWidth + 'px'
+      slice.style.height = canvas.clientHeight + 'px'
+      slice.style.left = -hr.left + 'px'
+      slice.style.top = -hr.top + 'px'
+    }
+  }
+  function paintSlices(): void {
+    for (const host of stage.querySelectorAll<HTMLElement>(
+      '[data-slice-host]',
+    )) {
+      const slice = host.querySelector<HTMLCanvasElement>('[data-field-slice]')
+      if (!slice) continue
       slice.width = canvas.width
       slice.height = canvas.height
-      slice.style.width = stage.clientWidth + 'px'
-      slice.style.height = stage.clientHeight + 'px'
-      slice.style.left = -(hr.left - sr.left) + 'px'
-      slice.style.top = -(hr.top - sr.top) + 'px'
       const sctx = slice.getContext('2d')
       if (sctx) sctx.drawImage(canvas, 0, 0)
     }
+    placeSlices()
   }
 
   /* Draw once; repaint only on width change, debounced ≥200ms
@@ -53,10 +110,10 @@ import PageWidth from '../ui/PageWidth.astro'
      just enough to cap the store at ~48MB on very large screens. */
   let lastW = 0
   function paint(): void {
-    const w = stage.clientWidth
+    const w = canvas.clientWidth
     if (w === lastW) return
     lastW = w
-    const h = stage.clientHeight
+    const h = canvas.clientHeight
     const scale = Math.min(2, Math.sqrt(12_000_000 / (w * h)))
     canvas.width = Math.round(w * scale)
     canvas.height = Math.round(h * scale)
@@ -73,4 +130,19 @@ import PageWidth from '../ui/PageWidth.astro'
     clearTimeout(t)
     t = setTimeout(paint, 200)
   })
+  /* Keep the panel slices glued to the fixed wallpaper while the page
+     scrolls under them — style writes only, one per rendered frame. */
+  let placing = false
+  addEventListener(
+    'scroll',
+    () => {
+      if (placing) return
+      placing = true
+      requestAnimationFrame(() => {
+        placing = false
+        placeSlices()
+      })
+    },
+    { passive: true },
+  )
 </script>

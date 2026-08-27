@@ -275,19 +275,19 @@ main h1 {
   }
 }
 
-/* Beam sweep — lives inside the hero's <main>, not fixed to the viewport.
-   The first cut covered the whole page including the nav bar, which read
-   as a flashlight scanning the screen rather than a tube's own retrace.
-   Confining it to the hero (which already clips overflow) makes it scan
-   only the "screen" — the flow-field canvas and headline — not the
-   surrounding chrome. soft-light instead of screen: screen always adds
-   raw brightness and reads as a light source; soft-light pushes existing
-   tones further toward light or dark depending what's already there, so
-   it reads as the beam modulating the canvas rather than shining a torch
-   over it. main is position: relative + overflow: hidden (Stage.astro),
-   so this needs no viewport-relative math of its own. */
+/* Beam sweep — fixed to the viewport, like the wallpaper canvas it
+   modulates: the "screen" is the full scroll experience now, so the
+   retrace has to keep sweeping below the hero too. The original concern
+   that a viewport-wide beam reads as a flashlight scanning the nav bar
+   is handled by paint order instead of clipping: the sticky panel and
+   footer are opaque and z-10 while the beam stays at z-auto right above
+   the canvas, so the chrome simply covers it. soft-light instead of
+   screen: screen always adds raw brightness and reads as a light
+   source; soft-light pushes existing tones further toward light or dark
+   depending what's already there, so it reads as the beam modulating
+   the canvas rather than shining a torch over it. */
 .crt-beam {
-  position: absolute;
+  position: fixed;
   inset: auto 0 auto 0;
   top: calc(-1 * var(--crt-beam-height, 20vh));
   height: var(--crt-beam-height, 20vh);
