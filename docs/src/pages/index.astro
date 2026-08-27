@@ -9,7 +9,22 @@ import Hero from '../components/organisms/Hero.astro'
 import TopPanel from '../components/organisms/TopPanel.astro'
 import Stage from '../components/organisms/Stage.astro'
 import StatementFooter from '../components/organisms/StatementFooter.astro'
+import ScrollZone from '../components/organisms/ScrollZone.astro'
+import Label from '../components/text/Label.astro'
 import FontPreloads from '../components/FontPreloads.astro'
+
+// Dummy scrollytelling zones below the hero screen — placeholders for the
+// real narrative content, scrolling over the viewport-fixed wallpaper
+// (see Stage.astro). Uneven heights on purpose: a zone's own length sets
+// its own reading pace.
+const ZONES = [
+  { name: 'INTRO', vh: 0.8 },
+  { name: 'SIGNAL', vh: 1.6 },
+  { name: 'STRUCTURE', vh: 1.0 },
+  { name: 'DEPTH', vh: 2.2 },
+  { name: 'THRESHOLD', vh: 0.6 },
+  { name: 'CLOSE', vh: 1.4 },
+]
 ---
 
 <html lang="en">
@@ -76,11 +91,28 @@ import FontPreloads from '../components/FontPreloads.astro'
     </script>
   </head>
   <body>
-    <div class="flex min-h-dvh flex-col">
+    {
+      /* The panel and the footer are sticky children of this full-page
+         wrapper: the panel holds the viewport's top edge and the footer
+         its bottom edge for the entire scroll, framing the zones, until
+         the footer settles into its natural place at the very end. */
+    }
+    <div class="flex flex-col">
       <TopPanel />
       <Stage>
         <Hero />
       </Stage>
+      <div class="relative flex flex-col">
+        {
+          ZONES.map((z, i) => (
+            <ScrollZone vh={z.vh}>
+              <Label>
+                {i + 1} / {ZONES.length} · {z.name} · {z.vh}×
+              </Label>
+            </ScrollZone>
+          ))
+        }
+      </div>
       <StatementFooter>
         One native binary renders your panels. Any script becomes a data source.
       </StatementFooter>
