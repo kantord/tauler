@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.12](https://github.com/kantord/tauler/compare/tauler-ui-macro-v0.1.11...tauler-ui-macro-v0.1.12) - 2026-08-28
+
+### Fixed
+
+- *(deps)* update rust crate syn to 3.0.4 ([#481](https://github.com/kantord/tauler/pull/481))
+
 ## [0.1.11](https://github.com/kantord/tauler/compare/tauler-ui-macro-v0.1.10...tauler-ui-macro-v0.1.11) - 2026-08-23
 
 ### Fixed

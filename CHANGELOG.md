@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.2](https://github.com/kantord/tauler/compare/tauler-v0.2.1...tauler-v0.2.2) - 2026-08-28
+
+### Fixed
+
+- *(deps)* update rust crate takumi to v2.12.0 ([#480](https://github.com/kantord/tauler/pull/480))
+
 ## [0.2.1](https://github.com/kantord/tauler/compare/tauler-v0.2.0...tauler-v0.2.1) - 2026-08-26
 
 ### Fixed
