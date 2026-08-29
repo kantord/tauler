@@ -36,6 +36,21 @@ Streams are not run: `useStringStream` and `useJSONStream` resolve to empty valu
 layout that reads live data renders in its empty state. Pass data as props instead when
 you want a populated screenshot.
 
+## Use as a library
+
+The same pipeline is one function call:
+
+```rust
+let shot = tauler_screenshot::render(
+    r#"export default () => <span class="text-foreground">Hello, world</span>;"#,
+    &tauler_screenshot::Options::default(),
+)?;
+std::fs::write("hello.svg", &shot.svg)?;
+```
+
+`Options` carries the theme, width and font path the flags above set; `Screenshot` also
+exposes the Tailwind class harvest (`classes`) and the painted boxes (`geometry()`).
+
 ## License
 
 Licensed under either of [Apache License, Version 2.0](LICENSE-APACHE) or
