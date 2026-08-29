@@ -5999,7 +5999,7 @@ dependencies = [
 
 [[package]]
 name = "tauler"
-version = "0.2.2"
+version = "0.2.3"
 dependencies = [
  "anyhow",
  "cached",
@@ -6036,7 +6036,7 @@ dependencies = [
 
 [[package]]
 name = "tauler-accumulate"
-version = "0.2.2"
+version = "0.2.3"
 dependencies = [
  "clap",
  "serde_json",
@@ -6044,7 +6044,7 @@ dependencies = [
 
 [[package]]
 name = "tauler-aerospace"
-version = "0.2.2"
+version = "0.2.3"
 dependencies = [
  "serde_json",
  "tracing",
@@ -6053,7 +6053,7 @@ dependencies = [
 
 [[package]]
 name = "tauler-core"
-version = "0.2.2"
+version = "0.2.3"
 dependencies = [
  "optative",
  "optative-script",
@@ -6071,7 +6071,7 @@ dependencies = [
 
 [[package]]
 name = "tauler-docgen"
-version = "0.2.2"
+version = "0.2.3"
 dependencies = [
  "clap",
  "insta",
@@ -6082,7 +6082,7 @@ dependencies = [
 
 [[package]]
 name = "tauler-e2e"
-version = "0.2.2"
+version = "0.2.3"
 dependencies = [
  "anyhow",
  "image",
@@ -6092,7 +6092,7 @@ dependencies = [
 
 [[package]]
 name = "tauler-i3"
-version = "0.2.2"
+version = "0.2.3"
 dependencies = [
  "serde_json",
  "swayipc",
@@ -6102,7 +6102,7 @@ dependencies = [
 
 [[package]]
 name = "tauler-notify"
-version = "0.2.2"
+version = "0.2.3"
 dependencies = [
  "serde",
  "serde_json",
@@ -6112,7 +6112,7 @@ dependencies = [
 
 [[package]]
 name = "tauler-screenshot"
-version = "0.2.2"
+version = "0.2.3"
 dependencies = [
  "clap",
  "serde_json",
@@ -6131,7 +6131,7 @@ dependencies = [
 
 [[package]]
 name = "tauler-web"
-version = "0.2.2"
+version = "0.2.3"
 dependencies = [
  "tauler-core",
  "wasm-bindgen",
@@ -6139,7 +6139,7 @@ dependencies = [
 
 [[package]]
 name = "tauler-web-e2e"
-version = "0.2.2"
+version = "0.2.3"
 dependencies = [
  "anyhow",
  "headless_chrome",
