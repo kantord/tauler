@@ -325,7 +325,7 @@ fn build_jsx_module(jsx_block: &[String], all_components: &[Component]) -> Strin
 
 /// What rendering one component produced.
 struct Rendered {
-    png: PathBuf,
+    svg: PathBuf,
     /// Every Tailwind utility the resolved tree carried. Harvested from the render rather
     /// than scanned from the source, because theme tokens are already rewritten by then.
     classes: BTreeSet<String>,
@@ -348,7 +348,7 @@ fn render_screenshot(
     fs::write(&tmp_jsx_file, &source).ok()?;
 
     fs::create_dir_all(assets_dir).ok()?;
-    let output_path = assets_dir.join(format!("{}.png", component.export_name.to_lowercase()));
+    let output_path = assets_dir.join(format!("{}.svg", component.export_name.to_lowercase()));
 
     let inter_font = Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()?
@@ -396,7 +396,7 @@ fn render_screenshot(
         .unwrap_or_default();
     let _ = fs::remove_file(&classes_file);
     Some(Rendered {
-        png: output_path,
+        svg: output_path,
         classes,
     })
 }
@@ -568,7 +568,7 @@ fn render_markdown(components: &[Component], rendered: &[Option<Rendered>]) -> S
     for (comp, r) in components.iter().zip(rendered.iter()) {
         out.push_str(&render_component_section(
             comp,
-            &r.as_ref().map(|r| r.png.clone()),
+            &r.as_ref().map(|r| r.svg.clone()),
             components,
         ));
     }
@@ -731,21 +731,21 @@ mod visual_regression {
     // Same LCG multiplier used in layout-poc/src/main.rs — keep in sync if changed.
     const LCG_MULTIPLIER: u64 = 6364136223846793005;
 
-    fn pixel_hash(pixels: &[u8]) -> String {
-        let h = pixels.iter().fold(0u64, |h, &b| {
+    fn svg_hash(bytes: &[u8]) -> String {
+        let h = bytes.iter().fold(0u64, |h, &b| {
             h.wrapping_mul(LCG_MULTIPLIER).wrapping_add(b as u64)
         });
-        format!("{h:016x}  ({} px)", pixels.len() / 4)
+        format!("{h:016x}  ({} bytes)", bytes.len())
     }
 
-    /// Renders every component that has a JSX block and asserts the pixel hash
+    /// Renders every component that has a JSX block and asserts a hash of the SVG
     /// via insta.  Screenshots go to a temporary directory — publishing them is
     /// `just docs`'s job.  Skips silently if the screenshot binary is absent.
     ///
     /// Workflow:
     ///   cargo build -p tauler-screenshot          # build renderer once
     ///   cargo test -p tauler-docgen               # fails if any hash changed
-    ///   cargo insta review                        # inspect PNG + accept or reject
+    ///   cargo insta review                        # inspect SVG + accept or reject
     #[test]
     fn component_screenshots_match_approved_hashes() {
         if find_screenshot_binary().is_none() {
@@ -765,14 +765,12 @@ mod visual_regression {
             for comp in &all_components {
                 if comp.jsx_block.is_none() { continue; }
                 if comp.skip_snapshot { continue; }
-                let png_path = render_screenshot(comp, &all_components, &assets_dir, None)
+                let svg_path = render_screenshot(comp, &all_components, &assets_dir, None)
                     .unwrap_or_else(|| panic!("render_screenshot failed for {}", comp.export_name))
-                    .png;
-                let img = image::open(&png_path)
-                    .unwrap_or_else(|e| panic!("failed to open {}: {e}", png_path.display()))
-                    .into_rgba8();
-                let hash = pixel_hash(&img.into_raw());
-                insta::assert_snapshot!(comp.export_name.to_lowercase(), hash);
+                    .svg;
+                let bytes = std::fs::read(&svg_path)
+                    .unwrap_or_else(|e| panic!("failed to read {}: {e}", svg_path.display()));
+                insta::assert_snapshot!(comp.export_name.to_lowercase(), svg_hash(&bytes));
             }
         });
     }
@@ -783,7 +781,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn render_screenshot_saves_png_for_component_with_jsx_block() {
+    fn render_screenshot_saves_svg_for_component_with_jsx_block() {
         if find_screenshot_binary().is_none() {
             eprintln!(
                 "skipping: tauler-screenshot binary not found (run `cargo build -p tauler-screenshot` first)"
@@ -819,9 +817,13 @@ mod tests {
 
         assert!(result.is_some(), "expected a render but got None");
         let rendered = result.unwrap();
-        let path = rendered.png;
-        assert!(path.exists(), "PNG file does not exist at {:?}", path);
-        assert!(path.metadata().unwrap().len() > 0, "PNG file is empty");
+        let path = rendered.svg;
+        assert!(path.exists(), "SVG file does not exist at {:?}", path);
+        let body = std::fs::read_to_string(&path).expect("read the SVG");
+        assert!(
+            body.starts_with("<svg"),
+            "output does not begin with an <svg> element"
+        );
         assert!(
             !rendered.classes.is_empty(),
             "the class harvest came back empty; Tailwind would compile nothing"

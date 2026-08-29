@@ -50,6 +50,36 @@ fn site_dir() -> PathBuf {
     dir
 }
 
+/// The committed screenshot, rasterized at its intrinsic size (CSS pixels, the same
+/// scale the browser shot is captured at).
+///
+/// `tauler-screenshot` emits vector SVG, so the pixels the liveness gate needs are made
+/// here. Text in the SVG is glyph-outline paths, which is what lets resvg draw it without
+/// any font of its own — the shapes were fixed when the screenshot was rendered.
+fn rasterize_svg(path: &Path) -> Result<image::RgbaImage, String> {
+    let data = std::fs::read(path).map_err(|e| format!("reading {}: {e}", path.display()))?;
+    let tree = resvg::usvg::Tree::from_data(&data, &resvg::usvg::Options::default())
+        .map_err(|e| format!("parsing {}: {e}", path.display()))?;
+    let size = tree.size().to_int_size();
+    let mut pixmap = resvg::tiny_skia::Pixmap::new(size.width(), size.height())
+        .ok_or_else(|| format!("empty canvas for {}", path.display()))?;
+    resvg::render(
+        &tree,
+        resvg::tiny_skia::Transform::default(),
+        &mut pixmap.as_mut(),
+    );
+    let rgba: Vec<u8> = pixmap
+        .pixels()
+        .iter()
+        .flat_map(|px| {
+            let px = px.demultiply();
+            [px.red(), px.green(), px.blue(), px.alpha()]
+        })
+        .collect();
+    image::RgbaImage::from_raw(size.width(), size.height(), rgba)
+        .ok_or_else(|| format!("buffer size mismatch for {}", path.display()))
+}
+
 /// takumi's boxes for every component, written by `tauler-screenshot --geometry-out`.
 fn takumi_geometry_dir() -> PathBuf {
     let dir = workspace_root().join("docs/.tauler/geometry");
@@ -145,9 +175,11 @@ fn every_mount_still_renders_its_component() {
         let browser = image::load_from_memory(&png)
             .unwrap_or_else(|e| panic!("decoding the {component} shot: {e}"))
             .into_rgba8();
-        let takumi = image::open(workspace_root().join(format!("docs/src/assets/{component}.png")))
-            .unwrap_or_else(|e| panic!("opening the committed {component} screenshot: {e}"))
-            .into_rgba8();
+        let takumi =
+            rasterize_svg(&workspace_root().join(format!("docs/src/assets/{component}.svg")))
+                .unwrap_or_else(|e| {
+                    panic!("rasterizing the committed {component} screenshot: {e}")
+                });
 
         let diff = difference(&browser, &takumi);
         let ink = ink_share(&browser, CHANNEL_TOLERANCE) / ink_share(&takumi, CHANNEL_TOLERANCE);

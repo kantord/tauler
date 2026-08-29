@@ -1,6 +1,6 @@
 [package]
 name = "tauler-screenshot"
-description = "Renders a tauler JSX layout to a PNG, using the same pipeline as the bar itself"
+description = "Renders a tauler JSX layout to a vector SVG, using the same pipeline as the bar itself"
 keywords = ["tauler", "statusbar", "jsx", "screenshot", "rendering"]
 categories = ["command-line-utilities", "visualization"]
 readme = "README.md"
@@ -32,5 +32,4 @@ path = "src/main.rs"
 # rename here compiles locally and fails in CI.
 tauler = { path = "..", version = "0.2.2" }
 clap = { version = "4.6.6", features = ["derive"] }
-image = "0.25.10"
 serde_json = "1.0.151"

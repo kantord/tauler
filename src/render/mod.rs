@@ -21,9 +21,9 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, OnceLock, RwLock};
 
 use takumi::prelude::{
-    FontResource, Fonts, GenericFamily, ImageSource, MeasuredNode, Node, RenderOptions, Viewport,
+    FontResource, Fonts, GenericFamily, ImageSource, Node, RenderOptions, SvgOptions, Viewport,
 };
-use takumi::{measure as takumi_measure_layout, render};
+use takumi::{render, render_svg};
 
 pub mod cache;
 pub mod worker;
@@ -492,23 +492,26 @@ fn preload_layout_images_impl(layout: &serde_json::Value, global: &mut RenderCon
     }
 }
 
-/// A layout-only pass, for callers that need geometry without pixels.
+/// Render `content` as a vector SVG document, `width` CSS pixels wide and as tall
+/// as the content lays out.
 ///
-/// Uncached, and no longer on any hot path: click handling used to run through here
-/// and now builds its own layout to get render paths (ADR 0018), which leaves
-/// `tauler-screenshot`'s crop as the only caller — once per invocation.
-pub fn measure_layout_frame(
-    content: &serde_json::Value,
-    width: u32,
-    height: u32,
-    dpr: f32,
-) -> MeasuredNode {
+/// The one caller is `tauler-screenshot`. The auto height is what replaced its
+/// crop: the raster path had to draw on an oversized scratch canvas and cut the
+/// content back out of the pixels, where the SVG document simply ends where the
+/// layout does. No dpr either — the output is vector, so scaling belongs to
+/// whatever rasterizes it.
+pub fn render_frame_svg(content: &serde_json::Value, width: u32) -> String {
     let node = parse_layout(content)
         .map_err(|e| tracing::error!(error = %e, "layout parse error"))
         .unwrap_or_else(|_| Node::container(vec![]));
     with_global_ctx(|global| {
-        let options = frame_options(global, None, node, width, height, dpr);
-        takumi_measure_layout(options).expect("measure_layout")
+        let options = SvgOptions::builder()
+            .fonts(&global.fonts)
+            .images(global.images.clone())
+            .viewport(Viewport::new((Some(width), None)))
+            .node(node)
+            .build();
+        render_svg(options).expect("render_svg")
     })
 }
 
