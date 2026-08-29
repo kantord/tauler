@@ -160,7 +160,7 @@ pub fn render(jsx_source: &str, options: &Options) -> Result<Screenshot, Error> 
     let mut classes = BTreeSet::new();
     collect_classes(&canvas, &mut classes);
 
-    let svg = tauler::render_frame_svg(&canvas, options.width);
+    let svg = tauler::render_svg_document(&canvas, options.width);
     Ok(Screenshot {
         svg,
         classes,

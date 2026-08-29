@@ -23,6 +23,6 @@ serde_json = "1.0.151"
 headless_chrome = "1.0.22"
 
 [dev-dependencies]
-# Rasterizes the committed SVG screenshots for the liveness comparison. Same version
-# takumi already carries, so this adds no second copy to the build.
+# Rasterizes the committed SVG screenshots for the liveness comparison. Dev-only:
+# it pulls its own SVG parsing stack; only tiny-skia is shared with takumi.
 resvg = "0.48"

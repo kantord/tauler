@@ -39,7 +39,7 @@ pub use surface::X11PanelContext;
 // render
 pub use render::{
     init_global_ctx, preload_layout_images, reload_font_config, render_frame, render_frame_keyed,
-    render_frame_rgba, render_frame_svg, with_global_ctx, with_global_ctx_mut,
+    render_frame_rgba, render_svg_document, with_global_ctx, with_global_ctx_mut,
 };
 
 // hit_test

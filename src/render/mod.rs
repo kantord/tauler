@@ -495,12 +495,15 @@ fn preload_layout_images_impl(layout: &serde_json::Value, global: &mut RenderCon
 /// Render `content` as a vector SVG document, `width` CSS pixels wide and as tall
 /// as the content lays out.
 ///
+/// Not a Frame in `CONTEXT.md`'s sense — a Frame is finished pixels, and this is
+/// markup — which is why the name sits outside the `render_frame` family.
+///
 /// The one caller is `tauler-screenshot`. The auto height is what replaced its
 /// crop: the raster path had to draw on an oversized scratch canvas and cut the
 /// content back out of the pixels, where the SVG document simply ends where the
 /// layout does. No dpr either — the output is vector, so scaling belongs to
 /// whatever rasterizes it.
-pub fn render_frame_svg(content: &serde_json::Value, width: u32) -> String {
+pub fn render_svg_document(content: &serde_json::Value, width: u32) -> String {
     let node = parse_layout(content)
         .map_err(|e| tracing::error!(error = %e, "layout parse error"))
         .unwrap_or_else(|_| Node::container(vec![]));
