@@ -126,7 +126,7 @@ what was measured.
 against an unpinned Chrome means nothing the next time Chrome updates. The comparisons are
 `#[ignore]` by default, per [0006](0006-e2e-scenarios-are-ignored-by-default.md).
 
-**There is one baseline, not two.** The committed `docs/src/assets/*.png` gain a second
+**There is one baseline, not two.** The committed `docs/src/assets/*.svg` gain a second
 producer rather than a counterpart, so there is no second set of golden images to keep in
 step. takumi is host-independent enough for that to hold; `<Icon>` is not, because
 `append_symbol_fallback` resolves its font through fontconfig, and it is excluded from the

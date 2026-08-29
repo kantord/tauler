@@ -80,7 +80,7 @@ works, and is used when `layout.op.mdx` doesn't exist.
 |---|---|
 | [`tauler-i3`](https://crates.io/crates/tauler-i3) | i3/sway workspace state and click-to-switch |
 | [`tauler-notify`](https://crates.io/crates/tauler-notify) | a freedesktop notification daemon that feeds the bar |
-| [`tauler-screenshot`](https://crates.io/crates/tauler-screenshot) | renders a layout to a PNG through the same pipeline as the bar |
+| [`tauler-screenshot`](https://crates.io/crates/tauler-screenshot) | renders a layout to a vector SVG through the same pipeline as the bar |
 | [`tauler-ui-macro`](https://crates.io/crates/tauler-ui-macro) | proc macro for writing built-in components in Rust |
 
 ## The rendering model vs React

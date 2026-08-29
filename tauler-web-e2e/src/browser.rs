@@ -1,9 +1,9 @@
 //! Driving Chrome over CDP, and reading back the two things the comparison needs.
 //!
 //! `Page.captureScreenshot` is the reason this is CDP rather than WebDriver: it takes a
-//! clip rectangle in CSS pixels with an explicit scale, which is what reproducing
-//! `tauler-screenshot`'s crop requires. WebDriver's element screenshot decides the box for
-//! you.
+//! clip rectangle in CSS pixels with an explicit scale, which is what reproducing the
+//! box `tauler-screenshot`'s SVG covers requires. WebDriver's element screenshot decides
+//! the box for you.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -280,11 +280,10 @@ impl Session {
         Ok(serde_json::from_str(text)?)
     }
 
-    /// The clip `tauler-screenshot` would have cropped to, padded by [`CROP_PAD`].
+    /// The box `tauler-screenshot`'s SVG covers, padded by [`CROP_PAD`].
     ///
-    /// The rule is `measured.children.first()` — the **frame**, not the component inside
-    /// it. For an example that sets its own width that is the difference between a 400px
-    /// image and a 232px one. So: mount → canvas → frame.
+    /// The rule is the **frame**, not the component inside it: the SVG document is the
+    /// padded canvas around the frame, sized by the layout. So: mount → canvas → frame.
     pub fn component_clip(&self, example: &str) -> Result<(f64, f64, f64, f64)> {
         let script = format!(
             r#"

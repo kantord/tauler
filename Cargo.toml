@@ -62,7 +62,9 @@ tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 # registration boundary. Bump only in lockstep with `optative-script`.
 rquickjs = { version = "=0.12.2", features = ["loader"] }
 rquickjs-serde = "=0.6.1"
-takumi = "=2.12.0"
+# `svg-backend` is `tauler-screenshot`'s output path (`render_svg`); the bar itself
+# rasterizes through the default raster backend.
+takumi = { version = "=2.12.0", features = ["svg-backend"] }
 # For `ImageBuffer`, the only way to build an `ImageSource` from raw pixels: the
 # `takumi` facade re-exports it only behind its semver-exempt `unstable` feature.
 takumi-core = { version = "=0.23.0", default-features = false }
