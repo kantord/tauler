@@ -3,7 +3,7 @@ members = [".", "tauler-core", "tauler-web", "tauler-i3", "tauler-aerospace", "t
 resolver = "2"
 
 [workspace.package]
-version = "0.2.3"
+version = "0.2.4"
 authors = ["Dániel Kántor <github@daniel-kantor.com>"]
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/kantord/tauler"

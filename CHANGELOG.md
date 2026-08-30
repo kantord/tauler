@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.4](https://github.com/kantord/tauler/compare/tauler-v0.2.3...tauler-v0.2.4) - 2026-08-30
+
+### Fixed
+
+- *(deps)* update rust crate cached to v3 ([#482](https://github.com/kantord/tauler/pull/482))
+
 ## [0.2.3](https://github.com/kantord/tauler/compare/tauler-v0.2.2...tauler-v0.2.3) - 2026-08-29
 
 ### Added
