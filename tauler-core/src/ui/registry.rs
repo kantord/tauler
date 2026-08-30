@@ -18,7 +18,10 @@ pub struct WebComponent {
     pub shim_js: Option<&'static str>,
 }
 
-use crate::ui::components::{knob::KNOB_SHIM_JS, slider::SLIDER_SHIM_JS};
+use crate::ui::components::{
+    knob::KNOB_SHIM_JS, scroll_area::SCROLL_AREA_SHIM_JS, scroll_bar::SCROLL_BAR_SHIM_JS,
+    slider::SLIDER_SHIM_JS,
+};
 
 /// Every component the browser can import.
 ///
@@ -41,6 +44,18 @@ pub const WEB_COMPONENTS: &[WebComponent] = &[
         shim_js: Some(KNOB_SHIM_JS),
     },
     web("@ui/progress", "Progress", "__ui_progress"),
+    WebComponent {
+        module_path: "@ui/scroll-area",
+        export_name: "ScrollArea",
+        global_name: "__tauler_scroll_area",
+        shim_js: Some(SCROLL_AREA_SHIM_JS),
+    },
+    WebComponent {
+        module_path: "@ui/scroll-bar",
+        export_name: "ScrollBar",
+        global_name: "__tauler_scroll_bar",
+        shim_js: Some(SCROLL_BAR_SHIM_JS),
+    },
     WebComponent {
         module_path: "@ui/slider",
         export_name: "Slider",
@@ -119,6 +134,11 @@ use crate::ui::components::{
     // half, and `on_change` has to be resolved in JavaScript before Rust sees any props.
     knob::__UI_ENTRY_KNOB_SHIM,
     progress::__UI_ENTRY_PROGRESS,
+    // The shims, not `__UI_ENTRY_SCROLL_AREA`/`__UI_ENTRY_SCROLL_BAR`: each registers
+    // its own Rust half, and `on_change` has to be resolved in JavaScript before Rust
+    // sees any props.
+    scroll_area::__UI_ENTRY_SCROLL_AREA_SHIM,
+    scroll_bar::__UI_ENTRY_SCROLL_BAR_SHIM,
     slider::__UI_ENTRY_SLIDER_SHIM,
     table::datatable::__UI_ENTRY_DATA_TABLE,
     table::{
@@ -142,6 +162,8 @@ pub const UI_COMPONENTS: &[EsEntry] = &[
     __UI_ENTRY_DATA_TABLE,
     __UI_ENTRY_KNOB_SHIM,
     __UI_ENTRY_PROGRESS,
+    __UI_ENTRY_SCROLL_AREA_SHIM,
+    __UI_ENTRY_SCROLL_BAR_SHIM,
     __UI_ENTRY_SLIDER_SHIM,
     __UI_ENTRY_TABLE,
     __UI_ENTRY_TABLE_HEADER,

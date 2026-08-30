@@ -4,6 +4,8 @@ pub mod i3_layout;
 pub mod icon;
 pub mod knob;
 pub mod progress;
+pub mod scroll_area;
+pub mod scroll_bar;
 pub mod slider;
 pub mod table;
 pub mod test_multi;
