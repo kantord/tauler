@@ -86,10 +86,10 @@ pub(crate) fn clamp_scroll_top(scroll_top: f64, content_height: f64, viewport_he
 /// # JSX
 /// ```jsx
 /// <ScrollBar
-///   scroll_top={data?.scroll_top ?? 0}
+///   scroll_top={40}
 ///   content_height={480}
 ///   viewport_height={120}
-///   on_change={top => events.setScrollTop({ top })}
+///   class="h-[120px]"
 /// />
 /// ```
 ///
