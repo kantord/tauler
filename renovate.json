@@ -11,8 +11,7 @@
   },
   "packageRules": [
     {
-      "description": "Tag-tracking actions (non-semver refs) only get digest updates, which have no release timestamp, so the age gate would block them forever",
-      "matchDepNames": ["dtolnay/rust-toolchain"],
+      "description": "Tag-tracking deps (non-semver refs, e.g. dtolnay/rust-toolchain@stable, or a Dockerfile FROM pinned to a floating tag + digest like rust:1.98.0-bookworm) only get digest updates, which have no release timestamp, so the age gate would block them forever",
       "matchUpdateTypes": ["digest"],
       "minimumReleaseAge": null
     },
