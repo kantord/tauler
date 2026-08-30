@@ -32,10 +32,18 @@ use crate::ui::{component, cva::Cva, rsx};
 const MIN_THUMB_HEIGHT: f64 = 20.0;
 
 const SCROLL_BAR_VARIANTS: Cva = Cva {
-    base: "flex flex-col h-full",
+    base: "flex flex-col h-full w-[6px]",
     variants: &[],
     defaults: &[],
 };
+
+/// The thumb's own visible styling — the spacers stay bare, since only the thumb
+/// should be seen. Plain `bg-border`, not a slash-opacity variant like
+/// `bg-muted-foreground/40`: takumi's Tailwind color parser has no support for the
+/// `/<alpha>` modifier (verified against `takumi-core`'s `style/tw` parser — the only
+/// `/` handling there is `text-sm/6`'s font-size/line-height pairing), so a
+/// slash-opacity class silently drops, leaving the thumb with no background at all.
+const THUMB_CLASS: &str = "bg-border rounded-full";
 
 fn flex(amount: f64, min_height: f64) -> Option<Map<String, Value>> {
     let mut style = Map::new();
@@ -108,7 +116,7 @@ pub fn scroll_bar(
     rsx! {
         <div class={root_class}>
             <div style={flex(before, 0.0)} />
-            <div style={flex(thumb_frac, MIN_THUMB_HEIGHT)} on_drag={on_drag} />
+            <div class={THUMB_CLASS} style={flex(thumb_frac, MIN_THUMB_HEIGHT)} on_drag={on_drag} />
             <div style={flex(after, 0.0)} />
         </div>
     }
