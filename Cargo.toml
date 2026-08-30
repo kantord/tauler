@@ -89,7 +89,7 @@ optative-process-pool = "=0.0.9"
 optative-derive = "=0.0.4"
 optative-script = "=0.0.11"
 notify = "8.2.0"
-cached = { version = "2.0.2", default-features = false }
+cached = { version = "3.1.1", default-features = false }
 tempfile = "3.27.0"
 
 # Kept off other platforms: Wayland's build scripts need pkg-config and
