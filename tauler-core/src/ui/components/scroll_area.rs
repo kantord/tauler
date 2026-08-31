@@ -71,6 +71,11 @@ fn content_translate(clamped_scroll_top: f64) -> Option<Map<String, Value>> {
 /// `<Knob>` make. Omit `on_change` and `<ScrollArea>` still renders, clipped and
 /// translated to `scroll_top`, just not draggable.
 ///
+/// `show_scrollbar` controls the composed scrollbar's visibility: omitted, it shows
+/// only when `content_height > viewport_height` (nothing to scroll draws no visible
+/// thumb, matching shadcn's own default); `true` forces it to always show, `false`
+/// forces it to always hide, regardless of whether scrolling is actually needed.
+///
 /// # JSX
 /// ```jsx
 /// <ScrollArea
@@ -92,6 +97,7 @@ pub fn scroll_area(
     content_height: f64,
     viewport_height: f64,
     on_drag: Option<Value>,
+    show_scrollbar: Option<bool>,
     class: Option<String>,
 ) -> Node {
     let root_class = SCROLL_AREA_VARIANTS.resolve(&[], class.as_deref().unwrap_or(""));
@@ -103,6 +109,7 @@ pub fn scroll_area(
         content_height,
         viewport_height,
         on_drag,
+        show_scrollbar,
         class: None,
     });
     rsx! {
@@ -127,9 +134,10 @@ pub const SCROLL_AREA_SHIM_JS: &str = r#"
     globalThis.__tauler_scroll_area = (props) => {
         const {
             children, scroll_top = 0, content_height, viewport_height, on_change,
-            class: cls,
+            show_scrollbar, class: cls,
         } = props ?? {};
         const rendered = { children, scroll_top, content_height, viewport_height };
+        if (show_scrollbar != null) rendered.show_scrollbar = show_scrollbar;
         if (cls != null) rendered.class = cls;
         if (typeof on_change === "function") {
             // Registered here rather than by `h`: this calls the Rust component
@@ -188,6 +196,7 @@ mod tests {
             content_height: 100.0,
             viewport_height: 50.0,
             on_drag: None,
+            show_scrollbar: None,
             class: None,
         }))
         .expect("scroll area serialises")
@@ -239,6 +248,7 @@ mod tests {
             content_height: 100.0,
             viewport_height: 50.0,
             on_drag: None,
+            show_scrollbar: None,
             class: None,
         }))
         .expect("scroll area serialises");
@@ -253,6 +263,7 @@ mod tests {
             content_height: 100.0,
             viewport_height: 50.0,
             on_drag: None,
+            show_scrollbar: None,
             class: None,
         }))
         .expect("scroll area serialises");
@@ -273,6 +284,7 @@ mod tests {
             content_height: 100.0,
             viewport_height: 50.0,
             on_drag: None,
+            show_scrollbar: None,
             class: None,
         }))
         .expect("scroll area serialises");
@@ -306,6 +318,7 @@ mod tests {
             content_height: 100.0,
             viewport_height: 50.0,
             on_drag: Some(handler.clone()),
+            show_scrollbar: None,
             class: None,
         }))
         .expect("scroll area serialises");
@@ -326,6 +339,7 @@ mod tests {
             content_height: 100.0,
             viewport_height: 50.0,
             on_drag: None,
+            show_scrollbar: None,
             class: Some("h-[200px]".into()),
         }))
         .expect("scroll area serialises");

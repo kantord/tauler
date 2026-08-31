@@ -101,10 +101,13 @@ pub fn scroll_bar(
     content_height: f64,
     viewport_height: f64,
     on_drag: Option<Value>,
+    show_scrollbar: Option<bool>,
     class: Option<String>,
 ) -> Node {
     let root_class = SCROLL_BAR_VARIANTS.resolve(&[], class.as_deref().unwrap_or(""));
     let scroll_top = clamp_scroll_top(scroll_top, content_height, viewport_height);
+    let needed = content_height > viewport_height;
+    let show_thumb = show_scrollbar.unwrap_or(needed);
     let (before, thumb_frac, after) = if content_height <= viewport_height {
         (0.0, 1.0, 0.0)
     } else {
@@ -113,10 +116,16 @@ pub fn scroll_bar(
         let after = (content_height - scroll_top - viewport_height) / content_height;
         (before, thumb_frac, after)
     };
+    let thumb_style = flex(thumb_frac, MIN_THUMB_HEIGHT);
+    let thumb = if show_thumb {
+        rsx! { <div class={THUMB_CLASS} style={thumb_style} on_drag={on_drag} /> }
+    } else {
+        rsx! { <div style={thumb_style} /> }
+    };
     rsx! {
         <div class={root_class}>
             <div style={flex(before, 0.0)} />
-            <div class={THUMB_CLASS} style={flex(thumb_frac, MIN_THUMB_HEIGHT)} on_drag={on_drag} />
+            {thumb}
             <div style={flex(after, 0.0)} />
         </div>
     }
@@ -130,9 +139,11 @@ pub fn scroll_bar(
 pub const SCROLL_BAR_SHIM_JS: &str = r#"
     globalThis.__tauler_scroll_bar = (props) => {
         const {
-            scroll_top = 0, content_height, viewport_height, on_change, class: cls,
+            scroll_top = 0, content_height, viewport_height, on_change, show_scrollbar,
+            class: cls,
         } = props ?? {};
         const rendered = { scroll_top, content_height, viewport_height };
+        if (show_scrollbar != null) rendered.show_scrollbar = show_scrollbar;
         if (cls != null) rendered.class = cls;
         if (typeof on_change === "function") {
             // Registered here rather than by `h`: this calls the Rust component
@@ -198,6 +209,7 @@ mod tests {
             content_height: 100.0,
             viewport_height: 50.0,
             on_drag,
+            show_scrollbar: None,
             class: None,
         }))
         .expect("scroll bar serialises")
@@ -314,6 +326,7 @@ mod tests {
             content_height: 10.0,
             viewport_height: 50.0,
             on_drag: None,
+            show_scrollbar: Some(true),
             class: None,
         }))
         .unwrap();
@@ -327,6 +340,7 @@ mod tests {
             content_height: 0.0,
             viewport_height: 0.0,
             on_drag: None,
+            show_scrollbar: Some(true),
             class: None,
         }))
         .unwrap();
@@ -354,9 +368,37 @@ mod tests {
             content_height: 100.0,
             viewport_height: 50.0,
             on_drag: None,
+            show_scrollbar: None,
             class: Some("h-[160px]".into()),
         }))
         .unwrap();
         assert!(rendered["class"].as_str().unwrap().ends_with("h-[160px]"));
+    }
+
+    /// Real shadcn/Radix ScrollArea behavior: by default ("auto", `show_scrollbar:
+    /// None`), a scrollbar whose content already fits the viewport draws no visible
+    /// thumb at all — no `THUMB_CLASS`, no `on_drag` — rather than the full-height
+    /// draggable thumb `a_degenerate_content_height_draws_a_full_thumb` covers.
+    #[test]
+    fn auto_hides_the_thumb_when_nothing_needs_scrolling() {
+        let rendered = serde_json::to_value(ScrollBar::render(ScrollBarProps {
+            scroll_top: 0.0,
+            content_height: 10.0,
+            viewport_height: 50.0,
+            on_drag: Some(serde_json::json!({"$handler": 1})),
+            class: None,
+            show_scrollbar: None,
+        }))
+        .unwrap();
+        let parts = parts(&rendered);
+
+        assert!(
+            parts[1].get("class").is_none(),
+            "no visible thumb class when nothing needs scrolling"
+        );
+        assert!(
+            parts[1].get("on_drag").is_none(),
+            "an invisible scrollbar shouldn't be draggable"
+        );
     }
 }
