@@ -133,6 +133,22 @@ else
     e2e-client 2 &
 fi
 
+# The a11y scenario needs a D-Bus session and the AT-SPI accessibility bus, so
+# an AT can attach to tauler's tree. tauler's accesskit adapter connects lazily
+# (ADR 0039), so this is free unless a probe attaches — nothing is built or
+# pushed until one does. Every other scenario never starts either bus, keeping
+# their environments byte-identical.
+#
+# The bus addresses are persisted so a probe spawned later by the harness (a
+# separate exec with none of this environment) can find them.
+if [ "${A11Y:-0}" = "1" ]; then
+    eval "$(dbus-launch --sh-syntax)"
+    eval "$(/usr/libexec/at-spi-bus-launcher --launch-immediately)"
+    : > "$LOGS/a11y.env"
+    printf 'export DBUS_SESSION_BUS_ADDRESS=%s\n' "$DBUS_SESSION_BUS_ADDRESS" >> "$LOGS/a11y.env"
+    printf 'export AT_SPI_BUS_ADDRESS=%s\n' "$AT_SPI_BUS_ADDRESS" >> "$LOGS/a11y.env"
+fi
+
 # Deliberately launched with the same environment a real session gives it: the
 # bug class this suite exists for is the one where a spawned child cannot find
 # something the parent could.

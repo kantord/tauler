@@ -99,6 +99,14 @@ impl Desktop {
     /// this repo already has two tests that skip themselves into permanent
     /// greenness, and a third would be a habit.
     pub fn start(scenario: &str, screen: Screen) -> Result<Self> {
+        Self::start_with_env(scenario, screen, &[])
+    }
+
+    /// As [`Desktop::start`], with extra environment variables for the entrypoint.
+    ///
+    /// Used by the a11y scenario, which asks the entrypoint to bring up a D-Bus
+    /// session and the AT-SPI bus.
+    pub fn start_with_env(scenario: &str, screen: Screen, extra_env: &[(&str, &str)]) -> Result<Self> {
         let fixtures = crate_dir().join("fixtures");
         if !fixtures.join(scenario).is_dir() {
             bail!("no fixture named {scenario} in {}", fixtures.display());
@@ -107,7 +115,7 @@ impl Desktop {
         let out_dir = out_root()?;
         std::fs::create_dir_all(out_dir.join(scenario))?;
 
-        let container = GenericImage::new(IMAGE_NAME, IMAGE_TAG)
+        let mut image = GenericImage::new(IMAGE_NAME, IMAGE_TAG)
             .with_wait_for(WaitFor::message_on_stdout("e2e: desktop up"))
             .with_env_var("SCENARIO", scenario)
             .with_env_var("SCREEN", format!("{}x{}x24", screen.width, screen.height))
@@ -116,7 +124,11 @@ impl Desktop {
                 path_str(&fixtures)?,
                 "/fixtures".to_string(),
             ))
-            .with_mount(Mount::bind_mount(path_str(&out_dir)?, "/out".to_string()))
+            .with_mount(Mount::bind_mount(path_str(&out_dir)?, "/out".to_string()));
+        for &(key, value) in extra_env {
+            image = image.with_env_var(key, value);
+        }
+        let container = image
             .start()
             .with_context(|| {
                 format!(

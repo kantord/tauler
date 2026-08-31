@@ -13,6 +13,7 @@ FROM rust:1.98.0-bookworm@sha256:82150a52ec202c1b14d7817e14516c392bb7f5cfebd88f1
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
         libwayland-dev libxkbcommon-dev libfontconfig-dev libxcb1-dev pkg-config \
+        gcc libatspi2.0-dev \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /build
@@ -29,6 +30,12 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
     cargo build --release -p tauler -p tauler-i3 \
     && mkdir -p /artifacts \
     && cp target/release/tauler target/release/tauler-i3 /artifacts/
+
+# The tiny a11y probe is plain C against libatspi — no runtime besides the
+# client library, which at-spi2-core pulls in. Compiled here so the runtime
+# image does not need a toolchain.
+RUN gcc -O2 -o /artifacts/a11y-probe tauler-e2e/a11y-probe.c \
+        $(pkg-config --cflags --libs atspi-2 glib-2.0)
 
 FROM debian:bookworm-slim@sha256:88200866dfff7ea7f5cbcb6ec7c8a701889efe6fe859fe64d6990e4b07ea4171
 
@@ -66,9 +73,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         fontconfig \
         fonts-jetbrains-mono \
         libwayland-client0 libxkbcommon0 libfontconfig1 libxcb1 \
+        # The accessibility bus tauler's tree lives on, plus a session D-Bus
+        # to host it. Only the a11y scenario starts either, but the bus
+        # launcher and client library must be present for it to work at all.
+        at-spi2-core \
+        dbus-x11 \
     && rm -rf /var/lib/apt/lists/*
 
-COPY --from=builder /artifacts/tauler /artifacts/tauler-i3 /usr/local/bin/
+COPY --from=builder /artifacts/tauler /artifacts/tauler-i3 /artifacts/a11y-probe /usr/local/bin/
 
 # /usr/local/share/fonts, not /usr/local/share/tauler/fonts: nothing reads the
 # latter. tauler resolves fonts through fontconfig, and falls back to walking

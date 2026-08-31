@@ -531,3 +531,50 @@ fn workspace_root() -> Result<PathBuf> {
         .map(Path::to_path_buf)
         .ok_or_else(|| anyhow::anyhow!("CARGO_MANIFEST_DIR has no parent"))
 }
+
+/// A11y: an AT sees tauler's accessibility tree, and activating a button
+/// dispatches the intent through the same pipeline a click would (ADR 0038).
+///
+/// Unlike the screenshot scenarios this makes no picture: the ground truth is
+/// the module log. The probe is the real thing — a tiny libatspi client on the
+/// same accessibility bus — so this is the closest the suite gets to a real
+/// screen reader, without dragging one in.
+///
+/// This starts D-Bus + the AT-SPI bus (A11Y=1), which every other scenario
+/// leaves off. The entrypoint persists the bus addresses so the probe's exec —
+/// a separate process with none of that environment — can find them.
+#[test]
+#[ignore = "needs Docker and `just e2e-image`"]
+fn a11y_button_is_visible_and_activation_dispatches_an_intent() -> Result<()> {
+    let desktop = Desktop::start_with_env("a11y", Screen::default(), &[("A11Y", "1")])?;
+
+    let with_bus = "sh -c '. /out/a11y/a11y.env && $1' _";
+
+    // The button appears in the accessibility tree as a push button named Mute.
+    let tree = wait_for("tauler's a11y tree to contain the button", || {
+        let out = desktop.exec(&["sh", "-c", &format!("{with_bus} a11y-probe")])?;
+        if out.contains("Mute") && out.contains("push button") {
+            Ok(out)
+        } else {
+            anyhow::bail!("button not in the tree yet:\n{out}")
+        }
+    })?;
+    assert!(
+        tree.contains("Mute\tpush button"),
+        "the button must be a named push button in the tree:\n{tree}"
+    );
+
+    // Activate it. The intent lands on the recorder module's stdin.
+    desktop.exec(&["sh", "-c", &format!("{with_bus} a11y-probe --activate Mute")])?;
+
+    wait_for("the module to receive the activation intent", || {
+        let log = desktop.exec(&["sh", "-c", "cat /out/a11y/a11y-module.log"])?;
+        if log.contains("\"type\":\"activated\"") {
+            Ok(())
+        } else {
+            anyhow::bail!("module has not seen the activation yet:\n{log}")
+        }
+    })?;
+
+    Ok(())
+}

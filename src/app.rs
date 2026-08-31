@@ -344,6 +344,13 @@ pub(crate) struct App {
     /// pointer is never handed a queue it cannot drain.
     outbox: Outbox,
     presenter_thread: Option<thread::JoinHandle<()>>,
+    /// Per-panel accessibility adapters, pushed to an AT on repaint (ADR 0038/0039).
+    #[cfg(target_os = "linux")]
+    a11y: tauler::a11y::A11y,
+    /// Activations an AT raised on its own thread, reduced to `(panel_id, path)`
+    /// and drained here on the tick thread so they reach `resolve`/`send` (ADR 0038).
+    #[cfg(target_os = "linux")]
+    a11y_rx: mpsc::Receiver<(String, Vec<usize>)>,
 }
 
 /// Start the render worker and return the two channels a reconciled surface
@@ -520,6 +527,8 @@ impl App {
             .unwrap_or_default();
         let (theme_mode, theme_file_path) = theme_selection(&config);
         let theme = load_theme_or_exit(theme_file_path.as_deref());
+        #[cfg(target_os = "linux")]
+        let (a11y, a11y_rx) = tauler::a11y::A11y::new();
         let mut state = Self {
             theme,
             theme_mode,
@@ -551,6 +560,10 @@ impl App {
             capture: None,
             outbox: Outbox::new(),
             presenter_thread: Some(presenter_thread),
+            #[cfg(target_os = "linux")]
+            a11y,
+            #[cfg(target_os = "linux")]
+            a11y_rx,
         };
         state.initial_load();
         state.reconcile_theme_file_watch(theme_file_path);
@@ -591,6 +604,7 @@ impl App {
             .unwrap_or_default();
         let (theme_mode, theme_file_path) = theme_selection(&config);
         let theme = load_theme_or_exit(theme_file_path.as_deref());
+        let (a11y, a11y_rx) = tauler::a11y::A11y::new();
         let mut state = Self {
             theme,
             theme_mode,
@@ -622,6 +636,8 @@ impl App {
             capture: None,
             outbox: Outbox::new(),
             presenter_thread: Some(presenter_thread),
+            a11y,
+            a11y_rx,
         };
         state.initial_load();
         state.reconcile_theme_file_watch(theme_file_path);
@@ -1049,6 +1065,65 @@ impl App {
         }
     }
 
+    /// Push every panel's a11y tree to the AT, if one is attached.
+    ///
+    /// Reconciles the per-panel adapters to the current panel set; each rebuild is
+    /// gated by `update_if_active`, so with no AT attached nothing is built (ADR
+    /// 0039).
+    #[cfg(target_os = "linux")]
+    fn update_a11y(&mut self) {
+        let panels: Vec<tauler::a11y::PanelInfo> = self
+            .surfaces
+            .panel_specs()
+            .into_iter()
+            .filter(|s| s.kind == tauler::SurfaceKind::Panel)
+            .map(|s| tauler::a11y::PanelInfo {
+                id: s.id.clone(),
+                content: s.content.clone(),
+                width: (s.width as f32 * s.dpr).round() as u32,
+                height: (s.height as f32 * s.dpr).round() as u32,
+                dpr: s.dpr,
+            })
+            .collect();
+        self.a11y.reconcile(&panels);
+    }
+
+    /// Handle activations an AT raised: each is a `(panel_id, path)` reduced on the
+    /// platform thread, re-derived and dispatched here so a `$handler` reaches the
+    /// QuickJS runtime (ADR 0038).
+    #[cfg(target_os = "linux")]
+    fn drain_a11y_actions(&mut self) {
+        let actions: Vec<(String, Vec<usize>)> = self.a11y_rx.try_iter().collect();
+        for (panel_id, path) in actions {
+            self.activate(panel_id, path);
+        }
+    }
+
+    /// Fire a node's `on_click` as an AT activation: a press at the box origin
+    /// (`x`/`y`/`press_x`/`press_y` of `0`, real width and height — ADR 0038).
+    #[cfg(target_os = "linux")]
+    fn activate(&mut self, panel_id: String, path: Vec<usize>) {
+        let Some(spec) = self.surfaces.spec(&panel_id) else {
+            return;
+        };
+        if spec.kind != tauler::SurfaceKind::Panel || spec.content.is_null() {
+            return;
+        }
+        let width = (spec.width as f32 * spec.dpr).round() as u32;
+        let height = (spec.height as f32 * spec.dpr).round() as u32;
+        let content = spec.content.clone();
+        let dpr = spec.dpr;
+        let Some((on_click, rect)) =
+            tauler::a11y::click_at_path(&content, width, height, dpr, &path)
+        else {
+            return;
+        };
+        let pointer = rect.pointer((0.0, 0.0), (0.0, 0.0), dpr, tauler::a11y::ACTIVATE_BUTTONS);
+        if let Some(intents) = self.resolve(&on_click, &pointer) {
+            self.send(&intents, false);
+        }
+    }
+
     pub(crate) fn tick(&mut self) {
         self.last_tick.store(
             std::time::SystemTime::now()
@@ -1154,6 +1229,12 @@ impl App {
                 }
                 PresenterEvent::Pointer(event) => self.on_pointer(event),
             }
+        }
+
+        #[cfg(target_os = "linux")]
+        {
+            self.update_a11y();
+            self.drain_a11y_actions();
         }
     }
 }
