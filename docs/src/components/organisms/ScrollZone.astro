@@ -8,24 +8,46 @@
 // no scroll listeners; browsers without scroll-timeline support (and
 // readers who prefer reduced motion) just see the content, always
 // visible.
+//
+// Two columns in the hero's page frame: the explanation (default slot)
+// and a code example (`example` slot), the example on whichever side
+// `side` says so consecutive zones can alternate. Below lg the columns
+// stack, explanation first, whatever the side.
+import PageWidth from '../ui/PageWidth.astro'
+
 interface Props {
   /** Zone height as a multiple of the viewport height. */
   vh: number
+  /** Which column the example sits in. */
+  side?: 'left' | 'right'
 }
 
-const { vh } = Astro.props
+const { vh, side = 'right' } = Astro.props
+// Hoisted so the class:list holds only class literals (check-class-layers
+// reads every string literal inside one as a class).
+const exampleFirst = side === 'left'
 ---
 
 <section
   data-zone
   style={`min-height:${vh * 100}vh`}
-  class="relative flex flex-col items-center justify-center"
+  class="relative flex flex-col justify-center py-s8"
 >
-  <div data-zone-content class="flex flex-col items-center gap-s3">
-    <div data-zone-fade class="flex flex-col items-center gap-s3">
-      <slot />
+  <PageWidth>
+    <div data-zone-content>
+      <div
+        data-zone-fade
+        class="grid grid-cols-2 items-center gap-s8 max-lg:grid-cols-1"
+      >
+        <div class="flex flex-col gap-s5">
+          <slot />
+        </div>
+        <div class:list={[exampleFirst && 'order-first max-lg:order-last']}>
+          <slot name="example" />
+        </div>
+      </div>
     </div>
-  </div>
+  </PageWidth>
 </section>
 
 <style>

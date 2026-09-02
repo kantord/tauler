@@ -4,15 +4,20 @@
 // one inert control in the row. Feedback is a brief COPIED tag.
 interface Props {
   prompt?: string
+  /** landing.spec.ts's first-viewport contract; the closing zone opts out. */
+  aboveFold?: boolean
 }
 
-const { prompt = '$' } = Astro.props
+const { prompt = '$', aboveFold = true } = Astro.props
 ---
 
 <button
   type="button"
   data-command-line
-  class="above-fold flex max-w-[460px] cursor-pointer items-baseline gap-s2 border border-line-1 bg-surface-control px-5 py-s4 text-left font-ui text-chrome text-ink-1 hover:bg-surface-control-hover focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-2 focus-visible:outline-accent short:px-s4 short:py-s2"
+  class:list={[
+    'flex max-w-[460px] cursor-pointer items-baseline gap-s2 border border-line-1 bg-surface-control px-5 py-s4 text-left font-ui text-chrome text-ink-1 hover:bg-surface-control-hover focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-2 focus-visible:outline-accent short:px-s4 short:py-s2',
+    aboveFold && 'above-fold',
+  ]}
 >
   <span class="text-accent select-none" aria-hidden="true">{prompt}</span>
   <span data-command-text><slot /></span>

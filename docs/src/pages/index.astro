@@ -11,20 +11,106 @@ import Stage from '../components/organisms/Stage.astro'
 import StatementFooter from '../components/organisms/StatementFooter.astro'
 import ScrollZone from '../components/organisms/ScrollZone.astro'
 import Label from '../components/text/Label.astro'
+import Heading from '../components/text/Heading.astro'
+import Body from '../components/text/Body.astro'
+import CodeBlock from '../components/ui/CodeBlock.astro'
+import CommandLine from '../components/ui/CommandLine.astro'
+import Button from '../components/ui/Button.astro'
+import GithubMark from '../components/ui/GithubMark.astro'
+import SeamGroup from '../components/ui/SeamGroup.astro'
 import FontPreloads from '../components/FontPreloads.astro'
 
-// Dummy scrollytelling zones below the hero screen — placeholders for the
-// real narrative content, scrolling over the viewport-fixed wallpaper
-// (see Stage.astro). Uneven heights on purpose: a zone's own length sets
-// its own reading pace.
-const ZONES = [
-  { name: 'INTRO', vh: 0.8 },
-  { name: 'SIGNAL', vh: 1.6 },
-  { name: 'STRUCTURE', vh: 1.0 },
-  { name: 'DEPTH', vh: 2.2 },
-  { name: 'THRESHOLD', vh: 0.6 },
-  { name: 'CLOSE', vh: 1.4 },
-]
+// The zones below the hero screen scroll over the viewport-fixed
+// wallpaper (see Stage.astro) and explain, one mechanism per zone, what
+// tauler actually does: the layout file, where data comes from, the
+// render model, screen layout, install. Each zone pairs the
+// explanation with a code example, sides alternating. The examples are
+// lifted from the docs pages they summarise, so a claim here is never
+// ahead of what the docs (and the runtime) do.
+
+const EXAMPLES = {
+  layoutFile: `---
+theme:
+  mode: dark
+fonts:
+  primary: "Inter"
+---
+export default function render() {
+  const time = useStringStream("/bin/sh",
+    "while :; do date +%H:%M; sleep 1; done");
+
+  return (
+    <root>
+      <panel anchor="top" height={32} width={ctx.screen_width}>
+        <div class="flex h-full w-full items-center justify-end px-3">
+          <span class="text-[13px] text-white">{time}</span>
+        </div>
+      </panel>
+    </root>
+  );
+}`,
+
+  streams: `// the latest stdout line, as a string
+const time = useStringStream("/bin/sh",
+  "while :; do date +%H:%M; sleep 1; done");
+
+// the latest line, parsed as JSON
+const load = useJSONStream("/bin/sh",
+  "while :; do cut -d' ' -f1 /proc/loadavg; sleep 1; done");
+
+// the last 60 lines, oldest first
+const history = useJSONStream("/bin/sh", \`
+  while :; do cut -d' ' -f1 /proc/loadavg; sleep 1; done |
+    tauler-accumulate -n 60
+\`) ?? [];`,
+
+  renderModel: `export default function render() {
+  const notifications =
+    useJSONStream("~/.cargo/bin/tauler-notify")?.notifications ?? [];
+
+  return (
+    <root>
+      <panel anchor="top" height={26} width={ctx.screen_width}>
+        <Module bin="~/.cargo/bin/tauler-i3">
+          {(data, events) => {
+            // in scope here: no context, no prop drilling
+            const unread = notifications.length > 0;
+            return (
+              <WorkspaceList
+                workspaces={data?.workspaces}
+                events={events}
+                unread={unread}
+              />
+            );
+          }}
+        </Module>
+      </panel>
+    </root>
+  );
+}`,
+
+  screenLayout: `<I3Layout module="~/.cargo/bin/tauler-i3">
+  <Panel id="sidebar"   anchor="left"   size={272}>…</Panel>
+  <Panel id="topbar"    anchor="top"    size={26}>…</Panel>
+  <Panel id="bottombar" anchor="bottom" size={26}>…</Panel>
+</I3Layout>
+
+// gaps sent to tauler-i3, derived from the panels above:
+// { left: 272, right: 0, top: 26, bottom: 26 }`,
+
+  install: `# build dependencies on Debian/Ubuntu
+sudo apt-get install -y libwayland-dev libxkbcommon-dev \\
+  libfontconfig-dev libxcb1-dev pkg-config
+
+cargo install tauler
+
+# data sources, each its own crate
+cargo install tauler-i3          # i3/sway workspaces
+cargo install tauler-notify      # desktop notifications
+cargo install tauler-accumulate  # history windows
+
+tauler`,
+}
 ---
 
 <html lang="en">
@@ -102,17 +188,126 @@ const ZONES = [
       <Stage>
         <Hero />
       </Stage>
-      <div class="relative flex flex-col">
-        {
-          ZONES.map((z, i) => (
-            <ScrollZone vh={z.vh}>
-              <Label>
-                {i + 1} / {ZONES.length} · {z.name} · {z.vh}×
-              </Label>
-            </ScrollZone>
-          ))
-        }
-      </div>
+      {
+        /* A named region, so the zones are inside a landmark (the hero's
+           <main> ends with the stage); axe's region rule flags anything
+           that isn't. */
+      }
+      <section aria-label="How tauler works" class="relative flex flex-col">
+        <ScrollZone vh={1.2} side="right">
+          <Label aboveFold={false}>01 · THE LAYOUT FILE</Label>
+          <Heading>Describe your desktop environment in a single file</Heading>
+          <Body aboveFold={false}>
+            ~/.config/tauler/layout.op.mdx is a configuration file that contains
+            a single render function. This is where you define the appearance
+            and behavior of your desktop environment. Tauler knows when this
+            layout file needs to be re-evaluated.
+          </Body>
+          <Body aboveFold={false}>
+            Saving the file automatically updates behavior - no need to manually
+            restart anything.
+          </Body>
+          <Body aboveFold={false}>
+            Some configuration items such as fonts and the active theme are
+            stored in the YAML frontmatter. Note that the syntax is JSX - but
+            there is no Node, React or even a browser involved. Tauler's
+            built-in UI rendering uses a lightweight rendering stack.
+          </Body>
+          <CodeBlock
+            slot="example"
+            path="~/.config/tauler/layout.op.mdx"
+            code={EXAMPLES.layoutFile}
+          />
+        </ScrollZone>
+
+        <ScrollZone vh={1.2} side="left">
+          <Label aboveFold={false}>02 · DATA</Label>
+          <Heading>Integrate with any application</Heading>
+          <Body aboveFold={false}>
+            Data streams can be sourced from simple shell scripts, or even from
+            an application directly. Tauler relies on data streams to know when
+            an update is required.
+          </Body>
+          <Body aboveFold={false}>
+            From the perspective of your layout, this is a stateless data model:
+            layouts are pure functions, and buffering the latest state of each
+            of your streams is taken care of by Tauler's internals.
+          </Body>
+          <CodeBlock slot="example" code={EXAMPLES.streams} />
+        </ScrollZone>
+
+        <ScrollZone vh={1.2} side="right">
+          <Label aboveFold={false}>03 · RENDERING</Label>
+          <Heading>The whole layout is rendered again on every change</Heading>
+          <Body aboveFold={false}>
+            Whenever a data source prints a new line, Tauler runs your render
+            function again from top to bottom and redraws what changed. Think of
+            it as a spreadsheet rather than React: there is no component state,
+            no effects and no lifecycle - just a function from the current data
+            to what is on screen.
+          </Body>
+          <Body aboveFold={false}>
+            Since all data is read at the top of the function, it is available
+            everywhere below - including inside a Module's render callback.
+            Combining two sources means using both variables. Note that state
+            which needs to persist between renders, such as "there was a
+            notification since you last looked", belongs in the program that
+            produces the data, not in the layout.
+          </Body>
+          <CodeBlock
+            slot="example"
+            path="~/.config/tauler/layout.op.mdx"
+            code={EXAMPLES.renderModel}
+          />
+        </ScrollZone>
+
+        <ScrollZone vh={1.2} side="left">
+          <Label aboveFold={false}>04 · SCREEN LAYOUT</Label>
+          <Heading
+            >Panels are windows. Reserving space for them is explicit.</Heading
+          >
+          <Body aboveFold={false}>
+            A panel is a window that Tauler places itself, on the right output
+            and at the right DPI. Note that creating a panel doesn't tell your
+            window manager to keep other windows out of the way - and i3 can't
+            reserve space for a left or right bar through struts at all.
+          </Body>
+          <Body aboveFold={false}>
+            On i3 and sway, space is reserved through gaps instead. Wrap your
+            panels in I3Layout and it derives the gaps from the panel sizes you
+            already declared, then sends them to tauler-i3. There is no second
+            set of numbers to keep in sync.
+          </Body>
+          <CodeBlock slot="example" code={EXAMPLES.screenLayout} />
+        </ScrollZone>
+
+        <ScrollZone vh={1.2} side="right">
+          <Label aboveFold={false}>05 · INSTALL</Label>
+          <Heading>Install with cargo</Heading>
+          <Body aboveFold={false}>
+            Tauler is a Rust program for Linux and runs on both X11 and Wayland
+            - it picks the backend from WAYLAND_DISPLAY. Building it needs Rust
+            1.95 or newer; running it needs fontconfig.
+          </Body>
+          <Body aboveFold={false}>
+            Data sources like tauler-i3 (workspaces and gaps), tauler-notify (a
+            notification daemon) and tauler-accumulate (history) are separate
+            crates. Install the ones your layout uses, run tauler, and start
+            editing the file.
+          </Body>
+          <CommandLine aboveFold={false}>cargo install tauler</CommandLine>
+          <SeamGroup>
+            <Button href="/docs/" variant="accent" aboveFold={false}
+              >DOCS →</Button
+            >
+            <Button href="https://github.com/kantord/tauler" aboveFold={false}>
+              <GithubMark />
+              GITHUB
+            </Button>
+          </SeamGroup>
+          <CodeBlock slot="example" lang="sh" code={EXAMPLES.install} />
+        </ScrollZone>
+      </section>
       <StatementFooter>
         One native binary renders your panels. Any script becomes a data source.
       </StatementFooter>
