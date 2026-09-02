@@ -1,0 +1,56 @@
+---
+// A static code example: the same dark field and Shiki highlighting as
+// CodePanel, minus the demo chrome (no cycling, no chevrons, no field
+// slice — the zones' examples sit over the plain wallpaper, not on a
+// panel that has to redraw the art under it). An optional path line
+// names the file the excerpt belongs to, so a reader can tell a
+// layout-file excerpt from a shell session.
+import { Code } from 'astro:components'
+import type { ComponentProps } from 'astro/types'
+// Theme object rather than name — see CodePanel for why the named
+// lookup fails inside Vite's SSR bundle.
+import githubDark from 'shiki/themes/github-dark.mjs'
+
+interface Props {
+  code: string
+  lang?: ComponentProps<typeof Code>['lang']
+  path?: string
+}
+
+const { code, lang = 'jsx', path } = Astro.props
+---
+
+<div class="w-full border border-line-2 bg-surface-frame shadow-panel">
+  {
+    path && (
+      <div class="border-b border-line-2 px-s4 py-s3 font-ui text-chrome-sm tracking-chrome text-ink-3">
+        {path}
+      </div>
+    )
+  }
+  <div data-code class="px-[18px] py-s5">
+    <Code code={code} lang={lang} theme={githubDark} />
+  </div>
+</div>
+
+<style>
+  /* astro:components' <Code> inlines its own background/font/line-height
+     on the <pre> it emits; only !important can outrank an inline style. */
+  [data-code] :global(pre.astro-code) {
+    margin: 0;
+    padding: 0;
+    overflow: auto;
+    background: transparent !important;
+    font-family: var(--font-ui) !important;
+    font-size: 13px !important;
+    line-height: 1.72 !important;
+  }
+
+  /* github-dark's comment grey (#6A737D) is 4.1:1 on our surface — under
+     WCAG AA's 4.5:1, and axe fails the landing page on it. CodePanel's
+     comments get away with it only because they sit on a translucent
+     overlay axe can't resolve. Lift comments to ink-3 here instead. */
+  [data-code] :global(span[style*='#6A737D']) {
+    color: var(--color-ink-3) !important;
+  }
+</style>
