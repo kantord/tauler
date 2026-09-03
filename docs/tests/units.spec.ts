@@ -10,7 +10,7 @@ import { test, expect } from '@playwright/test'
 test('a browser Unit enters, updates and exits from a scripted observe()', async ({
   page,
 }) => {
-  await page.goto('/docs/components/')
+  await page.goto('/docs/component-reference/')
 
   const events = await page.evaluate(async () => {
     // @ts-expect-error — /tauler/*.js is a build product astro check never sees
@@ -58,7 +58,7 @@ test('a browser Unit enters, updates and exits from a scripted observe()', async
 test('a Unit may not define both a batch hook and its per-Item spelling', async ({
   page,
 }) => {
-  await page.goto('/docs/components/')
+  await page.goto('/docs/component-reference/')
 
   const message = await page.evaluate(async () => {
     // @ts-expect-error — /tauler/*.js is a build product astro check never sees
@@ -84,7 +84,7 @@ test('a Unit may not define both a batch hook and its per-Item spelling', async 
 test('a per-Item hook written under the batch name throws, not silently does nothing', async ({
   page,
 }) => {
-  await page.goto('/docs/components/')
+  await page.goto('/docs/component-reference/')
 
   const message = await page.evaluate(async () => {
     // @ts-expect-error — /tauler/*.js is a build product astro check never sees
