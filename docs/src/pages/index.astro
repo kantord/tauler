@@ -23,7 +23,7 @@ import FontPreloads from '../components/FontPreloads.astro'
 // The zones below the hero screen scroll over the viewport-fixed
 // wallpaper (see Stage.astro) and explain, one mechanism per zone, what
 // tauler actually does: the layout file, where data comes from, the
-// render model, screen layout, install. Each zone pairs the
+// render model, panels, install. Each zone pairs the
 // explanation with a code example, sides alternating. The examples are
 // lifted from the docs pages they summarise, so a claim here is never
 // ahead of what the docs (and the runtime) do.
@@ -58,32 +58,38 @@ const time = useStringStream("/bin/sh",
 const load = useJSONStream("/bin/sh",
   "while :; do cut -d' ' -f1 /proc/loadavg; sleep 1; done");
 
-// the last 60 lines, oldest first
-const history = useJSONStream("/bin/sh", \`
-  while :; do cut -d' ' -f1 /proc/loadavg; sleep 1; done |
-    tauler-accumulate -n 60
-\`) ?? [];`,
+// the last 50 lines, oldest first;
+// one line per event, appended by a Claude Code hook
+const agentEvents = useJSONStream("/bin/sh",
+  "tail -F ~/.cache/agents/events.jsonl | tauler-accumulate -n 50") ?? [];`,
 
-  renderModel: `export default function render() {
-  const notifications =
-    useJSONStream("~/.cargo/bin/tauler-notify")?.notifications ?? [];
+  renderModel: `import { Badge } from "@ui/badge";
+
+export default function render() {
+  const agentEvents = useJSONStream("/bin/sh",
+    "tail -F ~/.cache/agents/events.jsonl | tauler-accumulate -n 50") ?? [];
+
+  // latest event per session, then the ones waiting for input
+  const bySession = Object.fromEntries(agentEvents.map((e) => [e.session_id, e]));
+  const waiting = Object.values(bySession).filter((e) => e.state === "waiting");
 
   return (
     <root>
       <panel anchor="top" height={26} width={ctx.screen_width}>
-        <Module bin="~/.cargo/bin/tauler-i3">
-          {(data, events) => {
-            // in scope here: no context, no prop drilling
-            const unread = notifications.length > 0;
-            return (
-              <WorkspaceList
-                workspaces={data?.workspaces}
-                events={events}
-                unread={unread}
-              />
-            );
-          }}
-        </Module>
+        <div class="flex h-full items-center gap-3 px-3">
+          <Module bin="~/.cargo/bin/tauler-i3">
+            {(data) =>
+              // one tab per workspace: its name and its focused window
+              (data?.workspaces ?? []).map((ws) => (
+                <span class={ws.focused ? "text-white" : "text-neutral-500"}>
+                  {ws.name} {ws.focused_windows[0] ?? ""}
+                </span>
+              ))
+            }
+          </Module>
+          {/* waiting is in scope here too: no context, no prop drilling */}
+          <Badge><span>{waiting.length} agents waiting</span></Badge>
+        </div>
       </panel>
     </root>
   );
@@ -105,7 +111,7 @@ sudo apt-get install -y libwayland-dev libxkbcommon-dev \\
 cargo install tauler
 
 # data sources, each its own crate
-cargo install tauler-i3          # i3/sway workspaces
+cargo install tauler-i3          # i3/sway workspaces and gaps
 cargo install tauler-notify      # desktop notifications
 cargo install tauler-accumulate  # history windows
 
@@ -204,14 +210,17 @@ tauler`,
             layout file needs to be re-evaluated.
           </Body>
           <Body aboveFold={false}>
-            Saving the file automatically updates behavior - no need to manually
-            restart anything.
+            Saving the file updates behavior. There is no restart.
+          </Body>
+          <Body aboveFold={false}>
+            A layout is not limited to a clock and a workspace list. The same
+            file can show which agent sessions are waiting for input, or which
+            workspace holds a failing build.
           </Body>
           <Body aboveFold={false}>
             Some configuration items such as fonts and the active theme are
-            stored in the YAML frontmatter. Note that the syntax is JSX - but
-            there is no Node, React or even a browser involved. Tauler's
-            built-in UI rendering uses a lightweight rendering stack.
+            stored in the YAML frontmatter. The syntax is JSX, but there is no
+            Node, React or browser involved: Tauler renders the UI itself.
           </Body>
           <CodeBlock
             slot="example"
@@ -238,21 +247,22 @@ tauler`,
 
         <ScrollZone vh={1.2} side="right">
           <Label aboveFold={false}>03 · RENDERING</Label>
-          <Heading>The whole layout is rendered again on every change</Heading>
+          <Heading>Write the whole layout as one function</Heading>
           <Body aboveFold={false}>
-            Whenever a data source prints a new line, Tauler runs your render
-            function again from top to bottom and redraws what changed. Think of
-            it as a spreadsheet rather than React: there is no component state,
-            no effects and no lifecycle - just a function from the current data
-            to what is on screen.
+            Whenever a stream prints a new line, Tauler runs your render
+            function again from top to bottom and redraws what changed. There is
+            no component state, no effects and no lifecycle. The function maps
+            the current data to what is on screen.
           </Body>
           <Body aboveFold={false}>
-            Since all data is read at the top of the function, it is available
-            everywhere below - including inside a Module's render callback.
-            Combining two sources means using both variables. Note that state
-            which needs to persist between renders, such as "there was a
+            Everything read at the top of the function is in scope everywhere
+            below it, including inside a Module's render callback. Combining two
+            sources means using both variables.
+          </Body>
+          <Body aboveFold={false}>
+            State that has to outlive a render, such as "there was a
             notification since you last looked", belongs in the program that
-            produces the data, not in the layout.
+            produces the stream, not in the layout.
           </Body>
           <CodeBlock
             slot="example"
@@ -262,15 +272,13 @@ tauler`,
         </ScrollZone>
 
         <ScrollZone vh={1.2} side="left">
-          <Label aboveFold={false}>04 · SCREEN LAYOUT</Label>
-          <Heading
-            >Panels are windows. Reserving space for them is explicit.</Heading
-          >
+          <Label aboveFold={false}>04 · PANELS</Label>
+          <Heading>Place panels without covering your windows</Heading>
           <Body aboveFold={false}>
             A panel is a window that Tauler places itself, on the right output
-            and at the right DPI. Note that creating a panel doesn't tell your
-            window manager to keep other windows out of the way - and i3 can't
-            reserve space for a left or right bar through struts at all.
+            and at the right DPI. Creating one does not tell your window manager
+            to keep other windows out of the way, and i3 cannot reserve space
+            for a left or right bar at all.
           </Body>
           <Body aboveFold={false}>
             On i3 and sway, space is reserved through gaps instead. Wrap your
@@ -285,15 +293,9 @@ tauler`,
           <Label aboveFold={false}>05 · INSTALL</Label>
           <Heading>Install with cargo</Heading>
           <Body aboveFold={false}>
-            Tauler is a Rust program for Linux and runs on both X11 and Wayland
-            - it picks the backend from WAYLAND_DISPLAY. Building it needs Rust
-            1.95 or newer; running it needs fontconfig.
-          </Body>
-          <Body aboveFold={false}>
-            Data sources like tauler-i3 (workspaces and gaps), tauler-notify (a
-            notification daemon) and tauler-accumulate (history) are separate
-            crates. Install the ones your layout uses, run tauler, and start
-            editing the file.
+            Linux, X11 or Wayland. Workspace state comes from tauler-i3 on i3
+            and sway; notifications and history windows are separate crates too.
+            Install the ones your layout uses.
           </Body>
           <CommandLine aboveFold={false}>cargo install tauler</CommandLine>
           <SeamGroup>
