@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0](https://github.com/kantord/tauler/compare/tauler-core-v0.2.5...tauler-core-v0.3.0) - 2026-09-03
+
+### Fixed
+
+- hide ScrollArea's scrollbar thumb when nothing needs scrolling ([#501](https://github.com/kantord/tauler/pull/501))
+
 ## [0.2.5](https://github.com/kantord/tauler/compare/tauler-core-v0.2.4...tauler-core-v0.2.5) - 2026-08-30
 
 ### Added
