@@ -28,8 +28,6 @@ static ICON_MAP: LazyLock<HashMap<String, String>> = LazyLock::new(|| {
 ///
 /// Unknown names render as `?`.
 ///
-/// # SkipSnapshot
-///
 /// # SkipWeb
 ///
 /// # JSX

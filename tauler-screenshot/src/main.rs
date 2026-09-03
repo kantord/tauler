@@ -32,6 +32,11 @@ struct Args {
     #[arg(long)]
     font_path: Option<std::path::PathBuf>,
 
+    /// Path to the symbol font file for `<Icon>` glyphs. Without it fontconfig picks
+    /// one, which varies by host — pass the vendored file for a reproducible render.
+    #[arg(long)]
+    symbol_font_path: Option<std::path::PathBuf>,
+
     /// Also write every Tailwind class the resolved tree carries, one per line.
     ///
     /// The web renderer hands `class` to the browser verbatim, so Tailwind has to be told
@@ -63,6 +68,7 @@ fn main() {
             theme: args.theme,
             width: args.width,
             font_path: args.font_path,
+            symbol_font_path: args.symbol_font_path,
         },
     )
     .unwrap_or_else(|e| panic!("{e}"));

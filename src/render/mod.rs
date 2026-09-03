@@ -70,7 +70,7 @@ pub(crate) fn rebuild_font_context(ctx: &mut RenderContext, config: &FontConfig)
     ctx.fonts = Fonts::default();
     apply_font_config(&mut ctx.fonts, config);
     let load = load_targeted_fonts(&mut ctx.fonts);
-    append_symbol_fallback(&mut ctx.fonts);
+    append_symbol_fallback(&mut ctx.fonts, config.symbol_path.as_deref());
     load
 }
 
@@ -340,7 +340,15 @@ pub(crate) fn apply_font_config(fonts: &mut Fonts, config: &FontConfig) {
 
 /// Put a symbol font behind every other family. Parley picks a font per cluster
 /// by coverage, so this only catches codepoints no other font can render.
-fn append_symbol_fallback(fonts: &mut Fonts) {
+///
+/// `path` names the font file outright; fontconfig is then never consulted, so
+/// the result does not depend on what the host has installed. Without it the
+/// font is looked up through fontconfig.
+fn append_symbol_fallback(fonts: &mut Fonts, path: Option<&Path>) {
+    if let Some(path) = path {
+        register_files(fonts, std::slice::from_ref(&path.to_path_buf()), None, true);
+        return;
+    }
     // The symbols-only font carries icon ranges alone, so it can never shadow a
     // text glyph; failing that, take whatever covers the probe icon.
     let file = first_matching_file("Symbols Nerd Font Mono")
@@ -663,6 +671,7 @@ mod tests {
             primary: Some(primary.to_string()),
             emoji: None,
             primary_path: None,
+            symbol_path: None,
             extra: Vec::new(),
         }
     }
@@ -719,6 +728,46 @@ mod tests {
             renders_distinct_symbol_glyphs(&fonts),
             "U+F015 and U+E5FF rendered identically (or blank) — the targeted font \
              set has no symbol fallback, so PUA glyphs come out as tofu"
+        );
+    }
+
+    /// The docs screenshots are rendered on CI runners that have no Nerd Font
+    /// installed, so the fontconfig lookup in `append_symbol_fallback` finds
+    /// nothing there and every `<Icon>` comes out as tofu. `symbol_path` is the
+    /// route that does not depend on the host: the caller names the symbol font
+    /// file directly (tauler-screenshot points it at the vendored copy) and
+    /// fontconfig is never consulted for it.
+    ///
+    /// Deliberately never skipped — the whole point is that it must pass on a
+    /// machine with no Nerd Font. Inter is given by file too, so text layout has
+    /// a real primary without depending on fontconfig for that either.
+    #[test]
+    fn a_symbol_font_given_by_path_renders_without_fontconfig() {
+        let assets = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("assets/fonts");
+        let inter = assets.join("inter/InterVariable.ttf");
+        let symbols = assets.join("symbols-nerd-font/SymbolsNerdFontMono-Regular.ttf");
+        assert!(
+            inter.exists(),
+            "vendored Inter missing at {}",
+            inter.display()
+        );
+        assert!(
+            symbols.exists(),
+            "vendored Symbols Nerd Font missing at {}",
+            symbols.display()
+        );
+
+        let fonts = fonts_for(&FontConfig {
+            primary_path: Some(inter.to_string_lossy().to_string()),
+            symbol_path: Some(symbols),
+            ..Default::default()
+        });
+
+        assert!(
+            renders_distinct_symbol_glyphs(&fonts),
+            "U+F015 and U+E5FF rendered identically (or blank) with symbol_path set — \
+             the symbol font named by file was never registered as the last-resort \
+             fallback, so <Icon> is tofu wherever fontconfig has no Nerd Font (CI)"
         );
     }
 
@@ -971,6 +1020,7 @@ mod tests {
                 emoji: Some(family.clone()),
                 primary: None,
                 primary_path: None,
+                symbol_path: None,
                 extra: Vec::new(),
             },
         );
@@ -1126,6 +1176,7 @@ mod tests {
             primary: None,
             emoji: None,
             primary_path: Some(first_path.to_string_lossy().to_string()),
+            symbol_path: None,
             extra: Vec::new(),
         });
 
@@ -1139,6 +1190,7 @@ mod tests {
             primary: None,
             emoji: None,
             primary_path: Some(second_path.to_string_lossy().to_string()),
+            symbol_path: None,
             extra: Vec::new(),
         });
 

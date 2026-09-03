@@ -62,9 +62,9 @@ struct Component {
     /// something other than what the matching JSX tag does.
     internal: bool,
     /// Shown as its screenshot rather than run in the browser. `<Icon>` is the one, and
-    /// the reason is fonts: `append_symbol_fallback` resolves its Nerd Font through
-    /// fontconfig, so the takumi side depends on the host and the two cannot be made to
-    /// agree by serving a file (ADR 0028).
+    /// the reason is fonts: the browser is not served the Nerd Font, so the two renderers
+    /// cannot be made to agree by a file (ADR 0028). The takumi side itself is pinned to
+    /// the vendored fonts.
     skip_web: bool,
     kind: Kind,
 }
@@ -415,9 +415,13 @@ fn render_screenshot(
     fs::create_dir_all(assets_dir).ok()?;
     let output_path = assets_dir.join(format!("{}.svg", component.export_name.to_lowercase()));
 
-    let inter_font = Path::new(env!("CARGO_MANIFEST_DIR"))
+    // The screenshot is a committed test baseline and is regenerated on CI, so both
+    // fonts come from the repo rather than the host.
+    let fonts_dir = Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()?
-        .join("assets/fonts/inter/InterVariable.ttf");
+        .join("assets/fonts");
+    let inter_font = fonts_dir.join("inter/InterVariable.ttf");
+    let symbol_font = fonts_dir.join("symbols-nerd-font/SymbolsNerdFontMono-Regular.ttf");
     let classes_file = std::env::temp_dir().join(format!(
         "tauler-docgen-{}-classes.txt",
         component.export_name.to_lowercase()
@@ -444,6 +448,8 @@ fn render_screenshot(
         .arg(&output_path)
         .arg("--font-path")
         .arg(&inter_font)
+        .arg("--symbol-font-path")
+        .arg(&symbol_font)
         .status()
         .ok()?;
 

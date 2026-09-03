@@ -52,6 +52,12 @@ pub struct FontConfig {
     pub emoji: Option<String>,
     #[serde(default)]
     pub extra: Vec<ExtraFont>,
+    /// A symbol font named by file, registered as the last-resort fallback
+    /// instead of asking fontconfig for one. Not readable from the layout
+    /// file's frontmatter: it exists for callers that need a host-independent
+    /// render (tauler-screenshot).
+    #[serde(skip)]
+    pub symbol_path: Option<std::path::PathBuf>,
 }
 
 /// One entry in `fonts.extra`: either a plain font-family name looked up on
