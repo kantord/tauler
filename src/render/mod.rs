@@ -66,11 +66,22 @@ pub fn init_global_ctx(font_config: FontConfig) {
 /// So the configured font is registered before the fontconfig defaults it is
 /// meant to override, not after. The symbol fallback is exempt — it registers as
 /// a last resort, which sorts behind every normal family however early it lands.
+///
+/// With [`FontConfig::files_only`] the middle step is skipped entirely: only the
+/// fonts the config names by path are registered, and the symbol fallback is
+/// added only when `symbol_path` names one — fontconfig and the system font
+/// directories are never consulted, so the font set is the same on every host.
 pub(crate) fn rebuild_font_context(ctx: &mut RenderContext, config: &FontConfig) -> FontLoad {
     ctx.fonts = Fonts::default();
     apply_font_config(&mut ctx.fonts, config);
+    if config.files_only {
+        if let Some(symbol_path) = config.symbol_path.as_deref() {
+            append_symbol_fallback(&mut ctx.fonts, Some(symbol_path));
+        }
+        return FontLoad::FilesOnly;
+    }
     let load = load_targeted_fonts(&mut ctx.fonts);
-    append_symbol_fallback(&mut ctx.fonts);
+    append_symbol_fallback(&mut ctx.fonts, config.symbol_path.as_deref());
     load
 }
 
@@ -340,7 +351,17 @@ pub(crate) fn apply_font_config(fonts: &mut Fonts, config: &FontConfig) {
 
 /// Put a symbol font behind every other family. Parley picks a font per cluster
 /// by coverage, so this only catches codepoints no other font can render.
-fn append_symbol_fallback(fonts: &mut Fonts) {
+///
+/// `path` names the font file outright; fontconfig is then never consulted, so
+/// the result does not depend on what the host has installed. Without it the
+/// font is looked up through fontconfig — which is why [`rebuild_font_context`]
+/// does not call this at all under `files_only` without a `symbol_path`: no
+/// file, no symbol font.
+fn append_symbol_fallback(fonts: &mut Fonts, path: Option<&Path>) {
+    if let Some(path) = path {
+        register_files(fonts, std::slice::from_ref(&path.to_path_buf()), None, true);
+        return;
+    }
     // The symbols-only font carries icon ranges alone, so it can never shadow a
     // text glyph; failing that, take whatever covers the probe icon.
     let file = first_matching_file("Symbols Nerd Font Mono")
@@ -353,13 +374,15 @@ fn append_symbol_fallback(fonts: &mut Fonts) {
     register_files(fonts, std::slice::from_ref(&file), None, true);
 }
 
-/// Which font set `load_targeted_fonts` ended up installing.
+/// Which font set [`rebuild_font_context`] ended up installing.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FontLoad {
     /// fontconfig resolved the generic families; the font set stays tiny.
     Targeted,
     /// No fontconfig, so every system font was registered instead.
     SystemFallback,
+    /// `files_only`: nothing from the host, only the files the config named.
+    FilesOnly,
 }
 
 /// Register the few families the bar draws with and map each to its generic.
@@ -663,7 +686,9 @@ mod tests {
             primary: Some(primary.to_string()),
             emoji: None,
             primary_path: None,
+            symbol_path: None,
             extra: Vec::new(),
+            files_only: false,
         }
     }
 
@@ -719,6 +744,123 @@ mod tests {
             renders_distinct_symbol_glyphs(&fonts),
             "U+F015 and U+E5FF rendered identically (or blank) — the targeted font \
              set has no symbol fallback, so PUA glyphs come out as tofu"
+        );
+    }
+
+    /// The docs screenshots are rendered on CI runners that have no Nerd Font
+    /// installed, so the fontconfig lookup in `append_symbol_fallback` finds
+    /// nothing there and every `<Icon>` comes out as tofu. `symbol_path` is the
+    /// route that does not depend on the host: the caller names the symbol font
+    /// file directly (tauler-screenshot points it at the vendored copy) and
+    /// fontconfig is never consulted for it.
+    ///
+    /// Deliberately never skipped — the whole point is that it must pass on a
+    /// machine with no Nerd Font. Inter is given by file too, so text layout has
+    /// a real primary without depending on fontconfig for that either.
+    #[test]
+    fn a_symbol_font_given_by_path_renders_without_fontconfig() {
+        let assets = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("assets/fonts");
+        let inter = assets.join("inter/InterVariable.ttf");
+        let symbols = assets.join("symbols-nerd-font/SymbolsNerdFontMono-Regular.ttf");
+        assert!(
+            inter.exists(),
+            "vendored Inter missing at {}",
+            inter.display()
+        );
+        assert!(
+            symbols.exists(),
+            "vendored Symbols Nerd Font missing at {}",
+            symbols.display()
+        );
+
+        let fonts = fonts_for(&FontConfig {
+            primary_path: Some(inter.to_string_lossy().to_string()),
+            symbol_path: Some(symbols),
+            ..Default::default()
+        });
+
+        assert!(
+            renders_distinct_symbol_glyphs(&fonts),
+            "U+F015 and U+E5FF rendered identically (or blank) with symbol_path set — \
+             the symbol font named by file was never registered as the last-resort \
+             fallback, so <Icon> is tofu wherever fontconfig has no Nerd Font (CI)"
+        );
+    }
+
+    /// The docs screenshots are committed baselines regenerated on three hosts
+    /// (Linux CI, macOS CI, a contributor's laptop) and must hash identically on
+    /// all of them. Pinning `primary_path` and `symbol_path` is not enough for
+    /// that: `rebuild_font_context` still layers the host's fontconfig generics
+    /// (or, without fontconfig, every system font) on top, and a glyph the pinned
+    /// fonts lack — or a generic they never claimed — is then filled from whatever
+    /// the host happens to have. `files_only` is the switch that stops that.
+    ///
+    /// Proven by absence: with `files_only` and no paths at all, nothing may be
+    /// registered, so plain text must draw zero ink. The control half shows the
+    /// same probe does draw with the default config, so the zero is meaningful
+    /// rather than a broken probe.
+    #[test]
+    fn files_only_registers_nothing_from_the_host() {
+        let fonts = fonts_for(&FontConfig {
+            files_only: true,
+            ..Default::default()
+        });
+        assert_eq!(
+            ink_of(&fonts, "Hello", 400),
+            0,
+            "text drew ink with files_only and no font paths configured — a host font \
+             leaked in, so the render still depends on what the machine has installed"
+        );
+
+        if fc_match_path("sans-serif").is_none() {
+            eprintln!("SKIP (control only): fc-match sans-serif unavailable");
+            return;
+        }
+        assert!(
+            ink_of(&fonts_for(&FontConfig::default()), "Hello", 400) > 0,
+            "control: the default config drew nothing, so the zero-ink assertion \
+             above proves nothing about files_only"
+        );
+    }
+
+    /// The other half of `files_only`: shutting the host out must not shut out
+    /// the fonts the caller named. tauler-screenshot pins Inter and the Symbols
+    /// Nerd Font by file and expects both text and `<Icon>` glyphs to come from
+    /// exactly those files — if `files_only` also skipped the configured paths,
+    /// every docs screenshot would be blank.
+    #[test]
+    fn files_only_still_renders_text_and_icons_from_the_named_files() {
+        let assets = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("assets/fonts");
+        let inter = assets.join("inter/InterVariable.ttf");
+        let symbols = assets.join("symbols-nerd-font/SymbolsNerdFontMono-Regular.ttf");
+        assert!(
+            inter.exists(),
+            "vendored Inter missing at {}",
+            inter.display()
+        );
+        assert!(
+            symbols.exists(),
+            "vendored Symbols Nerd Font missing at {}",
+            symbols.display()
+        );
+
+        let fonts = fonts_for(&FontConfig {
+            files_only: true,
+            primary_path: Some(inter.to_string_lossy().to_string()),
+            symbol_path: Some(symbols),
+            ..Default::default()
+        });
+
+        assert!(
+            ink_of(&fonts, "Hello", 400) > 0,
+            "text drew nothing with files_only and primary_path set — the font named \
+             by file was skipped along with the host fonts"
+        );
+        assert!(
+            renders_distinct_symbol_glyphs(&fonts),
+            "U+F015 and U+E5FF rendered identically (or blank) with files_only and \
+             symbol_path set — the symbol font named by file was not registered as \
+             the last-resort fallback"
         );
     }
 
@@ -971,7 +1113,9 @@ mod tests {
                 emoji: Some(family.clone()),
                 primary: None,
                 primary_path: None,
+                symbol_path: None,
                 extra: Vec::new(),
+                files_only: false,
             },
         );
         assert!(
@@ -1126,7 +1270,9 @@ mod tests {
             primary: None,
             emoji: None,
             primary_path: Some(first_path.to_string_lossy().to_string()),
+            symbol_path: None,
             extra: Vec::new(),
+            files_only: false,
         });
 
         let first_ink = super::with_global_ctx(|ctx| ink_of(&ctx.fonts, "ABC", 400));
@@ -1139,7 +1285,9 @@ mod tests {
             primary: None,
             emoji: None,
             primary_path: Some(second_path.to_string_lossy().to_string()),
+            symbol_path: None,
             extra: Vec::new(),
+            files_only: false,
         });
 
         let second_ink = super::with_global_ctx(|ctx| ink_of(&ctx.fonts, "ABC", 400));

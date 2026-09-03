@@ -39,6 +39,14 @@ pub struct Options {
     /// whatever fontconfig resolves, which varies by host — pin a file when the
     /// output has to be reproducible.
     pub font_path: Option<PathBuf>,
+    /// The symbol font file for `<Icon>` glyphs. `None` asks fontconfig, which
+    /// varies by host — pin the vendored file when the output has to be
+    /// reproducible.
+    pub symbol_font_path: Option<PathBuf>,
+    /// When set, only `font_path` and `symbol_font_path` are registered and the
+    /// host's fonts are never consulted, so the output is the same on every
+    /// machine. `Default` is `false`.
+    pub files_only: bool,
 }
 
 impl Default for Options {
@@ -47,6 +55,8 @@ impl Default for Options {
             theme: ThemeMode::Dark,
             width: tauler::preview::WIDTH,
             font_path: None,
+            symbol_font_path: None,
+            files_only: false,
         }
     }
 }
@@ -118,6 +128,8 @@ pub fn render(jsx_source: &str, options: &Options) -> Result<Screenshot, Error> 
             .font_path
             .as_ref()
             .map(|p| p.to_string_lossy().to_string()),
+        symbol_path: options.symbol_font_path.clone(),
+        files_only: options.files_only,
         ..Default::default()
     };
     // The first call in the process installs the context; on every later call

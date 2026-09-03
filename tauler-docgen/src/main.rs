@@ -6,7 +6,7 @@ use clap::Parser;
 
 mod web;
 
-/// Generate the components page of the docs site from doc comments on UI
+/// Generate the component reference page of the docs site from doc comments on UI
 /// components, rendering each `# JSX` example to a screenshot alongside it.
 #[derive(Parser)]
 struct Args {
@@ -14,8 +14,11 @@ struct Args {
     #[arg(long, default_value = "tauler-core/src/ui/components")]
     components_dir: PathBuf,
 
-    /// Path to write the generated MDX file
-    #[arg(long, default_value = "docs/src/content/docs/docs/components.md")]
+    /// Path to write the generated component reference page
+    #[arg(
+        long,
+        default_value = "docs/src/content/docs/docs/component-reference.md"
+    )]
     output: PathBuf,
 
     /// Directory to write rendered component screenshots
@@ -35,6 +38,17 @@ struct Args {
     build_dir: PathBuf,
 }
 
+/// Which group of the reference a component is listed under.
+///
+/// The signature decides it: a component with a handler prop — any parameter
+/// named `on_*` — emits intents, and is a Control. Everything else is Display.
+/// The terms are CONTEXT.md's.
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum Kind {
+    Display,
+    Control,
+}
+
 struct Component {
     module_path: String,
     export_name: String,
@@ -48,10 +62,11 @@ struct Component {
     /// something other than what the matching JSX tag does.
     internal: bool,
     /// Shown as its screenshot rather than run in the browser. `<Icon>` is the one, and
-    /// the reason is fonts: `append_symbol_fallback` resolves its Nerd Font through
-    /// fontconfig, so the takumi side depends on the host and the two cannot be made to
-    /// agree by serving a file (ADR 0028).
+    /// the reason is fonts: the browser is not served the Nerd Font, so the two renderers
+    /// cannot be made to agree by a file (ADR 0028). The takumi side itself is pinned to
+    /// the vendored fonts.
     skip_web: bool,
+    kind: Kind,
 }
 
 struct DocComments {
@@ -181,8 +196,29 @@ fn fn_name_after_attr(lines: &[&str], attr_idx: usize) -> Option<String> {
     }
 }
 
-fn extract_components(path: &Path) -> Result<Vec<Component>, std::io::Error> {
-    let source = fs::read_to_string(path)?;
+/// Reads the parameter list of the `fn` after the attribute — through the first
+/// `)`, since signatures span lines — and looks for a handler prop.
+fn kind_from_signature(lines: &[&str], attr_idx: usize) -> Kind {
+    let signature: String = lines[attr_idx + 1..]
+        .iter()
+        .map(|l| format!("{l}\n"))
+        .collect();
+    let params = signature
+        .split_once('(')
+        .map(|(_, rest)| rest.split(')').next().unwrap_or(""))
+        .unwrap_or("");
+    let has_handler = params
+        .split(',')
+        .map(|param| param.split(':').next().unwrap_or("").trim())
+        .any(|name| name.starts_with("on_"));
+    if has_handler {
+        Kind::Control
+    } else {
+        Kind::Display
+    }
+}
+
+fn components_from_source(source: &str) -> Vec<Component> {
     let lines: Vec<&str> = source.lines().collect();
     let mut components = Vec::new();
     for (i, line) in lines.iter().enumerate() {
@@ -202,9 +238,38 @@ fn extract_components(path: &Path) -> Result<Vec<Component>, std::io::Error> {
             skip_snapshot: doc.skip_snapshot,
             internal: doc.internal,
             skip_web: doc.skip_web,
+            kind: kind_from_signature(&lines, i),
         });
     }
-    Ok(components)
+    components
+}
+
+fn extract_components(path: &Path) -> Result<Vec<Component>, std::io::Error> {
+    Ok(components_from_source(&fs::read_to_string(path)?))
+}
+
+/// The example-less components of `comp`'s module whose name extends its own:
+/// `CardHeader` and `CardTitle` for `Card`. They mean nothing outside their
+/// parent, so the page lists them under it rather than beside it.
+fn parts_of<'a>(comp: &Component, all: &'a [Component]) -> Vec<&'a Component> {
+    all.iter()
+        .filter(|c| {
+            c.module_path == comp.module_path
+                && c.jsx_block.is_none()
+                && c.export_name.len() > comp.export_name.len()
+                && c.export_name.starts_with(&comp.export_name)
+        })
+        .collect()
+}
+
+/// Every component that is not a part of another, in input order.
+fn top_level(all: &[Component]) -> Vec<&Component> {
+    all.iter()
+        .filter(|c| {
+            !all.iter()
+                .any(|parent| parts_of(parent, all).iter().any(|p| std::ptr::eq(*p, *c)))
+        })
+        .collect()
 }
 
 fn collect_rs_files(dir: &Path) -> Vec<PathBuf> {
@@ -350,9 +415,15 @@ fn render_screenshot(
     fs::create_dir_all(assets_dir).ok()?;
     let output_path = assets_dir.join(format!("{}.svg", component.export_name.to_lowercase()));
 
-    let inter_font = Path::new(env!("CARGO_MANIFEST_DIR"))
+    // The screenshot is a committed baseline regenerated on Linux CI, macOS CI and
+    // contributors' machines, so every font it can reach comes from the repo: both
+    // fonts are pinned by file and `--files-only` keeps the host's fonts out of glyph
+    // fallback entirely.
+    let fonts_dir = Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()?
-        .join("assets/fonts/inter/InterVariable.ttf");
+        .join("assets/fonts");
+    let inter_font = fonts_dir.join("inter/InterVariable.ttf");
+    let symbol_font = fonts_dir.join("symbols-nerd-font/SymbolsNerdFontMono-Regular.ttf");
     let classes_file = std::env::temp_dir().join(format!(
         "tauler-docgen-{}-classes.txt",
         component.export_name.to_lowercase()
@@ -379,6 +450,9 @@ fn render_screenshot(
         .arg(&output_path)
         .arg("--font-path")
         .arg(&inter_font)
+        .arg("--symbol-font-path")
+        .arg(&symbol_font)
+        .arg("--files-only")
         .status()
         .ok()?;
 
@@ -500,8 +574,26 @@ fn render_imports(out: &mut String, used: &[&Component]) {
     out.push('\n');
 }
 
+fn render_parts(out: &mut String, parts: &[&Component]) {
+    if parts.is_empty() {
+        return;
+    }
+    out.push_str("#### Parts\n\n");
+    for part in parts {
+        out.push_str(&format!("- `<{}>`", part.export_name));
+        let prose = trim_blank_lines(&part.prose);
+        if !prose.is_empty() {
+            let summary: Vec<&str> = prose.iter().map(|l| l.trim()).collect();
+            out.push_str(" — ");
+            out.push_str(&mdx_safe_line(&summary.join(" ")));
+        }
+        out.push('\n');
+    }
+    out.push('\n');
+}
+
 fn render_jsx_usage(out: &mut String, block: &[String], used: &[&Component]) {
-    out.push_str("### Usage\n\n```jsx\n");
+    out.push_str("#### Usage\n\n```jsx\n");
     if !used.is_empty() {
         render_imports(out, used);
     }
@@ -519,7 +611,7 @@ fn render_component_section(
 ) -> String {
     let mut out = String::new();
     out.push_str(&format!(
-        "## {}\n\n**Module:** `{}`\n\n",
+        "### {}\n\n**Module:** `{}`\n\n",
         comp.export_name, comp.module_path
     ));
     if let Some(url) = &comp.shadcn_url {
@@ -549,6 +641,7 @@ fn render_component_section(
         out.push_str("</div>\n\n");
     }
     render_prose(&mut out, &comp.prose);
+    render_parts(&mut out, &parts_of(comp, all));
     if let Some(block) = &comp.jsx_block {
         // The component being documented is always needed, even when the example
         // only nests it inside something else.
@@ -563,14 +656,34 @@ fn render_component_section(
 
 fn render_markdown(components: &[Component], rendered: &[Option<Rendered>]) -> String {
     let mut out = String::new();
-    out.push_str("---\ntitle: Components\ndescription: Auto-generated by tauler-docgen. Do not edit by hand.\n---\n\n");
+    out.push_str("---\ntitle: Component reference\ndescription: Auto-generated by tauler-docgen. Do not edit by hand.\n---\n\n");
     out.push_str(&mount_head());
-    for (comp, r) in components.iter().zip(rendered.iter()) {
-        out.push_str(&render_component_section(
-            comp,
-            &r.as_ref().map(|r| r.svg.clone()),
-            components,
-        ));
+    out.push_str(
+        "Every component tauler ships, grouped by kind. The [components page](/docs/components/) says what the kinds mean and how to choose between them.\n\n",
+    );
+    let listed = top_level(components);
+    for (kind, heading) in [
+        (Kind::Display, "Display components"),
+        (Kind::Control, "Control components"),
+    ] {
+        let group: Vec<&Component> = listed.iter().copied().filter(|c| c.kind == kind).collect();
+        if group.is_empty() {
+            continue;
+        }
+        out.push_str(&format!("## {heading}\n\n"));
+        for comp in group {
+            // `rendered` is indexed by position in `components`, and the grouping
+            // has reordered the walk, so look the screenshot up by that position.
+            let index = components
+                .iter()
+                .position(|c| std::ptr::eq(c, comp))
+                .expect("a top-level component comes from `components`");
+            out.push_str(&render_component_section(
+                comp,
+                &rendered[index].as_ref().map(|r| r.svg.clone()),
+                components,
+            ));
+        }
     }
     out.push_str(MOUNT_SCRIPT);
     out
@@ -801,6 +914,7 @@ mod tests {
             skip_snapshot: false,
             internal: false,
             skip_web: false,
+            kind: Kind::Display,
         };
         let all_components = vec![Component {
             module_path: "@ui/card".to_string(),
@@ -811,6 +925,7 @@ mod tests {
             skip_snapshot: false,
             internal: false,
             skip_web: false,
+            kind: Kind::Display,
         }];
 
         let result = render_screenshot(&component, &all_components, assets_dir, None);
@@ -864,7 +979,12 @@ mod tests {
         assert!(!doc.skip_snapshot);
     }
 
-    fn component(module_path: &str, export_name: &str, jsx: Option<Vec<&str>>) -> Component {
+    fn with_kind(
+        module_path: &str,
+        export_name: &str,
+        jsx: Option<Vec<&str>>,
+        kind: Kind,
+    ) -> Component {
         Component {
             module_path: module_path.to_string(),
             export_name: export_name.to_string(),
@@ -874,7 +994,25 @@ mod tests {
             skip_snapshot: false,
             internal: false,
             skip_web: false,
+            kind,
         }
+    }
+
+    fn component(module_path: &str, export_name: &str, jsx: Option<Vec<&str>>) -> Component {
+        with_kind(module_path, export_name, jsx, Kind::Display)
+    }
+
+    fn control(module_path: &str, export_name: &str, jsx: Option<Vec<&str>>) -> Component {
+        with_kind(module_path, export_name, jsx, Kind::Control)
+    }
+
+    /// `Rendered` is not `Clone`, so `vec![None; n]` cannot build this.
+    fn no_renders(n: usize) -> Vec<Option<Rendered>> {
+        (0..n).map(|_| None).collect()
+    }
+
+    fn names(comps: Vec<&Component>) -> Vec<&str> {
+        comps.iter().map(|c| c.export_name.as_str()).collect()
     }
 
     /// The usage block is what people paste. Without the import it throws at
@@ -957,5 +1095,125 @@ mod tests {
         let comp = component("@ui/card", "Card", None);
         let out = render_component_section(&comp, &None, std::slice::from_ref(&comp));
         assert!(!out.contains("import"), "{out}");
+    }
+
+    /// The page groups components by whether a layout can wire an event handler
+    /// to them. The signature is the only place that fact exists, so it is read
+    /// from there rather than from a marker someone has to remember to add.
+    #[test]
+    fn a_component_with_an_on_handler_param_is_a_control() {
+        let source = r#"
+/// A card.
+#[component("@ui/card")]
+pub fn card(children: Vec<Node>, class: Option<String>) -> Node {
+    todo!()
+}
+
+/// A slider.
+#[component("@ui/slider")]
+pub fn slider(
+    value: f64,
+    on_drag: Option<Value>,
+    class: Option<String>,
+) -> Node {
+    todo!()
+}
+"#;
+        let comps = components_from_source(source);
+        let kinds: Vec<(&str, Kind)> = comps
+            .iter()
+            .map(|c| (c.export_name.as_str(), c.kind))
+            .collect();
+        assert_eq!(
+            kinds,
+            vec![("Card", Kind::Display), ("Slider", Kind::Control)]
+        );
+    }
+
+    /// Only a parameter *named* `on_…` is a handler. One that merely contains
+    /// the substring is data, and must not drag a display component into the
+    /// control group.
+    #[test]
+    fn a_param_merely_containing_on_is_not_a_handler() {
+        let source = "#[component(\"@ui/widget\")]\npub fn widget(button_on_x: u32) -> Node {\n";
+        let comps = components_from_source(source);
+        assert_eq!(comps.len(), 1, "expected one component from:\n{source}");
+        assert_eq!(comps[0].kind, Kind::Display);
+    }
+
+    /// `CardHeader` means nothing outside a `<Card>`. Listing it as a peer of
+    /// `Card` doubles the page for nothing; it belongs under its parent.
+    #[test]
+    fn parts_are_the_prefixed_example_less_siblings_of_their_parent() {
+        let all = vec![
+            component("@ui/card", "Card", Some(vec!["<Card />"])),
+            component("@ui/card", "CardHeader", None),
+            component("@ui/card", "CardTitle", None),
+            component("@ui/progress", "Progress", None),
+        ];
+        assert_eq!(names(parts_of(&all[0], &all)), ["CardHeader", "CardTitle"]);
+        assert!(parts_of(&all[3], &all).is_empty());
+        assert_eq!(names(top_level(&all)), ["Card", "Progress"]);
+    }
+
+    /// The headings are the page's table of contents, so a part must not get
+    /// one — but the reader still has to learn its name from the parent's
+    /// section.
+    #[test]
+    fn a_part_is_listed_under_its_parent_instead_of_getting_a_heading() {
+        let all = vec![
+            component("@ui/card", "Card", Some(vec!["<Card />"])),
+            component("@ui/card", "CardHeader", None),
+        ];
+        let out = render_markdown(&all, &no_renders(all.len()));
+        assert!(
+            !out.lines()
+                .any(|l| l.starts_with('#') && l.ends_with("CardHeader")),
+            "CardHeader got a heading of its own in:\n{out}"
+        );
+        assert!(out.contains("#### Parts"), "no parts section in:\n{out}");
+        assert!(out.contains("`<CardHeader>`"), "part not listed in:\n{out}");
+    }
+
+    /// Someone looking for something to wire an event to should not have to
+    /// scan every card and badge to find the sliders: the page is split by
+    /// kind, and each component's heading sits one level under its group.
+    #[test]
+    fn the_page_is_grouped_by_kind_with_display_components_first() {
+        let all = vec![
+            component("@ui/badge", "Badge", None),
+            control("@ui/slider", "Slider", Some(vec!["<Slider />"])),
+        ];
+        let out = render_markdown(&all, &no_renders(all.len()));
+        let at = |needle: &str| {
+            out.find(needle)
+                .unwrap_or_else(|| panic!("missing {needle:?} in:\n{out}"))
+        };
+        let display = at("## Display components");
+        let badge = at("### Badge");
+        let controls = at("## Control components");
+        let slider = at("### Slider");
+        assert!(
+            display < badge && badge < controls && controls < slider,
+            "groups out of order in:\n{out}"
+        );
+        assert!(out.contains("#### Usage"), "usage not nested in:\n{out}");
+        assert!(
+            !out.contains("\n## Badge"),
+            "Badge kept a top-level heading in:\n{out}"
+        );
+        assert!(
+            !out.contains("\n## Slider"),
+            "Slider kept a top-level heading in:\n{out}"
+        );
+    }
+
+    /// A "Control components" heading with nothing under it reads as a bug.
+    #[test]
+    fn a_kind_with_no_components_gets_no_group_heading() {
+        let all = vec![component("@ui/badge", "Badge", None)];
+        let out = render_markdown(&all, &no_renders(all.len()));
+        assert!(out.contains("## Display components"), "{out}");
+        assert!(!out.contains("## Control components"), "{out}");
     }
 }
