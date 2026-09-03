@@ -8,7 +8,7 @@ Data comes from ordinary subprocesses that write to stdout, so anything you can 
 can drive the bar. Both the layout and the config are hot-reloaded on save.
 
 📖 **[Documentation](https://kantord.github.io/tauler/)** — including a
-[gallery of built-in components](https://kantord.github.io/tauler/components/).
+[gallery of built-in components](https://tauler.dev/docs/component-reference/).
 
 ## Requirements
 

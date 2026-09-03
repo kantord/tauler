@@ -37,6 +37,11 @@ struct Args {
     #[arg(long)]
     symbol_font_path: Option<std::path::PathBuf>,
 
+    /// Register only `--font-path` and `--symbol-font-path` and never consult the
+    /// host's fonts, so the output is the same on every machine.
+    #[arg(long)]
+    files_only: bool,
+
     /// Also write every Tailwind class the resolved tree carries, one per line.
     ///
     /// The web renderer hands `class` to the browser verbatim, so Tailwind has to be told
@@ -69,6 +74,7 @@ fn main() {
             width: args.width,
             font_path: args.font_path,
             symbol_font_path: args.symbol_font_path,
+            files_only: args.files_only,
         },
     )
     .unwrap_or_else(|e| panic!("{e}"));

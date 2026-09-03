@@ -415,8 +415,10 @@ fn render_screenshot(
     fs::create_dir_all(assets_dir).ok()?;
     let output_path = assets_dir.join(format!("{}.svg", component.export_name.to_lowercase()));
 
-    // The screenshot is a committed test baseline and is regenerated on CI, so both
-    // fonts come from the repo rather than the host.
+    // The screenshot is a committed baseline regenerated on Linux CI, macOS CI and
+    // contributors' machines, so every font it can reach comes from the repo: both
+    // fonts are pinned by file and `--files-only` keeps the host's fonts out of glyph
+    // fallback entirely.
     let fonts_dir = Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()?
         .join("assets/fonts");
@@ -450,6 +452,7 @@ fn render_screenshot(
         .arg(&inter_font)
         .arg("--symbol-font-path")
         .arg(&symbol_font)
+        .arg("--files-only")
         .status()
         .ok()?;
 

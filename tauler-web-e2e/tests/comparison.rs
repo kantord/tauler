@@ -42,7 +42,7 @@ fn workspace_root() -> PathBuf {
 fn site_dir() -> PathBuf {
     let dir = workspace_root().join("docs/dist");
     assert!(
-        dir.join("components/index.html").is_file(),
+        dir.join("docs/component-reference/index.html").is_file(),
         "the documentation site is not built at {}.\n\
          Build it with:  just docs && cd docs && pnpm run build",
         dir.display()
@@ -101,8 +101,8 @@ fn every_box_is_where_takumi_put_it() {
     let server = Server::start(site_dir()).expect("serve the built site");
     let session = Session::launch().expect("launch Chrome");
     session
-        .open(&server.url("/components/"))
-        .expect("open the components page");
+        .open(&server.url("/docs/component-reference/"))
+        .expect("open the component reference page");
 
     let mut failures: BTreeMap<&str, Vec<String>> = BTreeMap::new();
     for component in COMPONENTS {
@@ -149,8 +149,8 @@ fn every_mount_still_renders_its_component() {
     let server = Server::start(site_dir()).expect("serve the built site");
     let session = Session::launch().expect("launch Chrome");
     session
-        .open(&server.url("/components/"))
-        .expect("open the components page");
+        .open(&server.url("/docs/component-reference/"))
+        .expect("open the component reference page");
 
     let shots_dir = workspace_root().join("docs/.tauler/web-shots");
     std::fs::create_dir_all(&shots_dir).expect("create the output directory");
@@ -212,8 +212,8 @@ fn the_page_runs_every_component_in_the_browser() {
     let server = Server::start(site_dir()).expect("serve the built site");
     let session = Session::launch().expect("launch Chrome");
     session
-        .open(&server.url("/components/"))
-        .expect("open the components page");
+        .open(&server.url("/docs/component-reference/"))
+        .expect("open the component reference page");
 
     for component in COMPONENTS {
         let boxes = session
@@ -247,8 +247,8 @@ fn dragging_the_slider_moves_the_value_through_a_transport() {
     let server = Server::start(site_dir()).expect("serve the built site");
     let session = Session::launch().expect("launch Chrome");
     session
-        .open(&server.url("/components/"))
-        .expect("open the components page");
+        .open(&server.url("/docs/component-reference/"))
+        .expect("open the component reference page");
     session.isolate("slider").expect("isolate the slider");
 
     let before = session

@@ -58,6 +58,13 @@ pub struct FontConfig {
     /// render (tauler-screenshot).
     #[serde(skip)]
     pub symbol_path: Option<std::path::PathBuf>,
+    /// Register only the fonts this config names by path (`primary_path`,
+    /// `extra` paths, `symbol_path`) and never consult fontconfig or walk the
+    /// system font directories. Not readable from the layout file's
+    /// frontmatter: it exists for renders that must be identical on every host
+    /// (tauler-screenshot's docs baselines).
+    #[serde(skip)]
+    pub files_only: bool,
 }
 
 /// One entry in `fonts.extra`: either a plain font-family name looked up on
