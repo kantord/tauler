@@ -1,11 +1,14 @@
 ---
-// The statement footer: one claim, hairline above, pinned to the foot.
+// The statement footer: one claim, hairline above, pinned to the foot —
+// sticky, so it holds the viewport's bottom edge while the page scrolls
+// and settles into its natural place at the very end. Opaque: content
+// scrolls underneath it, not through it.
 import Statement from '../text/Statement.astro'
 import PageWidth from '../ui/PageWidth.astro'
 ---
 
 <footer
-  class="flex min-h-footer items-center border-t border-line-2 py-s5 tight:py-s4 short:min-h-0 short:py-s3"
+  class="sticky bottom-0 z-10 flex min-h-footer items-center border-t border-line-2 bg-surface-frame py-s5 tight:py-s4 short:min-h-0 short:py-s3"
 >
   <PageWidth><Statement><slot /></Statement></PageWidth>
 </footer>

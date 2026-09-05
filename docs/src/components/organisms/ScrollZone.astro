@@ -1,0 +1,96 @@
+---
+// One scrollytelling zone: a full-bleed section over the viewport-fixed
+// wallpaper (see Stage.astro) whose content fades in over the bottom
+// third of the viewport and out over the top third. The fade tracks the
+// CONTENT's own view timeline, not the zone's — a tall zone's entry/exit
+// ranges complete while its centered content is still off-screen, which
+// made content pop in already opaque. Pure CSS scroll-driven animation,
+// no scroll listeners; browsers without scroll-timeline support (and
+// readers who prefer reduced motion) just see the content, always
+// visible.
+//
+// Two columns in the hero's page frame: the explanation (default slot)
+// and a code example (`example` slot), the example on whichever side
+// `side` says so consecutive zones can alternate. Below lg the columns
+// stack, explanation first, whatever the side.
+import PageWidth from '../ui/PageWidth.astro'
+
+interface Props {
+  /** Zone height as a multiple of the viewport height. */
+  vh: number
+  /** Which column the example sits in. */
+  side?: 'left' | 'right'
+}
+
+const { vh, side = 'right' } = Astro.props
+// Hoisted so the class:list holds only class literals (check-class-layers
+// reads every string literal inside one as a class).
+const exampleFirst = side === 'left'
+---
+
+<section
+  data-zone
+  style={`min-height:${vh * 100}vh`}
+  class="relative flex flex-col justify-center py-s8"
+>
+  <PageWidth>
+    <div data-zone-content>
+      <div
+        data-zone-fade
+        class="grid grid-cols-2 items-center gap-s8 max-lg:grid-cols-1"
+      >
+        <div class="flex flex-col gap-s5">
+          <slot />
+        </div>
+        <div class:list={[exampleFirst && 'order-first max-lg:order-last']}>
+          <slot name="example" />
+        </div>
+      </div>
+    </div>
+  </PageWidth>
+</section>
+
+<style>
+  [data-zone-content] {
+    view-timeline: --zone-pass;
+  }
+
+  /* One property, two ranges: two fill-both animations on the same
+     element can't share `opacity` (the later one's fill masks the
+     earlier), so the fade-in animates the outer element and the
+     fade-out its inner wrapper — the opacities multiply instead of
+     overriding. Both read the outer element's timeline (a named view
+     timeline is visible to descendants, so no timeline-scope needed). */
+  @media (prefers-reduced-motion: no-preference) {
+    @supports (animation-timeline: view()) {
+      [data-zone-content] {
+        animation: zone-fade-in linear both;
+        animation-timeline: --zone-pass;
+        animation-range: entry 0% cover 30%;
+      }
+      [data-zone-fade] {
+        animation: zone-fade-out linear both;
+        animation-timeline: --zone-pass;
+        animation-range: cover 70% exit 100%;
+      }
+    }
+  }
+
+  @keyframes zone-fade-in {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
+  }
+
+  @keyframes zone-fade-out {
+    from {
+      opacity: 1;
+    }
+    to {
+      opacity: 0;
+    }
+  }
+</style>
