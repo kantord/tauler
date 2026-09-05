@@ -30,14 +30,12 @@ use crate::hit_test::{painted_boxes, Rect as HitRect};
 
 /// Tags whose subtree is dropped from the layout tree entirely.
 ///
-/// Must agree with `crate::layout::html::DROPPED_TAGS`: a dropped tag consumes no
-/// sibling slot, so getting this wrong would shift every child-index path that
-/// follows it and break the `data-tauler-path` identity this module keys on.
-const DROPPED_TAGS: [&str; 5] = ["head", "meta", "link", "style", "script"];
-
-/// Cap on element nesting, guarding this recursive walk against a layout file that
-/// nests without bound — the same guard `layout::html::MAX_DEPTH` exists for.
-const MAX_DEPTH: usize = 32;
+/// Referenced from `layout::html` rather than redefined here: a dropped tag
+/// consumes no sibling slot, so a local copy that drifted from the layout walk
+/// would shift every child-index path that follows it and break the
+/// `data-tauler-path` identity this module keys on. Sharing the constant makes
+/// divergence impossible.
+use crate::layout::html::{DROPPED_TAGS, MAX_DEPTH};
 
 /// The pointer an AT activation fabricates is a press with `x`/`y`/`press_x`/
 /// `press_y` of `0` and real width/height (ADR 0038); the button state of a press
@@ -268,19 +266,14 @@ fn process_value(
 }
 
 /// The element's role: its explicit `role` attribute, else a default from what it
-/// carries. `interactive` is whether an AT may `Activate` it — only ever true for an
-/// explicit interactive role, never for a plain element (ADR 0038).
+/// carries. `interactive` is whether an AT may `Activate` it — only ever true for
+/// an explicit `role="button"`, never for a plain element or any other role (ADR
+/// 0038: "no implicit interactive roles", and only button is spec'd as
+/// activatable).
 fn role_of(value: &serde_json::Value, tag: &str) -> (Role, bool) {
     if let Some(role) = value.get("role").and_then(serde_json::Value::as_str) {
         return match role {
             "button" => (Role::Button, true),
-            "link" => (Role::Link, true),
-            "checkbox" => (Role::CheckBox, true),
-            "switch" => (Role::Switch, true),
-            "slider" => (Role::Slider, true),
-            "tab" => (Role::Tab, true),
-            "radio" => (Role::RadioButton, true),
-            "img" => (Role::Image, false),
             _ => (Role::GenericContainer, false),
         };
     }
@@ -674,5 +667,37 @@ mod tests {
     fn click_at_path_for_a_non_interactive_node_is_none() {
         init_ctx();
         assert!(click_at_path(&layout(), 200, 100, 1.0, &[0]).is_none());
+    }
+
+    /// ADR 0038 fabricates the activation pointer as a press at the element's box
+    /// origin, so `x`/`y`/`press_x`/`press_y` are `0` with real width/height. The
+    /// button is not at the panel's top-left, so passing the panel origin (0,0) —
+    /// the bug this test guards against — would yield negative, non-zero values.
+    #[test]
+    fn an_activation_pointer_is_at_the_box_origin() {
+        init_ctx();
+        let (_, rect) = click_at_path(&layout(), 200, 100, 1.0, &[1]).expect("handler found");
+        // The button is laid out below its sibling, so it is not at the panel's
+        // top-left corner. If that ever stops being true this test would no
+        // longer distinguish "press at the box origin" from "press at the panel
+        // origin" — the exact bug it exists to catch.
+        assert!(
+            rect.x > 0.0 || rect.y > 0.0,
+            "the button must not be at the panel origin for this test to be meaningful"
+        );
+        let pointer = rect.pointer(
+            (rect.x, rect.y),
+            (rect.x, rect.y),
+            1.0,
+            crate::a11y::ACTIVATE_BUTTONS,
+        );
+        assert_eq!(pointer["x"], 0.0, "the pointer is at the box's left edge");
+        assert_eq!(pointer["y"], 0.0, "the pointer is at the box's top edge");
+        assert_eq!(pointer["press_x"], 0.0);
+        assert_eq!(pointer["press_y"], 0.0);
+        assert!(
+            pointer["width"].as_f64().unwrap() > 0.0 && pointer["height"].as_f64().unwrap() > 0.0,
+            "width and height stay real"
+        );
     }
 }

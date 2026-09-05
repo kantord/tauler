@@ -1118,7 +1118,16 @@ impl App {
         else {
             return;
         };
-        let pointer = rect.pointer((0.0, 0.0), (0.0, 0.0), dpr, tauler::a11y::ACTIVATE_BUTTONS);
+        // The ADR fabricates the pointer as a press at the element's box origin,
+        // so `x`/`y`/`press_x`/`press_y` are `0` (ADR 0038). `Rect::pointer`
+        // measures from the box's top-left, so the "where the pointer is" and
+        // "where it went down" points are the box's own origin — not the panel's.
+        let pointer = rect.pointer(
+            (rect.x, rect.y),
+            (rect.x, rect.y),
+            dpr,
+            tauler::a11y::ACTIVATE_BUTTONS,
+        );
         if let Some(intents) = self.resolve(&on_click, &pointer) {
             self.send(&intents, false);
         }

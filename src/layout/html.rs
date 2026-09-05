@@ -52,9 +52,8 @@ pub const MAX_DEPTH: usize = 32;
 // ─── vendored from takumi-html ─────────────────────────────────────────────────────
 // takumi-html 0.2.0 `VOID_TAGS` — Copyright (c) 2025 Kane Wang — MIT OR Apache-2.0
 // https://github.com/kane50613/takumi/blob/6d31b7c5feeefafc360e5b09500ebc4d849f6f27/takumi-html/src/lib.rs#L39
-const DROPPED_TAGS: [&str; 5] = ["head", "meta", "link", "style", "script"];
+pub(crate) const DROPPED_TAGS: [&str; 5] = ["head", "meta", "link", "style", "script"];
 // ─── end vendored ──────────────────────────────────────────────────────────────────
-
 /// Why a layout tree could not be turned into takumi nodes.
 #[derive(Debug, thiserror::Error)]
 pub enum LayoutError {
