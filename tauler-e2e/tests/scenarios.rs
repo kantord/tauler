@@ -580,5 +580,12 @@ fn a11y_button_is_visible_and_activation_dispatches_an_intent() -> Result<()> {
         }
     })?;
 
+    // Every fixture produces exactly one desktop.png — the CI screenshot check
+    // counts fixtures and expects an equal number of captures, so a scenario
+    // that never photographs itself would silently drop the suite's only guard
+    // that scenarios actually ran. This one's point is the a11y tree, not the
+    // pixels, but it photographs the same bar the AT just drove.
+    let _screenshot = desktop.capture_stable()?;
+
     Ok(())
 }
