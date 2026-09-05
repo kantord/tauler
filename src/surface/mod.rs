@@ -306,6 +306,11 @@ impl SurfaceSets {
             .or_else(|| self.wallpapers.get(&key))
             .map(|s| &s.spec)
     }
+
+    /// Every panel's current spec, for consumers that iterate the whole set (a11y).
+    pub fn panel_specs(&self) -> Vec<SurfaceSpec> {
+        self.panels.iter().map(|(_, s)| s.spec.clone()).collect()
+    }
 }
 
 #[cfg(test)]

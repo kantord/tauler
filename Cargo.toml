@@ -95,6 +95,8 @@ tempfile = "3.27.0"
 # Kept off other platforms: Wayland's build scripts need pkg-config and
 # libxkbcommon, and x11rb's `allow-unsafe-code` links libxcb.
 [target.'cfg(target_os = "linux")'.dependencies]
+accesskit = "0.25.0"
+accesskit_unix = "0.23.0"
 smithay-client-toolkit = "0.21.1"
 wayland-client = "0.31.15"
 x11rb = { version = "0.14.0", features = ["allow-unsafe-code"] }

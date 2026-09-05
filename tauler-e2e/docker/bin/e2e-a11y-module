@@ -1,0 +1,20 @@
+#!/bin/sh
+# A module that records everything tauler writes to its stdin, so a test can
+# prove an intent reached it.
+#
+# An action module's only contract is to keep its stdin open and read. It also
+# emits one fixed line on stdout so tauler treats it as a live data module.
+#
+# The log path derives from SCENARIO (which the entrypoint sets and tauler
+# inherits), so each scenario's module log is isolated under /out.
+set -eu
+
+LOG="/out/${SCENARIO:-a11y}/a11y-module.log"
+mkdir -p "$(dirname "$LOG")"
+: > "$LOG"
+
+printf '{"ready":true}\n'
+
+while IFS= read -r line; do
+    printf '%s\n' "$line" >> "$LOG"
+done

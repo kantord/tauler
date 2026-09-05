@@ -410,3 +410,21 @@ faster. So a Minimal claim reading 10ms admits a true value anywhere in 2–18ms
 a Negligible claim needs measurement to within 1ms, which is what separates the two classes
 at all. Being faster than a budget never fails a claim — the numbers are ceilings.
 _Avoid_: benchmark, SLA, target
+
+### Accessibility
+
+**Accessibility tree**:
+The a11y nodes tauler pushes for a Panel, per Repaint, to an **AT**. Rebuilt whole
+each time — nothing survives between Ticks, the same way the layout tree doesn't —
+and reconciled by the platform by NodeId: the `data-tauler-path` child-index path.
+
+**AT**:
+A screen-reader/automation client that attaches to tauler through at-spi and then
+reads and drives the Accessibility tree. The tree exists for it; nothing is built
+or updated when none is attached.
+
+**Activate**:
+An AT's "do the default thing" on a node. Behaves as a press at the element's
+box origin: the pointer it produces has `x`/`y`/`press_x`/`press_y` of `0` with
+real width and height. See ADR 0038.
+_Avoid_: click, trigger

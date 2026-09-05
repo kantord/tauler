@@ -1,3 +1,6 @@
+#[cfg(target_os = "linux")]
+pub mod a11y;
+
 pub mod backdrop;
 pub mod config;
 pub mod data;
