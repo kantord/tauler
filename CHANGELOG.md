@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.1](https://github.com/kantord/tauler/compare/tauler-v0.3.0...tauler-v0.3.1) - 2026-09-05
+
+### Added
+
+- add basic accesskit integration ([#505](https://github.com/kantord/tauler/pull/505))
+
 ## [0.3.0](https://github.com/kantord/tauler/compare/tauler-v0.2.5...tauler-v0.3.0) - 2026-09-03
 
 ### Fixed
