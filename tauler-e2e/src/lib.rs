@@ -106,7 +106,11 @@ impl Desktop {
     ///
     /// Used by the a11y scenario, which asks the entrypoint to bring up a D-Bus
     /// session and the AT-SPI bus.
-    pub fn start_with_env(scenario: &str, screen: Screen, extra_env: &[(&str, &str)]) -> Result<Self> {
+    pub fn start_with_env(
+        scenario: &str,
+        screen: Screen,
+        extra_env: &[(&str, &str)],
+    ) -> Result<Self> {
         let fixtures = crate_dir().join("fixtures");
         if !fixtures.join(scenario).is_dir() {
             bail!("no fixture named {scenario} in {}", fixtures.display());
@@ -128,14 +132,12 @@ impl Desktop {
         for &(key, value) in extra_env {
             image = image.with_env_var(key, value);
         }
-        let container = image
-            .start()
-            .with_context(|| {
-                format!(
-                    "starting {IMAGE_NAME}:{IMAGE_TAG} — is Docker running, and has \
+        let container = image.start().with_context(|| {
+            format!(
+                "starting {IMAGE_NAME}:{IMAGE_TAG} — is Docker running, and has \
                      `just e2e-image` been run?"
-                )
-            })?;
+            )
+        })?;
 
         Ok(Self {
             container,

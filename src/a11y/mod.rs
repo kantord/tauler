@@ -409,6 +409,8 @@ struct PanelActions {
     panel_id: String,
     state: SharedState,
     action_tx: mpsc::Sender<(String, Vec<usize>)>,
+    /// Pings the data loop so the tick thread wakes to drain the action.
+    notifier: mpsc::SyncSender<()>,
 }
 
 impl ActionHandler for PanelActions {
@@ -424,7 +426,12 @@ impl ActionHandler for PanelActions {
             return;
         };
         drop(guard);
-        let _ = self.action_tx.send((self.panel_id.clone(), path));
+        if self.action_tx.send((self.panel_id.clone(), path)).is_ok() {
+            // The tick thread is asleep on the data loop's notifier; an
+            // activation arriving on accesskit's thread must wake it or the
+            // intent sits in the channel until the next natural pass.
+            let _ = self.notifier.try_send(());
+        }
     }
 }
 
@@ -456,15 +463,17 @@ pub struct PanelInfo {
 pub struct A11y {
     adapters: HashMap<String, PanelAdapter>,
     action_tx: mpsc::Sender<(String, Vec<usize>)>,
+    notifier: mpsc::SyncSender<()>,
 }
 
 impl A11y {
-    pub fn new() -> (Self, mpsc::Receiver<(String, Vec<usize>)>) {
+    pub fn new(notifier: mpsc::SyncSender<()>) -> (Self, mpsc::Receiver<(String, Vec<usize>)>) {
         let (action_tx, action_rx) = mpsc::channel();
         (
             Self {
                 adapters: HashMap::new(),
                 action_tx,
+                notifier,
             },
             action_rx,
         )
@@ -477,10 +486,13 @@ impl A11y {
         self.adapters.retain(|id, _| desired.contains(id.as_str()));
 
         for panel in panels {
-            let entry = self
-                .adapters
-                .entry(panel.id.clone())
-                .or_insert_with(|| create_panel_adapter(panel.id.clone(), self.action_tx.clone()));
+            let entry = self.adapters.entry(panel.id.clone()).or_insert_with(|| {
+                create_panel_adapter(
+                    panel.id.clone(),
+                    self.action_tx.clone(),
+                    self.notifier.clone(),
+                )
+            });
             let changed = {
                 let mut guard = entry.state.lock().unwrap();
                 match guard.as_mut() {
@@ -533,6 +545,7 @@ impl A11y {
 fn create_panel_adapter(
     panel_id: String,
     action_tx: mpsc::Sender<(String, Vec<usize>)>,
+    notifier: mpsc::SyncSender<()>,
 ) -> PanelAdapter {
     let state: SharedState = Arc::new(Mutex::new(None));
     let adapter = Adapter::new(
@@ -543,6 +556,7 @@ fn create_panel_adapter(
             panel_id,
             state: Arc::clone(&state),
             action_tx,
+            notifier,
         },
         PanelDeactivation,
     );

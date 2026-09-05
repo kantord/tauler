@@ -517,7 +517,7 @@ impl App {
         let output_map: HashMap<String, OutputInfo> = (*panel_ctx.output_map).clone();
         let (command_tx, command_rx) = mpsc::channel();
         let (event_tx, event_rx) = mpsc::channel();
-        let events = PresenterEvents::new(event_tx, notifier);
+        let events = PresenterEvents::new(event_tx, notifier.clone());
         let pt = PresentationThread::new(panel_ctx);
         let presenter_thread = thread::spawn(move || {
             run_x11_presenter_thread(pt, command_rx, events);
@@ -528,7 +528,7 @@ impl App {
         let (theme_mode, theme_file_path) = theme_selection(&config);
         let theme = load_theme_or_exit(theme_file_path.as_deref());
         #[cfg(target_os = "linux")]
-        let (a11y, a11y_rx) = tauler::a11y::A11y::new();
+        let (a11y, a11y_rx) = tauler::a11y::A11y::new(notifier);
         let mut state = Self {
             theme,
             theme_mode,
@@ -594,7 +594,7 @@ impl App {
         });
         let (command_tx, command_rx) = mpsc::channel();
         let (event_tx, event_rx) = mpsc::channel();
-        let events = PresenterEvents::new(event_tx, notifier);
+        let events = PresenterEvents::new(event_tx, notifier.clone());
         let pt = PresentationThread::new(server);
         let presenter_thread = thread::spawn(move || {
             run_wayland_presenter_thread(pt, command_rx, events);
@@ -604,7 +604,7 @@ impl App {
             .unwrap_or_default();
         let (theme_mode, theme_file_path) = theme_selection(&config);
         let theme = load_theme_or_exit(theme_file_path.as_deref());
-        let (a11y, a11y_rx) = tauler::a11y::A11y::new();
+        let (a11y, a11y_rx) = tauler::a11y::A11y::new(notifier);
         let mut state = Self {
             theme,
             theme_mode,

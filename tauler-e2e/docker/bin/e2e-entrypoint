@@ -141,9 +141,34 @@ fi
 #
 # The bus addresses are persisted so a probe spawned later by the harness (a
 # separate exec with none of this environment) can find them.
+#
+# The probe itself flips `org.a11y.Status.IsEnabled` when it attaches — that is
+# the one signal accesskit reacts to, and only then does it build the tree
+# (ADR 0039). The entrypoint only makes the bus exist.
 if [ "${A11Y:-0}" = "1" ]; then
     eval "$(dbus-launch --sh-syntax)"
-    eval "$(/usr/libexec/at-spi-bus-launcher --launch-immediately)"
+
+    # The launcher owns `org.a11y.Bus` on the session bus and runs the a11y
+    # bus. It stays in the foreground, so it is backgrounded and the address
+    # is read back over D-Bus rather than from its stdout.
+    /usr/libexec/at-spi-bus-launcher --launch-immediately \
+        >"$LOGS/at-spi-launcher.log" 2>&1 &
+    i=0
+    until dbus-send --session --print-reply --dest=org.a11y.Bus \
+        /org/a11y/bus org.a11y.Bus.GetAddress >/dev/null 2>&1; do
+        i=$((i + 1))
+        [ "$i" -lt 100 ] || { echo "e2e: at-spi bus never came up" >&2; exit 1; }
+        sleep 0.1
+    done
+    export AT_SPI_BUS_ADDRESS=$(dbus-send --session --print-reply \
+        --dest=org.a11y.Bus /org/a11y/bus org.a11y.Bus.GetAddress 2>/dev/null \
+        | grep string | sed -E 's/.*string "([^"]*)".*/\1/')
+
+    # The launcher does not reliably spawn the registry daemon in this image,
+    # and without it no AT can enumerate the tree. Start it explicitly on the
+    # bus the launcher created.
+    /usr/libexec/at-spi2-registryd >"$LOGS/at-spi-registryd.log" 2>&1 &
+
     : > "$LOGS/a11y.env"
     printf 'export DBUS_SESSION_BUS_ADDRESS=%s\n' "$DBUS_SESSION_BUS_ADDRESS" >> "$LOGS/a11y.env"
     printf 'export AT_SPI_BUS_ADDRESS=%s\n' "$AT_SPI_BUS_ADDRESS" >> "$LOGS/a11y.env"

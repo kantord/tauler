@@ -548,7 +548,7 @@ fn workspace_root() -> Result<PathBuf> {
 fn a11y_button_is_visible_and_activation_dispatches_an_intent() -> Result<()> {
     let desktop = Desktop::start_with_env("a11y", Screen::default(), &[("A11Y", "1")])?;
 
-    let with_bus = "sh -c '. /out/a11y/a11y.env && $1' _";
+    let with_bus = "sh -c '. /out/a11y/a11y.env && \"$@\"' _";
 
     // The button appears in the accessibility tree as a push button named Mute.
     let tree = wait_for("tauler's a11y tree to contain the button", || {
@@ -565,7 +565,11 @@ fn a11y_button_is_visible_and_activation_dispatches_an_intent() -> Result<()> {
     );
 
     // Activate it. The intent lands on the recorder module's stdin.
-    desktop.exec(&["sh", "-c", &format!("{with_bus} a11y-probe --activate Mute")])?;
+    desktop.exec(&[
+        "sh",
+        "-c",
+        &format!("{with_bus} a11y-probe --activate Mute"),
+    ])?;
 
     wait_for("the module to receive the activation intent", || {
         let log = desktop.exec(&["sh", "-c", "cat /out/a11y/a11y-module.log"])?;

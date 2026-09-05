@@ -47,7 +47,7 @@ static void walk(AtspiAccessible *node, int depth) {
         if (action != NULL) {
             gint n = atspi_action_get_n_actions(action, NULL);
             if (n > 0) {
-                if (atspi_action_do(action, 0, NULL)) {
+                if (atspi_action_do_action(action, 0, NULL)) {
                     printf("ACTIVATED:%s\n", name);
                     fflush(stdout);
                     activated = 1;
@@ -74,9 +74,28 @@ int main(int argc, char **argv) {
         activate_name = argv[2];
     }
 
-    if (!atspi_init()) {
+    // atspi_init returns 0 on success (1 if already initialised, or an error
+    // code). Testing `!atspi_init()` here would treat success as failure.
+    if (atspi_init() != 0) {
         fprintf(stderr, "a11y-probe: atspi_init failed (is the accessibility bus up?)\n");
         return 1;
+    }
+
+    // Attaching an AT means flipping `org.a11y.Status.IsEnabled` to true. That
+    // is the one signal accesskit reacts to: only then does it build and
+    // register its tree (ADR 0039). Doing it here, after connecting, matches
+    // a real screen reader and guarantees tauler is already subscribed to the
+    // property before it changes. `IsEnabled` is a D-Bus property, so it is
+    // set through the standard Properties interface — there is no
+    // `SetIsEnabled` method on the bus service.
+    int enabled_rc = system("dbus-send --session --print-reply "
+                           "--dest=org.a11y.Bus /org/a11y/bus "
+                           "org.freedesktop.DBus.Properties.Set "
+                           "string:org.a11y.Status string:IsEnabled "
+                           "variant:boolean:true "
+                           ">/dev/null 2>&1");
+    if (enabled_rc != 0) {
+        fprintf(stderr, "a11y-probe: could not enable accessibility\n");
     }
 
     for (int attempt = 0; attempt < 50; attempt++) {

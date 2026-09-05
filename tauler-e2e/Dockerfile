@@ -35,7 +35,8 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
 # client library, which at-spi2-core pulls in. Compiled here so the runtime
 # image does not need a toolchain.
 RUN gcc -O2 -o /artifacts/a11y-probe tauler-e2e/a11y-probe.c \
-        $(pkg-config --cflags --libs atspi-2 glib-2.0)
+        $(pkg-config --cflags atspi-2) \
+        $(pkg-config --libs atspi-2 gobject-2.0)
 
 FROM debian:bookworm-slim@sha256:88200866dfff7ea7f5cbcb6ec7c8a701889efe6fe859fe64d6990e4b07ea4171
 
