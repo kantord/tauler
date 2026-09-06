@@ -25,7 +25,7 @@ test('docs → landing via the HOME link', async ({ page }) => {
   await page.goto('/docs/layout-file/')
   const width = page.viewportSize()?.width ?? 0
   if (width < 800) {
-    await page.locator('starlight-menu-button button').click()
+    await page.locator('button.sl-menu-button').click()
     await page.locator('.dx-mobile-links a[href="/"]').click()
   } else {
     await page.locator('.dx-nav-link[href="/"]').click()
