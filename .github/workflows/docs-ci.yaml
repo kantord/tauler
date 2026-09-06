@@ -56,7 +56,7 @@ jobs:
       # "Build the browser assets" step — same toolchain, same recipe.
       - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
         with:
-          toolchain: "1.98.0"
+          toolchain: "1.98.1"
           targets: wasm32-unknown-unknown
 
       # deploy-docs.yaml's own version of this step uses `sudo` and skips a C
