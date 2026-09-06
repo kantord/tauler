@@ -69,7 +69,7 @@ test.describe('cross-device layout', () => {
         // the menu button; above it, it's on screen without interaction.
         const width = page.viewportSize()?.width ?? 0
         if (width < 800) {
-          await page.locator('starlight-menu-button button').click()
+          await page.locator('button.sl-menu-button').click()
         }
         await expect(page.locator('#starlight__sidebar')).toBeVisible()
       })
