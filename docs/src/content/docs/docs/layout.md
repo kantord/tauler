@@ -74,6 +74,42 @@ bar rather than beside it.
 normally `tauler-i3`. Omit it and `<I3Layout>` becomes pure geometry, registering nothing —
 useful on a compositor that reserves space by other means.
 
+## `<Workspaces>`
+
+`<Panel>` needs its thickness stated as a `size`. `<Workspaces>` is for the opposite
+case: a frame around the workspace area — the space i3 tiles real windows into — whose
+thickness is whatever a wrapper's own CSS already says, not a number restated beside it.
+
+```jsx
+<I3Layout module="~/.cargo/bin/tauler-i3">
+  <Panel id="sidebar" anchor="left" size={272}>…</Panel>
+  <Workspaces>
+    {(Contents) => (
+      <div class="w-full h-full p-3 bg-accent">
+        <Contents class="w-full h-full rounded-lg bg-background" />
+      </div>
+    )}
+  </Workspaces>
+</I3Layout>
+```
+
+Design one wrapper as if it fully surrounded the workspace area — border, padding,
+rounded corners, whatever a frame needs — with `<Contents/>` marking where that area is.
+`<Workspaces>` renders it once to find out where `<Contents/>` actually landed, then
+turns whichever edges it doesn't already touch into real `<panel>`s: a `p-3` wrapper
+gets four 12px frame panels and a matching 12px gap on every side; a wrapper with no
+border at all gets no panels and reserves nothing.
+
+Each frame panel shows its own strip of the *same* wrapper, so a rounded corner or a
+shadow that spans two edges paints as one continuous design rather than four
+independently-drawn pieces that happen to line up.
+
+Usable once, as the last child of `<I3Layout>` — it takes whatever rectangle is left
+after every `<Panel>` before it, the same way an unanchored `<Panel>` would, except it
+frames that rectangle instead of covering it. A repeated or misplaced `<Workspaces>`
+degrades the same way an unknown `<Panel>` anchor does: only the last one declared is
+used, nothing crashes.
+
 ## Doing it by hand
 
 `<I3Layout>` is a convenience over `tauler-i3`'s `gaps` prop, which remains available:

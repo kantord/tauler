@@ -14,6 +14,7 @@ pub mod render;
 pub mod surface;
 pub mod units;
 pub mod windowing;
+pub mod workspaces;
 // The UI components and the theme layer live in `tauler-core`, which cannot reach x11rb,
 // takumi or rquickjs (ADR 0010, "The third measurement"). Re-exported under their old
 // paths: nothing above this line cares which crate they are compiled in.

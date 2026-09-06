@@ -190,6 +190,13 @@ a Panel; it *produces* one. Note the casing: lowercase `<panel>` is the surface,
 `<Panel>` is the declaration.
 _Avoid_: panel (unqualified — it is the collision this term exists to prevent)
 
+**Workspace area**:
+The rectangle i3 tiles real application windows into — what is left of the screen once
+every Panel's reservation is subtracted. Never a surface tauler draws; `<Workspaces>`
+frames it without ever covering it.
+_Avoid_: workspace (unqualified — i3 already owns that word for a virtual desktop; this
+is the area one occupies on screen, not the desktop itself)
+
 ### Scenarios
 
 **Scenario**:

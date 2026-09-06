@@ -51,15 +51,56 @@ pub const JSX_GLOBALS_JS: &str = r#"
     // Dispatch only — the layout arithmetic is `ui::components::i3_layout`.
     // The gaps must be registered here rather than in Rust: registration is a
     // JS-side call, and a Rust component has no context to make one.
+    //
+    // <Workspaces> is handled separately from plain <Panel>s: its thickness isn't
+    // declared, it's measured (see `src/workspaces.rs`, which needs takumi and so
+    // can't live beside i3_layout.rs in this takumi-free crate — ADR 0010). The
+    // render-prop was already called eagerly when `h()` evaluated <Workspaces>, so
+    // by the time it is a child here it is just `{__workspaces: true, wrapperTree}`.
+    // A misplaced or repeated <Workspaces> degrades rather than fails the whole
+    // bar (same rule as an unknown <Panel> anchor): only the last declared one is
+    // used, and anything after it is silently dropped along with it.
     globalThis.I3Layout = ({ module, children }) => {
-        const decls = (Array.isArray(children) ? children : [children]).filter(Boolean);
+        const all = (Array.isArray(children) ? children : [children]).filter(Boolean);
+        const lastWorkspaces = [...all].reverse().find((d) => d.__workspaces);
+        const decls = all.filter((d) => !d.__workspaces);
         const out = __ui_i3_layout({
             children: decls,
             width: ctx.screen_width,
             height: ctx.screen_height,
         });
-        if (module) useEvents(module, { gaps: out.gaps });
-        return out.panels;
+        let panels = out.panels;
+        let gaps = out.gaps;
+        if (lastWorkspaces) {
+            const freeX = gaps.left;
+            const freeY = gaps.top;
+            const freeW = ctx.screen_width - gaps.left - gaps.right;
+            const freeH = ctx.screen_height - gaps.top - gaps.bottom;
+            const frame = __workspaces_layout(lastWorkspaces.wrapperTree, freeW, freeH);
+            panels = panels.concat(
+                frame.panels.map((p) => ({ ...p, x: p.x + freeX, y: p.y + freeY }))
+            );
+            gaps = {
+                left: gaps.left + frame.gaps.left,
+                right: gaps.right + frame.gaps.right,
+                top: gaps.top + frame.gaps.top,
+                bottom: gaps.bottom + frame.gaps.bottom,
+            };
+        }
+        if (module) useEvents(module, { gaps });
+        return panels;
+    };
+    // Declaration only, like <Panel>: <Workspaces> reads the render-prop's return
+    // value and hands it to the native half. `Contents` is the placeholder the
+    // wrapper renders in place of the real tiled workspace area — a plain div
+    // carrying a marker `measure_content_rect` (`src/workspaces.rs`) looks for.
+    globalThis.Contents = (props) => ({ ...props, type: "div", "data-tauler-workspaces-content": true });
+    globalThis.Workspaces = ({ children }) => {
+        const render = Array.isArray(children) ? children[0] : children;
+        if (typeof render !== "function") {
+            throw new Error("<Workspaces> needs one function child: {(Contents) => <Wrapper>...}");
+        }
+        return { __workspaces: true, wrapperTree: render(globalThis.Contents) };
     };
     // Handlers that are functions cannot cross the JSON boundary, so they stay here
     // and the tree carries `{$handler: n}` instead (ADR 0021). Rebuilt every tick;

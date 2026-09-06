@@ -1,0 +1,24 @@
+// Scenario: a sidebar, then `<Workspaces>` framing the rest of the screen with a
+// 12px border on every side. The border's color is only known from the wrapper's
+// own CSS — nothing here restates it as a size, which is the whole point.
+
+export default function render() {
+  return (
+    <root>
+      <I3Layout module="/usr/local/bin/tauler-i3">
+        <Panel id="sidebar" anchor="left" size={272}>
+          <div class="flex flex-col h-full w-full gap-4 px-4 py-4 bg-background">
+            <span class="text-[18px] text-foreground">tauler</span>
+          </div>
+        </Panel>
+        <Workspaces>
+          {(Contents) => (
+            <div class="w-full h-full p-3 bg-accent">
+              <Contents class="w-full h-full rounded-lg bg-background" />
+            </div>
+          )}
+        </Workspaces>
+      </I3Layout>
+    </root>
+  );
+}

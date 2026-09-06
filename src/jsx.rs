@@ -70,6 +70,21 @@ fn json_of<'js>(
     serde_json::from_str(&json).ok()
 }
 
+/// The `<Workspaces>` shim's native half: measure `wrapper` and slice it into a frame.
+/// A plain `fn`, not a closure, because `rquickjs::Function::new` wants an
+/// `impl for<'js> Fn(...)` and a closure literal can't express that HRTB — the same
+/// reason `UiComponent::js_fn` (`tauler-core/src/ui/mod.rs`) is a named fn too.
+fn workspaces_layout_js_fn<'js>(
+    ctx: rquickjs::Ctx<'js>,
+    wrapper: rquickjs::Value<'js>,
+    width: u32,
+    height: u32,
+) -> rquickjs::Result<rquickjs::Value<'js>> {
+    let wrapper = json_of(&ctx, wrapper).unwrap_or_default();
+    let frame = crate::workspaces::lay_out_frame("workspaces", &wrapper, width, height);
+    rquickjs_serde::to_value(ctx, frame).map_err(|_| rquickjs::Error::Unknown)
+}
+
 /// Dispatches a lifecycle hook, picking the batch spelling or the per-Item sugar
 /// by whichever one the Unit defined.
 ///
@@ -427,6 +442,10 @@ impl JsxEvaluator {
                             }
                         },
                     )?,
+                )?;
+                qjs_ctx.globals().set(
+                    "__workspaces_layout",
+                    rquickjs::Function::new(qjs_ctx.clone(), workspaces_layout_js_fn)?,
                 )?;
                 crate::ui::registry::register_ui_components(&qjs_ctx)?;
                 if !ctx.is_null() {
