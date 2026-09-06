@@ -27,7 +27,7 @@ use std::sync::Mutex;
 use takumi::prelude::{Node, Viewport};
 use takumi_core::context::RenderContext as TakumiRenderContext;
 use takumi_core::geometry::transformed_rect_extents;
-use takumi_core::geometry::{NodeId, Point};
+use takumi_core::geometry::{NodeId, Point, Size};
 use takumi_core::layout::tree::{LayoutResults, LayoutTree, RenderNode};
 use takumi_core::scene::{build_stacking_contexts, NodePaint, PaintItemKind, StackingContextNode};
 use takumi_core::style::{Affine, ComputedStyle, SizingContext};
@@ -154,7 +154,7 @@ fn with_scene<R>(
             &results,
             NodeId::ROOT,
             Affine::IDENTITY,
-            (Some(width as f32), Some(height as f32)),
+            Size::new(Some(width as f32), Some(height as f32)),
         )
         .map_err(|e| tracing::error!(error = %e, "stacking context build failed"))
         .ok()?;
