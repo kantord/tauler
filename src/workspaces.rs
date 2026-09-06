@@ -1,4 +1,4 @@
-//! `<Workspaces>`: slicing a decorative wrapper into a frame around the tiled
+//! `<Workspaces>`: slicing a decorative wrapper into edge strips around the tiled
 //! workspace area.
 //!
 //! A layout file designs one wrapper as if it fully surrounded the area i3 tiles real
@@ -6,8 +6,14 @@
 //! marking where that area is. This module measures where the placeholder actually
 //! landed (by really laying the wrapper out — see [`measure_content_rect`]), slices the
 //! remaining space into up to four CSS-border-style strips around it
-//! ([`frame_rects`]), and turns each into a `<panel>` that re-renders the *whole*
-//! wrapper, clipped and shifted so only its own strip shows ([`lay_out_frame`]).
+//! ([`edge_strips`]), and turns each into a `<panel>` that re-renders the *whole*
+//! wrapper, clipped and shifted so only its own strip shows ([`lay_out`]).
+//!
+//! `<Contents/>` is a real, painted `<div>`, not literally invisible — the issue that
+//! asked for this pictured "an invisible dummy component," but nothing here needs the
+//! placeholder to be invisible: it is never actually shown. It marks where the tiled
+//! workspace area goes, and tauler never puts a panel there, so no window ever paints
+//! over it regardless of what CSS it carries.
 //!
 //! This lives in `src/`, not `tauler-core`, because measuring requires
 //! [`crate::hit_test::painted_boxes`], which drives takumi's layout tree directly —
@@ -19,6 +25,7 @@
 
 use serde_json::Value;
 
+use crate::backdrop::ROOT_BG_KEY;
 use crate::hit_test::{painted_boxes, Rect};
 
 /// The attribute the `Contents` JS shim stamps on its placeholder div, so this module
@@ -30,16 +37,20 @@ const CONTENT_MARKER: &str = "data-tauler-workspaces-content";
 /// width, left and right span only the band between them. `None` for any edge flush
 /// against `content` — mirrors `i3_layout`'s "an unknown anchor reserves nothing": a
 /// degenerate wrapper produces no panel, not a zero-size one.
+///
+/// Named for what it holds, not what a "frame" is elsewhere in this codebase —
+/// CONTEXT.md's **Frame** is a Render target's finished pixels, an unrelated concept
+/// this would collide with under the same name.
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
-pub struct Frame {
+pub struct EdgeStrips {
     pub top: Option<Rect>,
     pub right: Option<Rect>,
     pub bottom: Option<Rect>,
     pub left: Option<Rect>,
 }
 
-/// Slice `width` × `height` into a frame around `content`.
-pub fn frame_rects(content: Rect, width: u32, height: u32) -> Frame {
+/// Slice `width` × `height` into strips around `content`.
+pub fn edge_strips(content: Rect, width: u32, height: u32) -> EdgeStrips {
     let (width, height) = (width as f32, height as f32);
 
     let top = (content.y > 0.0).then_some(Rect {
@@ -69,7 +80,7 @@ pub fn frame_rects(content: Rect, width: u32, height: u32) -> Frame {
         height: content.height,
     });
 
-    Frame {
+    EdgeStrips {
         top,
         right,
         bottom,
@@ -133,7 +144,7 @@ pub struct Gaps {
 /// (`tauler-core`'s `i3_layout.rs`) uses for plain `<Panel>`s, so the JS shim can merge
 /// the two additively without caring which produced which.
 #[derive(Debug, Clone, Default, serde::Serialize)]
-pub struct WorkspacesFrame {
+pub struct WorkspacesLayout {
     pub panels: Vec<Value>,
     pub gaps: Gaps,
 }
@@ -147,13 +158,13 @@ pub struct WorkspacesFrame {
 /// (`tauler-core/src/ui/components/scroll_area.rs`), reused because it already avoids
 /// that bug family and is already proven in production layouts.
 ///
-/// A `tauler:root-bg` image is added automatically, sized to this panel's own `rect` —
-/// not to `wrapper`'s pretend full-size canvas, which is the wrong box for it (ADR
-/// 0038). Every hand-written `<Panel>` that wants to look transparent adds this image
-/// itself; a generated frame panel gets it for free, since the wrapper's own coordinate
-/// space has no way to name "this panel's real geometry" for it to size against. It is
-/// the one `position: absolute` element here, so it does not trigger the sibling bug
-/// above on its own — only a *second* absolutely-positioned sibling would.
+/// [`ROOT_BG_KEY`] is added automatically, sized to this panel's own `rect` — not to
+/// `wrapper`'s pretend full-size canvas, which is the wrong box for it (ADR 0038).
+/// Every hand-written `<Panel>` that wants to look transparent adds this image itself;
+/// a generated frame panel gets it for free, since the wrapper's own coordinate space
+/// has no way to name "this panel's real geometry" for it to size against. It is the
+/// one `position: absolute` element here, so it does not trigger the sibling bug above
+/// on its own — only a *second* absolutely-positioned sibling would.
 fn panel_json(id: String, rect: Rect, width: u32, height: u32, wrapper: &Value) -> Value {
     serde_json::json!({
         "type": "panel",
@@ -169,7 +180,7 @@ fn panel_json(id: String, rect: Rect, width: u32, height: u32, wrapper: &Value) 
             "children": [
                 {
                     "type": "img",
-                    "src": "tauler:root-bg",
+                    "src": ROOT_BG_KEY,
                     "style": { "position": "absolute", "top": 0, "left": 0, "width": "100%", "height": "100%" },
                 },
                 {
@@ -192,19 +203,19 @@ fn panel_json(id: String, rect: Rect, width: u32, height: u32, wrapper: &Value) 
 ///
 /// `id` names the emitted panels (`"{id}-top"` etc.) so more than one `<Workspaces>`
 /// on screen — one per output, say — never collide.
-pub fn lay_out_frame(id: &str, wrapper: &Value, width: u32, height: u32) -> WorkspacesFrame {
+pub fn lay_out(id: &str, wrapper: &Value, width: u32, height: u32) -> WorkspacesLayout {
     let Some(content) = measure_content_rect(wrapper, width, height) else {
-        return WorkspacesFrame::default();
+        return WorkspacesLayout::default();
     };
-    let frame = frame_rects(content, width, height);
+    let strips = edge_strips(content, width, height);
     let mut panels = Vec::new();
     let mut gaps = Gaps::default();
 
-    if let Some(r) = frame.top {
+    if let Some(r) = strips.top {
         gaps.top = r.height.round() as u32;
         panels.push(panel_json(format!("{id}-top"), r, width, height, wrapper));
     }
-    if let Some(r) = frame.bottom {
+    if let Some(r) = strips.bottom {
         gaps.bottom = r.height.round() as u32;
         panels.push(panel_json(
             format!("{id}-bottom"),
@@ -214,20 +225,20 @@ pub fn lay_out_frame(id: &str, wrapper: &Value, width: u32, height: u32) -> Work
             wrapper,
         ));
     }
-    if let Some(r) = frame.left {
+    if let Some(r) = strips.left {
         gaps.left = r.width.round() as u32;
         panels.push(panel_json(format!("{id}-left"), r, width, height, wrapper));
     }
-    if let Some(r) = frame.right {
+    if let Some(r) = strips.right {
         gaps.right = r.width.round() as u32;
         panels.push(panel_json(format!("{id}-right"), r, width, height, wrapper));
     }
 
-    WorkspacesFrame { panels, gaps }
+    WorkspacesLayout { panels, gaps }
 }
 
 #[cfg(test)]
-mod frame_rects_tests {
+mod edge_strips_tests {
     use super::*;
 
     fn rect(x: f32, y: f32, width: f32, height: f32) -> Rect {
@@ -241,29 +252,29 @@ mod frame_rects_tests {
 
     #[test]
     fn symmetric_padding_produces_all_four_strips() {
-        let frame = frame_rects(rect(10.0, 10.0, 80.0, 80.0), 100, 100);
-        assert_eq!(frame.top, Some(rect(0.0, 0.0, 100.0, 10.0)));
-        assert_eq!(frame.bottom, Some(rect(0.0, 90.0, 100.0, 10.0)));
-        assert_eq!(frame.left, Some(rect(0.0, 10.0, 10.0, 80.0)));
-        assert_eq!(frame.right, Some(rect(90.0, 10.0, 10.0, 80.0)));
+        let strips = edge_strips(rect(10.0, 10.0, 80.0, 80.0), 100, 100);
+        assert_eq!(strips.top, Some(rect(0.0, 0.0, 100.0, 10.0)));
+        assert_eq!(strips.bottom, Some(rect(0.0, 90.0, 100.0, 10.0)));
+        assert_eq!(strips.left, Some(rect(0.0, 10.0, 10.0, 80.0)));
+        assert_eq!(strips.right, Some(rect(90.0, 10.0, 10.0, 80.0)));
     }
 
     #[test]
     fn content_flush_to_the_top_omits_the_top_strip() {
-        let frame = frame_rects(rect(10.0, 0.0, 80.0, 90.0), 100, 100);
+        let strips = edge_strips(rect(10.0, 0.0, 80.0, 90.0), 100, 100);
         assert_eq!(
-            frame.top, None,
+            strips.top, None,
             "flush against the top edge, nothing to reserve"
         );
-        assert_eq!(frame.bottom, Some(rect(0.0, 90.0, 100.0, 10.0)));
-        assert_eq!(frame.left, Some(rect(0.0, 0.0, 10.0, 90.0)));
-        assert_eq!(frame.right, Some(rect(90.0, 0.0, 10.0, 90.0)));
+        assert_eq!(strips.bottom, Some(rect(0.0, 90.0, 100.0, 10.0)));
+        assert_eq!(strips.left, Some(rect(0.0, 0.0, 10.0, 90.0)));
+        assert_eq!(strips.right, Some(rect(90.0, 0.0, 10.0, 90.0)));
     }
 
     #[test]
-    fn content_filling_the_wrapper_produces_no_frame_at_all() {
-        let frame = frame_rects(rect(0.0, 0.0, 100.0, 100.0), 100, 100);
-        assert_eq!(frame, Frame::default());
+    fn content_filling_the_wrapper_produces_no_strips_at_all() {
+        let strips = edge_strips(rect(0.0, 0.0, 100.0, 100.0), 100, 100);
+        assert_eq!(strips, EdgeStrips::default());
     }
 }
 
@@ -325,18 +336,18 @@ mod measure_content_rect_tests {
 }
 
 #[cfg(test)]
-mod lay_out_frame_tests {
+mod lay_out_tests {
     use super::*;
     use crate::workspaces::measure_content_rect_tests::bordered_wrapper;
 
     #[test]
     fn emits_four_panels_with_matching_gaps() {
         crate::init_global_ctx(crate::config::FontConfig::default());
-        let frame = lay_out_frame("ws", &bordered_wrapper(), 100, 100);
+        let layout = lay_out("ws", &bordered_wrapper(), 100, 100);
 
-        assert_eq!(frame.panels.len(), 4);
+        assert_eq!(layout.panels.len(), 4);
         assert_eq!(
-            frame.gaps,
+            layout.gaps,
             Gaps {
                 left: 10,
                 right: 10,
@@ -345,7 +356,7 @@ mod lay_out_frame_tests {
             }
         );
 
-        let top = frame
+        let top = layout
             .panels
             .iter()
             .find(|p| p["id"] == "ws-top")
@@ -354,13 +365,13 @@ mod lay_out_frame_tests {
         assert_eq!(top["y"], 0);
         assert_eq!(top["width"], 100);
         assert_eq!(top["height"], 10);
-        assert_eq!(top["children"][0]["children"][0]["src"], "tauler:root-bg");
+        assert_eq!(top["children"][0]["children"][0]["src"], ROOT_BG_KEY);
         assert_eq!(
             top["children"][0]["children"][1]["style"]["translate"],
             "-0px -0px"
         );
 
-        let left = frame
+        let left = layout
             .panels
             .iter()
             .find(|p| p["id"] == "ws-left")
@@ -383,8 +394,8 @@ mod lay_out_frame_tests {
             "style": { "width": 100, "height": 100 },
             "data-tauler-workspaces-content": true,
         });
-        let frame = lay_out_frame("ws", &wrapper, 100, 100);
-        assert_eq!(frame.panels.len(), 0);
-        assert_eq!(frame.gaps, Gaps::default());
+        let layout = lay_out("ws", &wrapper, 100, 100);
+        assert_eq!(layout.panels.len(), 0);
+        assert_eq!(layout.gaps, Gaps::default());
     }
 }

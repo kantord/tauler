@@ -123,3 +123,51 @@ fn a_borderless_wrapper_adds_no_panels_or_gaps() {
     );
     assert_eq!(props["gaps"]["right"].as_u64(), Some(0));
 }
+
+/// The issue names "once, and only as the last panel" a constraint, not a suggestion.
+/// A layout file that breaks it still gets a bar rather than a crash — same rule an
+/// unknown `<Panel>` anchor follows. The *warning* this degradation logs is checked
+/// in `src/jsx.rs`'s own unit tests instead of here: `tracing_test`'s auto env-filter
+/// scopes to the test's own crate name, which for an integration test like this one
+/// is the test binary itself, not `tauler` — so a warning `tauler::jsx` logs never
+/// reaches this crate's capture buffer at all, filtered out before it's even written.
+#[test]
+fn a_workspaces_that_is_not_last_still_produces_its_panels() {
+    let layout = LAYOUT.replace(
+        r#"      </Workspaces>
+    </I3Layout>"#,
+        r#"      </Workspaces>
+      <Panel id="topbar" anchor="top" size={20}>
+        <div class="top" />
+      </Panel>
+    </I3Layout>"#,
+    );
+    let specs = tauler::parse_root_node(&eval(&layout).layout).expect("root parses");
+    assert!(
+        specs.iter().any(|s| s.id == "workspaces-top"),
+        "still produces its panels despite not being last"
+    );
+}
+
+/// Two `<Workspaces>` in one `<I3Layout>` degrades to "use the last one declared"
+/// rather than doubling the frame or failing the render. See the module doc comment
+/// above about why the accompanying warning is tested in `src/jsx.rs` instead.
+#[test]
+fn a_repeated_workspaces_uses_the_last_one() {
+    let layout = LAYOUT.replace(
+        r#"      </Workspaces>
+    </I3Layout>"#,
+        r#"      </Workspaces>
+      <Workspaces>
+        {(Contents) => <Contents style={{width: 1620, height: 1080}} />}
+      </Workspaces>
+    </I3Layout>"#,
+    );
+    let specs = tauler::parse_root_node(&eval(&layout).layout).expect("root parses");
+    assert_eq!(
+        specs.len(),
+        1,
+        "the last <Workspaces> fills the whole free rect, so it produces no panels — \
+         proving it, not the first one, won"
+    );
+}

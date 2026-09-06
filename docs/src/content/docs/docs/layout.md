@@ -95,10 +95,13 @@ thickness is whatever a wrapper's own CSS already says, not a number restated be
 
 Design one wrapper as if it fully surrounded the workspace area — border, padding,
 rounded corners, whatever a frame needs — with `<Contents/>` marking where that area is.
-`<Workspaces>` renders it once to find out where `<Contents/>` actually landed, then
-turns whichever edges it doesn't already touch into real `<panel>`s: a `p-3` wrapper
-gets four 12px frame panels and a matching 12px gap on every side; a wrapper with no
-border at all gets no panels and reserves nothing.
+`<Contents/>` is a real, ordinary `<div>`; nothing about it needs to be invisible,
+because nothing ever paints over it either way — tauler never places a panel there, so
+whatever `<Contents/>` itself would have looked like never reaches the screen.
+`<Workspaces>` renders the wrapper once to find out where `<Contents/>` actually landed,
+then turns whichever edges it doesn't already touch into real `<panel>`s: a `p-3`
+wrapper gets four 12px frame panels and a matching 12px gap on every side; a wrapper
+with no border at all gets no panels and reserves nothing.
 
 Each frame panel shows its own strip of the *same* wrapper, so a rounded corner or a
 shadow that spans two edges paints as one continuous design rather than four
@@ -108,7 +111,8 @@ Usable once, as the last child of `<I3Layout>` — it takes whatever rectangle i
 after every `<Panel>` before it, the same way an unanchored `<Panel>` would, except it
 frames that rectangle instead of covering it. A repeated or misplaced `<Workspaces>`
 degrades the same way an unknown `<Panel>` anchor does: only the last one declared is
-used, nothing crashes.
+used, nothing crashes — but tauler's own log gets a warning either way, since this one
+is a constraint rather than a typo tolerance.
 
 ## Doing it by hand
 

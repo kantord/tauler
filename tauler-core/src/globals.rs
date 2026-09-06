@@ -57,12 +57,18 @@ pub const JSX_GLOBALS_JS: &str = r#"
     // can't live beside i3_layout.rs in this takumi-free crate — ADR 0010). The
     // render-prop was already called eagerly when `h()` evaluated <Workspaces>, so
     // by the time it is a child here it is just `{__workspaces: true, wrapperTree}`.
-    // A misplaced or repeated <Workspaces> degrades rather than fails the whole
-    // bar (same rule as an unknown <Panel> anchor): only the last declared one is
-    // used, and anything after it is silently dropped along with it.
+    // A misplaced or repeated <Workspaces> degrades rather than fails the whole bar
+    // (same rule as an unknown <Panel> anchor): only the last declared one is used,
+    // and anything after it is silently dropped along with it — but "silently" only
+    // as far as the layout goes. There is no `console` in this runtime to warn from
+    // here, so `misplaced` crosses into `__workspaces_layout` and is reported from
+    // Rust (`src/jsx.rs`), where `tracing::warn!` actually reaches a log.
     globalThis.I3Layout = ({ module, children }) => {
         const all = (Array.isArray(children) ? children : [children]).filter(Boolean);
-        const lastWorkspaces = [...all].reverse().find((d) => d.__workspaces);
+        const workspacesDecls = all.filter((d) => d.__workspaces);
+        const lastWorkspaces = workspacesDecls[workspacesDecls.length - 1];
+        const misplaced = !!lastWorkspaces
+            && (workspacesDecls.length > 1 || all[all.length - 1] !== lastWorkspaces);
         const decls = all.filter((d) => !d.__workspaces);
         const out = __ui_i3_layout({
             children: decls,
@@ -76,7 +82,7 @@ pub const JSX_GLOBALS_JS: &str = r#"
             const freeY = gaps.top;
             const freeW = ctx.screen_width - gaps.left - gaps.right;
             const freeH = ctx.screen_height - gaps.top - gaps.bottom;
-            const frame = __workspaces_layout(lastWorkspaces.wrapperTree, freeW, freeH);
+            const frame = __workspaces_layout(lastWorkspaces.wrapperTree, freeW, freeH, misplaced);
             panels = panels.concat(
                 frame.panels.map((p) => ({ ...p, x: p.x + freeX, y: p.y + freeY }))
             );

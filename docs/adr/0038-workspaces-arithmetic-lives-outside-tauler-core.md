@@ -36,9 +36,9 @@ web renderer, same as `<I3Layout>` — there's no i3 to reserve gaps in a page, 
 wasm-side `__workspaces_layout` is ever registered. A layout file that uses either inside
 a page renders nothing where they were, rather than failing.
 
-## Frame panels are re-rendered and translated, not cropped
+## The generated panels are re-rendered and translated, not cropped
 
-Each generated frame panel re-renders the *whole* wrapper subtree inside an
+Each panel `<Workspaces>` emits re-renders the *whole* wrapper subtree inside an
 `overflow-hidden` box, shifted by a `translate` — `ScrollArea`'s existing
 `content_translate` trick (`tauler-core/src/ui/components/scroll_area.rs`) — rather than
 `position: absolute`. `docs/takumi-absolute-sibling-bug-research.md` documents an
@@ -46,8 +46,16 @@ unresolved takumi bug where two-or-more `position: absolute` siblings under one 
 blank the whole subtree; `translate` on a single normal-flow child was already proven in
 production and sidesteps that bug family entirely.
 
-This also means frame panels are not binary crops of one pre-rendered buffer, the way
+This also means these panels are not binary crops of one pre-rendered buffer, the way
 `tauler:root-bg` crops a wallpaper (`src/backdrop/mod.rs`). Re-running takumi's own
 layout and paint on the same small decorative subtree up to four times a tick was judged
 simpler than plumbing a new cropped-image resource type through the render pipeline, and
 is no different in kind from ADR 0007's "every tick re-renders everything."
+
+## Naming: `EdgeStrips`, not `Frame`
+
+`src/workspaces.rs`'s internal types are `EdgeStrips` and `WorkspacesLayout`, not
+`Frame`/`WorkspacesFrame` as first written — CONTEXT.md already defines **Frame** as a
+Render target's finished pixels (ADR-unrelated, much older), and reusing the word for
+"the four border strips around a workspace area" would have been the exact collision the
+glossary exists to prevent, just in code and docs instead of conversation.
