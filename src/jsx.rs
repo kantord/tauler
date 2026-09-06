@@ -70,6 +70,36 @@ fn json_of<'js>(
     serde_json::from_str(&json).ok()
 }
 
+/// The `<Workspaces>` shim's native half: measure `wrapper` and slice it into edge
+/// panels. A plain `fn`, not a closure, because `rquickjs::Function::new` wants an
+/// `impl for<'js> Fn(...)` and a closure literal can't express that HRTB — the same
+/// reason `UiComponent::js_fn` (`tauler-core/src/ui/mod.rs`) is a named fn too.
+///
+/// `misplaced` is `true` when the `I3Layout` shim found more than one `<Workspaces>`,
+/// or one that wasn't the last child — reported here rather than from JS because
+/// there is no `console` in this runtime (ADR 0008's globals list is exhaustive by
+/// construction, and it isn't on it). The layout still degrades to "use the last one
+/// declared" rather than failing the whole render — the same "a mistake never takes
+/// the bar down" rule `i3_layout` uses for an unknown anchor — but a misuse this
+/// specific (the issue names it a hard constraint) is worth a warning, not silence.
+fn workspaces_layout_js_fn<'js>(
+    ctx: rquickjs::Ctx<'js>,
+    wrapper: rquickjs::Value<'js>,
+    width: u32,
+    height: u32,
+    misplaced: bool,
+) -> rquickjs::Result<rquickjs::Value<'js>> {
+    if misplaced {
+        tracing::warn!(
+            "<Workspaces> may only be used once, as the last child of <I3Layout> — \
+             using the last one declared, ignoring the rest"
+        );
+    }
+    let wrapper = json_of(&ctx, wrapper).unwrap_or_default();
+    let layout = crate::workspaces::lay_out("workspaces", &wrapper, width, height);
+    rquickjs_serde::to_value(ctx, layout).map_err(|_| rquickjs::Error::Unknown)
+}
+
 /// Dispatches a lifecycle hook, picking the batch spelling or the per-Item sugar
 /// by whichever one the Unit defined.
 ///
@@ -427,6 +457,10 @@ impl JsxEvaluator {
                             }
                         },
                     )?,
+                )?;
+                qjs_ctx.globals().set(
+                    "__workspaces_layout",
+                    rquickjs::Function::new(qjs_ctx.clone(), workspaces_layout_js_fn)?,
                 )?;
                 crate::ui::registry::register_ui_components(&qjs_ctx)?;
                 if !ctx.is_null() {
@@ -1348,5 +1382,82 @@ return <div class="flex">
         );
         assert_eq!(children[0]["children"][0], "first");
         assert_eq!(children[1]["children"][0], "second");
+    }
+
+    /// The geometry these two exercise — a misplaced or repeated `<Workspaces>`
+    /// still producing panels, just from the last one declared — is covered in
+    /// `tests/workspaces_shim_test.rs`. What only a unit test *here* can check is
+    /// the warning itself: `tracing_test`'s auto env-filter scopes to the test's
+    /// own crate name, so from an external integration test a warning `tauler::jsx`
+    /// logs is filtered out before it ever reaches the capture buffer. From inside
+    /// this crate, the filter matches.
+    fn eval_with_screen(source: &str) -> EvalOutput {
+        crate::init_global_ctx(crate::config::FontConfig::default());
+        let ctx = serde_json::json!({"screen_width": 1920, "screen_height": 1080});
+        JsxEvaluator::new(source, ctx, None)
+            .unwrap()
+            .eval(&std::collections::HashMap::new())
+            .unwrap()
+    }
+
+    const WORKSPACES_LAYOUT: &str = r#"export default function render() {
+      return <root>
+        <I3Layout>
+          <Panel id="sidebar" anchor="left" size={300}>
+            <div class="side" />
+          </Panel>
+          <Workspaces>
+            {(Contents) => <Contents style={{width: 1620, height: 1080}} />}
+          </Workspaces>
+        </I3Layout>
+      </root>;
+    }"#;
+
+    #[test]
+    #[tracing_test::traced_test]
+    fn a_workspaces_that_is_not_last_warns() {
+        let layout = WORKSPACES_LAYOUT.replace(
+            r#"      </Workspaces>
+        </I3Layout>"#,
+            r#"      </Workspaces>
+          <Panel id="topbar" anchor="top" size={20}>
+            <div class="top" />
+          </Panel>
+        </I3Layout>"#,
+        );
+        eval_with_screen(&layout);
+        assert!(
+            logs_contain("<Workspaces> may only be used once"),
+            "a <Workspaces> that isn't last is reported, not silently accepted"
+        );
+    }
+
+    #[test]
+    #[tracing_test::traced_test]
+    fn a_repeated_workspaces_warns() {
+        let layout = WORKSPACES_LAYOUT.replace(
+            r#"      </Workspaces>
+        </I3Layout>"#,
+            r#"      </Workspaces>
+          <Workspaces>
+            {(Contents) => <Contents style={{width: 1620, height: 1080}} />}
+          </Workspaces>
+        </I3Layout>"#,
+        );
+        eval_with_screen(&layout);
+        assert!(
+            logs_contain("<Workspaces> may only be used once"),
+            "a repeated <Workspaces> is reported, not silently accepted"
+        );
+    }
+
+    #[test]
+    #[tracing_test::traced_test]
+    fn a_single_workspaces_last_does_not_warn() {
+        eval_with_screen(WORKSPACES_LAYOUT);
+        assert!(
+            !logs_contain("<Workspaces> may only be used once"),
+            "used correctly, there is nothing to warn about"
+        );
     }
 }
