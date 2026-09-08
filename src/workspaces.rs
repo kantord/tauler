@@ -33,7 +33,7 @@
 use serde_json::Value;
 
 use crate::backdrop::ROOT_BG_KEY;
-use crate::hit_test::{Rect, painted_boxes};
+use crate::hit_test::{painted_boxes, Rect};
 
 /// The attribute the `Contents` JS shim stamps on its placeholder div, so this module
 /// can find it again after evaluation without needing a dedicated node type.
