@@ -1,8 +1,8 @@
-//! `<Workspaces>` end to end: JSX in, a bordered frame of `<panel>`s out.
+//! `<Workspaces>` end to end: JSX in, one bordered frame `<panel>` out.
 //!
 //! `src/workspaces.rs`'s own tests cover the arithmetic against raw JSON. These cover
 //! the wiring — that the `<I3Layout>` shim reaches `__workspaces_layout`, offsets its
-//! panels by the gaps already consumed by earlier `<Panel>`s, and merges the frame's
+//! panel by the gaps already consumed by earlier `<Panel>`s, and merges the frame's
 //! gaps into what the module sees — the same thing `tests/i3_layout_test.rs` checks for
 //! plain `<Panel>`s.
 
@@ -49,9 +49,15 @@ const LAYOUT: &str = r#"export default function render() {
 }"#;
 
 #[test]
-fn the_frame_panels_are_positioned_relative_to_the_whole_screen() {
+fn the_frame_panel_is_positioned_relative_to_the_whole_screen() {
     let specs = tauler::parse_root_node(&eval(LAYOUT).layout).expect("root parses");
-    assert_eq!(specs.len(), 5, "sidebar plus four frame panels");
+    assert_eq!(
+        specs.len(),
+        2,
+        "sidebar plus one merged frame panel — the old four-strip translate/clip \
+         scheme collapsed to a single panel spanning the whole free rect, since \
+         backdrop-filter seamed at every boundary between separately-rasterized panels"
+    );
 
     let rect = |id: &str| {
         let s = specs
@@ -63,13 +69,11 @@ fn the_frame_panels_are_positioned_relative_to_the_whole_screen() {
 
     assert_eq!(rect("sidebar"), (0, 0, 300, 1080));
     assert_eq!(
-        rect("workspaces-top"),
-        (300, 0, 1620, 10),
-        "offset by the sidebar's gap, spanning the free rect's full width"
+        rect("workspaces"),
+        (300, 0, 1620, 1080),
+        "offset by the sidebar's gap, spanning the whole free rect — not just its \
+         border strips, since the wrapper is now rendered unmodified as one panel"
     );
-    assert_eq!(rect("workspaces-bottom"), (300, 1070, 1620, 10));
-    assert_eq!(rect("workspaces-left"), (300, 10, 10, 1060));
-    assert_eq!(rect("workspaces-right"), (1910, 10, 10, 1060));
 }
 
 #[test]
@@ -90,11 +94,12 @@ fn the_frames_thickness_is_added_to_the_sidebars_gaps() {
     assert_eq!(props["gaps"]["bottom"].as_u64(), Some(10));
 }
 
-/// A `<Workspaces>` whose wrapper fills the whole free rect (no border at all)
-/// degrades to zero panels and no extra gap, same as `src/workspaces.rs`'s own
-/// `a_wrapper_filling_itself_produces_no_panels`.
+/// A `<Workspaces>` whose wrapper fills the whole free rect (no border at all) still
+/// gets its one full-size panel — same as `src/workspaces.rs`'s own
+/// `a_wrapper_filling_itself_still_produces_exactly_one_full_size_panel` — but adds no
+/// extra gap, since there's no border to reserve tiling space for.
 #[test]
-fn a_borderless_wrapper_adds_no_panels_or_gaps() {
+fn a_borderless_wrapper_adds_no_extra_gaps() {
     let layout = LAYOUT.replace(
         r#"<div class="flex flex-col" style={{width: 1620, height: 1080}}>
             <div style={{height: 10}} />
@@ -108,7 +113,20 @@ fn a_borderless_wrapper_adds_no_panels_or_gaps() {
         r#"<Contents style={{width: 1620, height: 1080}} />"#,
     );
     let specs = tauler::parse_root_node(&eval(&layout).layout).expect("root parses");
-    assert_eq!(specs.len(), 1, "only the sidebar — no frame panels at all");
+    assert_eq!(
+        specs.len(),
+        2,
+        "sidebar plus the workspaces panel — still emitted even with no border"
+    );
+    assert_eq!(
+        specs
+            .iter()
+            .find(|s| s.id == "workspaces")
+            .map(|s| (s.x, s.y, s.width, s.height)),
+        Some((300, 0, 1620, 1080)),
+        "spans the whole free rect, same as the bordered case — geometry doesn't \
+         depend on whether the wrapper draws a visible border"
+    );
 
     let out = eval(&layout);
     let (_, props) = out
@@ -144,14 +162,20 @@ fn a_workspaces_that_is_not_last_still_produces_its_panels() {
     );
     let specs = tauler::parse_root_node(&eval(&layout).layout).expect("root parses");
     assert!(
-        specs.iter().any(|s| s.id == "workspaces-top"),
-        "still produces its panels despite not being last"
+        specs.iter().any(|s| s.id == "workspaces"),
+        "still produces its panel despite not being last"
     );
 }
 
 /// Two `<Workspaces>` in one `<I3Layout>` degrades to "use the last one declared"
 /// rather than doubling the frame or failing the render. See the module doc comment
 /// above about why the accompanying warning is tested in `src/jsx.rs` instead.
+///
+/// Panel count/geometry can't prove which one won anymore — every `<Workspaces>` now
+/// emits exactly one panel spanning the same full free rect, bordered or not. Gaps
+/// still can: the first (bordered) wrapper would add 10px on every side, the second
+/// (borderless) adds none, so a bare 300px `gaps.left` — not 310 — proves the second,
+/// not the first, is the one that actually rendered.
 #[test]
 fn a_repeated_workspaces_uses_the_last_one() {
     let layout = LAYOUT.replace(
@@ -163,11 +187,19 @@ fn a_repeated_workspaces_uses_the_last_one() {
       </Workspaces>
     </I3Layout>"#,
     );
-    let specs = tauler::parse_root_node(&eval(&layout).layout).expect("root parses");
+    let out = eval(&layout);
+    let (_, props) = out
+        .module_calls
+        .iter()
+        .find(|(bin, _)| bin == "/usr/bin/tauler-i3")
+        .expect("the module must be registered");
     assert_eq!(
-        specs.len(),
-        1,
-        "the last <Workspaces> fills the whole free rect, so it produces no panels — \
-         proving it, not the first one, won"
+        props["gaps"]["left"].as_u64(),
+        Some(300),
+        "just the sidebar's gap — the second, borderless <Workspaces> added none, \
+         proving it (not the first, bordered one) is the one that rendered"
     );
+    assert_eq!(props["gaps"]["top"].as_u64(), Some(0));
+    assert_eq!(props["gaps"]["bottom"].as_u64(), Some(0));
+    assert_eq!(props["gaps"]["right"].as_u64(), Some(0));
 }

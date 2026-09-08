@@ -85,9 +85,12 @@ fn three_edge_stack_reserves_each_edge_in_order() -> Result<()> {
     Ok(())
 }
 
-/// `<Workspaces>`: a sidebar, then a 12px frame (`p-3`) around the rest of the
-/// screen. Nothing here restates 12px as a size — the fixture's wrapper only says
-/// `p-3`, and the four frame panels below are what `<Workspaces>` measured from it.
+/// `<Workspaces>`: a sidebar, then a single frame panel spanning the rest of the
+/// screen, with a 12px border (`p-3`) reserved around the tiled area inside it.
+/// Nothing here restates 12px as a size — the fixture's wrapper only says `p-3`,
+/// and the gaps below are what `<Workspaces>` measured from it. One panel, not
+/// four strips: independently-rasterized panels seamed at every shared boundary
+/// under `backdrop-filter`, so the whole free rect renders as one panel instead.
 #[test]
 #[ignore = "needs Docker and `just e2e-image`"]
 fn workspaces_frames_the_area_beside_the_sidebar() -> Result<()> {
@@ -101,13 +104,7 @@ fn workspaces_frames_the_area_beside_the_sidebar() -> Result<()> {
                 top: 12,
                 bottom: 12,
             },
-            panels: vec![
-                rect(0, 0, 272, 1080),
-                rect(272, 0, 1648, 12),
-                rect(272, 1068, 1648, 12),
-                rect(272, 12, 12, 1056),
-                rect(1908, 12, 12, 1056),
-            ],
+            panels: vec![rect(0, 0, 272, 1080), rect(272, 0, 1648, 1080)],
             clients: 2,
         },
     )?;
