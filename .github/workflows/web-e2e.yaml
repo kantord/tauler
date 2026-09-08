@@ -47,7 +47,7 @@ jobs:
 
       # Pinned to the `wasm-bindgen` dependency in tauler-core/Cargo.toml.
       - name: Install wasm-bindgen-cli
-        run: cargo install wasm-bindgen-cli --version 0.2.126 --locked
+        run: cargo install wasm-bindgen-cli --version 0.2.128 --locked
 
       - uses: extractions/setup-just@53165ef7e734c5c07cb06b3c8e7b647c5aa16db3 # v4.0.0
       # `packageManager` lives in docs/package.json; there is no root package.json, and

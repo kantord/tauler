@@ -25,7 +25,7 @@ docs: web
 # `wasm-bindgen` refuses to process a module built against a different version of its own
 # crate, so the CLI version and the `wasm-bindgen` dependency in `tauler-core/Cargo.toml`
 # are one number in two places.
-WASM_BINDGEN_VERSION := "0.2.126"
+WASM_BINDGEN_VERSION := "0.2.128"
 
 web:
     @command -v wasm-bindgen >/dev/null 2>&1 || { \
