@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.2](https://github.com/kantord/tauler/compare/tauler-i3-v0.3.1...tauler-i3-v0.3.2) - 2026-09-08
+
+### Other
+
+- update Cargo.lock dependencies
+
 ## [0.1.2](https://github.com/kantord/tauler/compare/tauler-i3-v0.1.1...tauler-i3-v0.1.2) - 2026-08-13
 
 ### Added

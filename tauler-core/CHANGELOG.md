@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.2](https://github.com/kantord/tauler/compare/tauler-core-v0.3.1...tauler-core-v0.3.2) - 2026-09-08
+
+### Fixed
+
+- *(deps)* update patch updates ([#532](https://github.com/kantord/tauler/pull/532))
+- correct output DPR, primary-output, and gap-overflow bugs ([#529](https://github.com/kantord/tauler/pull/529))
+
 ## [0.3.1](https://github.com/kantord/tauler/compare/tauler-core-v0.3.0...tauler-core-v0.3.1) - 2026-09-06
 
 ### Added
