@@ -1460,4 +1460,16 @@ return <div class="flex">
             "used correctly, there is nothing to warn about"
         );
     }
+
+    /// Issue #525 bug #4: a sidebar wider than the screen (as a squished
+    /// panel from a bad DPR reading, or just a misconfigured layout, could
+    /// produce) drives `freeW` negative. Uncaught, that throws crossing the
+    /// `u32` FFI boundary into Rust and drops the *entire* tick's panel/gaps
+    /// update — not just the offending one. `eval_with_screen` unwraps the
+    /// eval result, so a regression here fails loudly rather than silently.
+    #[test]
+    fn a_gap_wider_than_the_screen_does_not_drop_the_whole_tick() {
+        let layout = WORKSPACES_LAYOUT.replace("size={300}", "size={2000}");
+        eval_with_screen(&layout);
+    }
 }

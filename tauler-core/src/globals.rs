@@ -80,8 +80,14 @@ pub const JSX_GLOBALS_JS: &str = r#"
         if (lastWorkspaces) {
             const freeX = gaps.left;
             const freeY = gaps.top;
-            const freeW = ctx.screen_width - gaps.left - gaps.right;
-            const freeH = ctx.screen_height - gaps.top - gaps.bottom;
+            // Declared gaps can exceed the screen (a squished panel from a
+            // transient bad DPR reading, or just a misconfigured layout) —
+            // clamped here rather than left negative, since this crosses into
+            // Rust as a `u32` and a negative value would throw and drop the
+            // whole tick's panel/gaps update, not just this one (issue #525
+            // bug #4).
+            const freeW = Math.max(0, ctx.screen_width - gaps.left - gaps.right);
+            const freeH = Math.max(0, ctx.screen_height - gaps.top - gaps.bottom);
             const frame = __workspaces_layout(lastWorkspaces.wrapperTree, freeW, freeH, misplaced);
             panels = panels.concat(
                 frame.panels.map((p) => ({ ...p, x: p.x + freeX, y: p.y + freeY }))

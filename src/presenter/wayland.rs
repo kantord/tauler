@@ -60,7 +60,15 @@ pub(crate) fn run_wayland_presenter_thread(
                                     height: h,
                                     dpr,
                                 }];
-                                let _ = event_tx.send(PresenterEvent::OutputsChanged { outputs });
+                                let _ = event_tx.send(PresenterEvent::OutputsChanged {
+                                    outputs,
+                                    // Wayland's single, unnamed output is always primary,
+                                    // and its compositor-reported scale (not a separate
+                                    // Xft.dpi-style value — that split is X11-only) is
+                                    // already the number layout math should use.
+                                    primary_name: String::new(),
+                                    context_dpr: dpr,
+                                });
                             }
                         }
                         WindowEvent::Click {

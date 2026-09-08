@@ -4,8 +4,8 @@ use tauler::layout::OutputInfo;
 use tauler::presentation::{
     PointerEvent, PointerPhase, PresentationThread, PresenterEvent, PresenterEvents, SurfaceCommand,
 };
-use tauler::x11::outputs::build_output_map;
-use tauler::x11::panel::{put_image_chunked, resolve_panel_dpr, X11PanelContext};
+use tauler::x11::outputs::{build_output_map, resolve_primary_output_name};
+use tauler::x11::panel::{context_dpi_dpr, put_image_chunked, resolve_panel_dpr, X11PanelContext};
 use x11rb::connection::Connection as _;
 use x11rb::protocol::randr::{ConnectionExt as RandrExt, NotifyMask};
 
@@ -114,9 +114,16 @@ pub(crate) fn run_x11_presenter_thread(
                     pt.dm.root_screen_width = e.width as u32;
                     pt.dm.root_screen_height = e.height as u32;
                     let new_map = build_output_map(&pt.dm.conn, pt.dm.root);
+                    let primary_name =
+                        resolve_primary_output_name(&pt.dm.conn, pt.dm.root, &new_map);
+                    let (_dpi, context_dpr) = context_dpi_dpr(&pt.dm.conn, pt.dm.root);
                     let outputs: Vec<OutputInfo> = new_map.values().cloned().collect();
                     pt.dm.output_map = Arc::new(new_map);
-                    let _ = event_tx.send(PresenterEvent::OutputsChanged { outputs });
+                    let _ = event_tx.send(PresenterEvent::OutputsChanged {
+                        outputs,
+                        primary_name,
+                        context_dpr,
+                    });
                 }
                 x11rb::protocol::Event::Expose(e) => {
                     if let Some(panel) = pt.presenter.panels.values().find(|p| p.win_id == e.window)
