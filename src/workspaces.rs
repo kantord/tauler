@@ -6,14 +6,18 @@
 //! marking where that area is. This module measures where the placeholder actually
 //! landed (by really laying the wrapper out — see [`measure_content_rect`]), slices the
 //! remaining space into up to four CSS-border-style strips around it
-//! ([`edge_strips`]), and turns each into a `<panel>` that re-renders the *whole*
-//! wrapper, clipped and shifted so only its own strip shows ([`lay_out`]).
+//! ([`edge_strips`]), and turns each — plus the content rect itself — into a `<panel>`
+//! that re-renders the *whole* wrapper, clipped and shifted so only its own piece
+//! shows ([`lay_out`]).
 //!
 //! `<Contents/>` is a real, painted `<div>`, not literally invisible — the issue that
 //! asked for this pictured "an invisible dummy component," but nothing here needs the
-//! placeholder to be invisible: it is never actually shown. It marks where the tiled
-//! workspace area goes, and tauler never puts a panel there, so no window ever paints
-//! over it regardless of what CSS it carries.
+//! placeholder to be invisible. It marks where the tiled workspace area goes, and its
+//! own panel is stacked with `above: false` (the same rule every `<Panel>` uses to sit
+//! under real windows on both X11 and Wayland — `src/x11/panel.rs`'s `StackMode::BELOW`,
+//! `src/windowing/wayland/mod.rs`'s `Layer::Bottom`), so a real window always paints
+//! over it where one is tiled there — but its CSS background now shows through the
+//! gaps between windows, instead of leaving them showing raw wallpaper.
 //!
 //! This lives in `src/`, not `tauler-core`, because measuring requires
 //! [`crate::hit_test::painted_boxes`], which drives takumi's layout tree directly —
@@ -198,11 +202,16 @@ fn panel_json(id: String, rect: Rect, width: u32, height: u32, wrapper: &Value) 
 }
 
 /// Measure `wrapper` and turn whichever edges its `<Contents/>` doesn't already touch
-/// into panels, positioned relative to `wrapper`'s own `(0, 0)` origin — the caller
-/// (the `<I3Layout>` JS shim) knows the absolute offset this needs, this doesn't.
+/// into panels, plus one more panel for the content rect itself, positioned relative
+/// to `wrapper`'s own `(0, 0)` origin — the caller (the `<I3Layout>` JS shim) knows the
+/// absolute offset this needs, this doesn't.
 ///
-/// `id` names the emitted panels (`"{id}-top"` etc.) so more than one `<Workspaces>`
-/// on screen — one per output, say — never collide.
+/// The content panel isn't counted into `Gaps` — gaps tell i3/sway how much space the
+/// frame reserves around the tiled area, and the content panel reserves nothing; i3
+/// already tiles exactly into that rect.
+///
+/// `id` names the emitted panels (`"{id}-top"`, `"{id}-content"`, etc.) so more than
+/// one `<Workspaces>` on screen — one per output, say — never collide.
 pub fn lay_out(id: &str, wrapper: &Value, width: u32, height: u32) -> WorkspacesLayout {
     let Some(content) = measure_content_rect(wrapper, width, height) else {
         return WorkspacesLayout::default();
@@ -233,6 +242,14 @@ pub fn lay_out(id: &str, wrapper: &Value, width: u32, height: u32) -> Workspaces
         gaps.right = r.width.round() as u32;
         panels.push(panel_json(format!("{id}-right"), r, width, height, wrapper));
     }
+
+    panels.push(panel_json(
+        format!("{id}-content"),
+        content,
+        width,
+        height,
+        wrapper,
+    ));
 
     WorkspacesLayout { panels, gaps }
 }
@@ -345,7 +362,7 @@ mod lay_out_tests {
         crate::init_global_ctx(crate::config::FontConfig::default());
         let layout = lay_out("ws", &bordered_wrapper(), 100, 100);
 
-        assert_eq!(layout.panels.len(), 4);
+        assert_eq!(layout.panels.len(), 5);
         assert_eq!(
             layout.gaps,
             Gaps {
@@ -387,7 +404,39 @@ mod lay_out_tests {
     }
 
     #[test]
-    fn a_wrapper_filling_itself_produces_no_panels() {
+    fn emits_a_content_panel_not_counted_in_gaps() {
+        crate::init_global_ctx(crate::config::FontConfig::default());
+        let layout = lay_out("ws", &bordered_wrapper(), 100, 100);
+
+        assert_eq!(layout.panels.len(), 5);
+        assert_eq!(
+            layout.gaps,
+            Gaps {
+                left: 10,
+                right: 10,
+                top: 10,
+                bottom: 10,
+            }
+        );
+
+        let content = layout
+            .panels
+            .iter()
+            .find(|p| p["id"] == "ws-content")
+            .expect("a content panel");
+        assert_eq!(content["x"], 10);
+        assert_eq!(content["y"], 10);
+        assert_eq!(content["width"], 80);
+        assert_eq!(content["height"], 80);
+        assert_eq!(content["children"][0]["children"][0]["src"], ROOT_BG_KEY);
+        assert_eq!(
+            content["children"][0]["children"][1]["style"]["translate"],
+            "-10px -10px"
+        );
+    }
+
+    #[test]
+    fn a_wrapper_filling_itself_produces_only_the_content_panel() {
         crate::init_global_ctx(crate::config::FontConfig::default());
         let wrapper = serde_json::json!({
             "type": "div",
@@ -395,7 +444,15 @@ mod lay_out_tests {
             "data-tauler-workspaces-content": true,
         });
         let layout = lay_out("ws", &wrapper, 100, 100);
-        assert_eq!(layout.panels.len(), 0);
+        assert_eq!(
+            layout
+                .panels
+                .iter()
+                .map(|p| p["id"].clone())
+                .collect::<Vec<_>>(),
+            vec!["ws-content"],
+            "no edges to reserve, but the content rect still gets its own background panel"
+        );
         assert_eq!(layout.gaps, Gaps::default());
     }
 }
