@@ -148,6 +148,31 @@ pub fn i3_dpi(conn: &RustConnection, root: Window, screen: &Screen) -> f32 {
     FALLBACK_DPI
 }
 
+/// The (dpi, dpr) pair that `ctx.screen_width` and an implicit-primary
+/// panel's declared size are computed against — Xft.dpi/96, re-read fresh
+/// each time.
+///
+/// This is a deliberately different, deliberately separate number from
+/// [`crate::x11::outputs::build_output_map`]'s per-output RandR-mm density:
+/// that one is what an explicit `output="..."` panel wants (the *other*
+/// display's real physical pixels), this one is what the primary output and
+/// the layout file's own `ctx.screen_width` math agree on. Conflating them —
+/// or letting a caller re-derive either independently instead of calling
+/// this — is issue #525 bug #6.
+pub fn context_dpi_dpr(conn: &RustConnection, root: Window) -> (f32, f32) {
+    let dpi = match conn.setup().roots.iter().find(|s| s.root == root) {
+        Some(screen) => i3_dpi(conn, root, screen),
+        None => {
+            tracing::warn!(
+                root,
+                "context_dpi_dpr: root screen not found in setup, using fallback DPI"
+            );
+            FALLBACK_DPI
+        }
+    };
+    (dpi, dpi / 96.0)
+}
+
 fn create_panel(
     spec: &SurfaceSpec,
     frame: &SurfaceFrame,

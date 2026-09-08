@@ -173,7 +173,20 @@ fn apply_eval_result(
             .unwrap_or(primary_output_name)
             .to_string();
         let out = output_map.get(&name);
-        spec.dpr = out.map(|o| o.dpr).unwrap_or(dpr);
+        // An implicit output (no `output` prop) means the primary one, and the
+        // spec's declared size came from JS layout math run against
+        // `ctx.screen_width` — which is `dpr`-based (Xft.dpi/96 on X11), not
+        // the primary output's own RandR-mm density. Using that RandR density
+        // here for an implicit panel is issue #525 bug #6: the panel's
+        // declared and rendered sizes would then be computed against two
+        // disagreeing formulas. An *explicit* `output` means real
+        // multi-monitor placement, where the other display's own physical
+        // density is exactly what's wanted.
+        spec.dpr = if spec.output.is_some() {
+            out.map(|o| o.dpr).unwrap_or(dpr)
+        } else {
+            dpr
+        };
         // Resolve "unspecified" to the primary output's real name, so a panel
         // and a wallpaper that mean the same monitor agree on one key — that is
         // how `backdrop` pairs them up.
@@ -1201,23 +1214,38 @@ impl App {
         for event in tauler::pointer::compress_motion(events) {
             match event {
                 PresenterEvent::NeedsRender => {} // no-op: reconciler handles rendering
-                PresenterEvent::OutputsChanged { outputs } => {
+                PresenterEvent::OutputsChanged {
+                    outputs,
+                    primary_name,
+                    context_dpr,
+                } => {
                     self.output_map = outputs
                         .iter()
                         .map(|o| (o.name.clone(), o.clone()))
                         .collect();
-                    if let Some(primary) = outputs.first() {
-                        let screen_width = (primary.width as f32 / primary.dpr).round() as u32;
-                        let screen_height = (primary.height as f32 / primary.dpr).round() as u32;
+                    // Re-resolved fresh by the presenter thread on every event
+                    // (issue #525 bug #3) rather than trusted from construction
+                    // or picked via an unordered Vec — see `resolve_primary_output_name`.
+                    self.output_name = primary_name;
+                    // `context_dpr` (not a specific output's own RandR-mm `dpr`)
+                    // is what `ctx.screen_width` and an implicit-primary panel
+                    // are computed against. Rederiving it from the primary
+                    // output's RandR density here was issue #525 bug #6's other
+                    // half: it silently reintroduced the two-formula divergence
+                    // on every hotplug/rotation, even with the panel-level split
+                    // above fixed.
+                    self.dpr = context_dpr;
+                    if let Some(primary) = self.output_map.get(&self.output_name) {
+                        let screen_width = (primary.width as f32 / self.dpr).round() as u32;
+                        let screen_height = (primary.height as f32 / self.dpr).round() as u32;
                         self.jsx_ctx["screen_width"] = serde_json::json!(screen_width);
                         self.jsx_ctx["screen_height"] = serde_json::json!(screen_height);
-                        self.dpr = primary.dpr;
                         self.screen_width_logical = screen_width;
                         self.screen_height_logical = screen_height;
                         tracing::info!(
                             screen_width,
                             screen_height,
-                            dpr = primary.dpr,
+                            dpr = self.dpr,
                             "outputs changed"
                         );
                     }
@@ -1458,6 +1486,48 @@ mod tests {
             surface_set.spec("p").and_then(|s| s.output.as_deref()),
             Some("DP-1"),
             "a panel with no declared output must be reconciled under the primary output's name"
+        );
+    }
+
+    /// Issue #525 bug #6: an implicit-output panel's declared size comes from
+    /// JS layout math run against `ctx.screen_width` — computed against the
+    /// context dpr (`apply_eval_result`'s `dpr` argument), not the primary
+    /// output's own RandR-mm density. Using the latter for an implicit panel
+    /// makes its declared and rendered sizes disagree.
+    #[test]
+    fn apply_eval_result_implicit_output_panel_uses_context_dpr_not_output_dpr() {
+        tauler::init_global_ctx(tauler::config::FontConfig::default());
+        let layout = serde_json::json!({
+            "type": "root",
+            "children": [{ "type": "panel", "id": "p", "width": 10, "height": 10 }]
+        });
+        let out = make_eval_output(layout);
+        // The primary output's own RandR-mm density (2.0) deliberately
+        // disagrees with the context dpr passed to apply_eval_result (1.0).
+        let output_map: HashMap<String, OutputInfo> =
+            [("DP-1".to_string(), output("DP-1", 0, 0, 2560, 1440, 2.0))]
+                .into_iter()
+                .collect();
+
+        let (_data_loop, handle) = DataLoop::new();
+        let mut surface_set = SurfaceSets::new();
+        let (mut outputs, _command_rx) = test_outputs();
+
+        apply_eval_result(
+            &out,
+            1.0,
+            "DP-1",
+            &output_map,
+            &handle,
+            &mut surface_set,
+            &mut outputs,
+            &noop_mod_init,
+        );
+
+        assert_eq!(
+            surface_set.spec("p").map(|s| s.dpr),
+            Some(1.0),
+            "an implicit-output panel must use the context dpr (1.0), not the primary output's own RandR density (2.0)"
         );
     }
 

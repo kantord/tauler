@@ -10,13 +10,11 @@ use tauler::init_global_ctx;
 #[cfg(target_os = "linux")]
 use tauler::windowing::wayland::WaylandDisplayServer;
 #[cfg(not(target_os = "macos"))]
-use tauler::x11::panel::{i3_dpi, PanelContext};
+use tauler::x11::outputs::resolve_primary_output_name;
 #[cfg(not(target_os = "macos"))]
-use x11rb::{
-    connection::Connection,
-    protocol::{randr::ConnectionExt as RandrExt, xproto::*},
-    rust_connection::RustConnection,
-};
+use tauler::x11::panel::{context_dpi_dpr, PanelContext};
+#[cfg(not(target_os = "macos"))]
+use x11rb::{connection::Connection, protocol::xproto::*, rust_connection::RustConnection};
 
 mod app;
 mod presenter;
@@ -159,28 +157,17 @@ fn init_x11() -> Result<X11Init, Box<dyn std::error::Error>> {
     let conn = Arc::new(conn);
     let screen = conn.setup().roots[screen_num].clone();
 
-    let dpi = i3_dpi(&conn, screen.root, &screen);
-    let dpr = dpi / 96.0;
+    let (dpi, dpr) = context_dpi_dpr(&conn, screen.root);
 
     let output_map = tauler::x11::outputs::build_output_map(&conn, screen.root);
 
     // RandR answers 0 when no output is marked primary, and `GetOutputInfo(0)`
     // is a protocol error — so a bare X server (Xvfb, a session started by hand)
-    // used to take tauler down before it drew anything. The name is only used to
-    // look up a logical screen size below, which already has a fallback, so
-    // there is nothing here worth failing over.
-    let primary_output = conn.randr_get_output_primary(screen.root)?.reply()?.output;
-    let output_name = (primary_output != 0)
-        .then(|| {
-            conn.randr_get_output_info(primary_output, 0)
-                .ok()?
-                .reply()
-                .ok()
-        })
-        .flatten()
-        .map(|info| String::from_utf8_lossy(&info.name).into_owned())
-        .or_else(|| tauler::x11::outputs::fallback_output_name(&output_map))
-        .unwrap_or_default();
+    // used to take tauler down before it drew anything. `resolve_primary_output_name`
+    // already falls back to `fallback_output_name` for that case, and is the
+    // same resolution the runtime output-change handler re-runs later, so the
+    // two can never disagree (issue #525 bug #3).
+    let output_name = resolve_primary_output_name(&conn, screen.root, &output_map);
 
     let root_screen_width = screen.width_in_pixels as u32;
     let root_screen_height = screen.height_in_pixels as u32;
