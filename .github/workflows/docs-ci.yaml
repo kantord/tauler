@@ -87,7 +87,7 @@ jobs:
       # to process a module built against a different version of its own crate.
       - name: Install wasm-bindgen-cli
         working-directory: .
-        run: cargo install wasm-bindgen-cli --version 0.2.126 --locked
+        run: cargo install wasm-bindgen-cli --version 0.2.128 --locked
 
       - uses: extractions/setup-just@53165ef7e734c5c07cb06b3c8e7b647c5aa16db3 # v4.0.0
       - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
