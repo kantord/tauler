@@ -1,19 +1,22 @@
-//! `<Workspaces>`: slicing a decorative wrapper into edge strips around the tiled
-//! workspace area.
+//! `<Workspaces>`: rendering a decorative wrapper as one panel behind the tiled
+//! workspace area, and measuring how much space it reserves around that area.
 //!
 //! A layout file designs one wrapper as if it fully surrounded the area i3 tiles real
 //! windows into — rounded corners, a border, a shadow — with a `<Contents/>` placeholder
 //! marking where that area is. This module measures where the placeholder actually
 //! landed (by really laying the wrapper out — see [`measure_content_rect`]), slices the
-//! remaining space into up to four CSS-border-style strips around it
-//! ([`edge_strips`]), and turns each — plus the content rect itself — into a `<panel>`
-//! that re-renders the *whole* wrapper, clipped and shifted so only its own piece
-//! shows ([`lay_out`]).
+//! remaining space into up to four CSS-border-style strips around it ([`edge_strips`])
+//! to compute how much of each edge i3/sway must reserve, and renders the *whole*
+//! wrapper unmodified as a single `<panel>` spanning the full area ([`lay_out`]) — one
+//! panel rather than one clipped-and-shifted copy per strip, since backdrop-filter
+//! paints a visible seam at every internal boundary between separately-rasterized
+//! panels, and `edge_strips()` plus the content rect always exactly reconstruct the
+//! full area with no gaps or overlaps, so there is nothing left to slice apart.
 //!
 //! `<Contents/>` is a real, painted `<div>`, not literally invisible — the issue that
 //! asked for this pictured "an invisible dummy component," but nothing here needs the
-//! placeholder to be invisible. It marks where the tiled workspace area goes, and its
-//! own panel is stacked with `above: false` (the same rule every `<Panel>` uses to sit
+//! placeholder to be invisible. It marks where the tiled workspace area goes, and the
+//! whole panel is stacked with `above: false` (the same rule every `<Panel>` uses to sit
 //! under real windows on both X11 and Wayland — `src/x11/panel.rs`'s `StackMode::BELOW`,
 //! `src/windowing/wayland/mod.rs`'s `Layer::Bottom`), so a real window always paints
 //! over it where one is tiled there — but its CSS background now shows through the
@@ -30,7 +33,7 @@
 use serde_json::Value;
 
 use crate::backdrop::ROOT_BG_KEY;
-use crate::hit_test::{painted_boxes, Rect};
+use crate::hit_test::{Rect, painted_boxes};
 
 /// The attribute the `Contents` JS shim stamps on its placeholder div, so this module
 /// can find it again after evaluation without needing a dedicated node type.
@@ -153,30 +156,25 @@ pub struct WorkspacesLayout {
     pub gaps: Gaps,
 }
 
-/// Build one frame panel: the *whole* `wrapper`, re-rendered at its full natural size
-/// inside an `overflow-hidden` viewport sized to `rect`, shifted by `-rect.x, -rect.y`
-/// so only that one strip shows through. `translate`, not `position: absolute` for
-/// that shift — `docs/takumi-absolute-sibling-bug-research.md` documents an unresolved
-/// takumi bug where two-or-more `position: absolute` siblings blank their whole parent
-/// subtree. This is exactly `ScrollArea`'s `content_translate` trick
-/// (`tauler-core/src/ui/components/scroll_area.rs`), reused because it already avoids
-/// that bug family and is already proven in production layouts.
+/// Build the one frame panel: the *whole* `wrapper`, re-rendered unmodified at
+/// `width` × `height` — no clipping, no shifting. `edge_strips()` plus the content rect
+/// always exactly reconstruct `(0, 0, width, height)` with no gaps or overlaps, so there
+/// is nothing left to slice apart; a single panel covering the whole wrapper is
+/// equivalent to the old five-panel translate/clip scheme, without the seams
+/// backdrop-filter used to paint at every internal boundary between separately
+/// rasterized panels.
 ///
-/// [`ROOT_BG_KEY`] is added automatically, sized to this panel's own `rect` — not to
-/// `wrapper`'s pretend full-size canvas, which is the wrong box for it (ADR 0038).
-/// Every hand-written `<Panel>` that wants to look transparent adds this image itself;
-/// a generated frame panel gets it for free, since the wrapper's own coordinate space
-/// has no way to name "this panel's real geometry" for it to size against. It is the
-/// one `position: absolute` element here, so it does not trigger the sibling bug above
-/// on its own — only a *second* absolutely-positioned sibling would.
-fn panel_json(id: String, rect: Rect, width: u32, height: u32, wrapper: &Value) -> Value {
+/// [`ROOT_BG_KEY`] is added automatically, sized to this panel's own full `width` ×
+/// `height`. Every hand-written `<Panel>` that wants to look transparent adds this
+/// image itself; a generated frame panel gets it for free.
+fn panel_json(id: &str, width: u32, height: u32, wrapper: &Value) -> Value {
     serde_json::json!({
         "type": "panel",
         "id": id,
-        "x": rect.x.round() as i64,
-        "y": rect.y.round() as i64,
-        "width": rect.width.round() as u64,
-        "height": rect.height.round() as u64,
+        "x": 0,
+        "y": 0,
+        "width": width,
+        "height": height,
         "children": [{
             "type": "div",
             "class": "overflow-hidden",
@@ -187,69 +185,43 @@ fn panel_json(id: String, rect: Rect, width: u32, height: u32, wrapper: &Value) 
                     "src": ROOT_BG_KEY,
                     "style": { "position": "absolute", "top": 0, "left": 0, "width": "100%", "height": "100%" },
                 },
-                {
-                    "type": "div",
-                    "style": {
-                        "width": width,
-                        "height": height,
-                        "translate": format!("{}px {}px", -rect.x, -rect.y),
-                    },
-                    "children": [wrapper.clone()],
-                },
+                wrapper.clone(),
             ],
         }],
     })
 }
 
-/// Measure `wrapper` and turn whichever edges its `<Contents/>` doesn't already touch
-/// into panels, plus one more panel for the content rect itself, positioned relative
-/// to `wrapper`'s own `(0, 0)` origin — the caller (the `<I3Layout>` JS shim) knows the
-/// absolute offset this needs, this doesn't.
+/// Measure `wrapper` and emit one panel spanning the whole `(0, 0, width, height)` area,
+/// positioned relative to `wrapper`'s own origin — the caller (the `<I3Layout>` JS shim)
+/// knows the absolute offset this needs, this doesn't. `Gaps` still comes from
+/// `edge_strips()`, computed exactly as before — i3/sway still needs to know how much
+/// space the frame reserves around the tiled area — only panel *emission* has collapsed
+/// from up to five clipped strips down to one unmodified copy of `wrapper`.
 ///
-/// The content panel isn't counted into `Gaps` — gaps tell i3/sway how much space the
-/// frame reserves around the tiled area, and the content panel reserves nothing; i3
-/// already tiles exactly into that rect.
-///
-/// `id` names the emitted panels (`"{id}-top"`, `"{id}-content"`, etc.) so more than
-/// one `<Workspaces>` on screen — one per output, say — never collide.
+/// `id` names the single emitted panel directly (no `"{id}-top"`/`"{id}-content"`
+/// suffixes anymore) so more than one `<Workspaces>` on screen — one per output, say —
+/// never collide.
 pub fn lay_out(id: &str, wrapper: &Value, width: u32, height: u32) -> WorkspacesLayout {
     let Some(content) = measure_content_rect(wrapper, width, height) else {
         return WorkspacesLayout::default();
     };
     let strips = edge_strips(content, width, height);
-    let mut panels = Vec::new();
     let mut gaps = Gaps::default();
 
     if let Some(r) = strips.top {
         gaps.top = r.height.round() as u32;
-        panels.push(panel_json(format!("{id}-top"), r, width, height, wrapper));
     }
     if let Some(r) = strips.bottom {
         gaps.bottom = r.height.round() as u32;
-        panels.push(panel_json(
-            format!("{id}-bottom"),
-            r,
-            width,
-            height,
-            wrapper,
-        ));
     }
     if let Some(r) = strips.left {
         gaps.left = r.width.round() as u32;
-        panels.push(panel_json(format!("{id}-left"), r, width, height, wrapper));
     }
     if let Some(r) = strips.right {
         gaps.right = r.width.round() as u32;
-        panels.push(panel_json(format!("{id}-right"), r, width, height, wrapper));
     }
 
-    panels.push(panel_json(
-        format!("{id}-content"),
-        content,
-        width,
-        height,
-        wrapper,
-    ));
+    let panels = vec![panel_json(id, width, height, wrapper)];
 
     WorkspacesLayout { panels, gaps }
 }
@@ -357,12 +329,64 @@ mod lay_out_tests {
     use super::*;
     use crate::workspaces::measure_content_rect_tests::bordered_wrapper;
 
+    /// Recursively searches `value` for any object carrying a `"translate"` key,
+    /// anywhere in the tree. The single-panel scheme has nothing left to shift — the
+    /// whole wrapper is embedded unmodified — so a passing panel must have none at all,
+    /// unlike the old translate-per-strip trick this replaces.
+    fn contains_translate(value: &Value) -> bool {
+        match value {
+            Value::Object(map) => {
+                map.contains_key("translate") || map.values().any(contains_translate)
+            }
+            Value::Array(items) => items.iter().any(contains_translate),
+            _ => false,
+        }
+    }
+
+    /// Recursively searches `value` for an `<img>` node whose `src` is `ROOT_BG_KEY` —
+    /// the `root-bg` backdrop image `panel_json` adds behind every panel.
+    fn contains_root_bg_img(value: &Value) -> bool {
+        match value {
+            Value::Object(map) => {
+                (map.get("type") == Some(&Value::from("img"))
+                    && map.get("src") == Some(&Value::from(ROOT_BG_KEY)))
+                    || map.values().any(contains_root_bg_img)
+            }
+            Value::Array(items) => items.iter().any(contains_root_bg_img),
+            _ => false,
+        }
+    }
+
     #[test]
-    fn emits_four_panels_with_matching_gaps() {
+    fn emits_a_single_panel_spanning_the_whole_wrapper() {
         crate::init_global_ctx(crate::config::FontConfig::default());
         let layout = lay_out("ws", &bordered_wrapper(), 100, 100);
 
-        assert_eq!(layout.panels.len(), 5);
+        assert_eq!(
+            layout.panels.len(),
+            1,
+            "the five-panel translate/clip scheme collapses to one panel covering the \
+             whole wrapper, since backdrop-filter seams appear at every internal \
+             boundary between separately-rasterized panels"
+        );
+
+        let panel = &layout.panels[0];
+        assert_eq!(
+            panel["id"], "ws",
+            "the bare id, not a per-strip suffix like \"ws-top\" or \"ws-content\" — \
+             there's only one panel now"
+        );
+        assert_eq!(panel["x"], 0);
+        assert_eq!(panel["y"], 0);
+        assert_eq!(panel["width"], 100);
+        assert_eq!(panel["height"], 100);
+    }
+
+    #[test]
+    fn the_single_panel_gaps_are_unchanged_from_the_five_panel_scheme() {
+        crate::init_global_ctx(crate::config::FontConfig::default());
+        let layout = lay_out("ws", &bordered_wrapper(), 100, 100);
+
         assert_eq!(
             layout.gaps,
             Gaps {
@@ -370,73 +394,31 @@ mod lay_out_tests {
                 right: 10,
                 top: 10,
                 bottom: 10,
-            }
-        );
-
-        let top = layout
-            .panels
-            .iter()
-            .find(|p| p["id"] == "ws-top")
-            .expect("a top panel");
-        assert_eq!(top["x"], 0);
-        assert_eq!(top["y"], 0);
-        assert_eq!(top["width"], 100);
-        assert_eq!(top["height"], 10);
-        assert_eq!(top["children"][0]["children"][0]["src"], ROOT_BG_KEY);
-        assert_eq!(
-            top["children"][0]["children"][1]["style"]["translate"],
-            "-0px -0px"
-        );
-
-        let left = layout
-            .panels
-            .iter()
-            .find(|p| p["id"] == "ws-left")
-            .expect("a left panel");
-        assert_eq!(left["x"], 0);
-        assert_eq!(left["y"], 10);
-        assert_eq!(left["width"], 10);
-        assert_eq!(left["height"], 80);
-        assert_eq!(
-            left["children"][0]["children"][1]["style"]["translate"],
-            "-0px -10px"
+            },
+            "Gaps still comes from edge_strips(), unaffected by collapsing panel emission"
         );
     }
 
     #[test]
-    fn emits_a_content_panel_not_counted_in_gaps() {
+    fn the_single_panel_has_the_root_bg_image_and_no_translate() {
         crate::init_global_ctx(crate::config::FontConfig::default());
         let layout = lay_out("ws", &bordered_wrapper(), 100, 100);
+        let panel = &layout.panels[0];
 
-        assert_eq!(layout.panels.len(), 5);
-        assert_eq!(
-            layout.gaps,
-            Gaps {
-                left: 10,
-                right: 10,
-                top: 10,
-                bottom: 10,
-            }
+        assert!(
+            contains_root_bg_img(panel),
+            "still needs the root-bg backdrop image behind it, same ROOT_BG_KEY \
+             mechanism as before, just sized to the panel's own full width/height"
         );
-
-        let content = layout
-            .panels
-            .iter()
-            .find(|p| p["id"] == "ws-content")
-            .expect("a content panel");
-        assert_eq!(content["x"], 10);
-        assert_eq!(content["y"], 10);
-        assert_eq!(content["width"], 80);
-        assert_eq!(content["height"], 80);
-        assert_eq!(content["children"][0]["children"][0]["src"], ROOT_BG_KEY);
-        assert_eq!(
-            content["children"][0]["children"][1]["style"]["translate"],
-            "-10px -10px"
+        assert!(
+            !contains_translate(panel),
+            "nothing is sliced or shifted anymore — the wrapper is embedded as-is, so \
+             there is no clip box and no translate style left to assert on"
         );
     }
 
     #[test]
-    fn a_wrapper_filling_itself_produces_only_the_content_panel() {
+    fn a_wrapper_filling_itself_still_produces_exactly_one_full_size_panel() {
         crate::init_global_ctx(crate::config::FontConfig::default());
         let wrapper = serde_json::json!({
             "type": "div",
@@ -444,15 +426,21 @@ mod lay_out_tests {
             "data-tauler-workspaces-content": true,
         });
         let layout = lay_out("ws", &wrapper, 100, 100);
+
         assert_eq!(
             layout
                 .panels
                 .iter()
                 .map(|p| p["id"].clone())
                 .collect::<Vec<_>>(),
-            vec!["ws-content"],
-            "no edges to reserve, but the content rect still gets its own background panel"
+            vec![Value::from("ws")],
+            "no edges to reserve, but the wrapper still gets its one panel"
         );
+        let panel = &layout.panels[0];
+        assert_eq!(panel["x"], 0);
+        assert_eq!(panel["y"], 0);
+        assert_eq!(panel["width"], 100);
+        assert_eq!(panel["height"], 100);
         assert_eq!(layout.gaps, Gaps::default());
     }
 }
