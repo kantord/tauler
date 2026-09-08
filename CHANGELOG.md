@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.2](https://github.com/kantord/tauler/compare/tauler-v0.3.1...tauler-v0.3.2) - 2026-09-08
+
+### Added
+
+- paint background for workspaces area ([#535](https://github.com/kantord/tauler/pull/535))
+
+### Fixed
+
+- *(deps)* update rust crate cached to v4 ([#533](https://github.com/kantord/tauler/pull/533))
+- *(deps)* update patch updates ([#532](https://github.com/kantord/tauler/pull/532))
+- *(deps)* update rust crate takumi to v2.13.6 ([#507](https://github.com/kantord/tauler/pull/507))
+- correct output DPR, primary-output, and gap-overflow bugs ([#529](https://github.com/kantord/tauler/pull/529))
+
 ## [0.3.1](https://github.com/kantord/tauler/compare/tauler-v0.3.0...tauler-v0.3.1) - 2026-09-06
 
 ### Added
