@@ -4,10 +4,10 @@ use tauler::layout::OutputInfo;
 use tauler::presentation::{
     PointerEvent, PointerPhase, PresentationThread, PresenterEvent, PresenterEvents, SurfaceCommand,
 };
-use tauler::x11::outputs::{build_output_map, resolve_primary_output_name};
-use tauler::x11::panel::{context_dpi_dpr, put_image_chunked, resolve_panel_dpr, X11PanelContext};
+use tauler::x11::outputs::{build_output_map, randr_event_mask, resolve_primary_output_name};
+use tauler::x11::panel::{context_dpi_dpr, put_image_chunked, X11PanelContext};
 use x11rb::connection::Connection as _;
-use x11rb::protocol::randr::{ConnectionExt as RandrExt, NotifyMask};
+use x11rb::protocol::randr::ConnectionExt as RandrExt;
 
 use super::drain_commands;
 
@@ -67,7 +67,7 @@ fn send_pointer(
         y: y as f32,
         phys_width: panel.phys_width,
         phys_height: panel.phys_height,
-        dpr: resolve_panel_dpr(panel.output.as_deref(), &pt.dm.output_map, pt.dm.dpr),
+        dpr: panel.dpr,
         phase,
         buttons,
     }));
@@ -97,7 +97,7 @@ pub(crate) fn run_x11_presenter_thread(
     let _ = pt
         .dm
         .conn
-        .randr_select_input(pt.dm.root, NotifyMask::SCREEN_CHANGE);
+        .randr_select_input(pt.dm.root, randr_event_mask());
     let _ = pt.dm.conn.flush();
 
     loop {
@@ -113,6 +113,24 @@ pub(crate) fn run_x11_presenter_thread(
                     // sized against it.
                     pt.dm.root_screen_width = e.width as u32;
                     pt.dm.root_screen_height = e.height as u32;
+                    let new_map = build_output_map(&pt.dm.conn, pt.dm.root);
+                    let primary_name =
+                        resolve_primary_output_name(&pt.dm.conn, pt.dm.root, &new_map);
+                    let (_dpi, context_dpr) = context_dpi_dpr(&pt.dm.conn, pt.dm.root);
+                    let outputs: Vec<OutputInfo> = new_map.values().cloned().collect();
+                    pt.dm.output_map = Arc::new(new_map);
+                    let _ = event_tx.send(PresenterEvent::OutputsChanged {
+                        outputs,
+                        primary_name,
+                        context_dpr,
+                    });
+                }
+                x11rb::protocol::Event::RandrNotify(e)
+                    if e.sub_code == x11rb::protocol::randr::Notify::OUTPUT_CHANGE =>
+                {
+                    // Output-only change (e.g. a bare `xrandr --primary` switch) — no
+                    // root-screen-size fields on this event, so root_screen_width/height
+                    // are left untouched.
                     let new_map = build_output_map(&pt.dm.conn, pt.dm.root);
                     let primary_name =
                         resolve_primary_output_name(&pt.dm.conn, pt.dm.root, &new_map);

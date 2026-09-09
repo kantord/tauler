@@ -1248,6 +1248,19 @@ impl App {
                             dpr = self.dpr,
                             "outputs changed"
                         );
+                        const DPR_DIVERGENCE_THRESHOLD: f32 = 0.1;
+                        if tauler::x11::outputs::dprs_diverge(
+                            self.dpr,
+                            primary.dpr,
+                            DPR_DIVERGENCE_THRESHOLD,
+                        ) {
+                            tracing::warn!(
+                                context_dpr = self.dpr,
+                                output_dpr = primary.dpr,
+                                output = %self.output_name,
+                                "Xft.dpi-derived DPR and the primary output's own RandR-mm density disagree by more than 10% — panels may render at an unexpected size (issue #525 bug #6)"
+                            );
+                        }
                     }
                     let eval_out = self
                         .jsx_evaluator

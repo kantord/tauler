@@ -100,17 +100,7 @@ pub struct Panel {
     pub phys_height: u32,
     pub output: Option<String>,
     pub bgrx: Arc<Vec<u8>>,
-}
-
-pub fn resolve_panel_dpr(
-    output: Option<&str>,
-    output_map: &HashMap<String, OutputInfo>,
-    fallback: f32,
-) -> f32 {
-    output
-        .and_then(|name| output_map.get(name))
-        .map(|info| info.dpr)
-        .unwrap_or(fallback)
+    pub dpr: f32,
 }
 
 pub fn i3_dpi(conn: &RustConnection, root: Window, screen: &Screen) -> f32 {
@@ -242,6 +232,7 @@ fn create_panel(
         phys_height,
         output: spec.output.clone(),
         bgrx,
+        dpr: spec.dpr,
     })
 }
 
@@ -337,6 +328,8 @@ impl DisplayManager for X11PanelContext {
     ) -> Result<(), anyhow::Error> {
         let new_phys_width = (spec.width as f32 * spec.dpr).round() as u32;
         let new_phys_height = (spec.height as f32 * spec.dpr).round() as u32;
+
+        panel.dpr = spec.dpr;
 
         if new_phys_width != panel.phys_width || new_phys_height != panel.phys_height {
             self.conn
@@ -485,6 +478,43 @@ mod tests {
 
         assert!(panel.phys_width > 0, "phys_width must be > 0");
         assert!(panel.phys_height > 0, "phys_height must be > 0");
+
+        // Cleanup
+        let _ = <super::X11PanelContext as DisplayManager>::delete_window(&mut ctx, panel);
+    }
+
+    // ---------------------------------------------------------------------------
+    // Issue #525 bug #6: a Panel must remember the dpr it was actually created
+    // with (spec.dpr — the fully-resolved value apply_eval_result already
+    // computed, context dpr for implicit panels or the output's own dpr for
+    // explicit ones), not re-derive it later from the output's own RandR-mm
+    // density. Here the spec's dpr (2.0) deliberately disagrees with
+    // "test-output"'s own dpr (1.0, set by make_panel_ctx) to prove the two
+    // are not conflated.
+    // ---------------------------------------------------------------------------
+    #[test]
+    fn create_window_stores_the_specs_own_dpr_on_the_panel() {
+        use crate::display_manager::DisplayManager;
+
+        let Some(mut ctx) = make_panel_ctx() else {
+            println!("SKIP: no X11 display available");
+            return;
+        };
+
+        let mut spec = make_spec("dm-dpr", 200, 30);
+        spec.dpr = 2.0;
+
+        let panel = <super::X11PanelContext as DisplayManager>::create_window(
+            &mut ctx,
+            &spec,
+            &blank_frame(200, 30),
+        )
+        .expect("create_window should succeed when X11 is available");
+
+        assert_eq!(
+            panel.dpr, 2.0,
+            "Panel.dpr must be the spec's own resolved dpr, not the output's RandR-mm dpr"
+        );
 
         // Cleanup
         let _ = <super::X11PanelContext as DisplayManager>::delete_window(&mut ctx, panel);
@@ -687,72 +717,6 @@ mod tests {
 
         // Cleanup
         let _ = <super::X11PanelContext as DisplayManager>::delete_window(&mut ctx, panel);
-    }
-
-    // ---------------------------------------------------------------------------
-    // DPR-resolve-1: resolve_panel_dpr with a known output name returns that
-    // output's dpr from the map.
-    // ---------------------------------------------------------------------------
-    #[test]
-    fn resolve_panel_dpr_known_output_returns_output_dpr() {
-        use crate::layout::OutputInfo;
-        let mut map = HashMap::new();
-        map.insert(
-            "DP-1".to_string(),
-            OutputInfo {
-                name: "DP-1".to_string(),
-                x: 0,
-                y: 0,
-                width: 2560,
-                height: 1440,
-                dpr: 2.0,
-            },
-        );
-        let result = super::resolve_panel_dpr(Some("DP-1"), &map, 1.0);
-        assert_eq!(
-            result, 2.0,
-            "resolve_panel_dpr must return the output's dpr when the output is found in the map"
-        );
-    }
-
-    // ---------------------------------------------------------------------------
-    // DPR-resolve-2: resolve_panel_dpr with an output name NOT in the map returns
-    // the fallback dpr.
-    // ---------------------------------------------------------------------------
-    #[test]
-    fn resolve_panel_dpr_unknown_output_returns_fallback() {
-        use crate::layout::OutputInfo;
-        let mut map = HashMap::new();
-        map.insert(
-            "DP-1".to_string(),
-            OutputInfo {
-                name: "DP-1".to_string(),
-                x: 0,
-                y: 0,
-                width: 2560,
-                height: 1440,
-                dpr: 2.0,
-            },
-        );
-        let result = super::resolve_panel_dpr(Some("HDMI-1"), &map, 1.5);
-        assert_eq!(
-            result, 1.5,
-            "resolve_panel_dpr must return fallback when output name is not in the map"
-        );
-    }
-
-    // ---------------------------------------------------------------------------
-    // DPR-resolve-3: resolve_panel_dpr with output=None returns the fallback dpr.
-    // ---------------------------------------------------------------------------
-    #[test]
-    fn resolve_panel_dpr_no_output_returns_fallback() {
-        use crate::layout::OutputInfo;
-        let map: HashMap<String, OutputInfo> = HashMap::new();
-        let result = super::resolve_panel_dpr(None, &map, 1.25);
-        assert_eq!(
-            result, 1.25,
-            "resolve_panel_dpr must return fallback when output is None"
-        );
     }
 
     // ---------------------------------------------------------------------------
