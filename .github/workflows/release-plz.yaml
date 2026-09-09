@@ -31,7 +31,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libwayland-dev libxkbcommon-dev libfontconfig-dev libxcb1-dev pkg-config
       - name: Create git tags and GitHub releases
-        uses: release-plz/action@503fe65046e8810d4844f6b3aa12ab599a3549d7 # v0.5
+        uses: release-plz/action@346832d73e3415c2ebd0432cba3a2bf5881e5f7d # v0.5
         with:
           command: release
         env:
@@ -102,7 +102,7 @@ jobs:
           toolchain: "1.98.1"
       - name: Run release-plz release-pr
         id: release-pr
-        uses: release-plz/action@503fe65046e8810d4844f6b3aa12ab599a3549d7 # v0.5
+        uses: release-plz/action@346832d73e3415c2ebd0432cba3a2bf5881e5f7d # v0.5
         with:
           command: release-pr
         env:
