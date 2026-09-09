@@ -16,6 +16,11 @@
       "minimumReleaseAge": null
     },
     {
+      "description": "lockFileMaintenance re-resolves the whole graph to whatever's currently allowed by existing ranges, not a bump someone is being asked to review. Gating it on release age means it almost never clears: some transitive crate somewhere in a graph this size was released in the last 3 days, and every rebase against a fast-moving main re-resolves the lockfile and can restart the clock. #502 sat open for 9 days this way; #167 sat for 2 months.",
+      "matchUpdateTypes": ["lockFileMaintenance"],
+      "minimumReleaseAge": null
+    },
+    {
       "description": "Patch updates are low-review-effort; land them as one PR",
       "matchUpdateTypes": ["patch"],
       "groupName": "patch updates"
