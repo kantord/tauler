@@ -1,13 +1,15 @@
 ---
-// The hero row: the type column always, and — once there's room for both
-// without squeezing the type ramp (see DemoColumn) — the demo column
-// beside it. When DemoColumn hides itself, its grid track collapses to
-// nothing and HeroCopy simply owns the row.
+// The hero row: the type column and, beside it, the file with its two
+// renders (HeroDemo). Below lg the two stack, copy first, and the demo
+// keeps rendering — it is images and markup, nothing that needs room for
+// a runtime.
 import HeroCopy from './HeroCopy.astro'
-import DemoColumn from './DemoColumn.astro'
+import HeroDemo from './HeroDemo.astro'
 ---
 
-<div class="grid w-full grid-cols-[1fr_auto] items-center gap-s8">
+<div
+  class="grid w-full grid-cols-[1fr_minmax(0,600px)] items-center gap-s8 max-lg:grid-cols-1"
+>
   <HeroCopy />
-  <DemoColumn />
+  <HeroDemo />
 </div>

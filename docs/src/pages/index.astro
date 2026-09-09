@@ -138,6 +138,12 @@ tauler`,
     />
     <meta name="twitter:card" content="summary" />
     <FontPreloads />
+    {
+      /* The classes Tauler's own renders carry (HeroDemo's markup strip),
+         compiled by `just docs` from docgen's harvest — the same stylesheet
+         the component reference loads, scoped to .tauler-mount. */
+    }
+    <link rel="stylesheet" href="/tauler/tauler.css" />
     <script is:inline>
       // Locks the tube to physical device pixels rather than nominal CSS
       // pixels, so zooming the page in or out doesn't change how coarse

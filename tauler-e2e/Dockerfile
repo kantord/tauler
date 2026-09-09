@@ -82,6 +82,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=builder /artifacts/tauler /artifacts/tauler-i3 /artifacts/a11y-probe /usr/local/bin/
+# Fixtures name the workspace module the way the docs do — `~/.cargo/bin/tauler-i3`,
+# where `cargo install` puts it — so the file a fixture prints on the landing page is
+# a file a reader can run unchanged. HOME is /root here (see ENV below).
+RUN mkdir -p /root/.cargo/bin && ln -s /usr/local/bin/tauler-i3 /root/.cargo/bin/tauler-i3
 
 # /usr/local/share/fonts, not /usr/local/share/tauler/fonts: nothing reads the
 # latter. tauler resolves fonts through fontconfig, and falls back to walking

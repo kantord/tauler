@@ -59,6 +59,29 @@ fn sidebar_reserves_the_left_edge() -> Result<()> {
     Ok(())
 }
 
+/// Hero: the landing page's own file, executed here so the page shows a real
+/// desktop running exactly the source it prints. A top bar reserved through
+/// `<I3Layout>`, nothing else — the one-file claim is the whole scenario.
+#[test]
+#[ignore = "needs Docker and `just e2e-image`"]
+fn hero_reserves_the_top_edge() -> Result<()> {
+    run(
+        "hero",
+        "hero-reserves-the-top-edge",
+        Expected {
+            gaps: Gaps {
+                left: 0,
+                right: 0,
+                top: 28,
+                bottom: 0,
+            },
+            panels: vec![rect(0, 0, 1920, 28)],
+            clients: 2,
+        },
+    )?;
+    Ok(())
+}
+
 #[test]
 #[ignore = "needs Docker and `just e2e-image`"]
 fn three_edge_stack_reserves_each_edge_in_order() -> Result<()> {

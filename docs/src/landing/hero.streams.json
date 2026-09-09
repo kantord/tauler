@@ -1,0 +1,11 @@
+[
+  {
+    "bin": "/bin/sh",
+    "script": "while :; do date +%H:%M; sleep 1; done",
+    "line": "09:41"
+  },
+  {
+    "bin": "~/.cargo/bin/tauler-i3",
+    "line": "{\"workspaces\":[{\"name\":\"1\",\"focused\":true,\"urgent\":false,\"focused_windows\":[]},{\"name\":\"2\",\"focused\":false,\"urgent\":false,\"focused_windows\":[]}]}"
+  }
+]

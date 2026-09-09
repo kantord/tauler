@@ -5,7 +5,7 @@ import AxeBuilder from '@axe-core/playwright'
 // without scrolling or any other action — with the `above-fold` class.
 // Keep this count in sync with the markup: it exists so that silently
 // dropping an element fails the test instead of shrinking the loop.
-const ABOVE_FOLD_COUNT = 10
+const ABOVE_FOLD_COUNT = 9
 
 test.beforeEach(async ({ page }) => {
   // The CRT overlay (scanlines, chromatic aberration, the beam sweep)

@@ -1,5 +1,14 @@
 ---
-// The fine-print line: platforms, toolchain floor, license.
+// The fine-print line: platforms, toolchain floor, license — and the
+// captions under the hero's two renders, which sit wherever the demo lands
+// on a given viewport and so opt out of the above-fold contract.
+interface Props {
+  aboveFold?: boolean
+}
+
+const { aboveFold = true } = Astro.props
 ---
 
-<p class="above-fold font-ui text-label-sm text-ink-4"><slot /></p>
+<p class:list={['font-ui text-label-sm text-ink-4', aboveFold && 'above-fold']}>
+  <slot />
+</p>

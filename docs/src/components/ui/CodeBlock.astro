@@ -15,9 +15,11 @@ interface Props {
   code: string
   lang?: ComponentProps<typeof Code>['lang']
   path?: string
+  /** Tighter leading, for a whole file that has to fit one screen. */
+  compact?: boolean
 }
 
-const { code, lang = 'jsx', path } = Astro.props
+const { code, lang = 'jsx', path, compact = false } = Astro.props
 ---
 
 <div class="w-full border border-line-2 bg-surface-frame shadow-panel">
@@ -28,7 +30,11 @@ const { code, lang = 'jsx', path } = Astro.props
       </div>
     )
   }
-  <div data-code class="px-[18px] py-s5">
+  <div
+    data-code
+    data-compact={compact ? '' : undefined}
+    class="px-[18px] py-s5"
+  >
     <Code code={code} lang={lang} theme={githubDark} />
   </div>
 </div>
@@ -44,6 +50,9 @@ const { code, lang = 'jsx', path } = Astro.props
     font-family: var(--font-ui) !important;
     font-size: 13px !important;
     line-height: 1.72 !important;
+  }
+  [data-code][data-compact] :global(pre.astro-code) {
+    line-height: 1.5 !important;
   }
 
   /* github-dark's comment grey (#6A737D) is 4.1:1 on our surface — under
