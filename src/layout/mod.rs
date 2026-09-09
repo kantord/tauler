@@ -39,7 +39,7 @@ pub enum SurfaceKind {
 }
 
 /// Per-monitor metadata, including physical pixel dimensions and device pixel ratio.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct OutputInfo {
     pub name: String,
     pub x: i16,

@@ -35,6 +35,51 @@ fn compute_dpr(crtc_width: f32, crtc_height: f32, mm_width: f32, mm_height: f32)
     (px / mm) / (96.0 / MM_PER_INCH)
 }
 
+/// How many RandR readings [`build_output_map_settled`] takes before giving up
+/// and trusting whatever it last read, and how long it waits between them.
+const SETTLE_MAX_READS: u32 = 5;
+const SETTLE_INTERVAL: Duration = Duration::from_millis(50);
+
+/// Poll `read` until two consecutive readings agree, or `max_reads` is spent —
+/// then return the last reading regardless.
+///
+/// Split out from [`build_output_map_settled`] so the retry logic itself can
+/// be unit-tested without a live X server.
+fn settle_output_map(
+    mut read: impl FnMut() -> HashMap<String, OutputInfo>,
+    max_reads: u32,
+    interval: Duration,
+) -> HashMap<String, OutputInfo> {
+    let mut prev = read();
+    for _ in 1..max_reads {
+        thread::sleep(interval);
+        let next = read();
+        if next == prev {
+            return next;
+        }
+        prev = next;
+    }
+    prev
+}
+
+/// [`build_output_map`], but re-read and compared against a second (and if
+/// needed a few more) RandR reading before being trusted.
+///
+/// Right after a reboot or relogin, RandR can transiently report a wrong CRTC
+/// `y` before external-monitor negotiation with the display server has fully
+/// settled — and unlike DPR or primary-output selection, a panel's position is
+/// resolved once at window-creation time and never re-queried unless a later
+/// output-change event fires, which may never happen if RandR's state settles
+/// silently (issue #537). Call this instead of `build_output_map` wherever the
+/// result feeds straight into creating windows, i.e. at startup.
+pub fn build_output_map_settled(conn: &RustConnection, root: u32) -> HashMap<String, OutputInfo> {
+    settle_output_map(
+        || build_output_map(conn, root),
+        SETTLE_MAX_READS,
+        SETTLE_INTERVAL,
+    )
+}
+
 pub fn build_output_map(conn: &RustConnection, root: u32) -> HashMap<String, OutputInfo> {
     let mut map = HashMap::new();
     if let Ok(cookie) = conn.randr_get_screen_resources_current(root) {
@@ -213,6 +258,51 @@ mod tests {
     fn dpr_formula_does_not_divide_by_zero_when_both_mm_axes_are_zero() {
         let dpr = compute_dpr(1920.0, 1080.0, 0.0, 0.0);
         assert!(dpr.is_finite() && dpr > 0.0);
+    }
+
+    fn map_with_y(y: i16) -> HashMap<String, OutputInfo> {
+        HashMap::from([output("HDMI-1", 0, y)])
+    }
+
+    #[test]
+    fn settle_output_map_confirms_a_stable_first_reading() {
+        let result = settle_output_map(|| map_with_y(0), 5, Duration::from_millis(0));
+        assert_eq!(result.get("HDMI-1").unwrap().y, 0);
+    }
+
+    #[test]
+    fn settle_output_map_ignores_a_transient_bad_first_reading() {
+        let mut calls = 0;
+        let result = settle_output_map(
+            || {
+                calls += 1;
+                map_with_y(if calls == 1 { -10 } else { 0 })
+            },
+            5,
+            Duration::from_millis(0),
+        );
+        assert_eq!(
+            result.get("HDMI-1").unwrap().y,
+            0,
+            "a bad first reading must not stick once later readings agree"
+        );
+    }
+
+    #[test]
+    fn settle_output_map_gives_up_after_max_reads_if_never_stable() {
+        let mut calls = 0;
+        settle_output_map(
+            || {
+                calls += 1;
+                map_with_y(calls) // a different reading every time
+            },
+            3,
+            Duration::from_millis(0),
+        );
+        assert_eq!(
+            calls, 3,
+            "must stop reading after max_reads even if never stable"
+        );
     }
 }
 

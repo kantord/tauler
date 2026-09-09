@@ -1,7 +1,8 @@
+use std::collections::HashMap;
 use std::sync::mpsc::Sender;
 use std::sync::Arc;
 
-use crate::layout::{SurfaceKind, SurfaceSpec};
+use crate::layout::{OutputInfo, Rect, SurfaceKind, SurfaceSpec};
 use crate::managed_set::{Lifecycle, OptativeSet, Reconcile, ReconcileErrors};
 use crate::presentation::{SurfaceCommand, SurfaceFrame};
 use crate::render::worker::{RenderJob, RenderRequest};
@@ -114,11 +115,25 @@ fn render_now(
 ///
 /// The spec alone is not enough: a wallpaper moving under an otherwise-unchanged
 /// panel changes nothing in that panel's spec, so `backdrop` records which
-/// wallpaper frame the last emitted picture actually shows.
+/// wallpaper frame the last emitted picture actually shows. Likewise, an
+/// anchored panel's spec carries no absolute position at all — `output_rect`
+/// records the resolved output geometry it was last placed against, so a
+/// correction arriving from RandR *after* the panel already exists is visible
+/// to the diff (issue #537).
 #[derive(Debug, Clone, PartialEq)]
 pub struct SurfaceState {
     pub spec: SurfaceSpec,
     backdrop: u64,
+    output_rect: Option<Rect>,
+}
+
+/// The rect of the output a spec resolves to, or `None` if that output isn't
+/// (or is no longer) in the map — e.g. a monitor unplugged since the last tick.
+fn resolve_output_rect(spec: &SurfaceSpec, ctx: &HashMap<String, OutputInfo>) -> Option<Rect> {
+    spec.output
+        .as_deref()
+        .and_then(|name| ctx.get(name))
+        .map(|o| o.rect())
 }
 
 // ---------------------------------------------------------------------------
@@ -141,7 +156,10 @@ impl Lifecycle for Surface {
     /// The pipeline tracks the last-reconciled spec so reconcile_self can diff
     /// and emit Move/Resize commands only when something actually changed.
     type State = SurfaceState;
-    type Context = ();
+    /// The current output map, so `reconcile_self` can tell whether a panel's
+    /// *resolved* position changed even when its declared spec didn't — the
+    /// single place that decides "should this panel move" (issue #537).
+    type Context = HashMap<String, OutputInfo>;
     type Output = SurfaceOutputs;
     type Error = anyhow::Error;
 
@@ -155,7 +173,7 @@ impl Lifecycle for Surface {
 
     fn enter(
         self,
-        _ctx: &mut (),
+        ctx: &mut HashMap<String, OutputInfo>,
         output: &mut SurfaceOutputs,
     ) -> Result<SurfaceState, anyhow::Error> {
         let (frame, backdrop) = render_now(&self.0, output)?;
@@ -169,19 +187,22 @@ impl Lifecycle for Surface {
                 frame,
             },
         })?;
+        let output_rect = resolve_output_rect(&self.0, ctx);
         Ok(SurfaceState {
             spec: self.0,
             backdrop,
+            output_rect,
         })
     }
 
     fn reconcile_self(
         self,
         state: &mut SurfaceState,
-        _ctx: &mut (),
+        ctx: &mut HashMap<String, OutputInfo>,
         output: &mut SurfaceOutputs,
     ) -> Result<(), anyhow::Error> {
         let new = self.0;
+        let new_output_rect = resolve_output_rect(&new, ctx);
         // A wallpaper has no window to move or resize, and re-painting is the
         // same operation as first painting — so any change at all is one command.
         if new.kind == SurfaceKind::Wallpaper {
@@ -194,16 +215,22 @@ impl Lifecycle for Surface {
                 state.backdrop = backdrop;
             }
             state.spec = new;
+            state.output_rect = new_output_rect;
             return Ok(());
         }
         let (phys_w, phys_h) = phys_size(&new);
         let (state_phys_w, state_phys_h) = phys_size(&state.spec);
         let phys_dims_changed = phys_w != state_phys_w || phys_h != state_phys_h;
+        // `new_output_rect != state.output_rect` is what makes an anchored
+        // panel's *resolved* geometry part of this diff at all — a corrected
+        // RandR reading arriving after the panel already exists otherwise has
+        // no declared-spec field to show up in (issue #537).
         let pos_changed = new.x != state.spec.x
             || new.y != state.spec.y
             || new.anchor != state.spec.anchor
             || new.output != state.spec.output
-            || new.outer_gap != state.spec.outer_gap;
+            || new.outer_gap != state.spec.outer_gap
+            || new_output_rect != state.output_rect;
         // The wallpaper behind this panel is invisible to a spec diff, so ask the
         // registry directly. Wallpapers reconcile before panels (see
         // [`SurfaceSets`]), so this already reflects the current tick.
@@ -234,12 +261,13 @@ impl Lifecycle for Surface {
             }
         }
         state.spec = new;
+        state.output_rect = new_output_rect;
         Ok(())
     }
 
     fn exit(
         state: SurfaceState,
-        _ctx: &mut (),
+        _ctx: &mut HashMap<String, OutputInfo>,
         output: &mut SurfaceOutputs,
     ) -> Result<(), anyhow::Error> {
         crate::backdrop::forget(&state.spec);
@@ -272,9 +300,14 @@ impl SurfaceSets {
     }
 
     /// Reconcile the whole desired surface set: wallpapers, then panels.
+    ///
+    /// `output_map` is threaded through as reconcile context so an anchored
+    /// panel's *resolved* geometry — not just its declared spec — is part of
+    /// what `reconcile_self` diffs (issue #537).
     pub fn reconcile_all(
         &mut self,
         specs: Vec<SurfaceSpec>,
+        output_map: &mut HashMap<String, OutputInfo>,
         output: &mut SurfaceOutputs,
     ) -> ReconcileErrors<String, anyhow::Error> {
         let (wallpapers, panels): (Vec<_>, Vec<_>) = specs
@@ -282,19 +315,22 @@ impl SurfaceSets {
             .partition(|s| s.kind == SurfaceKind::Wallpaper);
         let mut errors =
             self.wallpapers
-                .reconcile(wallpapers.into_iter().map(Surface), &mut (), output);
+                .reconcile(wallpapers.into_iter().map(Surface), output_map, output);
         errors.extend(
             self.panels
-                .reconcile(panels.into_iter().map(Surface), &mut (), output),
+                .reconcile(panels.into_iter().map(Surface), output_map, output),
         );
         errors
     }
 
     /// Tear every surface down. Panels first: they are what the user sees, and a
     /// wallpaper outliving them by a moment is less jarring than the reverse.
+    ///
+    /// `exit` never reads reconcile context, so an empty map is fine here.
     pub fn clear(&mut self, output: &mut SurfaceOutputs) -> ReconcileErrors<String, anyhow::Error> {
-        let mut errors = self.panels.reconcile(vec![], &mut (), output);
-        errors.extend(self.wallpapers.reconcile(vec![], &mut (), output));
+        let mut ctx = HashMap::new();
+        let mut errors = self.panels.reconcile(vec![], &mut ctx, output);
+        errors.extend(self.wallpapers.reconcile(vec![], &mut ctx, output));
         errors
     }
 
@@ -315,11 +351,12 @@ impl SurfaceSets {
 
 #[cfg(test)]
 mod tests {
-    use super::{Surface, SurfaceOutputs, SurfaceSets, SurfaceState};
+    use super::{resolve_output_rect, Surface, SurfaceOutputs, SurfaceSets, SurfaceState};
     use crate::layout::SurfaceSpec;
     use crate::managed_set::Lifecycle;
     use crate::presentation::{SurfaceCommand, SurfaceFrame};
     use crate::render::worker::{RenderJob, RenderRequest};
+    use std::collections::HashMap;
     use std::sync::Arc;
 
     /// Outputs wired to a stand-in for the worker, plus both receiving ends.
@@ -373,9 +410,28 @@ mod tests {
         out
     }
 
-    /// A tracked surface as it looks before any wallpaper exists behind it.
+    /// A tracked surface as it looks before any wallpaper exists behind it,
+    /// with no resolved output rect recorded yet.
     fn make_state(spec: SurfaceSpec) -> SurfaceState {
-        SurfaceState { spec, backdrop: 0 }
+        SurfaceState {
+            spec,
+            backdrop: 0,
+            output_rect: None,
+        }
+    }
+
+    /// A tracked surface as it would look right after `enter` resolved its
+    /// output rect against `ctx`.
+    fn make_state_with_ctx(
+        spec: SurfaceSpec,
+        ctx: &HashMap<String, crate::layout::OutputInfo>,
+    ) -> SurfaceState {
+        let output_rect = resolve_output_rect(&spec, ctx);
+        SurfaceState {
+            spec,
+            backdrop: 0,
+            output_rect,
+        }
     }
 
     fn make_spec_data(id: &str) -> SurfaceSpec {
@@ -399,8 +455,8 @@ mod tests {
     fn panel_spec_enter_emits_create_command_and_returns_state() {
         let (mut tx, rx, _repaints) = test_outputs();
         let spec = Surface(make_spec_data("p1"));
-        let state =
-            <Surface as Lifecycle>::enter(spec, &mut (), &mut tx).expect("enter should succeed");
+        let state = <Surface as Lifecycle>::enter(spec, &mut HashMap::new(), &mut tx)
+            .expect("enter should succeed");
         assert_eq!(state.spec.id, "p1", "enter returns the spec data as state");
         let cmds: Vec<SurfaceCommand> = rx.try_iter().collect();
         assert!(
@@ -415,7 +471,8 @@ mod tests {
         let (mut tx, rx, _repaints) = test_outputs();
         let mut state = make_state(make_spec_data("p1"));
         let spec = Surface(make_spec_data("p1"));
-        <Surface as Lifecycle>::reconcile_self(spec, &mut state, &mut (), &mut tx).unwrap();
+        <Surface as Lifecycle>::reconcile_self(spec, &mut state, &mut HashMap::new(), &mut tx)
+            .unwrap();
         let cmds: Vec<SurfaceCommand> = rx.try_iter().collect();
         assert!(
             cmds.is_empty(),
@@ -431,7 +488,8 @@ mod tests {
         let mut next = make_spec_data("p1");
         next.width = 200;
         let spec = Surface(next);
-        <Surface as Lifecycle>::reconcile_self(spec, &mut state, &mut (), &mut tx).unwrap();
+        <Surface as Lifecycle>::reconcile_self(spec, &mut state, &mut HashMap::new(), &mut tx)
+            .unwrap();
         let cmds: Vec<SurfaceCommand> = rx.try_iter().collect();
         assert!(
             cmds.iter()
@@ -453,7 +511,8 @@ mod tests {
         let mut next = make_spec_data("p1");
         next.x = 50;
         let spec = Surface(next);
-        <Surface as Lifecycle>::reconcile_self(spec, &mut state, &mut (), &mut tx).unwrap();
+        <Surface as Lifecycle>::reconcile_self(spec, &mut state, &mut HashMap::new(), &mut tx)
+            .unwrap();
         let cmds: Vec<SurfaceCommand> = rx.try_iter().collect();
         assert!(
             cmds.iter()
@@ -478,7 +537,8 @@ mod tests {
         let mut next = make_spec_data("p1");
         next.content = serde_json::json!("hello");
         let spec = Surface(next);
-        <Surface as Lifecycle>::reconcile_self(spec, &mut state, &mut (), &mut tx).unwrap();
+        <Surface as Lifecycle>::reconcile_self(spec, &mut state, &mut HashMap::new(), &mut tx)
+            .unwrap();
         let requests = repaints_of(&repaints);
         assert!(
             matches!(requests.as_slice(), [r] if r.id == "p1" && r.content == serde_json::json!("hello")),
@@ -506,7 +566,8 @@ mod tests {
         let mut next = make_spec_data("p1");
         next.dpr = 2.0; // logical dims unchanged, but physical dims double
         let spec = Surface(next);
-        <Surface as Lifecycle>::reconcile_self(spec, &mut state, &mut (), &mut tx).unwrap();
+        <Surface as Lifecycle>::reconcile_self(spec, &mut state, &mut HashMap::new(), &mut tx)
+            .unwrap();
         let cmds: Vec<SurfaceCommand> = rx.try_iter().collect();
         assert!(
             cmds.iter()
@@ -575,8 +636,13 @@ mod tests {
         let mut state = make_state(make_wallpaper_data("bg"));
         let mut next = make_wallpaper_data("bg");
         next.width = 200;
-        <Surface as Lifecycle>::reconcile_self(Surface(next), &mut state, &mut (), &mut tx)
-            .unwrap();
+        <Surface as Lifecycle>::reconcile_self(
+            Surface(next),
+            &mut state,
+            &mut HashMap::new(),
+            &mut tx,
+        )
+        .unwrap();
         let cmds: Vec<SurfaceCommand> = rx.try_iter().collect();
         assert!(
             cmds.iter().any(
@@ -600,7 +666,7 @@ mod tests {
         <Surface as Lifecycle>::reconcile_self(
             Surface(make_wallpaper_data("bg")),
             &mut state,
-            &mut (),
+            &mut HashMap::new(),
             &mut tx,
         )
         .unwrap();
@@ -631,7 +697,7 @@ mod tests {
         panel.output = Some("ORDER".into());
 
         // Tick 1: the panel alone, with nothing behind it.
-        sets.reconcile_all(vec![panel.clone()], &mut tx);
+        sets.reconcile_all(vec![panel.clone()], &mut HashMap::new(), &mut tx);
         let _ = rx.try_iter().count();
 
         // Tick 2: the same panel, plus a wallpaper underneath it. The panel is
@@ -640,7 +706,7 @@ mod tests {
         wallpaper.output = Some("ORDER".into());
         wallpaper.width = 100;
         wallpaper.height = 100;
-        sets.reconcile_all(vec![panel, wallpaper], &mut tx);
+        sets.reconcile_all(vec![panel, wallpaper], &mut HashMap::new(), &mut tx);
 
         let cmds: Vec<SurfaceCommand> = rx.try_iter().collect();
         assert!(
@@ -662,11 +728,76 @@ mod tests {
         );
     }
 
+    fn output_info(name: &str, x: i16, y: i16) -> crate::layout::OutputInfo {
+        crate::layout::OutputInfo {
+            name: name.to_string(),
+            x,
+            y,
+            width: 1920,
+            height: 1080,
+            dpr: 1.0,
+        }
+    }
+
+    /// The regression test for issue #537: an anchored panel's declared spec
+    /// (`x`, `y`, `anchor`, `output` name, `outer_gap`) never encodes the
+    /// output's own absolute position, so a RandR correction arriving after
+    /// the panel already exists has to be visible through `ctx`, not `new`.
+    #[test]
+    fn panel_spec_reconcile_self_emits_move_when_resolved_output_rect_changes_but_spec_is_unchanged(
+    ) {
+        let (mut tx, rx, _repaints) = test_outputs();
+        let mut next = make_spec_data("p1");
+        next.output = Some("DP-2".into());
+        let mut state = make_state_with_ctx(
+            next.clone(),
+            &HashMap::from([(
+                "DP-2".to_string(),
+                output_info("DP-2", 0, -10), // the bad startup reading
+            )]),
+        );
+
+        // Same spec, but the output map now reports the corrected geometry —
+        // e.g. a later, legitimate OutputsChanged event.
+        let mut ctx = HashMap::from([("DP-2".to_string(), output_info("DP-2", 0, 0))]);
+        <Surface as Lifecycle>::reconcile_self(Surface(next), &mut state, &mut ctx, &mut tx)
+            .unwrap();
+
+        let cmds: Vec<SurfaceCommand> = rx.try_iter().collect();
+        assert!(
+            cmds.iter()
+                .any(|c| matches!(c, SurfaceCommand::Move(s) if s.id == "p1")),
+            "reconcile_self must emit Move when the resolved output rect changes, \
+             even though the declared spec is byte-identical; got {} commands",
+            cmds.len()
+        );
+    }
+
+    #[test]
+    fn panel_spec_reconcile_self_emits_nothing_when_output_rect_is_also_unchanged() {
+        let (mut tx, rx, _repaints) = test_outputs();
+        let mut next = make_spec_data("p1");
+        next.output = Some("DP-2".into());
+        let rect = HashMap::from([("DP-2".to_string(), output_info("DP-2", 0, 0))]);
+        let mut state = make_state_with_ctx(next.clone(), &rect);
+
+        let mut ctx = rect;
+        <Surface as Lifecycle>::reconcile_self(Surface(next), &mut state, &mut ctx, &mut tx)
+            .unwrap();
+
+        let cmds: Vec<SurfaceCommand> = rx.try_iter().collect();
+        assert!(
+            cmds.is_empty(),
+            "an unchanged spec AND an unchanged resolved output rect must emit nothing; got {} commands",
+            cmds.len()
+        );
+    }
+
     #[test]
     fn panel_spec_exit_emits_delete_with_id() {
         let (mut tx, rx, _repaints) = test_outputs();
         let state = make_state(make_spec_data("p1"));
-        <Surface as Lifecycle>::exit(state, &mut (), &mut tx).unwrap();
+        <Surface as Lifecycle>::exit(state, &mut HashMap::new(), &mut tx).unwrap();
         let cmds: Vec<SurfaceCommand> = rx.try_iter().collect();
         assert!(
             matches!(cmds.as_slice(), [SurfaceCommand::Delete { id }] if id == "p1"),
