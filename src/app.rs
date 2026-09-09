@@ -234,7 +234,7 @@ fn apply_eval_result(
     let combined: Vec<StreamSource> = stream_specs.into_iter().chain(module_specs).collect();
     handle.set_desired(combined);
 
-    let surface_errors = surface_set.reconcile_all(specs, outputs);
+    let surface_errors = surface_set.reconcile_all(specs, &mut output_map.clone(), outputs);
     log_lifecycle_errors(surface_errors);
     true
 }
@@ -1253,6 +1253,11 @@ impl App {
                         .jsx_evaluator
                         .as_ref()
                         .map(|e| e.eval(&self.stream_values.read().unwrap()));
+                    // `apply_eval_result_dispatch` re-reconciles with the just-updated
+                    // `self.output_map` as reconcile context, so an anchored panel
+                    // whose resolved geometry changed here — even with an unchanged
+                    // declared spec — gets a `Move` from `reconcile_self` itself
+                    // (issue #537). No separate repositioning pass needed.
                     if let Some(eval_result) = eval_out {
                         match eval_result {
                             Ok(out) => {

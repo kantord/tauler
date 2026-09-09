@@ -159,7 +159,10 @@ fn init_x11() -> Result<X11Init, Box<dyn std::error::Error>> {
 
     let (dpi, dpr) = context_dpi_dpr(&conn, screen.root);
 
-    let output_map = tauler::x11::outputs::build_output_map(&conn, screen.root);
+    // `_settled`, not `build_output_map`: right after login RandR can report a
+    // transiently wrong CRTC `y` before display negotiation settles, and a panel's
+    // position is resolved once here and never re-queried afterward (issue #537).
+    let output_map = tauler::x11::outputs::build_output_map_settled(&conn, screen.root);
 
     // RandR answers 0 when no output is marked primary, and `GetOutputInfo(0)`
     // is a protocol error — so a bare X server (Xvfb, a session started by hand)
