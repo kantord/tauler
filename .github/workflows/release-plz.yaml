@@ -100,6 +100,14 @@ jobs:
         uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
         with:
           toolchain: "1.98.1"
+      # release-pr runs cargo-semver-checks when it finds a version-relevant diff,
+      # which builds rustdoc for the whole workspace -- a real compile, needing the
+      # same system libs the other jobs install. This job skipped that step for a
+      # long time because it rarely hit that code path; #539 did.
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwayland-dev libxkbcommon-dev libfontconfig-dev libxcb1-dev pkg-config
       - name: Run release-plz release-pr
         id: release-pr
         uses: release-plz/action@346832d73e3415c2ebd0432cba3a2bf5881e5f7d # v0.5
