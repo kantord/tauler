@@ -110,7 +110,7 @@ criterion = "0.8.2"
 image = "0.25.10"
 libc = "0.2.189"
 tracing-test = "0.2.6"
-rstest = "0.26.1"
+rstest = "0.27.0"
 
 [[bench]]
 name = "pipeline"
