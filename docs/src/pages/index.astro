@@ -15,9 +15,7 @@ import Heading from '../components/text/Heading.astro'
 import Body from '../components/text/Body.astro'
 import CodeBlock from '../components/ui/CodeBlock.astro'
 import CommandLine from '../components/ui/CommandLine.astro'
-import Button from '../components/ui/Button.astro'
-import GithubMark from '../components/ui/GithubMark.astro'
-import SeamGroup from '../components/ui/SeamGroup.astro'
+import ZoneActions from '../components/organisms/ZoneActions.astro'
 import FontPreloads from '../components/FontPreloads.astro'
 
 // The zones below the hero screen scroll over the viewport-fixed
@@ -222,6 +220,7 @@ tauler`,
             stored in the YAML frontmatter. The syntax is JSX, but there is no
             Node, React or browser involved: Tauler renders the UI itself.
           </Body>
+          <ZoneActions docs="/docs/layout-file/" />
           <CodeBlock
             slot="example"
             path="~/.config/tauler/layout.op.mdx"
@@ -242,6 +241,7 @@ tauler`,
             layouts are pure functions, and buffering the latest state of each
             of your streams is taken care of by Tauler's internals.
           </Body>
+          <ZoneActions docs="/docs/data/" />
           <CodeBlock slot="example" code={EXAMPLES.streams} />
         </ScrollZone>
 
@@ -264,6 +264,7 @@ tauler`,
             notification since you last looked", belongs in the program that
             produces the stream, not in the layout.
           </Body>
+          <ZoneActions docs="/docs/#the-rendering-model" />
           <CodeBlock
             slot="example"
             path="~/.config/tauler/layout.op.mdx"
@@ -286,6 +287,7 @@ tauler`,
             already declared, then sends them to tauler-i3. There is no second
             set of numbers to keep in sync.
           </Body>
+          <ZoneActions docs="/docs/layout/" />
           <CodeBlock slot="example" code={EXAMPLES.screenLayout} />
         </ScrollZone>
 
@@ -298,15 +300,7 @@ tauler`,
             Install the ones your layout uses.
           </Body>
           <CommandLine aboveFold={false}>cargo install tauler</CommandLine>
-          <SeamGroup>
-            <Button href="/docs/" variant="accent" aboveFold={false}
-              >DOCS →</Button
-            >
-            <Button href="https://github.com/kantord/tauler" aboveFold={false}>
-              <GithubMark />
-              GITHUB
-            </Button>
-          </SeamGroup>
+          <ZoneActions docs="/docs/" />
           <CodeBlock slot="example" lang="sh" code={EXAMPLES.install} />
         </ScrollZone>
       </section>
