@@ -5977,9 +5977,9 @@ dependencies = [
 
 [[package]]
 name = "takumi"
-version = "2.13.6"
+version = "2.13.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4530db296567f7c6eb2b2adff9540abe5c148ad6f2c021cb0bb4ec657f232871"
+checksum = "cafee17225426bb2bece864fa739774d18efbbd2ddad509d6e064ad2e6a6a840"
 dependencies = [
  "takumi-core",
  "takumi-raster",
