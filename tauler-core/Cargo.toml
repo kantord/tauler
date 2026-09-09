@@ -4,7 +4,14 @@ description = "The part of tauler that draws nothing: UI components, the theme l
 keywords = ["tauler", "statusbar", "jsx", "components", "wasm"]
 categories = ["gui", "wasm"]
 edition = "2021"
-version.workspace = true
+# Not `version.workspace = true`: tauler-core frequently has no commits of its
+# own on a cycle where a dependent (tauler) bumps for unrelated reasons, and
+# lockstepping would still sweep its manifest version along -- exactly the
+# state release-plz's own internal `cargo update` cannot reconcile before it
+# even opens a release PR (release-plz/release-plz#2878), same as
+# tauler-ui-macro's identical carve-out below. See INDEPENDENTLY_VERSIONED_CRATES
+# in scripts/sync-workspace-versions.sh and tests/workspace_manifests_test.rs.
+version = "0.3.2"
 authors.workspace = true
 license.workspace = true
 repository.workspace = true
