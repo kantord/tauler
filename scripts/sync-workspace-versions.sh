@@ -25,7 +25,7 @@ root=${1:-.}
 
 # Crate names whose `version` this script must never rewrite to the shared workspace
 # value, because their Cargo.toml deliberately versions them independently.
-INDEPENDENTLY_VERSIONED_CRATES="tauler-ui-macro"
+INDEPENDENTLY_VERSIONED_CRATES="tauler-ui-macro tauler-core"
 
 version=$(
     awk '
