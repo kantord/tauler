@@ -284,6 +284,109 @@ as an Item nobody declared.
 Note there is no `exit`. Dropping `<Light>` from the layout means tauler stops managing that
 light, not that it turns it off. If you want it off, declare it off.
 
+## Rendering a config file
+
+`ConfigFile` turns a path and a `render` function into a Unit: `render()` is called for
+the text that should be on disk, `ConfigFile` reads the file back to see what is, and
+writes it again when the two disagree.
+
+```jsx
+function rasi(sections) {
+  return Object.entries(sections)
+    .map(([name, props]) =>
+      `${name} {\n` +
+      Object.entries(props).map(([k, v]) => `    ${k}: ${v};`).join('\n') +
+      '\n}'
+    )
+    .join('\n\n') + '\n'
+}
+
+const RofiTheme = ConfigFile({
+  path: '/home/you/.config/rofi/tauler.rasi',
+  render: () =>
+    rasi({
+      '*': { 'background-color': '#221F2B', 'text-color': '#E9E4DA' },
+      window: { width: '480px' },
+    }),
+})
+```
+
+Used:
+
+```jsx
+<root>
+  <RofiTheme />
+  <panel id="bar" anchor="top" width={1920} height={32}>…</panel>
+</root>
+```
+
+`render` runs again every Sweep, reading whatever it wants — a color out of `globals`,
+today's wallpaper, anything the rest of your layout already reaches. Change what it
+returns and the next Sweep rewrites `tauler.rasi` to match. Launch rofi with `rofi -theme
+~/.config/rofi/tauler.rasi` and it picks up the new file the next time it opens — rofi
+reads its theme fresh on every launch, so there is nothing to reload.
+
+### Telling something the file changed
+
+rofi is the easy case. A target that keeps running — a terminal, a notification daemon —
+needs to be told, and that is what `apply` is for: it runs once, right after every write,
+with the path and the text just written.
+
+```jsx
+const KittyTheme = ConfigFile({
+  path: '/home/you/.config/kitty/theme.conf',
+  render: () => kittyConf({ background: '#1B1924', foreground: '#E9E4DA' }),
+  apply: () => sh`kitty @ set-colors --all /home/you/.config/kitty/theme.conf`,
+})
+```
+
+`apply` does not run on a Sweep that changed nothing — only `enter` and `update` write,
+and only a write calls it. A target with nothing to signal, like rofi, just omits it.
+
+### How it's built
+
+`ConfigFile` is not a new tauler primitive; it is `unit()`, `optativeSet`, `sh`, `read`
+and `exists` — every one of them a builtin this page has already used — composed once so
+you do not have to compose them again for the next file. Its whole body:
+
+```jsx
+function ConfigFile({ path, render, apply }) {
+  function write() {
+    const rendered = render()
+    sh`printf '%s' ${rendered} > ${path}`
+    if (apply) apply(path, rendered)
+  }
+  return unit({
+    key: () => path,
+    value: (f) => ('content' in f ? f.content : render()),
+    reconciler: optativeSet({
+      observe: () => (exists(path) ? [{ content: read(path) }] : []),
+    }),
+    enterOne: write,
+    updateOne: write,
+  })
+}
+```
+
+Three things are worth pulling out:
+
+**There is no `write` builtin.** `sh`'s tagged template already quotes `${rendered}` as
+a single shell argument, so `printf '%s' ARG > PATH` writes it byte-for-byte — quotes,
+newlines and all — with what tauler already ships.
+
+**`value` tells the two sides apart by shape.** `observe` always returns `{content}`; a
+declared `<RofiTheme/>` never has that key, because it takes no props. That is what lets
+one `value` answer "what does the file hold" for one side and "what should it hold" for
+the other, instead of comparing a value against itself.
+
+**A serialiser is not part of this.** `rasi()` — and `kittyConf()` above, which does not
+exist; write it the same way — is plain JavaScript from an object to one format's text.
+A different format wants different lines, and nothing about `ConfigFile` is generic
+across formats. That is a deliberate stopping point, not an unfinished corner.
+
+`path` has to be absolute. `exists` and `read` are plain filesystem calls, and neither
+expands a leading `~` — the same limit `.rasi` itself has for `background-image` paths.
+
 ## Driving a Unit from the bar
 
 A Unit reads the same `globals` your layout does, so a button can change what a Unit

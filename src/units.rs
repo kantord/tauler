@@ -1232,6 +1232,135 @@ mod tests {
         );
     }
 
+    /// The docs' rofi Unit from `docs/src/content/docs/docs/units.md`'s
+    /// "Rendering a config file" section — built on the global `ConfigFile`
+    /// helper (`tauler_core::globals::JSX_GLOBALS_JS`), which is the case
+    /// ADR 0033 punted on ("Config files are not this") and ADR 0040
+    /// resolves as a Unit factory, not a new builtin.
+    #[test]
+    fn the_rofi_theme_example_from_the_docs_works() {
+        let dir = tempfile::tempdir().unwrap();
+        let theme = dir.path().join("tauler.rasi");
+
+        let source = ROFI_LAYOUT.replace("__THEME__", theme.to_str().unwrap());
+        let evaluator = JsxEvaluator::new_reconciler(
+            &source,
+            serde_json::Value::Null,
+            None,
+            Default::default(),
+        )
+        .unwrap();
+
+        let entering = crate::units::sweep(&evaluator, &HashMap::new());
+        assert_eq!(entering.entered, 1, "the theme file does not exist yet");
+        let written = std::fs::read_to_string(&theme).unwrap();
+        assert!(
+            written.contains("background-color: #221F2B;"),
+            "got: {written}"
+        );
+
+        let settled = crate::units::sweep(&evaluator, &HashMap::new());
+        assert!(
+            !settled.made_progress(),
+            "the file on disk already matches the declared content: {settled:?}"
+        );
+
+        std::fs::write(&theme, "* { background-color: #000000; }\n").unwrap();
+        let drifted = crate::units::sweep(&evaluator, &HashMap::new());
+        assert_eq!(
+            drifted.updated, 1,
+            "hand-edited away from the declared theme"
+        );
+        assert_eq!(std::fs::read_to_string(&theme).unwrap(), written);
+    }
+
+    /// `apply` is `ConfigFile`'s hook for a target that has to be told about a
+    /// change, unlike rofi — the thing ADR 0033 left `enter`/`update` for, now
+    /// reachable without hand-writing a Unit. It must fire on `enter` (the
+    /// file did not exist) and again on `update` (it drifted), with the path
+    /// and the text just written, and must not fire when a Sweep is a no-op.
+    #[test]
+    fn config_file_apply_hook_runs_after_every_write() {
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join("theme.conf");
+        let calls = dir.path().join("calls");
+
+        let source = APPLY_LAYOUT
+            .replace("__TARGET__", target.to_str().unwrap())
+            .replace("__CALLS__", calls.to_str().unwrap());
+        let evaluator = JsxEvaluator::new_reconciler(
+            &source,
+            serde_json::Value::Null,
+            None,
+            Default::default(),
+        )
+        .unwrap();
+
+        crate::units::sweep(&evaluator, &HashMap::new());
+        assert_eq!(
+            std::fs::read_to_string(&calls).unwrap(),
+            format!("applied {} hello\n", target.to_str().unwrap()),
+            "apply must run once, after enter wrote the file"
+        );
+
+        let settled = crate::units::sweep(&evaluator, &HashMap::new());
+        assert!(!settled.made_progress());
+        assert_eq!(
+            std::fs::read_to_string(&calls).unwrap().lines().count(),
+            1,
+            "a no-op Sweep must not re-apply"
+        );
+
+        std::fs::write(&target, "stale").unwrap();
+        crate::units::sweep(&evaluator, &HashMap::new());
+        assert_eq!(
+            std::fs::read_to_string(&calls).unwrap().lines().count(),
+            2,
+            "apply must run again once the file drifts"
+        );
+    }
+
+    /// A twelve-line object-to-`.rasi` serialiser, used with the global
+    /// `ConfigFile` helper. Neither `rasi()` nor `RofiTheme` is a tauler
+    /// concept: the serialiser is ordinary JavaScript, and `ConfigFile` only
+    /// composes builtins that already exist (`sh`, `read`, `exists`).
+    const ROFI_LAYOUT: &str = r##"
+        function rasi(sections) {
+          return Object.entries(sections)
+            .map(([name, props]) =>
+              `${name} {\n` +
+              Object.entries(props).map(([k, v]) => `    ${k}: ${v};`).join("\n") +
+              "\n}"
+            )
+            .join("\n\n") + "\n";
+        }
+
+        const RofiTheme = ConfigFile({
+          path: "__THEME__",
+          render: () =>
+            rasi({
+              "*": { "background-color": "#221F2B", "text-color": "#E9E4DA" },
+              window: { width: "480px" },
+            }),
+        });
+
+        export default function render() {
+          return <root><RofiTheme /></root>;
+        }"##;
+
+    /// A `ConfigFile` with an `apply` hook that logs its arguments, so the
+    /// call — and only one call per write — is checkable from outside.
+    const APPLY_LAYOUT: &str = r#"
+        const Theme = ConfigFile({
+          path: "__TARGET__",
+          render: () => "hello",
+          apply: (path, content) => sh`printf 'applied %s %s\n' ${path} ${content} >> __CALLS__`,
+        });
+
+        export default function render() {
+          return <root><Theme /></root>;
+        }"#;
+
     /// Builds a layout from [`LIGHT_LAYOUT`], pointed at this test's files and
     /// with `extra` spliced into the `unit()` call.
     fn light_layout(state: &std::path::Path, log: &std::path::Path, extra: &str) -> String {
