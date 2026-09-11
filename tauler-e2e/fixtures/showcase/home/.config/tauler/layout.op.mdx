@@ -1,3 +1,19 @@
+---
+# Rosé Pine Moon, from the theme file beside this one: tauler's shipped palette
+# is shadcn's neutral ramp, a sensible default and a poor screenshot.
+theme:
+  mode: dark
+  file: ~/.config/tauler/theme.yaml
+
+# The family name fontconfig actually reports, not the one on the tin: the file
+# is InterVariable.ttf and `fc-list Inter` matches nothing. `extra` registers
+# JetBrains Mono under its own name so theme.yaml's `fonts.readout` role can
+# reach it — the clock in the bar renders in it.
+fonts:
+  primary: Inter Variable
+  extra:
+    - JetBrains Mono
+---
 // Scenario: what a tauler desktop is supposed to look like when someone has
 // actually finished it — one floating bar over a wallpaper tauler painted
 // itself, with the terminals reading that same wallpaper through
@@ -13,17 +29,22 @@
 //   inset   12px                  — wallpaper, via root-bg, on all four sides
 //   card    1896×34 at 12,12      — the bar you actually see
 //
-// 12 is also i3's inner gap (see i3.config), so the space around the bar and
-// the space between windows are the same distance. That is most of what makes
-// the arrangement look deliberate rather than assembled.
+// 12 is also i3's inner gap (see home/.config/i3/config), so the space around
+// the bar and the space between windows are the same distance. That is most of
+// what makes the arrangement look deliberate rather than assembled.
+//
+// Every path in this file is one a reader has on their own machine: the
+// workspace module where `cargo install tauler-i3` puts it, the status script
+// and the wallpaper under $HOME. The fixture's home/ tree is copied over the
+// container's $HOME, the way a dotfiles repo would be.
 
 // <root>, <Panel>, <I3Layout> and <Module> are globals; the component library
 // is not — each component is an ES module, and <Icon> without this line is a
 // runtime "Icon is not defined", not a render with a missing glyph.
 import { Icon } from "@ui/icon";
 
-const TAULER_I3 = "/usr/local/bin/tauler-i3";
-const STATUS = "/fixtures/showcase/bin/status";
+const TAULER_I3 = "~/.cargo/bin/tauler-i3";
+const STATUS = "~/.local/bin/showcase-status";
 
 // One workspace pill.
 //
@@ -86,7 +107,7 @@ export default function render() {
           this node. */}
       <wallpaper id="desktop">
         <img
-          src="/fixtures/showcase/wallpaper.png"
+          src="~/.config/tauler/wallpaper.png"
           style={{ width: "100%", height: "100%" }}
         />
       </wallpaper>

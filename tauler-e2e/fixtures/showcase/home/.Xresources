@@ -1,0 +1,16 @@
+! Showcase — the terminal side of the rice.
+!
+! Pseudo-transparent, no compositor: urxvt reads the root pixmap tauler
+! published after blitting its <wallpaper> (_XROOTPMAP_ID) and paints its own
+! crop of it, shaded to 45 so the fetch and the tree stay legible. The font
+! list is a fallback chain: the first face that has a glyph draws it, so the
+! swatches' block characters and the tree's box drawing come from the symbol
+! font when JetBrains Mono lacks them.
+
+URxvt.font:           xft:JetBrains Mono:pixelsize=15,xft:Symbols Nerd Font Mono:pixelsize=15
+URxvt.foreground:     #e0def4
+URxvt.background:     #232136
+URxvt.internalBorder: 16
+URxvt.scrollBar:      false
+URxvt.transparent:    true
+URxvt.shading:        45

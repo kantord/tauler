@@ -162,10 +162,11 @@ fn showcase_floats_a_bar_over_its_own_wallpaper() -> Result<()> {
     // The panel is 58px tall and its content is inset by 12, so y=6 is inside
     // the margin, where the only thing that can be showing is the root-bg crop.
     //
-    // These two points are chosen against fixtures/showcase/wallpaper.png,
-    // whose top band runs from near-black on the left to a lit iris on the
-    // right — change the art and these change with it. A panel that painted a
-    // flat tint, or never bound root-bg at all, gives two equal samples.
+    // These two points are chosen against the showcase wallpaper (the fixture's
+    // home/.config/tauler/wallpaper.png), whose top band runs from near-black
+    // on the left to a lit iris on the right — change the art and these change
+    // with it. A panel that painted a flat tint, or never bound root-bg at all,
+    // gives two equal samples.
     let [lr, lg, lb, _] = pixel_at(&screenshot, 100, 6)?;
     let [rr, rg, rb, _] = pixel_at(&screenshot, 1800, 6)?;
     let spread = (lr as i32 - rr as i32).abs()

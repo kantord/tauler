@@ -507,7 +507,11 @@ fn preload_layout_images_impl(layout: &serde_json::Value, global: &mut RenderCon
         if global.images.contains_key(src.as_str()) {
             continue;
         }
-        if let Ok(bytes) = std::fs::read(&src) {
+        // `~/` as a layout file writes it, the same as a module's `bin` or a
+        // font path in the frontmatter: a wallpaper under $HOME is the common
+        // case, and a path that only resolves inside one machine's absolute
+        // layout is what keeps a fixture from being copied onto a real one.
+        if let Ok(bytes) = std::fs::read(crate::config::expand_tilde(&src)) {
             if let Ok(image) = ImageSource::from_bytes(&bytes) {
                 global.images.insert(src.into(), image);
             }
@@ -992,6 +996,44 @@ mod tests {
     /// `apply_font_config_expands_tilde_in_primary_path` proves tilde expansion: the
     /// family is resolvable by name via the `~/…` path AND it wasn't already
     /// resolvable some other way (e.g. already sitting in the targeted default set).
+    /// A wallpaper under `$HOME` is the common case, and a layout file names
+    /// it the way every other path in the file is named: `~/…`. Before this
+    /// the read used the string verbatim, failed silently, and the desktop
+    /// came up black with nothing in the log to say why.
+    #[test]
+    fn preload_layout_images_expands_a_leading_tilde() {
+        // The smallest valid PNG: 1×1, RGBA, transparent.
+        const PNG_1X1: [u8; 70] = [
+            0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x48,
+            0x44, 0x52, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x06, 0x00, 0x00,
+            0x00, 0x1F, 0x15, 0xC4, 0x89, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x44, 0x41, 0x54, 0x78,
+            0x9C, 0x63, 0x60, 0x60, 0x60, 0x60, 0x00, 0x00, 0x00, 0x05, 0x00, 0x01, 0xA5, 0xF6,
+            0x45, 0x40, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4E, 0x44, 0xAE, 0x42, 0x60, 0x82,
+        ];
+
+        // SAFETY: HOME is process-wide and this test mutates it; HOME_ENV_LOCK
+        // serializes every test in the crate that touches it.
+        let _guard = crate::config::HOME_ENV_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let fake_home = tempfile::tempdir().expect("tempdir");
+        std::fs::write(fake_home.path().join("wallpaper.png"), PNG_1X1).expect("write png");
+        unsafe { std::env::set_var("HOME", fake_home.path()) };
+
+        let layout = serde_json::json!({
+            "type": "root",
+            "children": [{ "type": "img", "src": "~/wallpaper.png" }]
+        });
+        let mut ctx = RenderContext::default();
+        super::preload_layout_images_impl(&layout, &mut ctx);
+
+        assert!(
+            ctx.images.contains_key("~/wallpaper.png"),
+            "the image under ~/ was not loaded; keys: {:?}",
+            ctx.images.keys().collect::<Vec<_>>()
+        );
+    }
+
     #[test]
     fn apply_font_config_registers_extra_path_fonts_with_tilde_expansion() {
         let Some(extra_family) =
