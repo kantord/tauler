@@ -158,6 +158,84 @@ pub const JSX_GLOBALS_JS: &str = r#"
         if (typeof fn !== "function") return null;
         return __tauler_intents(fn(pointer));
     };
+    // Normalizes JSX children into a flat, order-preserved array — the
+    // shape every config-format wrapper (ADR 0041) needs before it can
+    // decide what to do with them. `.flat(Infinity)` absorbs a `.map()`'s
+    // nested array; the filter drops the holes JSX itself produces from a
+    // conditional (`{cond && <X/>}` evaluates to `false` when `cond` is
+    // falsy). Throwing on anything else is deliberate: a bare string or
+    // number slipping through (stray text, whitespace between elements)
+    // would otherwise reach a wrapper's `key`/`combine` as a marker with no
+    // properties, producing corrupted output several calls away from the
+    // actual mistake — this turns that into an error at the mistake itself.
+    globalThis.flattenChildren = (children) => {
+        const flat = (Array.isArray(children) ? children : [children]).flat(Infinity);
+        return flat.filter((c) => {
+            if (c === null || c === false || c === undefined) return false;
+            if (typeof c !== 'object') {
+                throw new Error(
+                    'flattenChildren: expected a marker object, got ' + JSON.stringify(c) +
+                    ' — stray text or whitespace between elements is not a valid child here'
+                );
+            }
+            return true;
+        });
+    };
+    // Groups `items` by `key(item)`, folding each group through `combine`
+    // (ADR 0041). `combine` sees `undefined` on a key's first occurrence —
+    // a `Map` already returns that from `.get()` on a missing key, and
+    // already preserves a key's original position when `.set()` updates
+    // it — so this is the whole mechanism, no separate "have we seen this
+    // key" bookkeeping needed.
+    //
+    // There is deliberately no default `combine`: whether a second item
+    // sharing a key replaces the first, extends it, or should never happen
+    // is specific to the target format (rofi replaces per property,
+    // systemd's `Environment=` accumulates), and a shared default would be
+    // right for some formats and silently wrong for others.
+    globalThis.collate = (items, key, combine) => {
+        const buckets = new Map();
+        for (const item of items) {
+            const k = key(item);
+            buckets.set(k, combine(buckets.get(k), item));
+        }
+        return buckets;
+    };
+    // A Unit factory for one external text file (ADR 0040). `path` is the
+    // key, `render()` is called fresh every time the declared value is
+    // needed, and `observe` reads the file back with builtins that already
+    // exist (`read`/`exists`) — this is boilerplate factored out of a Unit
+    // definition, not a new capability: nothing here `unit()`, `sh`, `read`
+    // and `exists` couldn't already do by hand (see the docs' first draft
+    // of this example, before `ConfigFile` existed).
+    //
+    // `apply`, if given, runs after every write with the path and the text
+    // just written — the hook for a target that has to be told, unlike
+    // rofi, which reads its file fresh on every launch. It is ordinary
+    // JavaScript closed over by `write`, not an Item prop, because a prop
+    // is serialised into the hook-dispatch batch (ADR 0034) and a function
+    // does not survive that crossing.
+    //
+    // `value` tells the declared side from the observed side by shape:
+    // `observe` always returns `{content}`, and a declared `<ConfigFile/>`
+    // never has one (it takes no props), so the branch is exact rather
+    // than a heuristic.
+    globalThis.ConfigFile = ({ path, render, apply }) => {
+        function write() {
+            const rendered = render();
+            sh`printf '%s' ${rendered} > ${path}`;
+            if (apply) apply(path, rendered);
+        }
+        return unit({
+            key: () => path,
+            value: (f) => ('content' in f ? f.content : render()),
+            reconciler: optativeSet({
+                observe: () => (exists(path) ? [{ content: read(path) }] : []),
+            }),
+            enterOne: write,
+            updateOne: write,
+        });
+    };
     globalThis.Module = ({ bin, children, ...rest }) => {
         const child = Array.isArray(children) ? children[0] : children;
         if (typeof child === 'function') return child(useJSONStream(bin), useEvents(bin, rest));

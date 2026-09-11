@@ -1,0 +1,30 @@
+grammar: rasi
+component: Rofi
+selectors:
+  - name: "*"
+    component: Selector
+    properties:
+      - name: background-color
+        component: BackgroundColor
+        pattern: "^#[0-9a-fA-F]{6}$"
+      - name: text-color
+        component: TextColor
+        pattern: "^#[0-9a-fA-F]{6}$"
+  - name: window
+    component: WindowSelector
+    properties:
+      - name: width
+        component: Width
+        pattern: "^[0-9]+(px|%)$"
+      - name: location
+        component: Location
+        enum: ["center", "north", "south", "east", "west"]
+---
+template: |
+  {% for selector in selectors %}
+  {{ selector.name }} {
+  {% for prop in selector.properties %}
+      {{ prop.css_name }}: {{ prop.value }};
+  {% endfor %}
+  }
+  {% endfor %}
