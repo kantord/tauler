@@ -65,17 +65,20 @@ fn sidebar_reserves_the_left_edge() -> Result<()> {
 #[test]
 #[ignore = "needs Docker and `just e2e-image`"]
 fn hero_reserves_the_top_edge() -> Result<()> {
-    run(
+    run_on(
         "hero",
         "hero-reserves-the-top-edge",
+        SCREEN_4K,
         Expected {
+            // Physical pixels throughout: the 28 logical the layout declares,
+            // at 2× (see the showcase scenario).
             gaps: Gaps {
                 left: 0,
                 right: 0,
-                top: 28,
+                top: 56,
                 bottom: 0,
             },
-            panels: vec![rect(0, 0, 1920, 28)],
+            panels: vec![rect(0, 0, 3840, 56)],
             clients: 2,
         },
     )?;
@@ -141,17 +144,21 @@ fn workspaces_frames_the_area_beside_the_sidebar() -> Result<()> {
 #[test]
 #[ignore = "needs Docker and `just e2e-image`"]
 fn showcase_floats_a_bar_over_its_own_wallpaper() -> Result<()> {
-    let (_desktop, screenshot) = run(
+    let (_desktop, screenshot) = run_on(
         "showcase",
         "showcase-floats-a-bar-over-its-own-wallpaper",
+        SCREEN_4K,
         Expected {
+            // Physical pixels throughout: the 58 logical the layout declares,
+            // at 2× — i3 applies logical_px to the gaps it is sent and reports
+            // the result.
             gaps: Gaps {
                 left: 0,
                 right: 0,
-                top: 58,
+                top: 116,
                 bottom: 0,
             },
-            panels: vec![rect(0, 0, 1920, 58)],
+            panels: vec![rect(0, 0, 3840, 116)],
             // These two start late by design: they wait for tauler to publish
             // _XROOTPMAP_ID before launching, so that they have a wallpaper to
             // read. `run` waits for them.
@@ -167,8 +174,8 @@ fn showcase_floats_a_bar_over_its_own_wallpaper() -> Result<()> {
     // on the left to a lit iris on the right — change the art and these change
     // with it. A panel that painted a flat tint, or never bound root-bg at all,
     // gives two equal samples.
-    let [lr, lg, lb, _] = pixel_at(&screenshot, 100, 6)?;
-    let [rr, rg, rb, _] = pixel_at(&screenshot, 1800, 6)?;
+    let [lr, lg, lb, _] = pixel_at(&screenshot, 200, 12)?;
+    let [rr, rg, rb, _] = pixel_at(&screenshot, 3600, 12)?;
     let spread = (lr as i32 - rr as i32).abs()
         + (lg as i32 - rg as i32).abs()
         + (lb as i32 - rb as i32).abs();
@@ -182,7 +189,7 @@ fn showcase_floats_a_bar_over_its_own_wallpaper() -> Result<()> {
     // An unreadable `theme.file` is a warning, not an error: tauler falls back
     // to the shipped greyscale default and renders a perfectly correct grey
     // bar. Every other assertion in this file would still pass.
-    let [br, bg, bb, _] = pixel_at(&screenshot, 960, 29)?;
+    let [br, bg, bb, _] = pixel_at(&screenshot, 1920, 58)?;
     let chroma = br.abs_diff(bg).max(bg.abs_diff(bb)).max(br.abs_diff(bb));
     assert!(
         chroma >= 6,
@@ -496,7 +503,25 @@ fn thermal_crops_one_field_across_every_window() -> Result<()> {
 /// runs twice), so keying the devtools gallery on the fixture name would let the second
 /// test's screenshot silently overwrite the first's.
 fn run(scenario: &str, devtools_name: &str, expected: Expected) -> Result<(Desktop, PathBuf)> {
-    let screen = Screen::default();
+    run_on(scenario, devtools_name, Screen::default(), expected)
+}
+
+/// A 4K screen at 2× — the same desktop as the default, twice the pixels.
+/// The scenarios the docs site shows as pictures run here, so the pictures
+/// are sharp on a high-density display; the contract scenarios keep the
+/// default, where a pixel is a pixel and the expectations read plainly.
+const SCREEN_4K: Screen = Screen {
+    width: 3840,
+    height: 2160,
+    dpi: 192,
+};
+
+fn run_on(
+    scenario: &str,
+    devtools_name: &str,
+    screen: Screen,
+    expected: Expected,
+) -> Result<(Desktop, PathBuf)> {
     let desktop = Desktop::start(scenario, screen)?;
 
     let gaps = wait_for("tauler-i3 to write the gaps", || {

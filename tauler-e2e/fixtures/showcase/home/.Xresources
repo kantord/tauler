@@ -5,12 +5,14 @@
 ! crop of it, shaded to 45 so the fetch and the tree stay legible. The font
 ! list is a fallback chain: the first face that has a glyph draws it, so the
 ! swatches' block characters and the tree's box drawing come from the symbol
-! font when JetBrains Mono lacks them.
+! font when JetBrains Mono lacks them. Pixel sizes, so they are stated for
+! the 4K screen the scenario runs on (tauler-e2e/tests/scenarios.rs): twice
+! what they would be at 1080p.
 
-URxvt.font:           xft:JetBrains Mono:pixelsize=15,xft:Symbols Nerd Font Mono:pixelsize=15
+URxvt.font:           xft:JetBrains Mono:pixelsize=30,xft:Symbols Nerd Font Mono:pixelsize=30
 URxvt.foreground:     #e0def4
 URxvt.background:     #232136
-URxvt.internalBorder: 16
+URxvt.internalBorder: 32
 URxvt.scrollBar:      false
 URxvt.transparent:    true
 URxvt.shading:        45

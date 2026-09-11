@@ -22,9 +22,10 @@ import CodeBlock from '../ui/CodeBlock.astro'
 import PanelFrame from '../ui/PanelFrame.astro'
 import Meta from '../text/Meta.astro'
 
-// The bar is 28px tall at the top of a 1920-wide screen; the strip shows its
-// left end at 1:1 plus the first rows of the tiled windows under it, so the
-// reserved edge is visible. The markup strip is the same box.
+// The bar is 28 logical pixels tall at the top of a 1920-wide screen; the
+// strip shows its left end at 1:1 (the scenario runs at 4K, 2×, so the image
+// is served at two densities) plus the first rows of the tiled windows under
+// it, so the reserved edge is visible. The markup strip is the same box.
 const STRIP_HEIGHT = 44
 ---
 
