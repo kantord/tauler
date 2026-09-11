@@ -16,8 +16,14 @@
 //!
 //! The font set is process-global: the first [`render`] in a process installs
 //! it, and a later call with a different `font_path` reloads it. Streams are
-//! not run — `useStringStream` and `useJSONStream` resolve to empty values, so
-//! a layout that reads live data renders in its empty state.
+//! not run — `useStringStream` and `useJSONStream` resolve to whatever
+//! [`Options::stream_values`] holds for their `(bin, script)`, and to empty
+//! values otherwise, so a layout that reads live data renders in a chosen
+//! state rather than a live one.
+//!
+//! A layout that declares a `<dom>` surface next to its `<panel>`s also comes
+//! back as markup ([`Screenshot::dom`]), produced by the same walk the browser
+//! runtime uses (ADR 0026) — the one file, rendered by both renderers.
 
 use std::collections::{BTreeSet, HashMap};
 use std::fmt;
@@ -27,6 +33,25 @@ use tauler::jsx::JsxEvaluator;
 use tauler::theme::resolver::resolve_theme_tokens;
 
 pub use tauler::theme::ThemeMode;
+
+/// The screen a layout is evaluated against: what `ctx.screen_width` and
+/// `ctx.screen_height` report. Panels size themselves from it, and
+/// `<I3Layout>` reads it to place them, so a layout that declares surfaces
+/// cannot evaluate without one.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Screen {
+    pub width: u32,
+    pub height: u32,
+}
+
+impl Default for Screen {
+    fn default() -> Self {
+        Self {
+            width: 1920,
+            height: 1080,
+        }
+    }
+}
 
 /// How to render. `Options::default()` is the dark theme at the standard
 /// preview width, with fonts resolved through fontconfig.
@@ -47,6 +72,12 @@ pub struct Options {
     /// host's fonts are never consulted, so the output is the same on every
     /// machine. `Default` is `false`.
     pub files_only: bool,
+    /// The screen the layout's `ctx` describes. Default is 1920×1080.
+    pub screen: Screen,
+    /// The latest line of each stream, keyed by the `(bin, script)` the layout
+    /// declares it with — the same identity the bar uses. A stream not listed
+    /// here resolves to an empty value.
+    pub stream_values: HashMap<(String, Option<String>), String>,
 }
 
 impl Default for Options {
@@ -57,6 +88,8 @@ impl Default for Options {
             font_path: None,
             symbol_font_path: None,
             files_only: false,
+            screen: Screen::default(),
+            stream_values: HashMap::new(),
         }
     }
 }
@@ -78,6 +111,10 @@ impl std::error::Error for Error {}
 pub struct Screenshot {
     /// The vector SVG document, sized to the content.
     pub svg: String,
+    /// The layout's `<dom>` surface as markup, when it declares one: the same
+    /// tree the SVG was painted from, walked the way the browser runtime walks
+    /// it. `None` for a layout with no `<dom>`.
+    pub dom: Option<String>,
     /// Every Tailwind utility the resolved tree carries, one entry per class.
     pub classes: BTreeSet<String>,
     /// The resolved canvas, kept so [`Self::geometry`] measures exactly what
@@ -141,13 +178,30 @@ pub fn render(jsx_source: &str, options: &Options) -> Result<Screenshot, Error> 
 
     let theme = tauler::theme::Theme::default_theme();
 
-    let eval_output = JsxEvaluator::new(jsx_source, serde_json::Value::Null, None)
+    // The same keys the bar sets (see `X11Init` in the binary), so a layout
+    // that reads `ctx` sees a screen rather than `null`.
+    let jsx_ctx = serde_json::json!({
+        "output": "preview",
+        "dpi": 96,
+        "screen_width": options.screen.width,
+        "screen_height": options.screen.height,
+    });
+    let eval_output = JsxEvaluator::new(jsx_source, jsx_ctx, None)
         .map_err(|e| Error(e.to_string()))?
-        .eval(&HashMap::new())
+        .eval(&options.stream_values)
         .map_err(|e| Error(e.to_string()))?;
 
     let mut layout = eval_output.layout;
     resolve_theme_tokens(&mut layout, &theme, options.theme);
+
+    // Before the preview canvas wraps it: the walk wants the layout's own
+    // `<root>` (or a bare `<dom>`), and a layout without either is simply not
+    // a web surface, which is not an error here.
+    let dom = match tauler::dom::render_output(&layout) {
+        Ok(tauler::dom::Output::Dom { dom }) => Some(dom),
+        Err(tauler::dom::DomError::NotADomSurface(_)) => None,
+        Err(e) => return Err(Error(e.to_string())),
+    };
 
     use tauler::preview::{CANVAS_CLASS, FRAME_CLASS};
     // The frame makes every component render at the full content width, whether
@@ -175,6 +229,7 @@ pub fn render(jsx_source: &str, options: &Options) -> Result<Screenshot, Error> 
     let svg = tauler::render_svg_document(&canvas, options.width);
     Ok(Screenshot {
         svg,
+        dom,
         classes,
         canvas,
         width: options.width,
@@ -230,5 +285,43 @@ mod tests {
     #[test]
     fn a_source_that_does_not_evaluate_is_an_error_not_a_panic() {
         assert!(render("export default squiggle(", &Options::default()).is_err());
+    }
+
+    /// One file, two surfaces: the `<panel>` sizes itself from `ctx`, which
+    /// used to be `null` here and threw, and the `<dom>` beside it comes back
+    /// as markup carrying the stream value handed in.
+    #[test]
+    fn a_layout_with_a_panel_and_a_dom_renders_both_with_stream_values() {
+        const BOTH: &str = r#"
+function Bar({ time }) { return <span class="text-foreground">{time}</span>; }
+export default function render() {
+  const time = useStringStream("/bin/sh", "date");
+  return (
+    <root>
+      <panel anchor="top" height={28} width={ctx.screen_width}><Bar time={time} /></panel>
+      <dom><Bar time={time} /></dom>
+    </root>
+  );
+}"#;
+        let mut options = Options::default();
+        options.stream_values.insert(
+            ("/bin/sh".to_string(), Some("date".to_string())),
+            "09:41".to_string(),
+        );
+        let shot = render(BOTH, &options).expect("a panel plus a dom should render");
+        let dom = shot
+            .dom
+            .expect("the <dom> surface should come back as markup");
+        assert!(
+            dom.contains("09:41"),
+            "the stream value did not reach the dom: {dom}"
+        );
+        assert!(shot.svg.starts_with("<svg"));
+    }
+
+    #[test]
+    fn a_layout_without_a_dom_has_no_markup_and_is_not_an_error() {
+        let shot = render(HELLO, &Options::default()).expect("hello world should render");
+        assert!(shot.dom.is_none());
     }
 }

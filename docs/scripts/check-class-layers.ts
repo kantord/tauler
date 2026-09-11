@@ -28,7 +28,7 @@ const TYPOGRAPHY =
 const SURFACE =
   /^(bg-|border(-|$)|shadow-|outline|ring|cursor-|select-|opacity-|brightness-|transition|duration-|ease-)/
 
-const MARKERS = /^(above-fold|crt-[\w-]+)$/
+const MARKERS = /^(above-fold|tauler-mount|crt-[\w-]+)$/
 
 const BANNED = /^(rounded|blur|backdrop-)/
 

@@ -1,9 +1,11 @@
 ---
-// Workspace 01's type column: label, display line, body, install command,
-// the one accent action, and the fine print.
+// Workspace 01's type column: display line, one factual line, install
+// command, the one accent action, and the fine print. The claim is the
+// narrowest thing that is only true of Tauler — the file beside this column
+// renders the bar and this page — and HeroDemo shows it rather than this
+// column asserting it.
 import Body from '../text/Body.astro'
 import Display from '../text/Display.astro'
-import Label from '../text/Label.astro'
 import Meta from '../text/Meta.astro'
 import Button from '../ui/Button.astro'
 import CommandLine from '../ui/CommandLine.astro'
@@ -14,12 +16,11 @@ import SeamGroup from '../ui/SeamGroup.astro'
 <div
   class="relative flex max-w-hero flex-col gap-s6 py-s8 tight:gap-s5 tight:py-s6 short:gap-s2 short:py-s4"
 >
-  <Label>STATUS BARS · AUTOMATIONS · SMART HOME · DATA DASHBOARDS</Label>
-  <Display>Describe your workspace once.<br />tauler runs it live.</Display>
+  <Display>One layout file renders the bar<br />and this page.</Display>
   <Body>
-    Unlike a dotfile manager, tauler doesn't just template config files — it
-    holds live state across the programs it drives, and keeps them matching your
-    layout on every change.
+    A desktop bar written in JSX, evaluated by Tauler and drawn natively on X11
+    or Wayland. The file printed here is running on i3 in one strip and in your
+    browser in the other.
   </Body>
   <CommandLine>cargo install tauler</CommandLine>
   <SeamGroup>

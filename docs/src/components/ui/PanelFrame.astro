@@ -1,0 +1,18 @@
+---
+// A framed strip: hairline, panel shadow, contents clipped. The box the
+// hero's two renders share, so the desktop screenshot and the browser
+// render sit in identical frames and nothing but their contents differs.
+interface Props {
+  /** Fixed height in CSS pixels; contents beyond it are clipped. */
+  height: number
+}
+
+const { height } = Astro.props
+---
+
+<div
+  class="w-full overflow-hidden border border-line-2 shadow-panel"
+  style={`height:${height}px`}
+>
+  <slot />
+</div>

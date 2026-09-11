@@ -1,0 +1,22 @@
+---
+// The call to action every scroll zone ends with: the docs page that
+// covers the zone's topic, and the repository. Rendered below the fold,
+// so the buttons opt out of the above-fold contract.
+import Button from '../ui/Button.astro'
+import GithubMark from '../ui/GithubMark.astro'
+import SeamGroup from '../ui/SeamGroup.astro'
+
+interface Props {
+  docs: string
+}
+
+const { docs } = Astro.props
+---
+
+<SeamGroup>
+  <Button href={docs} variant="accent" aboveFold={false}>DOCS →</Button>
+  <Button href="https://github.com/kantord/tauler" aboveFold={false}>
+    <GithubMark />
+    GITHUB
+  </Button>
+</SeamGroup>

@@ -21,7 +21,13 @@ use tree_cache::TreeCache;
 /// actual behavior lives in its own module — see `command_worker`,
 /// `refresh_worker`, and `subscribe`.
 fn main() {
+    // stderr, never stdout: stdout is the data channel — tauler parses every
+    // line of it as JSON and keeps the latest. A log line landing there after
+    // the workspace list leaves the bar holding "not JSON" as its newest
+    // value, so `data` reads as null until the next workspace event, which on
+    // a quiet desktop is never.
     tracing_subscriber::fmt()
+        .with_writer(std::io::stderr)
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env()
                 .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")),

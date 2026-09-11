@@ -1,0 +1,87 @@
+---
+// The hero's proof: one layout file and its two renders, side by side.
+//
+// The file is tauler-e2e/fixtures/hero/layout.op.mdx, read here through the
+// docs/src/landing symlink so what the page prints is the file the e2e suite
+// executes on a real i3 — byte for byte, no excerpt. The screenshot is what
+// that run left behind (tauler-e2e/tests/scenarios.rs, `hero`). The markup is
+// the same file's `<dom>` surface, rendered at build time by tauler-screenshot
+// (`just docs` → tauler-docgen → docs/.tauler/landing/hero.html) with the
+// stream values in docs/src/landing/hero.streams.json. Nothing here runs in
+// the browser: no wasm, no script, so the two strips are there with JS off.
+//
+// The two strips share one width and one height, left edges aligned. The
+// alignment is the argument — the same tree, drawn by takumi on the desktop
+// and by the browser here — and the caption says exactly that, because the
+// picture and the markup are not the same pixels and must not pretend to be.
+import { Image } from 'astro:assets'
+import heroSource from '../../landing/hero.op.mdx?raw'
+import heroDom from '../../../.tauler/landing/hero.html?raw'
+import heroShot from '../../assets/devtools/i3-scenarios/hero-reserves-the-top-edge.png'
+import CodeBlock from '../ui/CodeBlock.astro'
+import PanelFrame from '../ui/PanelFrame.astro'
+import Meta from '../text/Meta.astro'
+
+// The bar is 28 logical pixels tall at the top of a 1920-wide screen; the
+// strip shows its left end at 1:1 (the scenario runs at 4K, 2×, so the image
+// is served at two densities) plus the first rows of the tiled windows under
+// it, so the reserved edge is visible. The markup strip is the same box.
+const STRIP_HEIGHT = 44
+---
+
+<div data-hero-demo class="flex w-full flex-col gap-s5">
+  <CodeBlock path="~/.config/tauler/layout.op.mdx" code={heroSource} compact />
+  {
+    /* Below lg the strips come first: they are wide and short and survive a
+       phone, the code panel is tall and reads better after them. */
+  }
+  <div data-hero-strips class="flex flex-col gap-s3 max-lg:order-first">
+    <figure class="flex flex-col gap-s2">
+      <PanelFrame height={STRIP_HEIGHT}>
+        <Image
+          src={heroShot}
+          alt="The hero layout running on i3: a 28px bar across the top of the screen with workspace numbers and the clock, and the tiled windows starting under it"
+          width={1920}
+          densities={[1, 2]}
+          class="max-w-none"
+        />
+      </PanelFrame>
+      <figcaption>
+        <Meta aboveFold={false}
+          >ON I3 · takumi paints the tree into an X11 window</Meta
+        >
+      </figcaption>
+    </figure>
+    <figure class="flex flex-col gap-s2">
+      <PanelFrame height={STRIP_HEIGHT}>
+        <div class="tauler-mount" set:html={heroDom} />
+      </PanelFrame>
+      <figcaption>
+        <Meta aboveFold={false}
+          >IN THIS PAGE · your browser paints the same tree · select the text</Meta
+        >
+      </figcaption>
+    </figure>
+  </div>
+</div>
+
+<style>
+  /* Both strips are the same box; the mount fills it the way the panel
+     fills its 28px. tauler.css sizes .tauler-mount to the component
+     reference's preview width, which is not this box — the descendant
+     selector outranks it. `all: revert` inside the mount keeps the page's
+     own type out of the render, the same way it keeps Starlight's out of
+     the component reference. */
+  [data-hero-strips] .tauler-mount {
+    width: 100%;
+    height: 28px;
+  }
+  /* A screenshot shown at 1:1, cropped to its top-left corner: the bar's
+     left end and the tiled windows under it. The image is wider than the
+     strip on every viewport, which is the point — nothing is scaled. */
+  [data-hero-strips] img {
+    display: block;
+    width: 1920px;
+    height: auto;
+  }
+</style>

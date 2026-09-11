@@ -1,0 +1,71 @@
+---
+// A finished desktop, edge to edge: the showcase scenario's screenshot,
+// straight out of the e2e suite (tauler-e2e/fixtures/showcase, run on a real
+// i3 in Docker by tauler-e2e/tests/scenarios.rs). It is the one scenario
+// image that survives being shown whole — a bar, a wallpaper, two terminals
+// — so it is the one place the page shows a desktop rather than a strip.
+// Nothing here is drawn by hand; the caption says where the pixels came
+// from and links the fixture, which is a home/ tree a reader can copy.
+import { Image } from 'astro:assets'
+import shot from '../../assets/devtools/i3-scenarios/showcase-floats-a-bar-over-its-own-wallpaper.png'
+import PageWidth from '../ui/PageWidth.astro'
+import NavLink from '../ui/NavLink.astro'
+import Label from '../text/Label.astro'
+import Body from '../text/Body.astro'
+
+const FIXTURE_URL =
+  'https://github.com/kantord/tauler/tree/main/tauler-e2e/fixtures/showcase'
+---
+
+{
+  /* `relative`: the wallpaper canvas is viewport-fixed (Stage.astro) and
+     paints over anything later in the flow that is not positioned — the
+     zones are positioned for the same reason. */
+}
+<section
+  aria-label="A finished desktop"
+  class="relative flex flex-col gap-s5 border-y border-line-2 bg-surface-frame py-s6"
+>
+  <PageWidth>
+    <div class="flex items-center gap-s5 max-lg:flex-col max-lg:items-start">
+      <Label aboveFold={false}>FROM THE TEST SUITE · SHOWCASE</Label>
+      <div class="ml-auto flex max-lg:ml-0">
+        <NavLink href={FIXTURE_URL}>THE FIXTURE ON GITHUB →</NavLink>
+      </div>
+    </div>
+  </PageWidth>
+  <div data-showcase-shot class="w-full overflow-hidden">
+    <Image
+      src={shot}
+      alt="A 1920 by 1080 i3 desktop running Tauler: a floating bar along the top with three workspace pills, the focused window's title, CPU, memory, volume and battery readouts and a clock, over a purple wallpaper; two pseudo-transparent terminals tiled below it, one showing a system summary, the other a directory tree"
+      widths={[960, 1440, 1920, 2880, 3840]}
+      sizes="(max-width: 63.99rem) 1920px, 100vw"
+      class="block h-auto w-full"
+    />
+  </div>
+  <PageWidth>
+    <Body aboveFold={false}>
+      One bar over a wallpaper Tauler painted itself; the terminals read that
+      wallpaper back through _XROOTPMAP_ID, so there is no compositor. The
+      workspaces are real i3 workspaces, the colours come from a theme file, and
+      the four readouts are frozen so the picture is the same on every run. The
+      screenshot is what the scenario leaves behind when it passes.
+    </Body>
+  </PageWidth>
+</section>
+
+<style>
+  /* A 1920-wide desktop scaled into a phone is a smear. Below lg the frame
+     shows the top-left corner at 1:1 instead — the bar's workspace pills and
+     title and the first terminal — which is the part that reads. */
+  @media (max-width: 63.99rem) {
+    [data-showcase-shot] {
+      height: 300px;
+    }
+    [data-showcase-shot] img {
+      width: 1920px;
+      max-width: none;
+      height: auto;
+    }
+  }
+</style>

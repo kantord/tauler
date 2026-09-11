@@ -36,6 +36,14 @@ struct Args {
     /// Directory to write the Tailwind inputs the docs build compiles
     #[arg(long, default_value = "docs/.tauler")]
     build_dir: PathBuf,
+
+    /// Directory of the landing page's layout files: each `<name>.op.mdx` is rendered to
+    /// `<build_dir>/landing/<name>.html` — its `<dom>` surface as markup — with the stream
+    /// values in `<name>.streams.json` beside it, when there is one. The page pastes that
+    /// markup in at build time, so what it shows is Tauler's own output of the file it
+    /// prints, with no runtime in the browser.
+    #[arg(long, default_value = "docs/src/landing")]
+    landing_dir: PathBuf,
 }
 
 /// Which group of the reference a component is listed under.
@@ -740,6 +748,74 @@ const MOUNT_SCRIPT: &str = r#"
 </script>
 "#;
 
+/// Render every landing layout to markup, returning the classes the renders carry so the
+/// stylesheet compiles them alongside the component examples'.
+///
+/// A landing layout is a whole file — `<root>` with a `<panel>` and a `<dom>` — not a
+/// component's `# JSX` block, so it goes to the screenshot binary as it is, with no wrapping
+/// and no SVG asked for. A missing directory renders nothing and is not an error: the docs
+/// site builds without a landing page too.
+fn render_landing(args: &Args) -> std::io::Result<BTreeSet<String>> {
+    let mut classes = BTreeSet::new();
+    let Ok(entries) = fs::read_dir(&args.landing_dir) else {
+        return Ok(classes);
+    };
+    let Some(bin) = find_screenshot_binary() else {
+        eprintln!(
+            "warning: tauler-screenshot not built; landing layouts in {} were not rendered",
+            args.landing_dir.display()
+        );
+        return Ok(classes);
+    };
+    let out_dir = args.build_dir.join("landing");
+    fs::create_dir_all(&out_dir)?;
+
+    let mut paths: Vec<PathBuf> = entries
+        .filter_map(|e| e.ok().map(|e| e.path()))
+        .filter(|p| p.to_string_lossy().ends_with(".op.mdx"))
+        .collect();
+    paths.sort();
+
+    for path in paths {
+        let name = path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .and_then(|n| n.strip_suffix(".op.mdx"))
+            .unwrap_or_default()
+            .to_string();
+        let streams = path.with_file_name(format!("{name}.streams.json"));
+        let classes_file =
+            std::env::temp_dir().join(format!("tauler-docgen-landing-{name}-classes.txt"));
+
+        let mut command = std::process::Command::new(&bin);
+        command
+            .arg("--input")
+            .arg(&path)
+            .arg("--html-out")
+            .arg(out_dir.join(format!("{name}.html")))
+            .arg("--classes-out")
+            .arg(&classes_file);
+        if streams.exists() {
+            command.arg("--stream-values").arg(&streams);
+        }
+        let status = command.status()?;
+        if !status.success() {
+            return Err(std::io::Error::other(format!(
+                "tauler-screenshot failed on landing layout {}",
+                path.display()
+            )));
+        }
+        let body = fs::read_to_string(&classes_file)?;
+        classes.extend(
+            body.lines()
+                .filter(|l| !l.trim().is_empty())
+                .map(str::to_string),
+        );
+        let _ = fs::remove_file(&classes_file);
+    }
+    Ok(classes)
+}
+
 /// Write every browser asset, and the Tailwind input that compiles the classes they use.
 fn generate_web(
     args: &Args,
@@ -765,7 +841,7 @@ fn generate_web(
         fonts_dir.join("InterVariable.ttf"),
     )?;
 
-    let mut classes = BTreeSet::new();
+    let mut classes = render_landing(args)?;
     for (comp, r) in components.iter().zip(rendered.iter()) {
         if let Some(r) = r {
             classes.extend(r.classes.iter().cloned());
