@@ -1320,6 +1320,60 @@ mod tests {
         );
     }
 
+    /// One `ConfigFile` whose `render` always throws must not stop any other
+    /// `ConfigFile` on the same layout from writing correctly in the same
+    /// Sweep — the property the real tauler desktop deployment (four
+    /// independent rofi/kitty `ConfigFile`s reading a shared, non-atomically
+    /// written JSON palette file) depends on for one bad Sweep to stay
+    /// contained. Traced to `call_unit_projection` (`src/jsx.rs`), which
+    /// already catches and logs a thrown exception per projection call
+    /// rather than propagating it — this test demonstrates that guarantee
+    /// end to end instead of only reasoning about it from the code.
+    #[test]
+    fn one_config_files_throwing_render_does_not_stop_the_others_in_the_same_sweep() {
+        let dir = tempfile::tempdir().unwrap();
+        let good1 = dir.path().join("good1.conf");
+        let good2 = dir.path().join("good2.conf");
+        let bad = dir.path().join("bad.conf");
+        let good3 = dir.path().join("good3.conf");
+
+        let source = format!(
+            r#"
+            const Good1 = ConfigFile({{ path: "{good1}", render: () => "good1" }});
+            const Good2 = ConfigFile({{ path: "{good2}", render: () => "good2" }});
+            const Bad = ConfigFile({{
+              path: "{bad}",
+              render: () => {{ throw new Error("boom"); }},
+            }});
+            const Good3 = ConfigFile({{ path: "{good3}", render: () => "good3" }});
+
+            export default function render() {{
+              return <root><Good1 /><Good2 /><Bad /><Good3 /></root>;
+            }}"#,
+            good1 = good1.to_str().unwrap(),
+            good2 = good2.to_str().unwrap(),
+            bad = bad.to_str().unwrap(),
+            good3 = good3.to_str().unwrap(),
+        );
+        let evaluator = JsxEvaluator::new_reconciler(
+            &source,
+            serde_json::Value::Null,
+            None,
+            Default::default(),
+        )
+        .unwrap();
+
+        crate::units::sweep(&evaluator, &HashMap::new());
+
+        assert_eq!(std::fs::read_to_string(&good1).unwrap(), "good1");
+        assert_eq!(std::fs::read_to_string(&good2).unwrap(), "good2");
+        assert_eq!(std::fs::read_to_string(&good3).unwrap(), "good3");
+        assert!(
+            !bad.exists(),
+            "a throwing render must not produce a file, same as a template error"
+        );
+    }
+
     /// `renderTemplate` is the runtime half of the `tauler-configgen` design
     /// (design record §14/§17): a generated root component embeds its
     /// schema's own minijinja template as a string constant and calls
@@ -1503,6 +1557,158 @@ mod tests {
             "the compound selector must produce its own block: {rasi}"
         );
         assert!(rasi.contains("button selected {"), "got: {rasi}");
+    }
+
+    /// The same real-generator-output proof as the rofi test above, for the
+    /// *other* shipped schema (`kitty-config.schema.yaml`) — until this
+    /// test existed, a bad regex or a typo'd `directive:` in that schema
+    /// could break the generated kitty settings file while every other test
+    /// in the suite (including this crate's) stayed green, since nothing
+    /// ran it against the real reconciler. Values mirror the real deployed
+    /// `KittyConfig.jsx`.
+    #[test]
+    fn the_real_kitty_generator_output_runs_end_to_end_against_the_real_reconciler() {
+        let generated = tauler_configgen::generate(
+            &tauler_configgen::parse(include_str!(
+                "../tauler-configgen/examples/kitty-config.schema.yaml"
+            ))
+            .expect("the shipped kitty-config schema must parse"),
+        );
+
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join("tauler-kitty-settings-test.conf");
+
+        let layout = format!(
+            r##"
+            {generated}
+
+            const KittyConfig = ConfigFile({{
+              path: "{path}",
+              render: () => (
+                <KittySettings>
+                  <FontFamily value="JetBrains Mono" />
+                  <BoldFont value="auto" />
+                  <ItalicFont value="auto" />
+                  <BoldItalicFont value="auto" />
+                  <AdjustLineHeight value="100%" />
+                  <FontSize value="14" />
+                  <AutoReloadConfig value="0.5" />
+                  <ProgressBar value="top" />
+                  <ScrollbackLines value="10000" />
+                  <EnableAudioBell value="no" />
+                  <ShellIntegration value="enabled" />
+                  <Shell value="/home/kantord/.cargo/bin/enw shell" />
+                  <RememberWindowSize value="no" />
+                  <InitialWindowWidth value="830" />
+                  <InitialWindowHeight value="700" />
+                  <InactiveTextAlpha value="0.6" />
+                  <RepaintDelay value="8" />
+                  <InputDelay value="2" />
+                  <AllowRemoteControl value="yes" />
+                </KittySettings>
+              ),
+            }});
+
+            export default function render() {{
+              return <root><KittyConfig /></root>;
+            }}"##,
+            path = target.to_str().unwrap(),
+        );
+
+        let evaluator = JsxEvaluator::new_reconciler(
+            &layout,
+            serde_json::Value::Null,
+            None,
+            Default::default(),
+        )
+        .unwrap();
+
+        let report = crate::units::sweep(&evaluator, &HashMap::new());
+        assert_eq!(report.entered, 1, "got: {report:?}");
+
+        let conf = std::fs::read_to_string(&target).unwrap();
+        assert!(conf.contains("font_family JetBrains Mono"), "got: {conf}");
+        assert!(conf.contains("font_size 14"), "got: {conf}");
+        assert!(conf.contains("adjust_line_height 100%"), "got: {conf}");
+        assert!(
+            conf.contains("shell /home/kantord/.cargo/bin/enw shell"),
+            "got: {conf}"
+        );
+        assert!(conf.contains("allow_remote_control yes"), "got: {conf}");
+    }
+
+    /// Same real-generator-output proof as the two tests above, for
+    /// `rofi-config.schema.yaml` — the schema that replaced RofiConfig.jsx's
+    /// hand-written template literal specifically to remove the
+    /// unprincipled "why does kitty get validation and rofi's
+    /// `configuration{}` doesn't" inconsistency a review panel flagged.
+    /// Values mirror the real deployed `RofiConfig.jsx`.
+    #[test]
+    fn the_real_rofi_config_generator_output_runs_end_to_end_against_the_real_reconciler() {
+        let generated = tauler_configgen::generate(
+            &tauler_configgen::parse(include_str!(
+                "../tauler-configgen/examples/rofi-config.schema.yaml"
+            ))
+            .expect("the shipped rofi-config schema must parse"),
+        );
+
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join("config-test.rasi");
+
+        let layout = format!(
+            r##"
+            {generated}
+
+            const RofiConfig = ConfigFile({{
+              path: "{path}",
+              render: () => (
+                <RofiConfiguration>
+                  <Modes value="combi,drun,run,window" />
+                  <CombiModes value="window,drun" />
+                  <Matching value="fuzzy" />
+                  <Sort value="false" />
+                  <ShowIcons value="true" />
+                  <Terminal value="kitty" />
+                  <WindowFormat value="{{c}}" />
+                  <DrunDisplayFormat value="{{name}}" />
+                  <DrunShowActions value="false" />
+                  <DrunMatchFields value="name,generic,keywords" />
+                  <DrunExcludeCategories value="Settings;System;Building;Debugger;IDE;Profiling;RevisionControl;Translation" />
+                  <DisplayDrun value="❯" />
+                  <DisplayRun value="❯" />
+                  <DisplayWindow value="❯" />
+                  <DisplayCombi value="❯" />
+                  <ClickToExit value="true" />
+                </RofiConfiguration>
+              ),
+            }});
+
+            export default function render() {{
+              return <root><RofiConfig /></root>;
+            }}"##,
+            path = target.to_str().unwrap(),
+        );
+
+        let evaluator = JsxEvaluator::new_reconciler(
+            &layout,
+            serde_json::Value::Null,
+            None,
+            Default::default(),
+        )
+        .unwrap();
+
+        let report = crate::units::sweep(&evaluator, &HashMap::new());
+        assert_eq!(report.entered, 1, "got: {report:?}");
+
+        let conf = std::fs::read_to_string(&target).unwrap();
+        assert!(conf.contains("configuration {"), "got: {conf}");
+        assert!(
+            conf.contains(r#"modes: "combi,drun,run,window";"#),
+            "got: {conf}"
+        );
+        assert!(conf.contains("sort: false;"), "got: {conf}");
+        assert!(conf.contains("click-to-exit: true;"), "got: {conf}");
+        assert!(conf.contains(r#"@theme "theme""#), "got: {conf}");
     }
 
     /// A twelve-line object-to-`.rasi` serialiser, used with the global

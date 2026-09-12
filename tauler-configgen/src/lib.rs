@@ -20,10 +20,19 @@ mod identifier;
 mod render;
 mod schema;
 
+// The core pipeline: parse a schema, generate its JSX, prove its template renders.
 pub use codegen::generate;
 pub use identifier::{Identifier, InvalidIdentifier};
 pub use render::{render_template, RenderError};
 pub use schema::{parse, GenError, NodeSchema, PropRule, Schema};
+
+// Deployment helper, not a schema-processing primitive: stamps a source-schema comment
+// into `generate`'s output. Exists because every real deployment so far (rofi's theme,
+// rofi's `configuration{}`, kitty's settings) needed this line, and having each of this
+// crate's own `examples/verify_*.rs` scripts call it is how that stopped being manual
+// copy-paste — not something a schema-format-agnostic consumer would otherwise expect
+// from this crate's core API.
+pub use codegen::annotate_with_source_path;
 
 #[cfg(test)]
 mod integration_tests {

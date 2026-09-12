@@ -61,35 +61,57 @@ QuickJS engine this crate deliberately doesn't depend on.
    file dump of the actual bytes, which showed the generated code was safe all along.
    Recorded in §18.3 so the mistake in verification method, not the code, isn't repeated.
 
+## What's actually deployed
+
+As of the rofi/kitty config-ownership work: `rofi-full-theme.schema.yaml` (theme
+selectors/properties), `rofi-config.schema.yaml` (rofi's `configuration{}` block —
+behavior, not styling), and `kitty-config.schema.yaml` (kitty's static settings) are all
+generated, deployed via chezmoi, and running against the real, live desktop —
+`~/.config/rofi/{theme,config}.rasi` and `~/.config/kitty/tauler-kitty-settings.conf` are
+tauler-`ConfigFile`-owned, not hand-written. `@variable` references were retired for real
+(not just designed away): colors flow as literal hex from
+`~/.config/tauler/rofi-colors.json`, read fresh every render() — no `@import`, no
+`colors.rasi`. Two hand-written-template-literal files remain unmigrated —
+`RecentFilesTheme.jsx` (rofi's fullscreen recent-files picker: `fullscreen`,
+`orientation`, `flow`, `calc()`, `@media` conditionals — constructs this crate's
+node/prop model doesn't yet have a story for) and none else; every other flat,
+non-selector settings file (kitty, rofi's `configuration{}`) now goes through the schema,
+closing what used to be an unprincipled inconsistency between which files got validation
+and which didn't.
+
+Second grammar tried for real: `kitty-config.schema.yaml` is a genuinely different shape
+(flat `directive value` lines, no selectors/nesting at all) from rofi's selector/property
+model, and it generalized cleanly with zero rasi-specific Rust code touched — the "one
+adapter is a hypothetical seam, two is a real one" bar is now met.
+
 ## What's NOT here yet
 
-Remaining gaps against the real rofi theme, per `~/Downloads/rofi-rasi-format-research.md`:
-
-- **`@variable` references** — deliberately **not** building support for this (design
-  record §16.5). Redundant with `ConfigFile`'s full-regeneration-every-Sweep model plus an
-  ordinary JS variable. The one non-redundant case (colors from an externally-managed
-  `colors.rasi`) needs a loosened `pattern` plus literal `@import "..."` template text,
-  not a new value type.
-- **`configuration { }`** (rofi's behavior settings, not styling) — lowest priority; same
-  node/prop model, different property vocabulary, nothing new needed structurally.
+- **`RecentFilesTheme.jsx` stays a hand-written template literal.** `@media` conditional
+  blocks aren't expressible in the current node/prop/template model at all (the template
+  only ever iterates over collected children — there's no mechanism for a literal,
+  schema-independent passthrough block). Extending the schema for this is a real design
+  question, not yet answered, not attempted under time pressure.
 - **No CLI.** `generate`/`parse`/`render_template` are library functions only — nothing
   runs the generator and writes a `.jsx` file to disk as part of a normal workflow yet.
+  Every deployed generated file in this project was produced by manually running a
+  `cargo run --example verify_*` and copying its output into the chezmoi source by hand
+  — 4 manual steps across 2 repos (edit the `.yaml`, run the example, `cp` the output,
+  `chezmoi apply` it), still real debt. One step of what used to be 5 is no longer manual:
+  `annotate_with_source_path` makes each `verify_*.rs` stamp its own "Source schema: ..."
+  line into the output itself, so that line no longer needs hand-typing after every `cp`
+  (found and fixed in review — a schema-format-agnostic generator has no way to know its
+  own file path, so something has to be told it once).
 - **No schema-file watching / regeneration-on-change** (design record §13.3's fix,
   specified — extend `reconcile_import_watches`, branch in `handle_layout_reload` — but
-  not implemented).
+  not implemented). Editing a `.yaml` schema does not regenerate its `.jsx` component;
+  the manual step above is still required every time.
 - **No lifecycle/reload (`apply`-equivalent) story for a *generated* `ConfigFile`** — the
-  hook exists and works (already shipped), but nothing has designed how a schema author
+  hook exists and works (already shipped, exercised by hand-written `ConfigFile`s), but
+  no generated schema so far has needed it, so nothing has designed how a schema author
   would expose that choice through the schema format itself.
 - **`serde_yaml_ng`, not `saphyr`.** Fine for now; the design record's own security
   reasoning (pure Rust, no `unsafe-libyaml`) argues for `saphyr` before this handles
   schemas downloaded from strangers at scale.
-- **Nothing has been deployed to a real, live rofi config.** The end-to-end proof runs
-  against a temp file inside a Rust test — real runtime, zero risk, but deliberately
-  short of actually replacing `~/.config/rofi/theme.rasi.tmpl`, which is a separate,
-  larger decision (see design record §18.5).
-- **No second grammar has actually been tried.** This crate is *shaped* to be
-  config-format-independent, but per the "one adapter is a hypothetical seam, two is a
-  real one" rule, that claim is still unverified against anything but rofi.
 - **Array-of-non-string-values (`tab-stops`) untested.** Only the list-of-keywords case
   (bare strings) has been exercised; `items` supports any nested rule shape, but nothing
   has tried it with, say, nested distances.
