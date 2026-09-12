@@ -9,13 +9,14 @@ fn main() {
     println!("wrote generated component source to /tmp/rofi-theme.gen.jsx ({} bytes)", generated.len());
 
     // Faithful port of every selector/property in the real theme.rasi.tmpl,
-    // using @-references exactly as the real file does (not literal hex).
+    // using literal hex values, matching how RofiTheme.jsx now reads them from
+    // rofi-colors.json rather than an @-reference into colors.rasi.
     let data = serde_json::json!({
         "selectors": [
             { "name": "*", "properties": [
                 { "css_name": "font", "value": "JetBrains Mono 20", "quoted": true },
                 { "css_name": "background-color", "value": "transparent" },
-                { "css_name": "text-color", "value": "@fg" },
+                { "css_name": "text-color", "value": "#e7dcc4" },
             ]},
             { "name": "window", "properties": [
                 { "css_name": "location", "value": "south" },
@@ -25,8 +26,8 @@ fn main() {
                 { "css_name": "height", "value": "70%" },
                 { "css_name": "padding", "value": "0" },
                 { "css_name": "border", "value": "2px solid" },
-                { "css_name": "border-color", "value": "@accent" },
-                { "css_name": "background-color", "value": "@panel" },
+                { "css_name": "border-color", "value": "#EDC77A" },
+                { "css_name": "background-color", "value": "#3a4145" },
             ]},
             { "name": "mainbox", "properties": [
                 { "css_name": "padding", "value": "16px" },
@@ -36,15 +37,15 @@ fn main() {
             { "name": "inputbar", "properties": [
                 { "css_name": "padding", "value": "10px 12px" },
                 { "css_name": "spacing", "value": "10px" },
-                { "css_name": "background-color", "value": "@bg" },
+                { "css_name": "background-color", "value": "#2c343a" },
                 { "css_name": "children", "value": ["prompt", "entry"] },
             ]},
             { "name": "prompt", "properties": [
-                { "css_name": "text-color", "value": "@accent" },
+                { "css_name": "text-color", "value": "#EDC77A" },
             ]},
             { "name": "entry", "properties": [
                 { "css_name": "placeholder", "value": "search…", "quoted": true },
-                { "css_name": "placeholder-color", "value": "@bg-alt-fg" },
+                { "css_name": "placeholder-color", "value": "#e7dcc4" },
             ]},
             { "name": "listview", "properties": [
                 { "css_name": "lines", "value": "24" },
@@ -59,8 +60,8 @@ fn main() {
                 { "css_name": "spacing", "value": "10px" },
             ]},
             { "name": "element selected", "properties": [
-                { "css_name": "background-color", "value": "@accent" },
-                { "css_name": "text-color", "value": "@bg" },
+                { "css_name": "background-color", "value": "#EDC77A" },
+                { "css_name": "text-color", "value": "#2c343a" },
             ]},
             { "name": "element-icon", "properties": [
                 { "css_name": "size", "value": "1.3em" },
@@ -76,23 +77,23 @@ fn main() {
             ]},
             { "name": "button", "properties": [
                 { "css_name": "padding", "value": "4px 8px" },
-                { "css_name": "background-color", "value": "@bg" },
-                { "css_name": "text-color", "value": "@bg-alt-fg" },
+                { "css_name": "background-color", "value": "#2c343a" },
+                { "css_name": "text-color", "value": "#e7dcc4" },
             ]},
             { "name": "button selected", "properties": [
-                { "css_name": "background-color", "value": "@accent" },
-                { "css_name": "text-color", "value": "@bg" },
+                { "css_name": "background-color", "value": "#EDC77A" },
+                { "css_name": "text-color", "value": "#2c343a" },
             ]},
             { "name": "message", "properties": [
                 { "css_name": "padding", "value": "6px 8px" },
-                { "css_name": "background-color", "value": "@bg" },
+                { "css_name": "background-color", "value": "#2c343a" },
             ]},
             { "name": "textbox", "properties": [
-                { "css_name": "text-color", "value": "@fg" },
+                { "css_name": "text-color", "value": "#e7dcc4" },
             ]},
             { "name": "error-message", "properties": [
-                { "css_name": "background-color", "value": "@urgent" },
-                { "css_name": "text-color", "value": "@bg" },
+                { "css_name": "background-color", "value": "#ED9294" },
+                { "css_name": "text-color", "value": "#2c343a" },
                 { "css_name": "padding", "value": "8px" },
             ]},
         ]

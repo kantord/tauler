@@ -4,12 +4,14 @@
 # generic node/prop model — no rasi-specific Rust code anywhere.
 #
 # Colors are literal hex values, not `@variable` references (design record
-# §16.5): the value normally comes from colors.rasi, written by
-# ~/.config/i3/sync_rofi_with_kitty_theme.sh, a reconciler tauler does not
-# own. Here they're passed in directly as the current kitty theme's actual
-# values, matching how a real layout file would read them (a JS constant, or
-# eventually `sh`/`read` against colors.rasi itself) and reuse them across
-# every property that needs them — no reference type needed.
+# §16.5): a real layout file (`RofiTheme.jsx`) reads the current kitty
+# palette itself, via `read`/`JSON.parse` against
+# ~/.config/tauler/rofi-colors.json (written by
+# ~/.config/i3/sync_rofi_with_kitty_theme.sh on every chtheme()), and passes
+# the values straight through as JS variables — no reference type needed.
+# Colors used to stay behind `@name` references into rofi's own
+# colors.rasi/`@import`, so a separate reconciler (that script) partially
+# owned the generated theme too; now tauler owns it end to end.
 #
 # Compound selectors (`element selected`) need no new capability at all
 # (§16.1/§16.2): they're just a wider `pattern` on the existing `Selector`
@@ -35,38 +37,42 @@ nodes:
   # --- Color properties (reused across every selector that needs one) ---
   - component: BackgroundColor
     props:
-      # Accepts a literal hex color, an `@name` Reference (`man rofi-theme`,
-      # "Reference") — kept deliberately, not replaced: this is what lets the
-      # generated theme keep tracking the existing sync_rofi_with_kitty_theme.sh
-      # → colors.rasi pipeline unchanged (design record §16.5) — or the
-      # `transparent`/`inherit` keywords the real theme also uses.
+      # Accepts a literal hex color (what RofiTheme.jsx now passes, read
+      # from rofi-colors.json) or an `@name` Reference (`man rofi-theme`,
+      # "Reference") — the pattern stays permissive so a layout can still use
+      # rofi's own colors.rasi/`@import` mechanism if it wants to (design
+      # record §16.5) — plus the `transparent`/`inherit` keywords the real
+      # theme also uses.
       value: { pattern: '^(?:#[0-9a-fA-F]{6}|@[a-zA-Z][a-zA-Z0-9_-]*|transparent|inherit)$' }
     constants: { css_name: background-color }
   - component: TextColor
     props:
-      # Accepts a literal hex color, an `@name` Reference (`man rofi-theme`,
-      # "Reference") — kept deliberately, not replaced: this is what lets the
-      # generated theme keep tracking the existing sync_rofi_with_kitty_theme.sh
-      # → colors.rasi pipeline unchanged (design record §16.5) — or the
-      # `transparent`/`inherit` keywords the real theme also uses.
+      # Accepts a literal hex color (what RofiTheme.jsx now passes, read
+      # from rofi-colors.json) or an `@name` Reference (`man rofi-theme`,
+      # "Reference") — the pattern stays permissive so a layout can still use
+      # rofi's own colors.rasi/`@import` mechanism if it wants to (design
+      # record §16.5) — plus the `transparent`/`inherit` keywords the real
+      # theme also uses.
       value: { pattern: '^(?:#[0-9a-fA-F]{6}|@[a-zA-Z][a-zA-Z0-9_-]*|transparent|inherit)$' }
     constants: { css_name: text-color }
   - component: BorderColor
     props:
-      # Accepts a literal hex color, an `@name` Reference (`man rofi-theme`,
-      # "Reference") — kept deliberately, not replaced: this is what lets the
-      # generated theme keep tracking the existing sync_rofi_with_kitty_theme.sh
-      # → colors.rasi pipeline unchanged (design record §16.5) — or the
-      # `transparent`/`inherit` keywords the real theme also uses.
+      # Accepts a literal hex color (what RofiTheme.jsx now passes, read
+      # from rofi-colors.json) or an `@name` Reference (`man rofi-theme`,
+      # "Reference") — the pattern stays permissive so a layout can still use
+      # rofi's own colors.rasi/`@import` mechanism if it wants to (design
+      # record §16.5) — plus the `transparent`/`inherit` keywords the real
+      # theme also uses.
       value: { pattern: '^(?:#[0-9a-fA-F]{6}|@[a-zA-Z][a-zA-Z0-9_-]*|transparent|inherit)$' }
     constants: { css_name: border-color }
   - component: PlaceholderColor
     props:
-      # Accepts a literal hex color, an `@name` Reference (`man rofi-theme`,
-      # "Reference") — kept deliberately, not replaced: this is what lets the
-      # generated theme keep tracking the existing sync_rofi_with_kitty_theme.sh
-      # → colors.rasi pipeline unchanged (design record §16.5) — or the
-      # `transparent`/`inherit` keywords the real theme also uses.
+      # Accepts a literal hex color (what RofiTheme.jsx now passes, read
+      # from rofi-colors.json) or an `@name` Reference (`man rofi-theme`,
+      # "Reference") — the pattern stays permissive so a layout can still use
+      # rofi's own colors.rasi/`@import` mechanism if it wants to (design
+      # record §16.5) — plus the `transparent`/`inherit` keywords the real
+      # theme also uses.
       value: { pattern: '^(?:#[0-9a-fA-F]{6}|@[a-zA-Z][a-zA-Z0-9_-]*|transparent|inherit)$' }
     constants: { css_name: placeholder-color }
 
@@ -165,8 +171,6 @@ nodes:
 template: |
   /* GENERATED by tauler from rofi-full-theme.schema.yaml — do not edit by
    * hand, edit ~/.config/tauler/layout.op.mdx instead. */
-
-  @import "colors.rasi"
   {%- for selector in selectors %}
   {{ selector.name }} {
   {%- for prop in selector.properties %}
