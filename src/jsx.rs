@@ -100,6 +100,26 @@ fn workspaces_layout_js_fn<'js>(
     rquickjs_serde::to_value(ctx, layout).map_err(|_| rquickjs::Error::Unknown)
 }
 
+/// Renders a minijinja template against arbitrary JSON-serialisable data — the pure
+/// half of what a `tauler-configgen`-generated root component does with its own
+/// schema's template (design record §14/§17): validated Item data in, config text out.
+/// A syntax error in `source`, or a render-time error (an undefined filter, say),
+/// throws with minijinja's own message rather than panicking — matching every other
+/// builtin's error convention in this codebase.
+fn render_template_js_fn<'js>(
+    ctx: rquickjs::Ctx<'js>,
+    source: String,
+    data: rquickjs::Value<'js>,
+) -> rquickjs::Result<String> {
+    let data: serde_json::Value = json_of(&ctx, data).unwrap_or_default();
+    let mut env = minijinja::Environment::new();
+    env.add_template("_", &source)
+        .map_err(|e| rquickjs::Exception::throw_message(&ctx, &format!("renderTemplate: {e}")))?;
+    env.get_template("_")
+        .and_then(|tmpl| tmpl.render(data))
+        .map_err(|e| rquickjs::Exception::throw_message(&ctx, &format!("renderTemplate: {e}")))
+}
+
 /// Dispatches a lifecycle hook, picking the batch spelling or the per-Item sugar
 /// by whichever one the Unit defined.
 ///
@@ -461,6 +481,17 @@ impl JsxEvaluator {
                 qjs_ctx.globals().set(
                     "__workspaces_layout",
                     rquickjs::Function::new(qjs_ctx.clone(), workspaces_layout_js_fn)?,
+                )?;
+                // The runtime half of `tauler-configgen` (design record §14/§17): a
+                // generated root component embeds its schema's own minijinja template as
+                // a string constant and calls this to turn collected Item data into the
+                // final config text. Registered unconditionally rather than gated behind
+                // `Effects::Allowed` like `sh`/`read` — unlike those, it touches nothing
+                // in the world, so there is no frame-budget reason to keep it out of the
+                // render runtime the way ADR 0034 keeps `sh` out.
+                qjs_ctx.globals().set(
+                    "renderTemplate",
+                    rquickjs::Function::new(qjs_ctx.clone(), render_template_js_fn)?,
                 )?;
                 crate::ui::registry::register_ui_components(&qjs_ctx)?;
                 if !ctx.is_null() {

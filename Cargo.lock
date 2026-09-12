@@ -6276,6 +6276,7 @@ dependencies = [
  "image",
  "json-canon",
  "libc",
+ "minijinja",
  "notify",
  "optative",
  "optative-derive",
@@ -6291,6 +6292,7 @@ dependencies = [
  "softbuffer",
  "takumi",
  "takumi-core",
+ "tauler-configgen",
  "tauler-core",
  "tauler-ui-macro",
  "tempfile",
@@ -6326,6 +6328,7 @@ version = "0.3.2"
 dependencies = [
  "jsonschema",
  "minijinja",
+ "regex",
  "serde",
  "serde_json",
  "serde_yaml_ng",

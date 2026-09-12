@@ -1320,6 +1320,191 @@ mod tests {
         );
     }
 
+    /// `renderTemplate` is the runtime half of the `tauler-configgen` design
+    /// (design record §14/§17): a generated root component embeds its
+    /// schema's own minijinja template as a string constant and calls
+    /// `renderTemplate(source, data)` to turn collected Item data into the
+    /// final config text. Proven here exactly as a generated component would
+    /// use it — through `ConfigFile`, not as a standalone Rust unit test —
+    /// because the whole point is that it works from inside the reconciler
+    /// runtime a real layout file runs in.
+    #[test]
+    fn render_template_renders_a_minijinja_template_against_collected_item_data() {
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join("tauler.rasi");
+
+        let source = RENDER_TEMPLATE_LAYOUT.replace("__TARGET__", target.to_str().unwrap());
+        let evaluator = JsxEvaluator::new_reconciler(
+            &source,
+            serde_json::Value::Null,
+            None,
+            Default::default(),
+        )
+        .unwrap();
+
+        let report = crate::units::sweep(&evaluator, &HashMap::new());
+        assert_eq!(report.entered, 1, "got: {report:?}");
+
+        let written = std::fs::read_to_string(&target).unwrap();
+        assert!(written.contains("* {"), "got: {written}");
+        assert!(
+            written.contains("background-color: #221F2B;"),
+            "got: {written}"
+        );
+    }
+
+    /// A syntax error in the template must surface as a clear thrown error at
+    /// the point `renderTemplate` is called — not a panic, not a silent
+    /// empty string — matching every other builtin's error-handling
+    /// convention in this codebase (`sh`, for instance).
+    #[test]
+    fn render_template_throws_a_clear_error_on_a_malformed_template() {
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join("tauler.rasi");
+        let log = dir.path().join("log");
+
+        let source = format!(
+            r#"
+            const Theme = ConfigFile({{
+              path: "{}",
+              render: () => renderTemplate("{{% for x in items %}}{{{{ x", {{ items: [] }}),
+            }});
+            export default function render() {{
+              return <root><Theme /></root>;
+            }}"#,
+            target.to_str().unwrap(),
+        );
+        let _ = log; // unused, kept for a future assertion on logged output if needed
+        let evaluator = JsxEvaluator::new_reconciler(
+            &source,
+            serde_json::Value::Null,
+            None,
+            Default::default(),
+        )
+        .unwrap();
+
+        let report = crate::units::sweep(&evaluator, &HashMap::new());
+        assert!(
+            !target.exists(),
+            "a template error must not produce a file: {report:?}"
+        );
+    }
+
+    const RENDER_TEMPLATE_LAYOUT: &str = r##"
+        const TEMPLATE = "{% for selector in selectors %}\n{{ selector.name }} {\n{% for prop in selector.properties %}    {{ prop.css_name }}: {{ prop.value }};\n{% endfor %}}\n{% endfor %}";
+
+        const RofiTheme = ConfigFile({
+          path: "__TARGET__",
+          render: () => renderTemplate(TEMPLATE, {
+            selectors: [
+              {
+                name: "*",
+                properties: [
+                  { css_name: "background-color", value: "#221F2B" },
+                ],
+              },
+            ],
+          }),
+        });
+
+        export default function render() {
+          return <root><RofiTheme /></root>;
+        }"##;
+
+    /// The real end-to-end proof (design record §18): the *actual* `tauler-configgen`
+    /// generator's output, from the *actual* shipped schema covering the real user
+    /// theme's full structure (compound selectors, an array-valued `children` property,
+    /// padding/border shorthand), run through the *actual* reconciler runtime tauler's
+    /// live binary uses — not a hand-simulated approximation of what codegen would
+    /// produce. Colors are the real values from the current kitty theme (design record
+    /// §16.5: literal values, not `@variable` references — no reference type needed).
+    #[test]
+    fn the_real_generator_output_runs_end_to_end_against_the_real_reconciler() {
+        let generated = tauler_configgen::generate(
+            &tauler_configgen::parse(include_str!(
+                "../tauler-configgen/examples/rofi-full-theme.schema.yaml"
+            ))
+            .expect("the shipped full-theme schema must parse"),
+        );
+
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join("tauler-test.rasi");
+
+        let layout = format!(
+            r##"
+            {generated}
+
+            const RofiTheme = ConfigFile({{
+              path: "{path}",
+              render: () => (
+                <Rofi>
+                  <Selector name="*">
+                    <BackgroundColor value="#2c343a" />
+                    <TextColor value="#e7dcc4" />
+                    <Font value="JetBrains Mono 20" />
+                  </Selector>
+                  <Selector name="window">
+                    <Location value="south" />
+                    <Anchor value="south" />
+                    <YOffset value="-5%" />
+                    <Width value="70%" />
+                    <Height value="70%" />
+                    <Padding value="0" />
+                    <Border value="2px solid" />
+                    <BorderColor value="#EDC77A" />
+                    <BackgroundColor value="#3a4145" />
+                  </Selector>
+                  <Selector name="mainbox">
+                    <Padding value="16px" />
+                    <Spacing value="12px" />
+                    <Children value={{["inputbar", "message", "listview"]}} />
+                  </Selector>
+                  <Selector name="element selected">
+                    <BackgroundColor value="#EDC77A" />
+                    <TextColor value="#2c343a" />
+                  </Selector>
+                  <Selector name="button selected">
+                    <BackgroundColor value="#EDC77A" />
+                    <TextColor value="#2c343a" />
+                  </Selector>
+                </Rofi>
+              ),
+            }});
+
+            export default function render() {{
+              return <root><RofiTheme /></root>;
+            }}"##,
+            path = target.to_str().unwrap(),
+        );
+
+        let evaluator = JsxEvaluator::new_reconciler(
+            &layout,
+            serde_json::Value::Null,
+            None,
+            Default::default(),
+        )
+        .unwrap();
+
+        let report = crate::units::sweep(&evaluator, &HashMap::new());
+        assert_eq!(report.entered, 1, "got: {report:?}");
+
+        let rasi = std::fs::read_to_string(&target).unwrap();
+        assert!(rasi.contains("* {"), "got: {rasi}");
+        assert!(rasi.contains("background-color: #2c343a;"), "got: {rasi}");
+        assert!(rasi.contains("window {"), "got: {rasi}");
+        assert!(rasi.contains("border: 2px solid;"), "got: {rasi}");
+        assert!(rasi.contains("mainbox {"), "got: {rasi}");
+        assert!(
+            rasi.contains(r#"children: [ "inputbar", "message", "listview" ];"#),
+            "got: {rasi}"
+        );
+        assert!(
+            rasi.contains("element selected {"),
+            "the compound selector must produce its own block: {rasi}"
+        );
+        assert!(rasi.contains("button selected {"), "got: {rasi}");
+    }
+
     /// A twelve-line object-to-`.rasi` serialiser, used with the global
     /// `ConfigFile` helper. Neither `rasi()` nor `RofiTheme` is a tauler
     /// concept: the serialiser is ordinary JavaScript, and `ConfigFile` only

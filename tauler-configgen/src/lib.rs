@@ -1,16 +1,19 @@
 //! Prototype: schema → readable JSX component source, for tauler's config-file feature.
 //!
 //! Design record: `~/Downloads/tauler-config-files-design-record.md`, §13 (the codegen
-//! model, verified against real tauler source) and §14 (the tech stack and worked
-//! example this crate makes real). Not yet wired into tauler's own QuickJS runtime — see
-//! §14.10 and this crate's `README` in that same section for what's still missing.
+//! model, verified against real tauler source), §14 (the tech stack and worked example
+//! this crate makes real), and §17 (making the schema/generator config-format-independent
+//! — there is no rasi-specific concept anywhere in this crate's Rust code; the only place
+//! any format's syntax is known is a schema file's own data and its template text). Not
+//! yet wired into tauler's own QuickJS runtime — see this crate's `README` for what's
+//! still missing.
 //!
-//! The pipeline: [`schema::parse`] reads a two-document YAML schema (structure, then a
-//! minijinja template) and returns a [`schema::RasiSchema`] with every name already
-//! validated; [`codegen::generate`] turns that into the actual `.jsx` source a layout file
-//! would import; [`render::render_template`] is the Rust-side proof that the schema's own
-//! template, run against data shaped like what the generated components produce, yields
-//! the correct output text.
+//! The pipeline: [`schema::parse`] reads a two-document YAML schema (a flat list of node
+//! declarations, then a minijinja template) and returns a [`schema::Schema`] with every
+//! name already validated; [`codegen::generate`] turns that into the actual `.jsx` source
+//! a layout file would import; [`render::render_template`] is the Rust-side proof that the
+//! schema's own template, run against data shaped like what the generated components
+//! produce, yields the correct output text.
 
 mod codegen;
 mod identifier;
@@ -20,7 +23,7 @@ mod schema;
 pub use codegen::generate;
 pub use identifier::{Identifier, InvalidIdentifier};
 pub use render::{render_template, RenderError};
-pub use schema::{parse, GenError, PropertySchema, RasiSchema, SelectorSchema};
+pub use schema::{parse, GenError, NodeSchema, PropRule, Schema};
 
 #[cfg(test)]
 mod integration_tests {
@@ -40,11 +43,11 @@ mod integration_tests {
         let generated = generate(&schema);
         assert!(generated.contains("export function Rofi(props)"));
         assert!(generated.contains("export function BackgroundColor(props)"));
-        assert!(generated.contains("export function WindowSelector(props)"));
+        assert!(generated.contains("export function Selector(props)"));
 
         // The data shape the generated `BackgroundColor`/`TextColor`/`Selector`
         // components would actually produce, if this were run inside QuickJS against
-        // `<Selector><BackgroundColor value="#221F2B"/><TextColor value="#E9E4DA"/></Selector>`.
+        // `<Selector name="*"><BackgroundColor value="#221F2B"/><TextColor value="#E9E4DA"/></Selector>`.
         let data = json!({
             "selectors": [
                 {
@@ -79,5 +82,47 @@ mod integration_tests {
         // renders anyway — proving validation must have already happened upstream
         let rasi = render_template(&schema.template, &data).unwrap();
         assert!(rasi.contains("background-color: not-a-color;"));
+    }
+
+    /// Verifies the ACTUAL shipped schema file's `Padding`/`Border` patterns — not a
+    /// hand-copied Rust constant that could silently drift from the real YAML through an
+    /// escaping mistake. `regex` here is a dev-dependency only; the pattern itself reaches
+    /// generated JS as a `new RegExp(...)` argument, per `codegen`'s injection-safety rule.
+    #[test]
+    fn the_shipped_schemas_padding_and_border_patterns_match_real_gruvbox_values() {
+        let schema = parse(ROFI_SCHEMA).unwrap();
+        let padding = &schema
+            .nodes
+            .iter()
+            .find(|n| n.component.as_str() == "Padding")
+            .unwrap()
+            .props["value"];
+        let border = &schema
+            .nodes
+            .iter()
+            .find(|n| n.component.as_str() == "Border")
+            .unwrap()
+            .props["value"];
+
+        let padding_re = regex::Regex::new(padding.pattern.as_ref().unwrap()).unwrap();
+        let border_re = regex::Regex::new(border.pattern.as_ref().unwrap()).unwrap();
+
+        // from /usr/share/rofi/themes/gruvbox-common.rasinc, cited in the rasi format research
+        assert!(padding_re.is_match("0 0.3em 0 0"));
+        assert!(border_re.is_match("2px solid 0 0"));
+
+        // and the wrong shapes are still rejected
+        assert!(
+            !padding_re.is_match("2px 0 0 4px 1px"),
+            "five fields must be rejected"
+        );
+        assert!(
+            !border_re.is_match("2px 0 0 0 0"),
+            "five groups must be rejected"
+        );
+        assert!(
+            !padding_re.is_match("1.5px"),
+            "px is Integer-only, per man rofi-theme"
+        );
     }
 }

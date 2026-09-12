@@ -1,0 +1,182 @@
+# A schema covering the real user theme this design has been tested against
+# throughout (design record §17/§18): every selector and property in
+# ~/.local/share/chezmoi/dot_config/rofi/theme.rasi.tmpl, expressed with the
+# generic node/prop model — no rasi-specific Rust code anywhere.
+#
+# Colors are literal hex values, not `@variable` references (design record
+# §16.5): the value normally comes from colors.rasi, written by
+# ~/.config/i3/sync_rofi_with_kitty_theme.sh, a reconciler tauler does not
+# own. Here they're passed in directly as the current kitty theme's actual
+# values, matching how a real layout file would read them (a JS constant, or
+# eventually `sh`/`read` against colors.rasi itself) and reuse them across
+# every property that needs them — no reference type needed.
+#
+# Compound selectors (`element selected`) need no new capability at all
+# (§16.1/§16.2): they're just a wider `pattern` on the existing `Selector`
+# component's `name` prop, since rofi treats the space as cosmetic — a state
+# suffix, not a combinator.
+nodes:
+  - component: Rofi
+    root: true
+    container: true
+    children_as: selectors
+
+  - component: Selector
+    container: true
+    children_as: properties
+    props:
+      name:
+        # `*` is the global properties section (`man rofi-theme`, "Global properties
+        # section") — a bare wildcard, not a widget name — so it's allowed as its own
+        # alternative, not folded into the identifier branch.
+        pattern: '^(\*|[a-zA-Z][a-zA-Z0-9_-]*( [a-zA-Z][a-zA-Z0-9_.-]*)?)$'
+        error: 'must be "*", or a widget name optionally followed by one space-separated state (e.g. "element selected")'
+
+  # --- Color properties (reused across every selector that needs one) ---
+  - component: BackgroundColor
+    props:
+      # Accepts a literal hex color, an `@name` Reference (`man rofi-theme`,
+      # "Reference") — kept deliberately, not replaced: this is what lets the
+      # generated theme keep tracking the existing sync_rofi_with_kitty_theme.sh
+      # → colors.rasi pipeline unchanged (design record §16.5) — or the
+      # `transparent`/`inherit` keywords the real theme also uses.
+      value: { pattern: '^(?:#[0-9a-fA-F]{6}|@[a-zA-Z][a-zA-Z0-9_-]*|transparent|inherit)$' }
+    constants: { css_name: background-color }
+  - component: TextColor
+    props:
+      # Accepts a literal hex color, an `@name` Reference (`man rofi-theme`,
+      # "Reference") — kept deliberately, not replaced: this is what lets the
+      # generated theme keep tracking the existing sync_rofi_with_kitty_theme.sh
+      # → colors.rasi pipeline unchanged (design record §16.5) — or the
+      # `transparent`/`inherit` keywords the real theme also uses.
+      value: { pattern: '^(?:#[0-9a-fA-F]{6}|@[a-zA-Z][a-zA-Z0-9_-]*|transparent|inherit)$' }
+    constants: { css_name: text-color }
+  - component: BorderColor
+    props:
+      # Accepts a literal hex color, an `@name` Reference (`man rofi-theme`,
+      # "Reference") — kept deliberately, not replaced: this is what lets the
+      # generated theme keep tracking the existing sync_rofi_with_kitty_theme.sh
+      # → colors.rasi pipeline unchanged (design record §16.5) — or the
+      # `transparent`/`inherit` keywords the real theme also uses.
+      value: { pattern: '^(?:#[0-9a-fA-F]{6}|@[a-zA-Z][a-zA-Z0-9_-]*|transparent|inherit)$' }
+    constants: { css_name: border-color }
+  - component: PlaceholderColor
+    props:
+      # Accepts a literal hex color, an `@name` Reference (`man rofi-theme`,
+      # "Reference") — kept deliberately, not replaced: this is what lets the
+      # generated theme keep tracking the existing sync_rofi_with_kitty_theme.sh
+      # → colors.rasi pipeline unchanged (design record §16.5) — or the
+      # `transparent`/`inherit` keywords the real theme also uses.
+      value: { pattern: '^(?:#[0-9a-fA-F]{6}|@[a-zA-Z][a-zA-Z0-9_-]*|transparent|inherit)$' }
+    constants: { css_name: placeholder-color }
+
+  # --- Font ---
+  - component: Font
+    props:
+      value: { pattern: '^.+$' }
+    constants: { css_name: font, quoted: "true" }
+
+  # --- Position / layout enums ---
+  - component: Location
+    props:
+      value: { enum: ["center", "north", "south", "east", "west", "north west", "north east", "south west", "south east"] }
+    constants: { css_name: location }
+  - component: Anchor
+    props:
+      value: { enum: ["center", "north", "south", "east", "west", "north west", "north east", "south west", "south east"] }
+    constants: { css_name: anchor }
+
+  # --- Distances (percent/px/em offsets and sizes) ---
+  - component: YOffset
+    props:
+      value: { pattern: '^-?[0-9]+(px|%|em)$' }
+    constants: { css_name: y-offset }
+  - component: Width
+    props:
+      value: { pattern: '^[0-9]+(px|%|em)$' }
+    constants: { css_name: width }
+  - component: Height
+    props:
+      value: { pattern: '^[0-9]+(px|%|em)$' }
+    constants: { css_name: height }
+  - component: Spacing
+    props:
+      value: { pattern: '^[0-9]+(px|%|em)$' }
+    constants: { css_name: spacing }
+  - component: Size
+    props:
+      value: { pattern: '^[0-9.]+(px|em)$' }
+    constants: { css_name: size }
+  - component: VerticalAlign
+    props:
+      value: { pattern: '^[0-9.]+$' }
+    constants: { css_name: vertical-align }
+
+  # --- Padding/Border shorthand (design record §16.3) ---
+  - component: Padding
+    props:
+      value:
+        pattern: '^(?:[+-]?\d+(?:px)?|[+-]?\d+(?:\.\d+)?(?:em|ch|%|mm))(?:\s+(?:[+-]?\d+(?:px)?|[+-]?\d+(?:\.\d+)?(?:em|ch|%|mm))){0,3}$'
+        error: 'must be 1 to 4 space-separated distances (px/em/ch/%/mm, or a bare number for px)'
+    constants: { css_name: padding }
+  - component: Border
+    props:
+      value:
+        pattern: '^(?:[+-]?\d+(?:px)?|[+-]?\d+(?:\.\d+)?(?:em|ch|%|mm))(?:\s+(?:dash|solid))?(?:\s+(?:(?:[+-]?\d+(?:px)?|[+-]?\d+(?:\.\d+)?(?:em|ch|%|mm))(?:\s+(?:dash|solid))?)){0,3}$'
+        error: 'must be 1 to 4 groups of a distance optionally followed by "dash" or "solid"'
+    constants: { css_name: border }
+
+  # --- Booleans and small enums ---
+  - component: Cycle
+    props:
+      value: { enum: ["true", "false"] }
+    constants: { css_name: cycle }
+  - component: Dynamic
+    props:
+      value: { enum: ["true", "false"] }
+    constants: { css_name: dynamic }
+  - component: Scrollbar
+    props:
+      value: { enum: ["true", "false"] }
+    constants: { css_name: scrollbar }
+  - component: Lines
+    props:
+      value: { pattern: '^[0-9]+$' }
+    constants: { css_name: lines }
+  - component: Columns
+    props:
+      value: { pattern: '^[0-9]+$' }
+    constants: { css_name: columns }
+
+  # --- Strings ---
+  - component: Placeholder
+    props:
+      value: { pattern: '^.*$' }
+    constants: { css_name: placeholder, quoted: "true" }
+
+  # --- Children (list of keywords, man rofi-theme "List of keywords") ---
+  - component: Children
+    props:
+      value:
+        items:
+          pattern: '^[a-z][a-z-]*$'
+    constants: { css_name: children }
+---
+template: |
+  /* GENERATED by tauler from rofi-full-theme.schema.yaml — do not edit by
+   * hand, edit ~/.config/tauler/layout.op.mdx instead. */
+
+  @import "colors.rasi"
+  {%- for selector in selectors %}
+  {{ selector.name }} {
+  {%- for prop in selector.properties %}
+  {%- if prop.css_name == "children" %}
+      children: [ {% for c in prop.value %}"{{ c }}"{% if not loop.last %}, {% endif %}{% endfor %} ];
+  {%- elif prop.quoted %}
+      {{ prop.css_name }}: "{{ prop.value }}";
+  {%- else %}
+      {{ prop.css_name }}: {{ prop.value }};
+  {%- endif %}
+  {%- endfor %}
+  }
+  {% endfor -%}

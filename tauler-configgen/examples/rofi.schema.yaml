@@ -1,24 +1,66 @@
-grammar: rasi
-component: Rofi
-selectors:
-  - name: "*"
-    component: Selector
-    properties:
-      - name: background-color
-        component: BackgroundColor
-        pattern: "^#[0-9a-fA-F]{6}$"
-      - name: text-color
-        component: TextColor
-        pattern: "^#[0-9a-fA-F]{6}$"
-  - name: window
-    component: WindowSelector
-    properties:
-      - name: width
-        component: Width
-        pattern: "^[0-9]+(px|%)$"
-      - name: location
-        component: Location
+nodes:
+  - component: Rofi
+    root: true
+    container: true
+    children_as: selectors
+
+  - component: Selector
+    container: true
+    children_as: properties
+    props:
+      name:
+        pattern: '^[a-zA-Z*][a-zA-Z0-9_-]*$'
+
+  - component: BackgroundColor
+    props:
+      value:
+        pattern: '^#[0-9a-fA-F]{6}$'
+    constants:
+      css_name: background-color
+
+  - component: TextColor
+    props:
+      value:
+        pattern: '^#[0-9a-fA-F]{6}$'
+    constants:
+      css_name: text-color
+
+  - component: Width
+    props:
+      value:
+        pattern: '^[0-9]+(px|%)$'
+    constants:
+      css_name: width
+
+  - component: Location
+    props:
+      value:
         enum: ["center", "north", "south", "east", "west"]
+    constants:
+      css_name: location
+
+  # rofi's Padding shorthand (man rofi-theme, "Padding"): 1-4 space-separated
+  # Distance tokens. Plain pattern + a human-written error — no Rust code
+  # anywhere knows this is "padding" (design record §17).
+  - component: Padding
+    props:
+      value:
+        pattern: '^(?:[+-]?\d+(?:px)?|[+-]?\d+(?:\.\d+)?(?:em|ch|%|mm))(?:\s+(?:[+-]?\d+(?:px)?|[+-]?\d+(?:\.\d+)?(?:em|ch|%|mm))){0,3}$'
+        error: 'must be 1 to 4 space-separated distances (px/em/ch/%/mm, or a bare number for px)'
+    constants:
+      css_name: padding
+
+  # rofi's Border shorthand: Padding's rule, but each Distance may be followed
+  # by a line style (dash/solid). Verified against the real
+  # `border: 2px solid 0 0;` in /usr/share/rofi/themes/gruvbox-common.rasinc
+  # (rofi-rasi-format-research.md).
+  - component: Border
+    props:
+      value:
+        pattern: '^(?:[+-]?\d+(?:px)?|[+-]?\d+(?:\.\d+)?(?:em|ch|%|mm))(?:\s+(?:dash|solid))?(?:\s+(?:(?:[+-]?\d+(?:px)?|[+-]?\d+(?:\.\d+)?(?:em|ch|%|mm))(?:\s+(?:dash|solid))?)){0,3}$'
+        error: 'must be 1 to 4 groups of a distance (px/em/ch/%/mm, or a bare number for px) optionally followed by "dash" or "solid"'
+    constants:
+      css_name: border
 ---
 template: |
   {% for selector in selectors %}

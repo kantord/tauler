@@ -91,6 +91,7 @@ optative-script = "=0.0.11"
 notify = "8.2.0"
 cached = { version = "4.0.0", default-features = false }
 tempfile = "3.27.0"
+minijinja = "2.24.0"
 
 # Kept off other platforms: Wayland's build scripts need pkg-config and
 # libxkbcommon, and x11rb's `allow-unsafe-code` links libxcb.
@@ -111,6 +112,7 @@ image = "0.25.10"
 libc = "0.2.189"
 tracing-test = "0.2.6"
 rstest = "0.26.1"
+tauler-configgen = { path = "tauler-configgen" }
 
 [[bench]]
 name = "pipeline"
