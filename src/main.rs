@@ -18,7 +18,7 @@ use x11rb::{connection::Connection, protocol::xproto::*, rust_connection::RustCo
 
 mod app;
 mod presenter;
-use app::TickReceivers;
+use app::{InterestingPaths, TickReceivers};
 #[cfg(not(target_os = "macos"))]
 use app::{App, X11Init};
 
@@ -104,7 +104,10 @@ fn setup_file_watchers(
     reload_tx: mpsc::Sender<()>,
     bin_reload_tx: mpsc::Sender<()>,
     dl_wake_tx: mpsc::SyncSender<()>,
-) -> std::sync::Arc<std::sync::Mutex<notify::RecommendedWatcher>> {
+) -> (
+    std::sync::Arc<std::sync::Mutex<notify::RecommendedWatcher>>,
+    InterestingPaths,
+) {
     use notify::{EventKind, RecursiveMode, Watcher};
 
     let exe = exe_path.to_path_buf();
@@ -113,6 +116,11 @@ fn setup_file_watchers(
         config_dir.join("layout.jsx"),
         config_dir.join("config.yaml"),
     ];
+    // Populated (and kept current) by `App`'s `WatchedPath` reconciliation as
+    // imported `.jsx` files and the active theme file are discovered — see
+    // `InterestingPaths`'s doc comment in `app.rs`.
+    let interesting: InterestingPaths = Default::default();
+    let interesting_for_callback = interesting.clone();
 
     let watcher = notify::recommended_watcher(move |res: notify::Result<notify::Event>| {
         let Ok(event) = res else { return };
@@ -124,7 +132,9 @@ fn setup_file_watchers(
             if *path == exe {
                 let _ = bin_reload_tx.send(());
                 let _ = dl_wake_tx.try_send(());
-            } else if watched_layout_paths.contains(path) {
+            } else if watched_layout_paths.contains(path)
+                || interesting_for_callback.lock().unwrap().contains(path)
+            {
                 let _ = reload_tx.send(());
                 let _ = dl_wake_tx.try_send(());
             }
@@ -148,7 +158,7 @@ fn setup_file_watchers(
         }
     }
 
-    watcher
+    (watcher, interesting)
 }
 
 #[cfg(not(target_os = "macos"))]
@@ -260,7 +270,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let (reload_tx, reload_rx) = mpsc::channel::<()>();
     let (bin_reload_tx, bin_reload_rx) = mpsc::channel::<()>();
-    let _watcher = setup_file_watchers(
+    let (_watcher, interesting) = setup_file_watchers(
         &config_dir,
         &exe_path,
         reload_tx,
@@ -294,6 +304,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         stop: Arc::clone(&stop),
         last_tick,
         watcher: Arc::clone(&_watcher),
+        interesting: interesting.clone(),
     })?;
 
     #[cfg(not(target_os = "macos"))]
@@ -310,6 +321,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             Arc::clone(&stop),
             Arc::clone(&last_tick),
             Arc::clone(&_watcher),
+            interesting.clone(),
             notifier.clone(),
         );
         data_loop.run(
@@ -332,6 +344,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             Arc::clone(&stop),
             Arc::clone(&last_tick),
             Arc::clone(&_watcher),
+            interesting.clone(),
             notifier.clone(),
         );
         data_loop.run(
