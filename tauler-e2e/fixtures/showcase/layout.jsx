@@ -25,16 +25,10 @@ import { Icon } from "@ui/icon";
 const TAULER_I3 = "/usr/local/bin/tauler-i3";
 const STATUS = "/fixtures/showcase/bin/status";
 
-// One workspace pill.
-//
-// Fixed width and `justify-center`, never horizontal padding. A padded flex
-// container does not size to its text: `px-[10px]` around a single "2" produces
-// a 40px box with 11px of space on the left and 23px on the right, and the same
-// 40px box for "22" — the text node inside a padded container measures 20px
-// wide whatever it contains. The glyph then sits visibly left of centre. Giving
-// the pill its own width sidesteps the measurement entirely, and uniform pills
-// are what a workspace strip wants anyway.
-const PILL = "flex flex-row items-center justify-center w-[24px] h-[22px] rounded-2xl";
+// One workspace pill. Horizontal padding sizes it to its text (issue #382, a
+// takumi bug where a padded flex container floored its content width at
+// padL+padR, is fixed upstream as of takumi 2.13.7).
+const PILL = "flex flex-row items-center justify-center px-[8px] h-[22px] rounded-2xl";
 
 function Workspace({ ws }) {
   if (ws.focused) {
