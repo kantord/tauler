@@ -1991,14 +1991,36 @@ mod tests {
             false
         };
 
+        let atomic_replace = |content: &str| {
+            let tmp = dir.path().join("component.jsx.tmp");
+            std::fs::write(&tmp, content).expect("write replacement");
+            std::fs::rename(&tmp, &path).expect("atomic replace");
+        };
+
+        // `watch()` registers the path with the OS asynchronously — on macOS in
+        // particular, it can return before the FSEventStream's background run loop
+        // has actually started, so a replace fired immediately after can be missed
+        // even though the watch is otherwise healthy. That is a startup race, not
+        // the inode-churn bug this test exists to catch, so warm the watch up with
+        // retries before making it count.
+        let warmup_deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        loop {
+            atomic_replace("warmup");
+            if wait_for_event(&rx) {
+                break;
+            }
+            assert!(
+                std::time::Instant::now() < warmup_deadline,
+                "directory watch never became live"
+            );
+        }
+
         // Atomic replace, twice: write to a temp file in the same directory, then
         // rename over the original. A watch on `path`'s own inode survives exactly
         // one of these; only a directory-level watch (what `enter` sets up) survives
         // both.
         for (i, content) in ["after-1", "after-2"].into_iter().enumerate() {
-            let tmp = dir.path().join("component.jsx.tmp");
-            std::fs::write(&tmp, content).expect("write replacement");
-            std::fs::rename(&tmp, &path).expect("atomic replace");
+            atomic_replace(content);
             assert!(
                 wait_for_event(&rx),
                 "replace #{} must still be reported — a directory watch must not go \
