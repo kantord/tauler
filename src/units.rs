@@ -1232,6 +1232,804 @@ mod tests {
         );
     }
 
+    /// The docs' rofi Unit from `docs/src/content/docs/docs/units.md`'s
+    /// "Rendering a config file" section — built on the global `ConfigFile`
+    /// helper (`tauler_core::globals::JSX_GLOBALS_JS`), which is the case
+    /// ADR 0033 punted on ("Config files are not this") and ADR 0040
+    /// resolves as a Unit factory, not a new builtin.
+    #[test]
+    fn the_rofi_theme_example_from_the_docs_works() {
+        let dir = tempfile::tempdir().unwrap();
+        let theme = dir.path().join("tauler.rasi");
+
+        let source = ROFI_LAYOUT.replace("__THEME__", theme.to_str().unwrap());
+        let evaluator = JsxEvaluator::new_reconciler(
+            &source,
+            serde_json::Value::Null,
+            None,
+            Default::default(),
+        )
+        .unwrap();
+
+        let entering = crate::units::sweep(&evaluator, &HashMap::new());
+        assert_eq!(entering.entered, 1, "the theme file does not exist yet");
+        let written = std::fs::read_to_string(&theme).unwrap();
+        assert!(
+            written.contains("background-color: #221F2B;"),
+            "got: {written}"
+        );
+
+        let settled = crate::units::sweep(&evaluator, &HashMap::new());
+        assert!(
+            !settled.made_progress(),
+            "the file on disk already matches the declared content: {settled:?}"
+        );
+
+        std::fs::write(&theme, "* { background-color: #000000; }\n").unwrap();
+        let drifted = crate::units::sweep(&evaluator, &HashMap::new());
+        assert_eq!(
+            drifted.updated, 1,
+            "hand-edited away from the declared theme"
+        );
+        assert_eq!(std::fs::read_to_string(&theme).unwrap(), written);
+    }
+
+    /// `apply` is `ConfigFile`'s hook for a target that has to be told about a
+    /// change, unlike rofi — the thing ADR 0033 left `enter`/`update` for, now
+    /// reachable without hand-writing a Unit. It must fire on `enter` (the
+    /// file did not exist) and again on `update` (it drifted), with the path
+    /// and the text just written, and must not fire when a Sweep is a no-op.
+    #[test]
+    fn config_file_apply_hook_runs_after_every_write() {
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join("theme.conf");
+        let calls = dir.path().join("calls");
+
+        let source = APPLY_LAYOUT
+            .replace("__TARGET__", target.to_str().unwrap())
+            .replace("__CALLS__", calls.to_str().unwrap());
+        let evaluator = JsxEvaluator::new_reconciler(
+            &source,
+            serde_json::Value::Null,
+            None,
+            Default::default(),
+        )
+        .unwrap();
+
+        crate::units::sweep(&evaluator, &HashMap::new());
+        assert_eq!(
+            std::fs::read_to_string(&calls).unwrap(),
+            format!("applied {} hello\n", target.to_str().unwrap()),
+            "apply must run once, after enter wrote the file"
+        );
+
+        let settled = crate::units::sweep(&evaluator, &HashMap::new());
+        assert!(!settled.made_progress());
+        assert_eq!(
+            std::fs::read_to_string(&calls).unwrap().lines().count(),
+            1,
+            "a no-op Sweep must not re-apply"
+        );
+
+        std::fs::write(&target, "stale").unwrap();
+        crate::units::sweep(&evaluator, &HashMap::new());
+        assert_eq!(
+            std::fs::read_to_string(&calls).unwrap().lines().count(),
+            2,
+            "apply must run again once the file drifts"
+        );
+    }
+
+    /// `write()` succeeding is not the same as `apply()` succeeding: the file
+    /// can already match `render()`'s output while `apply` failed on its own
+    /// (a socket not up yet, a target not ready). Without tracking that
+    /// separately, `observe()` re-reading the same file `write()` just wrote
+    /// would make the next Sweep look converged and never retry `apply`.
+    /// Proves the fix: a failing `apply` must not be silently treated as done
+    /// once the file content alone matches.
+    #[test]
+    fn config_file_retries_apply_after_a_failure_even_though_the_file_already_matches() {
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join("theme.conf");
+        let calls = dir.path().join("calls");
+        let fail_flag = dir.path().join("fail");
+
+        std::fs::write(&fail_flag, "").unwrap();
+
+        let source = format!(
+            r#"
+            const Theme = ConfigFile({{
+              path: "{target}",
+              render: () => "hello",
+              apply: (path, content) => {{
+                if (exists("{fail_flag}")) {{ throw new Error("apply failed"); }}
+                sh`printf 'applied %s %s\n' ${{path}} ${{content}} >> {calls}`;
+              }},
+            }});
+            export default function render() {{
+              return <root><Theme /></root>;
+            }}"#,
+            target = target.to_str().unwrap(),
+            fail_flag = fail_flag.to_str().unwrap(),
+            calls = calls.to_str().unwrap(),
+        );
+        let evaluator = JsxEvaluator::new_reconciler(
+            &source,
+            serde_json::Value::Null,
+            None,
+            Default::default(),
+        )
+        .unwrap();
+
+        let first = crate::units::sweep(&evaluator, &HashMap::new());
+        assert_eq!(
+            first.entered, 0,
+            "the hook is counted as failed since apply threw, even though \
+             the write already completed before the throw: {first:?}"
+        );
+        assert_eq!(
+            std::fs::read_to_string(&target).unwrap(),
+            "hello",
+            "the write itself must still succeed even though apply throws afterward"
+        );
+        assert!(
+            !calls.exists(),
+            "apply threw before its own sh call could run"
+        );
+
+        std::fs::remove_file(&fail_flag).unwrap();
+        let retry = crate::units::sweep(&evaluator, &HashMap::new());
+        assert_eq!(
+            retry.updated, 1,
+            "file content alone already matches, but the applied marker was \
+             never written last Sweep — must register as an update, not a no-op: {retry:?}"
+        );
+        assert_eq!(
+            std::fs::read_to_string(&calls).unwrap().lines().count(),
+            1,
+            "apply must have actually run this time"
+        );
+
+        let settled = crate::units::sweep(&evaluator, &HashMap::new());
+        assert!(
+            !settled.made_progress(),
+            "apply succeeded and the marker now matches — this Sweep must be a no-op: {settled:?}"
+        );
+        assert_eq!(
+            std::fs::read_to_string(&calls).unwrap().lines().count(),
+            1,
+            "a converged Sweep must not re-apply"
+        );
+    }
+
+    /// A fresh install with no prior `~/.config/<app>/` must not fail every Sweep —
+    /// most apps only create their own config directory on first launch, which a
+    /// `ConfigFile`-only setup never triggers.
+    #[test]
+    fn config_file_creates_its_parent_directory_if_missing() {
+        let dir = tempfile::tempdir().unwrap();
+        // Deliberately not created: `enterOne`'s first write must create it.
+        let target = dir.path().join("nested").join("deep").join("theme.conf");
+
+        let source = format!(
+            r#"
+            const Theme = ConfigFile({{ path: "{path}", render: () => "hello" }});
+            export default function render() {{
+              return <root><Theme /></root>;
+            }}"#,
+            path = target.to_str().unwrap(),
+        );
+        let evaluator = JsxEvaluator::new_reconciler(
+            &source,
+            serde_json::Value::Null,
+            None,
+            Default::default(),
+        )
+        .unwrap();
+
+        let report = crate::units::sweep(&evaluator, &HashMap::new());
+        assert_eq!(report.entered, 1, "got: {report:?}");
+        assert_eq!(std::fs::read_to_string(&target).unwrap(), "hello");
+    }
+
+    /// The write must go through a temp-file-then-`mv` (`rename(2)` is atomic;
+    /// `printf > path` in place is not — a reader can observe a partial write
+    /// mid-truncate). Proven two ways: the final content is correct, and no
+    /// `<path>.new.*` temp file is left behind in the directory afterward —
+    /// leftover temp files would mean the `mv` step silently isn't running.
+    #[test]
+    fn config_file_writes_atomically_leaving_no_temp_file_behind() {
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join("theme.conf");
+
+        let source = format!(
+            r#"
+            const Theme = ConfigFile({{ path: "{path}", render: () => "hello" }});
+            export default function render() {{
+              return <root><Theme /></root>;
+            }}"#,
+            path = target.to_str().unwrap(),
+        );
+        let evaluator = JsxEvaluator::new_reconciler(
+            &source,
+            serde_json::Value::Null,
+            None,
+            Default::default(),
+        )
+        .unwrap();
+
+        let report = crate::units::sweep(&evaluator, &HashMap::new());
+        assert_eq!(report.entered, 1, "got: {report:?}");
+        assert_eq!(std::fs::read_to_string(&target).unwrap(), "hello");
+
+        let leftover_temp_files: Vec<_> = std::fs::read_dir(dir.path())
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .map(|e| e.file_name().to_string_lossy().into_owned())
+            .filter(|name| name != "theme.conf")
+            .collect();
+        assert!(
+            leftover_temp_files.is_empty(),
+            "atomic write left temp files behind: {leftover_temp_files:?}"
+        );
+    }
+
+    /// `mode`, when given, must land on the file `ConfigFile` actually writes —
+    /// proving it's applied to the temp file before the atomic rename, not lost
+    /// in that swap, and not left as a follow-up step a reader could race.
+    #[test]
+    fn config_file_mode_chmods_the_written_file() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join("secret.conf");
+
+        let source = format!(
+            r#"
+            const Theme = ConfigFile({{ path: "{path}", render: () => "hello", mode: "600" }});
+            export default function render() {{
+              return <root><Theme /></root>;
+            }}"#,
+            path = target.to_str().unwrap(),
+        );
+        let evaluator = JsxEvaluator::new_reconciler(
+            &source,
+            serde_json::Value::Null,
+            None,
+            Default::default(),
+        )
+        .unwrap();
+
+        let report = crate::units::sweep(&evaluator, &HashMap::new());
+        assert_eq!(report.entered, 1, "got: {report:?}");
+        let perms = std::fs::metadata(&target).unwrap().permissions();
+        assert_eq!(
+            perms.mode() & 0o777,
+            0o600,
+            "mode: \"600\" must be applied to the written file"
+        );
+    }
+
+    /// One `ConfigFile` whose `render` always throws must not stop any other
+    /// `ConfigFile` on the same layout from writing correctly in the same
+    /// Sweep — the property the real tauler desktop deployment (four
+    /// independent rofi/kitty `ConfigFile`s reading a shared, non-atomically
+    /// written JSON palette file) depends on for one bad Sweep to stay
+    /// contained. Traced to `call_unit_projection` (`src/jsx.rs`), which
+    /// already catches and logs a thrown exception per projection call
+    /// rather than propagating it — this test demonstrates that guarantee
+    /// end to end instead of only reasoning about it from the code.
+    #[test]
+    fn one_config_files_throwing_render_does_not_stop_the_others_in_the_same_sweep() {
+        let dir = tempfile::tempdir().unwrap();
+        let good1 = dir.path().join("good1.conf");
+        let good2 = dir.path().join("good2.conf");
+        let bad = dir.path().join("bad.conf");
+        let good3 = dir.path().join("good3.conf");
+
+        let source = format!(
+            r#"
+            const Good1 = ConfigFile({{ path: "{good1}", render: () => "good1" }});
+            const Good2 = ConfigFile({{ path: "{good2}", render: () => "good2" }});
+            const Bad = ConfigFile({{
+              path: "{bad}",
+              render: () => {{ throw new Error("boom"); }},
+            }});
+            const Good3 = ConfigFile({{ path: "{good3}", render: () => "good3" }});
+
+            export default function render() {{
+              return <root><Good1 /><Good2 /><Bad /><Good3 /></root>;
+            }}"#,
+            good1 = good1.to_str().unwrap(),
+            good2 = good2.to_str().unwrap(),
+            bad = bad.to_str().unwrap(),
+            good3 = good3.to_str().unwrap(),
+        );
+        let evaluator = JsxEvaluator::new_reconciler(
+            &source,
+            serde_json::Value::Null,
+            None,
+            Default::default(),
+        )
+        .unwrap();
+
+        crate::units::sweep(&evaluator, &HashMap::new());
+
+        assert_eq!(std::fs::read_to_string(&good1).unwrap(), "good1");
+        assert_eq!(std::fs::read_to_string(&good2).unwrap(), "good2");
+        assert_eq!(std::fs::read_to_string(&good3).unwrap(), "good3");
+        assert!(
+            !bad.exists(),
+            "a throwing render must not produce a file, same as a template error"
+        );
+    }
+
+    /// `renderTemplate` is the runtime half of the `tauler-configgen` design
+    /// (design record §14/§17): a generated root component embeds its
+    /// schema's own minijinja template as a string constant and calls
+    /// `renderTemplate(source, data)` to turn collected Item data into the
+    /// final config text. Proven here exactly as a generated component would
+    /// use it — through `ConfigFile`, not as a standalone Rust unit test —
+    /// because the whole point is that it works from inside the reconciler
+    /// runtime a real layout file runs in.
+    #[test]
+    fn render_template_renders_a_minijinja_template_against_collected_item_data() {
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join("tauler.rasi");
+
+        let source = RENDER_TEMPLATE_LAYOUT.replace("__TARGET__", target.to_str().unwrap());
+        let evaluator = JsxEvaluator::new_reconciler(
+            &source,
+            serde_json::Value::Null,
+            None,
+            Default::default(),
+        )
+        .unwrap();
+
+        let report = crate::units::sweep(&evaluator, &HashMap::new());
+        assert_eq!(report.entered, 1, "got: {report:?}");
+
+        let written = std::fs::read_to_string(&target).unwrap();
+        assert!(written.contains("* {"), "got: {written}");
+        assert!(
+            written.contains("background-color: #221F2B;"),
+            "got: {written}"
+        );
+    }
+
+    /// A syntax error in the template must surface as a clear thrown error at
+    /// the point `renderTemplate` is called — not a panic, not a silent
+    /// empty string — matching every other builtin's error-handling
+    /// convention in this codebase (`sh`, for instance).
+    #[test]
+    fn render_template_throws_a_clear_error_on_a_malformed_template() {
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join("tauler.rasi");
+        let log = dir.path().join("log");
+
+        let source = format!(
+            r#"
+            const Theme = ConfigFile({{
+              path: "{}",
+              render: () => renderTemplate("{{% for x in items %}}{{{{ x", {{ items: [] }}),
+            }});
+            export default function render() {{
+              return <root><Theme /></root>;
+            }}"#,
+            target.to_str().unwrap(),
+        );
+        let _ = log; // unused, kept for a future assertion on logged output if needed
+        let evaluator = JsxEvaluator::new_reconciler(
+            &source,
+            serde_json::Value::Null,
+            None,
+            Default::default(),
+        )
+        .unwrap();
+
+        let report = crate::units::sweep(&evaluator, &HashMap::new());
+        assert!(
+            !target.exists(),
+            "a template error must not produce a file: {report:?}"
+        );
+    }
+
+    const RENDER_TEMPLATE_LAYOUT: &str = r##"
+        const TEMPLATE = "{% for selector in selectors %}\n{{ selector.name }} {\n{% for prop in selector.properties %}    {{ prop.css_name }}: {{ prop.value }};\n{% endfor %}}\n{% endfor %}";
+
+        const RofiTheme = ConfigFile({
+          path: "__TARGET__",
+          render: () => renderTemplate(TEMPLATE, {
+            selectors: [
+              {
+                name: "*",
+                properties: [
+                  { css_name: "background-color", value: "#221F2B" },
+                ],
+              },
+            ],
+          }),
+        });
+
+        export default function render() {
+          return <root><RofiTheme /></root>;
+        }"##;
+
+    /// The real end-to-end proof (design record §18): the *actual* `tauler-configgen`
+    /// generator's output, from the *actual* shipped schema covering the real user
+    /// theme's full structure (compound selectors, an array-valued `children` property,
+    /// padding/border shorthand), run through the *actual* reconciler runtime tauler's
+    /// live binary uses — not a hand-simulated approximation of what codegen would
+    /// produce. Colors are the real values from the current kitty theme (design record
+    /// §16.5: literal values, not `@variable` references — no reference type needed).
+    #[test]
+    fn the_real_generator_output_runs_end_to_end_against_the_real_reconciler() {
+        let generated = tauler_configgen::generate(
+            &tauler_configgen::parse(include_str!(
+                "../tauler-configgen/examples/rofi-full-theme.schema.yaml"
+            ))
+            .expect("the shipped full-theme schema must parse"),
+        );
+
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join("tauler-test.rasi");
+
+        let layout = format!(
+            r##"
+            {generated}
+
+            const RofiTheme = ConfigFile({{
+              path: "{path}",
+              render: () => (
+                <Rofi>
+                  <Selector name="*">
+                    <BackgroundColor value="#2c343a" />
+                    <TextColor value="#e7dcc4" />
+                    <Font value="JetBrains Mono 20" />
+                  </Selector>
+                  <Selector name="window">
+                    <Location value="south" />
+                    <Anchor value="south" />
+                    <YOffset value="-5%" />
+                    <Width value="70%" />
+                    <Height value="70%" />
+                    <Padding value="0" />
+                    <Border value="2px solid" />
+                    <BorderColor value="#EDC77A" />
+                    <BackgroundColor value="#3a4145" />
+                  </Selector>
+                  <Selector name="mainbox">
+                    <Padding value="16px" />
+                    <Spacing value="12px" />
+                    <Children value={{["inputbar", "message", "listview"]}} />
+                  </Selector>
+                  <Selector name="element selected">
+                    <BackgroundColor value="#EDC77A" />
+                    <TextColor value="#2c343a" />
+                  </Selector>
+                  <Selector name="button selected">
+                    <BackgroundColor value="#EDC77A" />
+                    <TextColor value="#2c343a" />
+                  </Selector>
+                </Rofi>
+              ),
+            }});
+
+            export default function render() {{
+              return <root><RofiTheme /></root>;
+            }}"##,
+            path = target.to_str().unwrap(),
+        );
+
+        let evaluator = JsxEvaluator::new_reconciler(
+            &layout,
+            serde_json::Value::Null,
+            None,
+            Default::default(),
+        )
+        .unwrap();
+
+        let report = crate::units::sweep(&evaluator, &HashMap::new());
+        assert_eq!(report.entered, 1, "got: {report:?}");
+
+        let rasi = std::fs::read_to_string(&target).unwrap();
+        assert!(rasi.contains("* {"), "got: {rasi}");
+        assert!(rasi.contains("background-color: #2c343a;"), "got: {rasi}");
+        assert!(rasi.contains("window {"), "got: {rasi}");
+        assert!(rasi.contains("border: 2px solid;"), "got: {rasi}");
+        assert!(rasi.contains("mainbox {"), "got: {rasi}");
+        assert!(
+            rasi.contains(r#"children: [ "inputbar", "message", "listview" ];"#),
+            "got: {rasi}"
+        );
+        assert!(
+            rasi.contains("element selected {"),
+            "the compound selector must produce its own block: {rasi}"
+        );
+        assert!(rasi.contains("button selected {"), "got: {rasi}");
+    }
+
+    /// The same real-generator-output proof as the rofi test above, for the
+    /// *other* shipped schema (`kitty-config.schema.yaml`) — until this
+    /// test existed, a bad regex or a typo'd `directive:` in that schema
+    /// could break the generated kitty settings file while every other test
+    /// in the suite (including this crate's) stayed green, since nothing
+    /// ran it against the real reconciler. Values mirror the real deployed
+    /// `KittyConfig.jsx`.
+    #[test]
+    fn the_real_kitty_generator_output_runs_end_to_end_against_the_real_reconciler() {
+        let generated = tauler_configgen::generate(
+            &tauler_configgen::parse(include_str!(
+                "../tauler-configgen/examples/kitty-config.schema.yaml"
+            ))
+            .expect("the shipped kitty-config schema must parse"),
+        );
+
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join("tauler-kitty-settings-test.conf");
+
+        let layout = format!(
+            r##"
+            {generated}
+
+            const KittyConfig = ConfigFile({{
+              path: "{path}",
+              render: () => (
+                <KittySettings>
+                  <FontFamily value="JetBrains Mono" />
+                  <BoldFont value="auto" />
+                  <ItalicFont value="auto" />
+                  <BoldItalicFont value="auto" />
+                  <AdjustLineHeight value="100%" />
+                  <FontSize value="14" />
+                  <AutoReloadConfig value="0.5" />
+                  <ProgressBar value="top" />
+                  <ScrollbackLines value="10000" />
+                  <EnableAudioBell value="no" />
+                  <ShellIntegration value="enabled" />
+                  <Shell value="/home/kantord/.cargo/bin/enw shell" />
+                  <RememberWindowSize value="no" />
+                  <InitialWindowWidth value="830" />
+                  <InitialWindowHeight value="700" />
+                  <InactiveTextAlpha value="0.6" />
+                  <RepaintDelay value="8" />
+                  <InputDelay value="2" />
+                  <AllowRemoteControl value="yes" />
+                </KittySettings>
+              ),
+            }});
+
+            export default function render() {{
+              return <root><KittyConfig /></root>;
+            }}"##,
+            path = target.to_str().unwrap(),
+        );
+
+        let evaluator = JsxEvaluator::new_reconciler(
+            &layout,
+            serde_json::Value::Null,
+            None,
+            Default::default(),
+        )
+        .unwrap();
+
+        let report = crate::units::sweep(&evaluator, &HashMap::new());
+        assert_eq!(report.entered, 1, "got: {report:?}");
+
+        let conf = std::fs::read_to_string(&target).unwrap();
+        assert!(conf.contains("font_family JetBrains Mono"), "got: {conf}");
+        assert!(conf.contains("font_size 14"), "got: {conf}");
+        assert!(conf.contains("adjust_line_height 100%"), "got: {conf}");
+        assert!(
+            conf.contains("shell /home/kantord/.cargo/bin/enw shell"),
+            "got: {conf}"
+        );
+        assert!(conf.contains("allow_remote_control yes"), "got: {conf}");
+    }
+
+    /// Same real-generator-output proof as the two tests above, for
+    /// `rofi-config.schema.yaml` — the schema that replaced RofiConfig.jsx's
+    /// hand-written template literal specifically to remove the
+    /// unprincipled "why does kitty get validation and rofi's
+    /// `configuration{}` doesn't" inconsistency a review panel flagged.
+    /// Values mirror the real deployed `RofiConfig.jsx`.
+    #[test]
+    fn the_real_rofi_config_generator_output_runs_end_to_end_against_the_real_reconciler() {
+        let generated = tauler_configgen::generate(
+            &tauler_configgen::parse(include_str!(
+                "../tauler-configgen/examples/rofi-config.schema.yaml"
+            ))
+            .expect("the shipped rofi-config schema must parse"),
+        );
+
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join("config-test.rasi");
+
+        let layout = format!(
+            r##"
+            {generated}
+
+            const RofiConfig = ConfigFile({{
+              path: "{path}",
+              render: () => (
+                <RofiConfiguration>
+                  <Modes value="combi,drun,run,window" />
+                  <CombiModes value="window,drun" />
+                  <Matching value="fuzzy" />
+                  <Sort value="false" />
+                  <ShowIcons value="true" />
+                  <Terminal value="kitty" />
+                  <WindowFormat value="{{c}}" />
+                  <DrunDisplayFormat value="{{name}}" />
+                  <DrunShowActions value="false" />
+                  <DrunMatchFields value="name,generic,keywords" />
+                  <DrunExcludeCategories value="Settings;System;Building;Debugger;IDE;Profiling;RevisionControl;Translation" />
+                  <DisplayDrun value="❯" />
+                  <DisplayRun value="❯" />
+                  <DisplayWindow value="❯" />
+                  <DisplayCombi value="❯" />
+                  <ClickToExit value="true" />
+                </RofiConfiguration>
+              ),
+            }});
+
+            export default function render() {{
+              return <root><RofiConfig /></root>;
+            }}"##,
+            path = target.to_str().unwrap(),
+        );
+
+        let evaluator = JsxEvaluator::new_reconciler(
+            &layout,
+            serde_json::Value::Null,
+            None,
+            Default::default(),
+        )
+        .unwrap();
+
+        let report = crate::units::sweep(&evaluator, &HashMap::new());
+        assert_eq!(report.entered, 1, "got: {report:?}");
+
+        let conf = std::fs::read_to_string(&target).unwrap();
+        assert!(conf.contains("configuration {"), "got: {conf}");
+        assert!(
+            conf.contains(r#"modes: "combi,drun,run,window";"#),
+            "got: {conf}"
+        );
+        assert!(conf.contains("sort: false;"), "got: {conf}");
+        assert!(conf.contains("click-to-exit: true;"), "got: {conf}");
+        assert!(conf.contains(r#"@theme "theme""#), "got: {conf}");
+    }
+
+    /// The direct-import proof: a layout file can `import { ... } from
+    /// './some.schema.yaml'` with no manual `tauler_configgen::generate()` step and no
+    /// separate `*.generated.jsx` file at all — `SchemaAwareLoader` (`src/jsx.rs`)
+    /// intercepts the import and codegens it right there, same as every other real
+    /// end-to-end test in this file, just without the copy-paste-into-a-file step those
+    /// tests still simulate by embedding `generated` directly into the layout string.
+    /// This is what makes the manual "regenerate, then `cp` into chezmoi" workflow
+    /// (`tauler-configgen/README.md`'s "No CLI" gap) unnecessary for real deployments:
+    /// the schema file itself becomes the importable module.
+    #[test]
+    fn a_schema_yaml_file_is_directly_importable_with_no_generate_step() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("theme.schema.yaml"),
+            include_str!("../tauler-configgen/examples/rofi-full-theme.schema.yaml"),
+        )
+        .unwrap();
+        let target = dir.path().join("tauler-test.rasi");
+        let layout_path = dir.path().join("layout.jsx");
+
+        let layout = format!(
+            r##"
+            import {{ Rofi, Selector, BackgroundColor, TextColor }} from "./theme.schema.yaml";
+
+            const RofiTheme = ConfigFile({{
+              path: "{path}",
+              render: () => (
+                <Rofi>
+                  <Selector name="*">
+                    <BackgroundColor value="#2c343a" />
+                    <TextColor value="#e7dcc4" />
+                  </Selector>
+                </Rofi>
+              ),
+            }});
+
+            export default function render() {{
+              return <root><RofiTheme /></root>;
+            }}"##,
+            path = target.to_str().unwrap(),
+        );
+        std::fs::write(&layout_path, &layout).unwrap();
+
+        let evaluator = JsxEvaluator::new_reconciler(
+            &layout,
+            serde_json::Value::Null,
+            Some(dir.path()),
+            Default::default(),
+        )
+        .unwrap();
+
+        let report = crate::units::sweep(&evaluator, &HashMap::new());
+        assert_eq!(report.entered, 1, "got: {report:?}");
+
+        let rasi = std::fs::read_to_string(&target).unwrap();
+        assert!(rasi.contains("* {"), "got: {rasi}");
+        assert!(rasi.contains("background-color: #2c343a;"), "got: {rasi}");
+        assert!(rasi.contains("text-color: #e7dcc4;"), "got: {rasi}");
+    }
+
+    /// A schema file that fails to parse must surface as a clear load error at import
+    /// time — not a panic, not silently empty output — matching every other builtin's
+    /// error-handling convention in this codebase (`sh`, `renderTemplate`).
+    #[test]
+    fn importing_a_malformed_schema_yaml_file_is_a_clear_load_error_not_a_panic() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("broken.schema.yaml"), "not: [valid, schema").unwrap();
+
+        let layout = r#"
+            import { Whatever } from "./broken.schema.yaml";
+            export default function render() {
+              return <root />;
+            }"#;
+
+        let result = JsxEvaluator::new_reconciler(
+            layout,
+            serde_json::Value::Null,
+            Some(dir.path()),
+            Default::default(),
+        );
+
+        assert!(
+            result.is_err(),
+            "a malformed schema.yaml import must fail evaluator construction, not panic \
+             or silently produce an empty module"
+        );
+    }
+
+    /// A twelve-line object-to-`.rasi` serialiser, used with the global
+    /// `ConfigFile` helper. Neither `rasi()` nor `RofiTheme` is a tauler
+    /// concept: the serialiser is ordinary JavaScript, and `ConfigFile` only
+    /// composes builtins that already exist (`sh`, `read`, `exists`).
+    const ROFI_LAYOUT: &str = r##"
+        function rasi(sections) {
+          return Object.entries(sections)
+            .map(([name, props]) =>
+              `${name} {\n` +
+              Object.entries(props).map(([k, v]) => `    ${k}: ${v};`).join("\n") +
+              "\n}"
+            )
+            .join("\n\n") + "\n";
+        }
+
+        const RofiTheme = ConfigFile({
+          path: "__THEME__",
+          render: () =>
+            rasi({
+              "*": { "background-color": "#221F2B", "text-color": "#E9E4DA" },
+              window: { width: "480px" },
+            }),
+        });
+
+        export default function render() {
+          return <root><RofiTheme /></root>;
+        }"##;
+
+    /// A `ConfigFile` with an `apply` hook that logs its arguments, so the
+    /// call — and only one call per write — is checkable from outside.
+    const APPLY_LAYOUT: &str = r#"
+        const Theme = ConfigFile({
+          path: "__TARGET__",
+          render: () => "hello",
+          apply: (path, content) => sh`printf 'applied %s %s\n' ${path} ${content} >> __CALLS__`,
+        });
+
+        export default function render() {
+          return <root><Theme /></root>;
+        }"#;
+
     /// Builds a layout from [`LIGHT_LAYOUT`], pointed at this test's files and
     /// with `extra` spliced into the `unit()` call.
     fn light_layout(state: &std::path::Path, log: &std::path::Path, extra: &str) -> String {

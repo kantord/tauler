@@ -1,5 +1,5 @@
 [workspace]
-members = [".", "tauler-core", "tauler-web", "tauler-i3", "tauler-aerospace", "tauler-notify", "tauler-ui-macro", "tauler-docgen", "tauler-screenshot", "tauler-accumulate", "tauler-e2e", "tauler-web-e2e"]
+members = [".", "tauler-core", "tauler-web", "tauler-i3", "tauler-aerospace", "tauler-notify", "tauler-ui-macro", "tauler-docgen", "tauler-screenshot", "tauler-accumulate", "tauler-e2e", "tauler-web-e2e", "tauler-configgen"]
 resolver = "2"
 
 [workspace.package]
@@ -84,6 +84,7 @@ tauler-ui-macro = { path = "tauler-ui-macro", version = "0.1.13" }
 # The wasm-clean subset, with the QuickJS half switched on. Same version pinning
 # rationale as `tauler-ui-macro` above.
 tauler-core = { path = "tauler-core", version = "0.3.2", features = ["quickjs"] }
+tauler-configgen = { path = "tauler-configgen", version = "0.4.0" }
 optative = "=0.1.4"
 optative-process-pool = "=0.0.9"
 optative-derive = "=0.0.4"
@@ -91,6 +92,7 @@ optative-script = "=0.0.11"
 notify = "8.2.0"
 cached = { version = "4.0.0", default-features = false }
 tempfile = "3.27.0"
+minijinja = "2.24.0"
 
 # Kept off other platforms: Wayland's build scripts need pkg-config and
 # libxkbcommon, and x11rb's `allow-unsafe-code` links libxcb.

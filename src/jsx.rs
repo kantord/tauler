@@ -100,6 +100,44 @@ fn workspaces_layout_js_fn<'js>(
     rquickjs_serde::to_value(ctx, layout).map_err(|_| rquickjs::Error::Unknown)
 }
 
+/// Renders a minijinja template against arbitrary JSON-serialisable data — the pure
+/// half of what a `tauler-configgen`-generated root component does with its own
+/// schema's template (design record §14/§17): validated Item data in, config text out.
+/// A syntax error in `source`, or a render-time error (an undefined filter, say),
+/// throws with minijinja's own message rather than panicking — matching every other
+/// builtin's error convention in this codebase.
+fn render_template_js_fn<'js>(
+    ctx: rquickjs::Ctx<'js>,
+    source: String,
+    data: rquickjs::Value<'js>,
+) -> rquickjs::Result<String> {
+    let data: serde_json::Value = json_of(&ctx, data).unwrap_or_default();
+    let mut env = minijinja::Environment::new();
+    env.add_template("_", &source)
+        .map_err(|e| rquickjs::Exception::throw_message(&ctx, &format!("renderTemplate: {e}")))?;
+    env.get_template("_")
+        .and_then(|tmpl| tmpl.render(data))
+        .map_err(|e| rquickjs::Exception::throw_message(&ctx, &format!("renderTemplate: {e}")))
+}
+
+/// The `warn` a layout file can call when it has something worth surfacing but no error
+/// to throw. There is deliberately no `console` in this runtime (see `JSX_GLOBALS_JS`'s
+/// `<I3Layout>` comment, the only prior place this need came up): every warning crosses
+/// into Rust explicitly, through a builtin like this one, rather than a JS-side no-op that
+/// looks like it does something. Registered unconditionally, like `renderTemplate` — it
+/// touches nothing in the world, so ADR 0034's frame-budget reasoning for keeping `sh` out
+/// of the render runtime doesn't apply here either.
+///
+/// Not currently called by any builtin global — `ConfigFile` has no `exitOne` to call it
+/// from (a dropped `<ConfigFile/>` currently has no hook that fires at all; see
+/// `globals.rs`'s comment on `ConfigFile` and `docs/units.md`'s exit-limit section). Kept
+/// as tested, working JS-to-`tracing::warn!` infrastructure for the next caller that needs
+/// it — e.g. the hand-edit-detection sidecar sketched for `ConfigFile` — rather than
+/// removed and rebuilt from scratch when one arrives.
+fn warn_js_fn(message: String) {
+    tracing::warn!("{message}");
+}
+
 /// Dispatches a lifecycle hook, picking the batch spelling or the per-Item sugar
 /// by whichever one the Unit defined.
 ///
@@ -295,6 +333,69 @@ impl Loader for NoFsLoader {
     }
 }
 
+/// The suffix every `tauler-configgen` schema file uses, here and in every schema under
+/// `tauler-configgen/examples/`. The one place this convention is spelled out in tauler's
+/// own code, not just followed by naming files consistently.
+const SCHEMA_FILE_SUFFIX: &str = ".schema.yaml";
+
+/// Wraps `ConfinedFsLoader`, intercepting `*.schema.yaml` imports before they'd
+/// otherwise be handed to QuickJS as literal (invalid) source text: a
+/// `tauler-configgen` schema is parsed and codegen'd into the same JS a hand-copied
+/// `*.generated.jsx` file used to contain, right here at import time.
+///
+/// This exists so a layout file can `import { Rofi, Selector } from
+/// './my-theme.schema.yaml'` directly — no `cargo run --example verify_*`, no `cp`
+/// into a separate `*.generated.jsx` file, nothing to keep in sync by hand. tauler
+/// already owns JS module resolution (that's what `ConfinedFsResolver`/
+/// `ConfinedFsLoader` are), so there's nothing stopping it from treating a schema
+/// file as a module source the same way it already treats `.jsx` as one via
+/// `transform_source` — codegen *is* that transform, just for a different source
+/// language. The existing import-watch autoreload (this session's earlier fix)
+/// covers `.schema.yaml` files for free: they're pushed into the same
+/// `loaded_paths` list any other import is, so editing a schema hot-reloads the
+/// same way editing a `.jsx` component already does.
+///
+/// `ConfinedFsResolver` needs no matching change — confirmed by a standalone test
+/// against the real `optative-script` crate before writing this: an import
+/// specifier with an explicit extension (`'./x.schema.yaml'`, as opposed to an
+/// extension-less `'./x'` relying on fallback resolution) resolves directly
+/// against the real file, regardless of the resolver's configured extension list.
+struct SchemaAwareLoader {
+    inner: optative_script::loader::ConfinedFsLoader,
+    loaded_paths: Arc<Mutex<Vec<PathBuf>>>,
+}
+
+impl SchemaAwareLoader {
+    fn new(loaded_paths: Arc<Mutex<Vec<PathBuf>>>) -> Self {
+        Self {
+            inner: optative_script::loader::ConfinedFsLoader::new(Arc::clone(&loaded_paths)),
+            loaded_paths,
+        }
+    }
+}
+
+impl Loader for SchemaAwareLoader {
+    fn load<'js>(
+        &mut self,
+        ctx: &rquickjs::Ctx<'js>,
+        name: &str,
+        attrs: Option<rquickjs::loader::ImportAttributes<'js>>,
+    ) -> rquickjs::Result<rquickjs::Module<'js, rquickjs::module::Declared>> {
+        if !name.ends_with(SCHEMA_FILE_SUFFIX) {
+            return self.inner.load(ctx, name, attrs);
+        }
+        let source =
+            std::fs::read_to_string(name).map_err(|_| rquickjs::Error::new_loading(name))?;
+        let schema = tauler_configgen::parse(&source).map_err(|e| {
+            tracing::error!(error = %e, path = name, "schema failed to parse");
+            rquickjs::Error::new_loading(name)
+        })?;
+        let generated = tauler_configgen::generate(&schema);
+        self.loaded_paths.lock().unwrap().push(PathBuf::from(name));
+        rquickjs::Module::declare(ctx.clone(), name, generated)
+    }
+}
+
 /// Whether an evaluator's runtime may touch the world. The render runtime may not:
 /// a Tick runs on the loop, and `sh` blocking it for the length of a subprocess is
 /// what the latency budgets forbid. The reconciler runtime must, because that is
@@ -352,7 +453,7 @@ impl JsxEvaluator {
             optative_script::build_runtime(
                 crate::ui::registry::UI_COMPONENTS,
                 optative_script::loader::ConfinedFsResolver::new(dir.to_path_buf()),
-                optative_script::loader::ConfinedFsLoader::new(Arc::clone(&loaded_paths)),
+                SchemaAwareLoader::new(Arc::clone(&loaded_paths)),
             )?
         } else {
             optative_script::build_runtime(
@@ -461,6 +562,21 @@ impl JsxEvaluator {
                 qjs_ctx.globals().set(
                     "__workspaces_layout",
                     rquickjs::Function::new(qjs_ctx.clone(), workspaces_layout_js_fn)?,
+                )?;
+                // The runtime half of `tauler-configgen` (design record §14/§17): a
+                // generated root component embeds its schema's own minijinja template as
+                // a string constant and calls this to turn collected Item data into the
+                // final config text. Registered unconditionally rather than gated behind
+                // `Effects::Allowed` like `sh`/`read` — unlike those, it touches nothing
+                // in the world, so there is no frame-budget reason to keep it out of the
+                // render runtime the way ADR 0034 keeps `sh` out.
+                qjs_ctx.globals().set(
+                    "renderTemplate",
+                    rquickjs::Function::new(qjs_ctx.clone(), render_template_js_fn)?,
+                )?;
+                qjs_ctx.globals().set(
+                    "warn",
+                    rquickjs::Function::new(qjs_ctx.clone(), warn_js_fn)?,
                 )?;
                 crate::ui::registry::register_ui_components(&qjs_ctx)?;
                 if !ctx.is_null() {
@@ -1429,6 +1545,24 @@ return <div class="flex">
         assert!(
             logs_contain("<Workspaces> may only be used once"),
             "a <Workspaces> that isn't last is reported, not silently accepted"
+        );
+    }
+
+    /// `warn` has no caller yet (see its doc comment) — this proves the JS-to-
+    /// `tracing::warn!` crossing itself works, independent of whichever global ends up
+    /// calling it first.
+    #[test]
+    #[tracing_test::traced_test]
+    fn warn_reaches_a_tracing_warning() {
+        eval_with_screen(
+            r#"export default function render() {
+              warn("a distinctive warning from JS");
+              return <root />;
+            }"#,
+        );
+        assert!(
+            logs_contain("a distinctive warning from JS"),
+            "warn() must actually reach a tracing::warn! log, not disappear"
         );
     }
 

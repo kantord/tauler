@@ -23,7 +23,7 @@ use winit::platform::macos::{
 };
 use winit::window::{Window, WindowId, WindowLevel};
 
-use crate::app::{App, MacInit, ModuleEventTxs, SharedWatcher, TickReceivers};
+use crate::app::{App, InterestingPaths, MacInit, ModuleEventTxs, SharedWatcher, TickReceivers};
 use crate::presenter::drain_commands;
 
 /// How often the main thread wakes to drain `SurfaceCommand`s.
@@ -62,6 +62,7 @@ pub(crate) struct MacBoot {
     pub(crate) stop: Arc<AtomicBool>,
     pub(crate) last_tick: Arc<AtomicU64>,
     pub(crate) watcher: SharedWatcher,
+    pub(crate) interesting: InterestingPaths,
 }
 
 struct MacPanel {
@@ -426,6 +427,7 @@ fn spawn_worker(boot: MacBoot, mac: MacInit) -> thread::JoinHandle<()> {
         stop,
         last_tick,
         watcher,
+        interesting,
     } = boot;
 
     thread::spawn(move || {
@@ -439,6 +441,7 @@ fn spawn_worker(boot: MacBoot, mac: MacInit) -> thread::JoinHandle<()> {
             Arc::clone(&stop),
             last_tick,
             watcher,
+            interesting,
         );
         // Whatever this returns, the subprocesses must be torn down before main
         // re-execs: `exec` keeps the PID and runs no destructors, so anything

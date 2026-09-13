@@ -158,6 +158,154 @@ pub const JSX_GLOBALS_JS: &str = r#"
         if (typeof fn !== "function") return null;
         return __tauler_intents(fn(pointer));
     };
+    // Normalizes JSX children into a flat, order-preserved array — the
+    // shape every config-format wrapper (ADR 0041) needs before it can
+    // decide what to do with them. `.flat(Infinity)` absorbs a `.map()`'s
+    // nested array; the filter drops the holes JSX itself produces from a
+    // conditional (`{cond && <X/>}` evaluates to `false` when `cond` is
+    // falsy). Throwing on anything else is deliberate: a bare string or
+    // number slipping through (stray text, whitespace between elements)
+    // would otherwise reach a wrapper's `key`/`combine` as a marker with no
+    // properties, producing corrupted output several calls away from the
+    // actual mistake — this turns that into an error at the mistake itself.
+    globalThis.flattenChildren = (children) => {
+        const flat = (Array.isArray(children) ? children : [children]).flat(Infinity);
+        return flat.filter((c) => {
+            if (c === null || c === false || c === undefined) return false;
+            if (typeof c !== 'object') {
+                throw new Error(
+                    'flattenChildren: expected a marker object, got ' + JSON.stringify(c) +
+                    ' — stray text or whitespace between elements is not a valid child here'
+                );
+            }
+            return true;
+        });
+    };
+    // Groups `items` by `key(item)`, folding each group through `combine`
+    // (ADR 0041). `combine` sees `undefined` on a key's first occurrence —
+    // a `Map` already returns that from `.get()` on a missing key, and
+    // already preserves a key's original position when `.set()` updates
+    // it — so this is the whole mechanism, no separate "have we seen this
+    // key" bookkeeping needed.
+    //
+    // There is deliberately no default `combine`: whether a second item
+    // sharing a key replaces the first, extends it, or should never happen
+    // is specific to the target format (rofi replaces per property,
+    // systemd's `Environment=` accumulates), and a shared default would be
+    // right for some formats and silently wrong for others.
+    globalThis.collate = (items, key, combine) => {
+        const buckets = new Map();
+        for (const item of items) {
+            const k = key(item);
+            buckets.set(k, combine(buckets.get(k), item));
+        }
+        return buckets;
+    };
+    // A Unit factory for one external text file (ADR 0040). `path` is the
+    // key, `render()` is called fresh every time the declared value is
+    // needed, and `observe` reads the file back with builtins that already
+    // exist (`read`/`exists`) — this is boilerplate factored out of a Unit
+    // definition, not a new capability: nothing here `unit()`, `sh`, `read`
+    // and `exists` couldn't already do by hand (see the docs' first draft
+    // of this example, before `ConfigFile` existed).
+    //
+    // `apply`, if given, runs after every write with the path and the text
+    // just written — the hook for a target that has to be told, unlike
+    // rofi, which reads its file fresh on every launch. It is ordinary
+    // JavaScript closed over by `write`, not an Item prop, because a prop
+    // is serialised into the hook-dispatch batch (ADR 0034) and a function
+    // does not survive that crossing.
+    //
+    // `value` tells the declared side from the observed side by shape:
+    // `observe` always returns `{content}`, and a declared `<ConfigFile/>`
+    // never has one (it takes no props), so the branch is exact rather
+    // than a heuristic.
+    //
+    // Convergence tracks `apply` succeeding, not just the file's content,
+    // whenever `apply` is given: `write()` writes `${path}.applied` with
+    // `hash(rendered)` only *after* `apply()` returns without throwing,
+    // and `value` folds that marker into the observed side — stale,
+    // missing, or mismatched means `apply` didn't run to completion last
+    // time, so the diff sees a real mismatch and retries `write`/`apply`
+    // next Sweep instead of treating "file already matches" as done. Since
+    // both catch sites that guard a hook throw (`call_unit_projection`,
+    // `dispatch_unit_hook` — `src/jsx.rs`) stop execution at the throw, the
+    // marker line after `apply()` simply never runs on failure — no
+    // explicit error handling needed here. No-op, byte for byte, when
+    // `apply` isn't given: `!apply` short-circuits before any marker I/O.
+    //
+    // `mkdir -p` before every write: a fresh install with no prior
+    // `~/.config/<app>/` would otherwise fail every Sweep until something
+    // else creates the directory — most apps only create their own config
+    // directory on first launch, which a `ConfigFile`-only setup never
+    // triggers.
+    //
+    // Write-to-temp-then-`mv`, not `printf > path` in place: the in-place
+    // form truncates the existing inode, so a reader (a launcher re-reading
+    // its theme on every launch, e.g. rofi) that opens the file mid-write
+    // can observe a partial write. `mv -f` within the same directory is a
+    // `rename(2)`, which POSIX guarantees is atomic — a reader always sees
+    // either the whole old file or the whole new one, never a partial one.
+    // Two caveats travel with this, deliberately not solved here because
+    // neither has a live target in this repo today: a `rename` swaps the
+    // inode, so a watcher that tracks the original inode rather than the
+    // path (Qt's `QFileSystemWatcher` does this) silently stops firing
+    // after the first atomic write, until something re-registers it; and on
+    // an SELinux-enforcing system, the freshly-created temp file can pick up
+    // a broader directory-default label than the file it replaces, which
+    // only shows up in `audit.log`, not anywhere `ConfigFile` reads.
+    //
+    // `mode`, when given, is `chmod`'d onto the *temp* file before the
+    // `mv`, not onto `path` after it — so a hardened permission (`chmod
+    // 600` for a target holding secrets) is never briefly absent at `path`
+    // between the rename and a follow-up chmod. Omitted, a freshly-created
+    // temp file keeps the default umask, same as `printf > path` always did
+    // for a file that didn't already exist.
+    //
+    // No `exit`/`exitOne`, and it is NOT addable the way `<Light>`'s "drop
+    // it and tauler stops managing it" phrasing might suggest: `key: () =>
+    // path` makes every `ConfigFile()` its own `unit()` with exactly one
+    // possible item, and `exit` only ever fires for an item missing from a
+    // batch that is otherwise still present — `__tauler_collect_units`
+    // (`src/jsx.rs`) builds `batches` by walking the CURRENT render tree, so
+    // a unit type with zero instances anywhere in it this Sweep gets no
+    // batch at all, and nothing calls `observe()` for it to diff against.
+    // Confirmed by direct test: even `<Light>` itself does not fire `exit`
+    // when its one and only declared instance is removed — only when one of
+    // *several* coexisting instances of the same unit type disappears while
+    // others remain. So a dropped `<ConfigFile/>`'s file is not just
+    // deliberately not deleted, it is currently undetectable by any hook —
+    // there is no signal to add here without a deeper change to how the
+    // reconciler tracks unit types across Sweeps, which this is not.
+    globalThis.ConfigFile = ({ path, render, apply, mode }) => {
+        const appliedMarker = `${path}.applied`;
+        function write() {
+            const rendered = render();
+            if (mode) {
+                sh`mkdir -p $(dirname ${path}) && printf '%s' ${rendered} > ${path}.new.$$ && chmod ${mode} ${path}.new.$$ && mv -f ${path}.new.$$ ${path}`;
+            } else {
+                sh`mkdir -p $(dirname ${path}) && printf '%s' ${rendered} > ${path}.new.$$ && mv -f ${path}.new.$$ ${path}`;
+            }
+            if (apply) {
+                apply(path, rendered);
+                sh`printf '%s' ${hash(rendered)} > ${appliedMarker}`;
+            }
+        }
+        const wasApplied = (content) =>
+            !apply || (exists(appliedMarker) && read(appliedMarker) === hash(content));
+        return unit({
+            key: () => path,
+            value: (f) =>
+                'content' in f
+                    ? { content: f.content, applied: wasApplied(f.content) }
+                    : { content: render(), applied: true },
+            reconciler: optativeSet({
+                observe: () => (exists(path) ? [{ content: read(path) }] : []),
+            }),
+            enterOne: write,
+            updateOne: write,
+        });
+    };
     globalThis.Module = ({ bin, children, ...rest }) => {
         const child = Array.isArray(children) ? children[0] : children;
         if (typeof child === 'function') return child(useJSONStream(bin), useEvents(bin, rest));

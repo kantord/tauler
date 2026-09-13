@@ -36,6 +36,22 @@ use crate::presenter::x11::run_x11_presenter_thread;
 pub(crate) type ModuleEventTxs =
     Arc<std::sync::Mutex<HashMap<String, mpsc::Sender<serde_json::Value>>>>;
 pub(crate) type SharedWatcher = Arc<std::sync::Mutex<notify::RecommendedWatcher>>;
+/// Paths whose change should trigger a layout reload, beyond the fixed
+/// top-level `layout.op.mdx`/`layout.jsx`/`config.yaml` set `main.rs`'s watcher
+/// callback checks directly — imported `.jsx` components and the active theme
+/// file. Read by that callback on every filesystem event; written by
+/// `WatchedPath`'s `Lifecycle` impl as imports/theme paths are reconciled.
+pub(crate) type InterestingPaths =
+    Arc<std::sync::Mutex<std::collections::HashSet<std::path::PathBuf>>>;
+
+/// Bundles the two pieces `WatchedPath` needs: something to register OS
+/// watches on, and the shared set `main.rs`'s watcher callback consults to
+/// decide whether a changed path should trigger a reload.
+#[derive(Clone)]
+struct WatchCtx {
+    watcher: SharedWatcher,
+    interesting: InterestingPaths,
+}
 
 struct WatchedPath(std::path::PathBuf);
 
@@ -45,10 +61,32 @@ impl std::fmt::Display for WatchedPath {
     }
 }
 
+/// Watches `path`'s *parent directory*, not `path` itself, and records `path`
+/// in `ctx.interesting` so `main.rs`'s watcher callback treats its changes as
+/// reload-worthy.
+///
+/// A direct watch on the file's own path breaks silently the moment anything
+/// replaces it via the common atomic-write pattern (write a temp file, rename
+/// over the original — what `chezmoi apply` and most editors do): the watch is
+/// bound to the inode, rename swaps the inode, and the old watch is now bound
+/// to nothing. The directory's inode never changes underneath it, so watching
+/// it survives every replacement of the files inside — the same trick
+/// `setup_file_watchers` in `main.rs` already uses for the top-level layout
+/// files, extended here to cover imports and the theme file too.
+fn watch_parent_dir(path: &std::path::Path, ctx: &mut WatchCtx) -> Result<(), notify::Error> {
+    let dir = path.parent().unwrap_or(path);
+    ctx.watcher
+        .lock()
+        .unwrap()
+        .watch(dir, notify::RecursiveMode::NonRecursive)?;
+    ctx.interesting.lock().unwrap().insert(path.to_path_buf());
+    Ok(())
+}
+
 impl Lifecycle for WatchedPath {
     type Key = std::path::PathBuf;
     type State = std::path::PathBuf;
-    type Context = SharedWatcher;
+    type Context = WatchCtx;
     type Output = ();
     type Error = notify::Error;
 
@@ -60,21 +98,15 @@ impl Lifecycle for WatchedPath {
         self.0.display().to_string()
     }
 
-    fn enter(
-        self,
-        ctx: &mut SharedWatcher,
-        _: &mut (),
-    ) -> Result<std::path::PathBuf, notify::Error> {
-        ctx.lock()
-            .unwrap()
-            .watch(&self.0, notify::RecursiveMode::NonRecursive)?;
+    fn enter(self, ctx: &mut WatchCtx, _: &mut ()) -> Result<std::path::PathBuf, notify::Error> {
+        watch_parent_dir(&self.0, ctx)?;
         Ok(self.0)
     }
 
     fn reconcile_self(
         self,
         _: &mut std::path::PathBuf,
-        _: &mut SharedWatcher,
+        _: &mut WatchCtx,
         _: &mut (),
     ) -> Result<(), notify::Error> {
         Ok(())
@@ -82,10 +114,15 @@ impl Lifecycle for WatchedPath {
 
     fn exit(
         state: std::path::PathBuf,
-        ctx: &mut SharedWatcher,
+        ctx: &mut WatchCtx,
         _: &mut (),
     ) -> Result<(), notify::Error> {
-        ctx.lock().unwrap().unwatch(&state)
+        ctx.interesting.lock().unwrap().remove(&state);
+        // The directory watch itself is deliberately left in place: another
+        // watched path may still live in the same directory, `watch()` is
+        // idempotent to call again for a still-desired sibling, and an unused
+        // leftover directory watch costs one fd, not a correctness problem.
+        Ok(())
     }
 }
 
@@ -333,6 +370,10 @@ pub(crate) struct App {
     import_watches: OptativeSet<WatchedPath>,
     theme_file_watch: OptativeSet<WatchedPath>,
     watcher: SharedWatcher,
+    /// Paths `main.rs`'s watcher callback treats as reload-worthy beyond the
+    /// fixed top-level layout files — kept in sync with `import_watches` and
+    /// `theme_file_watch` by `WatchedPath`'s `Lifecycle` impl.
+    interesting: InterestingPaths,
     /// Shared with the reconciler thread, which evaluates the same layout file
     /// against the same data on its own schedule (ADR 0034).
     stream_values: tauler::units::SharedStreamValues,
@@ -519,6 +560,7 @@ impl App {
         stop: Arc<AtomicBool>,
         last_tick: Arc<std::sync::atomic::AtomicU64>,
         watcher: SharedWatcher,
+        interesting: InterestingPaths,
         notifier: mpsc::SyncSender<()>,
     ) -> Self {
         let X11Init { panel_ctx, jsx_ctx } = x11;
@@ -557,6 +599,7 @@ impl App {
             import_watches: OptativeSet::new(),
             theme_file_watch: OptativeSet::new(),
             watcher,
+            interesting,
             stream_values: Default::default(),
             reconciler: None,
             jsx_evaluator: None,
@@ -595,6 +638,7 @@ impl App {
         stop: Arc<AtomicBool>,
         last_tick: Arc<std::sync::atomic::AtomicU64>,
         watcher: SharedWatcher,
+        interesting: InterestingPaths,
         notifier: mpsc::SyncSender<()>,
     ) -> Self {
         let (screen_width, screen_height) = server.primary_output_size().unwrap_or((1920, 1080));
@@ -633,6 +677,7 @@ impl App {
             import_watches: OptativeSet::new(),
             theme_file_watch: OptativeSet::new(),
             watcher,
+            interesting,
             stream_values: Default::default(),
             reconciler: None,
             jsx_evaluator: None,
@@ -671,6 +716,7 @@ impl App {
         stop: Arc<AtomicBool>,
         last_tick: Arc<std::sync::atomic::AtomicU64>,
         watcher: SharedWatcher,
+        interesting: InterestingPaths,
     ) -> Self {
         let MacInit {
             command_tx,
@@ -720,6 +766,7 @@ impl App {
             import_watches: OptativeSet::new(),
             theme_file_watch: OptativeSet::new(),
             watcher,
+            interesting,
             stream_values: Default::default(),
             reconciler: None,
             jsx_evaluator: None,
@@ -781,24 +828,33 @@ impl App {
     fn reconcile_watch_set(
         set: &mut OptativeSet<WatchedPath>,
         desired: impl IntoIterator<Item = WatchedPath>,
-        watcher: &mut SharedWatcher,
+        ctx: &mut WatchCtx,
     ) {
-        log_lifecycle_errors(set.reconcile(desired, watcher, &mut ()));
+        log_lifecycle_errors(set.reconcile(desired, ctx, &mut ()));
+    }
+
+    fn watch_ctx(&self) -> WatchCtx {
+        WatchCtx {
+            watcher: self.watcher.clone(),
+            interesting: self.interesting.clone(),
+        }
     }
 
     fn reconcile_import_watches(&mut self, paths: Vec<std::path::PathBuf>) {
+        let mut ctx = self.watch_ctx();
         Self::reconcile_watch_set(
             &mut self.import_watches,
             paths.into_iter().map(WatchedPath),
-            &mut self.watcher,
+            &mut ctx,
         );
     }
 
     fn reconcile_theme_file_watch(&mut self, path: Option<std::path::PathBuf>) {
+        let mut ctx = self.watch_ctx();
         Self::reconcile_watch_set(
             &mut self.theme_file_watch,
             theme_file_watch_desired(path),
-            &mut self.watcher,
+            &mut ctx,
         );
     }
 
@@ -880,6 +936,40 @@ impl App {
             }
         };
 
+        // Construct and evaluate the new layout FIRST, entirely against local state — a
+        // bad edit (a JS/JSX syntax error, or now, a `.schema.yaml` a layout imports
+        // failing to parse) must leave the currently-running layout's evaluator,
+        // reconciler, and dispatched Items untouched, the same "keep what's already in
+        // use on a bad reload" choice `theme_after_reload` below already makes for the
+        // theme file. Tearing `self.jsx_evaluator`/`self.reconciler` down unconditionally
+        // before attempting this — the previous shape — meant any failure here blanked
+        // the whole bar's reconciliation, not just the one thing that changed, until the
+        // next successful reload (found by review, tracing this exact function).
+        let base_dir = self.config_dir.clone();
+        let evaluator = match tauler::jsx::JsxEvaluator::new(
+            &loaded.js_source,
+            self.jsx_ctx.clone(),
+            Some(&base_dir),
+        ) {
+            Ok(evaluator) => evaluator,
+            Err(e) => {
+                tracing::error!(error = %e, "JSX compile error, keeping the layout already in use");
+                return false;
+            }
+        };
+        let loaded_paths = evaluator.loaded_paths();
+        // Matches the emptied `stream_values` a successful reload commits below — the
+        // new layout is evaluated exactly as it will be once installed, not against
+        // stream data a reload is about to clear anyway.
+        let out = match evaluator.eval(&HashMap::new()) {
+            Ok(out) => out,
+            Err(e) => {
+                tracing::error!(error = %e, "JSX eval error, keeping the layout already in use");
+                return false;
+            }
+        };
+
+        // Everything above succeeded — only now is it safe to replace state.
         let (mode, theme_file_path) = theme_selection(&loaded.config);
         tauler::reload_font_config(loaded.config.fonts);
         // Every frame the worker has kept was drawn with the fonts just replaced.
@@ -893,30 +983,10 @@ impl App {
 
         self.handle.set_desired(vec![]);
         self.stream_values.write().unwrap().clear();
-        self.jsx_evaluator = None;
-        self.reconciler = None;
-
-        let base_dir = self.config_dir.clone();
-        match tauler::jsx::JsxEvaluator::new(
-            &loaded.js_source,
-            self.jsx_ctx.clone(),
-            Some(&base_dir),
-        ) {
-            Ok(evaluator) => {
-                let loaded_paths = evaluator.loaded_paths();
-                let values = self.stream_values.read().unwrap().clone();
-                match evaluator.eval(&values) {
-                    Ok(out) => {
-                        self.apply_eval_result_dispatch(&out);
-                        self.jsx_evaluator = Some(evaluator);
-                        self.reconcile_import_watches(loaded_paths);
-                        self.spawn_reconciler(&loaded.js_source, &base_dir);
-                    }
-                    Err(e) => tracing::error!(error = %e, "JSX eval error"),
-                }
-            }
-            Err(e) => tracing::error!(error = %e, "JSX compile error"),
-        }
+        self.apply_eval_result_dispatch(&out);
+        self.jsx_evaluator = Some(evaluator);
+        self.reconcile_import_watches(loaded_paths);
+        self.spawn_reconciler(&loaded.js_source, &base_dir);
         self.reconcile_theme_file_watch(theme_file_path);
         tracing::info!("layout reloaded");
         true
@@ -1854,5 +1924,87 @@ mod tests {
             desired.is_empty(),
             "None must produce an empty desired set so the old watch is removed"
         );
+    }
+
+    /// Claim: a `WatchedPath` survives the file it names being *replaced* more than
+    /// once — the pattern `chezmoi apply` and most editors use (write a temp file,
+    /// rename it over the original), which swaps the inode every time. A watch bound
+    /// to that file's own path gets exactly one more event (an inotify metadata event
+    /// as the doomed inode is unlinked), then a `Remove` that drops the watch entirely
+    /// — silently deaf to every replace after the first (confirmed with a standalone
+    /// probe against the real `notify` crate before writing this). That one-shot
+    /// survival is easy to mistake for "it works": this is the bug that made an
+    /// already-deployed `RofiTheme.jsx` change not take effect until `layout.op.mdx`
+    /// itself was touched. `WatchedPath::enter` watches the file's *parent directory*
+    /// instead — its inode never changes underneath it, so the watch keeps reporting
+    /// every replace, not just the first.
+    #[test]
+    fn watched_path_survives_the_watched_file_being_atomically_replaced_twice() {
+        use super::{WatchCtx, WatchedPath};
+        use tauler::managed_set::Lifecycle;
+
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("component.jsx");
+        std::fs::write(&path, "before").expect("write initial file");
+
+        let (tx, rx) = mpsc::channel::<PathBuf>();
+        let watcher = notify::recommended_watcher(move |res: notify::Result<notify::Event>| {
+            let Ok(event) = res else { return };
+            if !matches!(
+                event.kind,
+                notify::EventKind::Modify(_) | notify::EventKind::Create(_)
+            ) {
+                return;
+            }
+            for p in event.paths {
+                let _ = tx.send(p);
+            }
+        })
+        .expect("build watcher");
+        let watcher = std::sync::Arc::new(std::sync::Mutex::new(watcher));
+        let interesting: super::InterestingPaths = Default::default();
+        let mut ctx = WatchCtx {
+            watcher,
+            interesting: interesting.clone(),
+        };
+
+        WatchedPath(path.clone())
+            .enter(&mut ctx, &mut ())
+            .expect("enter must register the watch");
+        assert!(
+            interesting.lock().unwrap().contains(&path),
+            "enter must record the path as reload-worthy"
+        );
+
+        let wait_for_event = |rx: &mpsc::Receiver<PathBuf>| -> bool {
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+            while std::time::Instant::now() < deadline {
+                if let Ok(p) = rx.recv_timeout(std::time::Duration::from_millis(100)) {
+                    if p == path {
+                        // Drain anything else already queued for this same
+                        // replace so it can't be mistaken for the next one.
+                        while rx.try_recv().is_ok() {}
+                        return true;
+                    }
+                }
+            }
+            false
+        };
+
+        // Atomic replace, twice: write to a temp file in the same directory, then
+        // rename over the original. A watch on `path`'s own inode survives exactly
+        // one of these; only a directory-level watch (what `enter` sets up) survives
+        // both.
+        for (i, content) in ["after-1", "after-2"].into_iter().enumerate() {
+            let tmp = dir.path().join("component.jsx.tmp");
+            std::fs::write(&tmp, content).expect("write replacement");
+            std::fs::rename(&tmp, &path).expect("atomic replace");
+            assert!(
+                wait_for_event(&rx),
+                "replace #{} must still be reported — a directory watch must not go \
+                 stale after the first replace the way a file-level watch does",
+                i + 1
+            );
+        }
     }
 }

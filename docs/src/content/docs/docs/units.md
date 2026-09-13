@@ -284,6 +284,220 @@ as an Item nobody declared.
 Note there is no `exit`. Dropping `<Light>` from the layout means tauler stops managing that
 light, not that it turns it off. If you want it off, declare it off.
 
+That's true regardless of whether an `exit` hook is defined, because of how it would fire:
+`exit` only runs for an Item missing from a batch that is otherwise still present — a unit
+type with *zero* instances anywhere in the current render gets no batch at all, and nothing
+calls `observe()` for it to diff against. Concretely: `exit` fires when you drop *one of
+several* coexisting `<Light>`s while others remain declared, not when you drop your only
+`<Light>`. There is currently no hook that fires for "this whole unit type disappeared from
+the layout."
+
+## Rendering a config file
+
+`ConfigFile` turns a path and a `render` function into a Unit: `render()` is called for
+the text that should be on disk, `ConfigFile` reads the file back to see what is, and
+writes it again when the two disagree.
+
+```jsx
+function rasi(sections) {
+  return Object.entries(sections)
+    .map(([name, props]) =>
+      `${name} {\n` +
+      Object.entries(props).map(([k, v]) => `    ${k}: ${v};`).join('\n') +
+      '\n}'
+    )
+    .join('\n\n') + '\n'
+}
+
+const RofiTheme = ConfigFile({
+  path: '/home/you/.config/rofi/tauler.rasi',
+  render: () =>
+    rasi({
+      '*': { 'background-color': '#221F2B', 'text-color': '#E9E4DA' },
+      window: { width: '480px' },
+    }),
+})
+```
+
+Used:
+
+```jsx
+<root>
+  <RofiTheme />
+  <panel id="bar" anchor="top" width={1920} height={32}>…</panel>
+</root>
+```
+
+`render` runs again every Sweep, reading whatever it wants — a color out of `globals`,
+today's wallpaper, anything the rest of your layout already reaches. Change what it
+returns and the next Sweep rewrites `tauler.rasi` to match. Launch rofi with `rofi -theme
+~/.config/rofi/tauler.rasi` and it picks up the new file the next time it opens — rofi
+reads its theme fresh on every launch, so there is nothing to reload.
+
+### Telling something the file changed
+
+rofi is the easy case. A target that keeps running — a terminal, a notification daemon —
+needs to be told, and that is what `apply` is for: it runs once, right after every write,
+with the path and the text just written.
+
+```jsx
+const KittyTheme = ConfigFile({
+  path: '/home/you/.config/kitty/theme.conf',
+  render: () => kittyConf({ background: '#1B1924', foreground: '#E9E4DA' }),
+  apply: () => sh`kitty @ set-colors --all /home/you/.config/kitty/theme.conf`,
+})
+```
+
+`apply` does not run on a Sweep that changed nothing — only `enter` and `update` write,
+and only a write calls it. A target with nothing to signal, like rofi, just omits it.
+
+**A throwing `apply` retries on the next Sweep, even though the file already matches.**
+`observe` only ever reads the file back, so once `write()`'s `sh` call has landed, the
+file matches `render()`'s output whether or not `apply` afterward actually succeeded —
+without more, the next Sweep would see "content already matches" and call it converged.
+`ConfigFile` guards against that: right after `apply` returns without throwing, it writes
+a small marker next to `path` recording a hash of what was applied, and `observe` folds
+that marker into what counts as "matching." A missing or stale marker (because `apply`
+threw, or hasn't run yet) means the file's content matching `render()` is not enough —
+the diff still sees a mismatch, and `write`/`apply` run again next Sweep. This costs
+nothing when `apply` isn't given: the marker is skipped entirely.
+
+### How it's built
+
+`ConfigFile` is not a new tauler primitive; it is `unit()`, `optativeSet`, `sh`, `read`,
+`exists` and `hash` — every one of them a builtin this page has already used or just met
+above — composed once so you do not have to compose them again for the next file. Its
+whole body:
+
+```jsx
+function ConfigFile({ path, render, apply, mode }) {
+  const appliedMarker = `${path}.applied`
+  function write() {
+    const rendered = render()
+    if (mode) {
+      sh`mkdir -p $(dirname ${path}) && printf '%s' ${rendered} > ${path}.new.$$ && chmod ${mode} ${path}.new.$$ && mv -f ${path}.new.$$ ${path}`
+    } else {
+      sh`mkdir -p $(dirname ${path}) && printf '%s' ${rendered} > ${path}.new.$$ && mv -f ${path}.new.$$ ${path}`
+    }
+    if (apply) {
+      apply(path, rendered)
+      sh`printf '%s' ${hash(rendered)} > ${appliedMarker}`
+    }
+  }
+  const wasApplied = (content) =>
+    !apply || (exists(appliedMarker) && read(appliedMarker) === hash(content))
+  return unit({
+    key: () => path,
+    value: (f) =>
+      'content' in f
+        ? { content: f.content, applied: wasApplied(f.content) }
+        : { content: render(), applied: true },
+    reconciler: optativeSet({
+      observe: () => (exists(path) ? [{ content: read(path) }] : []),
+    }),
+    enterOne: write,
+    updateOne: write,
+  })
+}
+```
+
+A few things are worth pulling out:
+
+**There is no `write` builtin.** `sh`'s tagged template already quotes `${rendered}` as
+a single shell argument, so `printf '%s' ARG > PATH` writes it byte-for-byte — quotes,
+newlines and all — with what tauler already ships.
+
+**The write goes to a temp file, then `mv`s into place.** `mv -f` within the same
+directory is a `rename(2)`, which is atomic — a reader that opens `path` mid-write always
+sees either the whole old file or the whole new one, never a truncated partial write. This
+matters most for exactly the targets that read `path` fresh on every launch (rofi, mpv):
+they're the most likely to open the file at an arbitrary moment. Two things this doesn't
+solve, on purpose: a watcher keyed on the file's original inode rather than its path (Qt's
+`QFileSystemWatcher` does this) can miss the swap and needs re-registering; and on an
+SELinux-enforcing system, the fresh temp file can pick up a broader label than the file it
+replaced. Neither has a target in the wild here today, so neither is handled — noted for
+when one shows up.
+
+**`mode`, when given, is `chmod`'d onto the temp file before the `mv`, not onto `path`
+after it.** That way a hardened permission (`chmod 600` for a file holding a secret) is
+never briefly absent at `path` in between the rename and a follow-up chmod. Leave it out
+and a freshly-created file just keeps the default umask, same as before atomic writes.
+
+**`value` tells the two sides apart by shape, then folds in whether `apply` actually
+landed.** `observe` always returns `{content}`; a declared `<RofiTheme/>` never has that
+key, because it takes no props — that is what lets one `value` answer "what does the file
+hold" for one side and "what should it hold" for the other, instead of comparing a value
+against itself. `applied` rides alongside `content` in both branches so a stale marker
+makes the two sides compare unequal even when `content` alone already matches — that's
+the whole apply-retry mechanism described above; it doesn't need any hook this reconciler
+doesn't already have.
+
+**A serialiser is not part of this.** `rasi()` — and `kittyConf()` above, which does not
+exist; write it the same way — is plain JavaScript from an object to one format's text.
+A different format wants different lines, and nothing about `ConfigFile` is generic
+across formats. That is a deliberate stopping point, not an unfinished corner.
+
+`path` has to be absolute. `exists` and `read` are plain filesystem calls, and neither
+expands a leading `~` — the same limit `.rasi` itself has for `background-image` paths.
+
+**`ConfigFile` assumes it fully owns `path`'s content.** `observe` diffs the whole file
+against `render()`'s whole output; a target that rewrites or reformats the same file on its
+own — some apps normalize their config on load — will fight that diff, rewriting on every
+Sweep that catches the drift, and if the target folds its own state into that file (not just
+whitespace) each rewrite is data loss, not churn. If a target needs to own part of a file,
+give `ConfigFile` a *different* path the target's own format can `include` — the same split
+this page's own deployment uses for a target with a section it manages itself.
+
+**Dropping `<ConfigFile/>` from the layout has the same `exit` limit `<Light>` does, further
+in:** `key: () => path` gives every `ConfigFile()` exactly one possible Item, so its unit
+type has either one instance or none — never "one of several." That means the "only fires
+when one of several coexisting instances disappears" case above can never apply to it: a
+dropped `<ConfigFile/>`'s file is not just deliberately left on disk, there is currently no
+hook that ever gets a chance to fire for it at all. Finding out means reading the layout
+file, not the file it wrote.
+
+### One `apply` shared across several files
+
+Some targets need to be told about a change in *one* file, but the reload covers *several* —
+Waybar's `config.jsonc` and `style.css` both restart the same process; a set of systemd user
+units all want one `daemon-reload`. Each `ConfigFile` is its own independent Unit, so nothing
+coalesces their `apply` calls by default: two files changing together can trigger the reload
+twice, back to back, in the same Sweep.
+
+Because `apply` is ordinary JavaScript closed over by `write` — never a serialized Item prop
+(ADR 0034) — the same closure can be passed to more than one `ConfigFile()` call, and it can
+hold state to skip a redundant second call:
+
+```jsx
+function throttledApply(fn, waitMs = 200) {
+  let last = 0
+  return (...args) => {
+    const now = Date.now()
+    if (now - last < waitMs) return
+    last = now
+    fn(...args)
+  }
+}
+
+const reloadWaybar = throttledApply(() => sh`pkill -SIGUSR2 waybar`)
+
+const Config = ConfigFile({ path: '~/.config/waybar/config.jsonc', render: renderConfig, apply: reloadWaybar })
+const Style = ConfigFile({ path: '~/.config/waybar/style.css', render: renderStyle, apply: reloadWaybar })
+```
+
+This is a throttle, not a debounce — there is no `setTimeout` in this runtime, so nothing can
+wait for things to go quiet and fire once afterward. What makes the leading-edge check enough
+here: a Sweep folds over every batch sequentially in one synchronous call, so `Config` and
+`Style` drifting together land their `updateOne` hooks microseconds apart *in that same
+Sweep*, and the second `sh` call is the one `throttledApply` skips. A change landing in a
+later Sweep (`refreshInterval` or more apart) is a separate event and always goes through.
+
+**What this doesn't fix:** `Config` and `Style` can still have different `refreshInterval`s
+and drift out of sync with each other, so Waybar can reload once against a stale `style.css`
+and again later once it catches up — torn state between two independent Sweep cadences. The
+shared closure only removes the *redundant-signal* half of that problem, not the
+*out-of-order* half.
+
 ## Driving a Unit from the bar
 
 A Unit reads the same `globals` your layout does, so a button can change what a Unit
