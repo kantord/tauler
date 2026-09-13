@@ -1320,6 +1320,88 @@ mod tests {
         );
     }
 
+    /// `write()` succeeding is not the same as `apply()` succeeding: the file
+    /// can already match `render()`'s output while `apply` failed on its own
+    /// (a socket not up yet, a target not ready). Without tracking that
+    /// separately, `observe()` re-reading the same file `write()` just wrote
+    /// would make the next Sweep look converged and never retry `apply`.
+    /// Proves the fix: a failing `apply` must not be silently treated as done
+    /// once the file content alone matches.
+    #[test]
+    fn config_file_retries_apply_after_a_failure_even_though_the_file_already_matches() {
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join("theme.conf");
+        let calls = dir.path().join("calls");
+        let fail_flag = dir.path().join("fail");
+
+        std::fs::write(&fail_flag, "").unwrap();
+
+        let source = format!(
+            r#"
+            const Theme = ConfigFile({{
+              path: "{target}",
+              render: () => "hello",
+              apply: (path, content) => {{
+                if (exists("{fail_flag}")) {{ throw new Error("apply failed"); }}
+                sh`printf 'applied %s %s\n' ${{path}} ${{content}} >> {calls}`;
+              }},
+            }});
+            export default function render() {{
+              return <root><Theme /></root>;
+            }}"#,
+            target = target.to_str().unwrap(),
+            fail_flag = fail_flag.to_str().unwrap(),
+            calls = calls.to_str().unwrap(),
+        );
+        let evaluator = JsxEvaluator::new_reconciler(
+            &source,
+            serde_json::Value::Null,
+            None,
+            Default::default(),
+        )
+        .unwrap();
+
+        let first = crate::units::sweep(&evaluator, &HashMap::new());
+        assert_eq!(
+            first.entered, 0,
+            "the hook is counted as failed since apply threw, even though \
+             the write already completed before the throw: {first:?}"
+        );
+        assert_eq!(
+            std::fs::read_to_string(&target).unwrap(),
+            "hello",
+            "the write itself must still succeed even though apply throws afterward"
+        );
+        assert!(
+            !calls.exists(),
+            "apply threw before its own sh call could run"
+        );
+
+        std::fs::remove_file(&fail_flag).unwrap();
+        let retry = crate::units::sweep(&evaluator, &HashMap::new());
+        assert_eq!(
+            retry.updated, 1,
+            "file content alone already matches, but the applied marker was \
+             never written last Sweep — must register as an update, not a no-op: {retry:?}"
+        );
+        assert_eq!(
+            std::fs::read_to_string(&calls).unwrap().lines().count(),
+            1,
+            "apply must have actually run this time"
+        );
+
+        let settled = crate::units::sweep(&evaluator, &HashMap::new());
+        assert!(
+            !settled.made_progress(),
+            "apply succeeded and the marker now matches — this Sweep must be a no-op: {settled:?}"
+        );
+        assert_eq!(
+            std::fs::read_to_string(&calls).unwrap().lines().count(),
+            1,
+            "a converged Sweep must not re-apply"
+        );
+    }
+
     /// A fresh install with no prior `~/.config/<app>/` must not fail every Sweep —
     /// most apps only create their own config directory on first launch, which a
     /// `ConfigFile`-only setup never triggers.
@@ -1348,6 +1430,84 @@ mod tests {
         let report = crate::units::sweep(&evaluator, &HashMap::new());
         assert_eq!(report.entered, 1, "got: {report:?}");
         assert_eq!(std::fs::read_to_string(&target).unwrap(), "hello");
+    }
+
+    /// The write must go through a temp-file-then-`mv` (`rename(2)` is atomic;
+    /// `printf > path` in place is not — a reader can observe a partial write
+    /// mid-truncate). Proven two ways: the final content is correct, and no
+    /// `<path>.new.*` temp file is left behind in the directory afterward —
+    /// leftover temp files would mean the `mv` step silently isn't running.
+    #[test]
+    fn config_file_writes_atomically_leaving_no_temp_file_behind() {
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join("theme.conf");
+
+        let source = format!(
+            r#"
+            const Theme = ConfigFile({{ path: "{path}", render: () => "hello" }});
+            export default function render() {{
+              return <root><Theme /></root>;
+            }}"#,
+            path = target.to_str().unwrap(),
+        );
+        let evaluator = JsxEvaluator::new_reconciler(
+            &source,
+            serde_json::Value::Null,
+            None,
+            Default::default(),
+        )
+        .unwrap();
+
+        let report = crate::units::sweep(&evaluator, &HashMap::new());
+        assert_eq!(report.entered, 1, "got: {report:?}");
+        assert_eq!(std::fs::read_to_string(&target).unwrap(), "hello");
+
+        let leftover_temp_files: Vec<_> = std::fs::read_dir(dir.path())
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .map(|e| e.file_name().to_string_lossy().into_owned())
+            .filter(|name| name != "theme.conf")
+            .collect();
+        assert!(
+            leftover_temp_files.is_empty(),
+            "atomic write left temp files behind: {leftover_temp_files:?}"
+        );
+    }
+
+    /// `mode`, when given, must land on the file `ConfigFile` actually writes —
+    /// proving it's applied to the temp file before the atomic rename, not lost
+    /// in that swap, and not left as a follow-up step a reader could race.
+    #[test]
+    fn config_file_mode_chmods_the_written_file() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join("secret.conf");
+
+        let source = format!(
+            r#"
+            const Theme = ConfigFile({{ path: "{path}", render: () => "hello", mode: "600" }});
+            export default function render() {{
+              return <root><Theme /></root>;
+            }}"#,
+            path = target.to_str().unwrap(),
+        );
+        let evaluator = JsxEvaluator::new_reconciler(
+            &source,
+            serde_json::Value::Null,
+            None,
+            Default::default(),
+        )
+        .unwrap();
+
+        let report = crate::units::sweep(&evaluator, &HashMap::new());
+        assert_eq!(report.entered, 1, "got: {report:?}");
+        let perms = std::fs::metadata(&target).unwrap().permissions();
+        assert_eq!(
+            perms.mode() & 0o777,
+            0o600,
+            "mode: \"600\" must be applied to the written file"
+        );
     }
 
     /// One `ConfigFile` whose `render` always throws must not stop any other

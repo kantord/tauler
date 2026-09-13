@@ -221,11 +221,46 @@ pub const JSX_GLOBALS_JS: &str = r#"
     // never has one (it takes no props), so the branch is exact rather
     // than a heuristic.
     //
+    // Convergence tracks `apply` succeeding, not just the file's content,
+    // whenever `apply` is given: `write()` writes `${path}.applied` with
+    // `hash(rendered)` only *after* `apply()` returns without throwing,
+    // and `value` folds that marker into the observed side — stale,
+    // missing, or mismatched means `apply` didn't run to completion last
+    // time, so the diff sees a real mismatch and retries `write`/`apply`
+    // next Sweep instead of treating "file already matches" as done. Since
+    // both catch sites that guard a hook throw (`call_unit_projection`,
+    // `dispatch_unit_hook` — `src/jsx.rs`) stop execution at the throw, the
+    // marker line after `apply()` simply never runs on failure — no
+    // explicit error handling needed here. No-op, byte for byte, when
+    // `apply` isn't given: `!apply` short-circuits before any marker I/O.
+    //
     // `mkdir -p` before every write: a fresh install with no prior
     // `~/.config/<app>/` would otherwise fail every Sweep until something
     // else creates the directory — most apps only create their own config
     // directory on first launch, which a `ConfigFile`-only setup never
     // triggers.
+    //
+    // Write-to-temp-then-`mv`, not `printf > path` in place: the in-place
+    // form truncates the existing inode, so a reader (a launcher re-reading
+    // its theme on every launch, e.g. rofi) that opens the file mid-write
+    // can observe a partial write. `mv -f` within the same directory is a
+    // `rename(2)`, which POSIX guarantees is atomic — a reader always sees
+    // either the whole old file or the whole new one, never a partial one.
+    // Two caveats travel with this, deliberately not solved here because
+    // neither has a live target in this repo today: a `rename` swaps the
+    // inode, so a watcher that tracks the original inode rather than the
+    // path (Qt's `QFileSystemWatcher` does this) silently stops firing
+    // after the first atomic write, until something re-registers it; and on
+    // an SELinux-enforcing system, the freshly-created temp file can pick up
+    // a broader directory-default label than the file it replaces, which
+    // only shows up in `audit.log`, not anywhere `ConfigFile` reads.
+    //
+    // `mode`, when given, is `chmod`'d onto the *temp* file before the
+    // `mv`, not onto `path` after it — so a hardened permission (`chmod
+    // 600` for a target holding secrets) is never briefly absent at `path`
+    // between the rename and a follow-up chmod. Omitted, a freshly-created
+    // temp file keeps the default umask, same as `printf > path` always did
+    // for a file that didn't already exist.
     //
     // No `exit`/`exitOne`, and it is NOT addable the way `<Light>`'s "drop
     // it and tauler stops managing it" phrasing might suggest: `key: () =>
@@ -242,15 +277,28 @@ pub const JSX_GLOBALS_JS: &str = r#"
     // deliberately not deleted, it is currently undetectable by any hook —
     // there is no signal to add here without a deeper change to how the
     // reconciler tracks unit types across Sweeps, which this is not.
-    globalThis.ConfigFile = ({ path, render, apply }) => {
+    globalThis.ConfigFile = ({ path, render, apply, mode }) => {
+        const appliedMarker = `${path}.applied`;
         function write() {
             const rendered = render();
-            sh`mkdir -p $(dirname ${path}) && printf '%s' ${rendered} > ${path}`;
-            if (apply) apply(path, rendered);
+            if (mode) {
+                sh`mkdir -p $(dirname ${path}) && printf '%s' ${rendered} > ${path}.new.$$ && chmod ${mode} ${path}.new.$$ && mv -f ${path}.new.$$ ${path}`;
+            } else {
+                sh`mkdir -p $(dirname ${path}) && printf '%s' ${rendered} > ${path}.new.$$ && mv -f ${path}.new.$$ ${path}`;
+            }
+            if (apply) {
+                apply(path, rendered);
+                sh`printf '%s' ${hash(rendered)} > ${appliedMarker}`;
+            }
         }
+        const wasApplied = (content) =>
+            !apply || (exists(appliedMarker) && read(appliedMarker) === hash(content));
         return unit({
             key: () => path,
-            value: (f) => ('content' in f ? f.content : render()),
+            value: (f) =>
+                'content' in f
+                    ? { content: f.content, applied: wasApplied(f.content) }
+                    : { content: render(), applied: true },
             reconciler: optativeSet({
                 observe: () => (exists(path) ? [{ content: read(path) }] : []),
             }),

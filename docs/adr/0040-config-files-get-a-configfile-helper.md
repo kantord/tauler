@@ -104,5 +104,11 @@ registration mechanism this ADR did not need to build.
 
 **Binary or huge files are out of scope, by the same reasoning `sh`/`read` already
 carry.** `read` is `read_to_string`; content that is not valid UTF-8 was never on the
-table, and a shell argument has a length ceiling (`ARG_MAX`) a hand-rolled theme file will
-not reach.
+table, and a shell argument has a length ceiling a hand-rolled theme file will not reach.
+The ceiling that actually applies here is not `ARG_MAX` (~2MB, the aggregate limit on an
+entire `execve` argv+envp) — it's `MAX_ARG_STRLEN`, the Linux kernel's per-string cap on
+a single argv element, 32 pages = 128KB. `render`'s output and `path` share one argv
+string (`printf '%s' ${rendered} > ${path}`), so the real usable budget is closer to
+128KB minus `path`'s length. Still enough for a hand-rolled theme file; not enough headroom
+to assume any generated content (an embedded base64 image, a large multi-workspace config
+dump) is automatically safe.
