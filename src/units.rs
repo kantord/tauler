@@ -1320,6 +1320,36 @@ mod tests {
         );
     }
 
+    /// A fresh install with no prior `~/.config/<app>/` must not fail every Sweep —
+    /// most apps only create their own config directory on first launch, which a
+    /// `ConfigFile`-only setup never triggers.
+    #[test]
+    fn config_file_creates_its_parent_directory_if_missing() {
+        let dir = tempfile::tempdir().unwrap();
+        // Deliberately not created: `enterOne`'s first write must create it.
+        let target = dir.path().join("nested").join("deep").join("theme.conf");
+
+        let source = format!(
+            r#"
+            const Theme = ConfigFile({{ path: "{path}", render: () => "hello" }});
+            export default function render() {{
+              return <root><Theme /></root>;
+            }}"#,
+            path = target.to_str().unwrap(),
+        );
+        let evaluator = JsxEvaluator::new_reconciler(
+            &source,
+            serde_json::Value::Null,
+            None,
+            Default::default(),
+        )
+        .unwrap();
+
+        let report = crate::units::sweep(&evaluator, &HashMap::new());
+        assert_eq!(report.entered, 1, "got: {report:?}");
+        assert_eq!(std::fs::read_to_string(&target).unwrap(), "hello");
+    }
+
     /// One `ConfigFile` whose `render` always throws must not stop any other
     /// `ConfigFile` on the same layout from writing correctly in the same
     /// Sweep — the property the real tauler desktop deployment (four

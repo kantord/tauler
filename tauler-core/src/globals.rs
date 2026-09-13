@@ -220,10 +220,32 @@ pub const JSX_GLOBALS_JS: &str = r#"
     // `observe` always returns `{content}`, and a declared `<ConfigFile/>`
     // never has one (it takes no props), so the branch is exact rather
     // than a heuristic.
+    //
+    // `mkdir -p` before every write: a fresh install with no prior
+    // `~/.config/<app>/` would otherwise fail every Sweep until something
+    // else creates the directory — most apps only create their own config
+    // directory on first launch, which a `ConfigFile`-only setup never
+    // triggers.
+    //
+    // No `exit`/`exitOne`, and it is NOT addable the way `<Light>`'s "drop
+    // it and tauler stops managing it" phrasing might suggest: `key: () =>
+    // path` makes every `ConfigFile()` its own `unit()` with exactly one
+    // possible item, and `exit` only ever fires for an item missing from a
+    // batch that is otherwise still present — `__tauler_collect_units`
+    // (`src/jsx.rs`) builds `batches` by walking the CURRENT render tree, so
+    // a unit type with zero instances anywhere in it this Sweep gets no
+    // batch at all, and nothing calls `observe()` for it to diff against.
+    // Confirmed by direct test: even `<Light>` itself does not fire `exit`
+    // when its one and only declared instance is removed — only when one of
+    // *several* coexisting instances of the same unit type disappears while
+    // others remain. So a dropped `<ConfigFile/>`'s file is not just
+    // deliberately not deleted, it is currently undetectable by any hook —
+    // there is no signal to add here without a deeper change to how the
+    // reconciler tracks unit types across Sweeps, which this is not.
     globalThis.ConfigFile = ({ path, render, apply }) => {
         function write() {
             const rendered = render();
-            sh`printf '%s' ${rendered} > ${path}`;
+            sh`mkdir -p $(dirname ${path}) && printf '%s' ${rendered} > ${path}`;
             if (apply) apply(path, rendered);
         }
         return unit({

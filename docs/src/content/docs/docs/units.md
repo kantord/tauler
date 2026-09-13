@@ -284,6 +284,14 @@ as an Item nobody declared.
 Note there is no `exit`. Dropping `<Light>` from the layout means tauler stops managing that
 light, not that it turns it off. If you want it off, declare it off.
 
+That's true regardless of whether an `exit` hook is defined, because of how it would fire:
+`exit` only runs for an Item missing from a batch that is otherwise still present — a unit
+type with *zero* instances anywhere in the current render gets no batch at all, and nothing
+calls `observe()` for it to diff against. Concretely: `exit` fires when you drop *one of
+several* coexisting `<Light>`s while others remain declared, not when you drop your only
+`<Light>`. There is currently no hook that fires for "this whole unit type disappeared from
+the layout."
+
 ## Rendering a config file
 
 `ConfigFile` turns a path and a `render` function into a Unit: `render()` is called for
@@ -353,7 +361,7 @@ you do not have to compose them again for the next file. Its whole body:
 function ConfigFile({ path, render, apply }) {
   function write() {
     const rendered = render()
-    sh`printf '%s' ${rendered} > ${path}`
+    sh`mkdir -p $(dirname ${path}) && printf '%s' ${rendered} > ${path}`
     if (apply) apply(path, rendered)
   }
   return unit({
@@ -386,6 +394,22 @@ across formats. That is a deliberate stopping point, not an unfinished corner.
 
 `path` has to be absolute. `exists` and `read` are plain filesystem calls, and neither
 expands a leading `~` — the same limit `.rasi` itself has for `background-image` paths.
+
+**`ConfigFile` assumes it fully owns `path`'s content.** `observe` diffs the whole file
+against `render()`'s whole output; a target that rewrites or reformats the same file on its
+own — some apps normalize their config on load — will fight that diff, rewriting on every
+Sweep that catches the drift, and if the target folds its own state into that file (not just
+whitespace) each rewrite is data loss, not churn. If a target needs to own part of a file,
+give `ConfigFile` a *different* path the target's own format can `include` — the same split
+this page's own deployment uses for a target with a section it manages itself.
+
+**Dropping `<ConfigFile/>` from the layout has the same `exit` limit `<Light>` does, further
+in:** `key: () => path` gives every `ConfigFile()` exactly one possible Item, so its unit
+type has either one instance or none — never "one of several." That means the "only fires
+when one of several coexisting instances disappears" case above can never apply to it: a
+dropped `<ConfigFile/>`'s file is not just deliberately left on disk, there is currently no
+hook that ever gets a chance to fire for it at all. Finding out means reading the layout
+file, not the file it wrote.
 
 ## Driving a Unit from the bar
 

@@ -120,6 +120,24 @@ fn render_template_js_fn<'js>(
         .map_err(|e| rquickjs::Exception::throw_message(&ctx, &format!("renderTemplate: {e}")))
 }
 
+/// The `warn` a layout file can call when it has something worth surfacing but no error
+/// to throw. There is deliberately no `console` in this runtime (see `JSX_GLOBALS_JS`'s
+/// `<I3Layout>` comment, the only prior place this need came up): every warning crosses
+/// into Rust explicitly, through a builtin like this one, rather than a JS-side no-op that
+/// looks like it does something. Registered unconditionally, like `renderTemplate` — it
+/// touches nothing in the world, so ADR 0034's frame-budget reasoning for keeping `sh` out
+/// of the render runtime doesn't apply here either.
+///
+/// Not currently called by any builtin global — `ConfigFile` has no `exitOne` to call it
+/// from (a dropped `<ConfigFile/>` currently has no hook that fires at all; see
+/// `globals.rs`'s comment on `ConfigFile` and `docs/units.md`'s exit-limit section). Kept
+/// as tested, working JS-to-`tracing::warn!` infrastructure for the next caller that needs
+/// it — e.g. the hand-edit-detection sidecar sketched for `ConfigFile` — rather than
+/// removed and rebuilt from scratch when one arrives.
+fn warn_js_fn(message: String) {
+    tracing::warn!("{message}");
+}
+
 /// Dispatches a lifecycle hook, picking the batch spelling or the per-Item sugar
 /// by whichever one the Unit defined.
 ///
@@ -555,6 +573,10 @@ impl JsxEvaluator {
                 qjs_ctx.globals().set(
                     "renderTemplate",
                     rquickjs::Function::new(qjs_ctx.clone(), render_template_js_fn)?,
+                )?;
+                qjs_ctx.globals().set(
+                    "warn",
+                    rquickjs::Function::new(qjs_ctx.clone(), warn_js_fn)?,
                 )?;
                 crate::ui::registry::register_ui_components(&qjs_ctx)?;
                 if !ctx.is_null() {
@@ -1523,6 +1545,24 @@ return <div class="flex">
         assert!(
             logs_contain("<Workspaces> may only be used once"),
             "a <Workspaces> that isn't last is reported, not silently accepted"
+        );
+    }
+
+    /// `warn` has no caller yet (see its doc comment) — this proves the JS-to-
+    /// `tracing::warn!` crossing itself works, independent of whichever global ends up
+    /// calling it first.
+    #[test]
+    #[tracing_test::traced_test]
+    fn warn_reaches_a_tracing_warning() {
+        eval_with_screen(
+            r#"export default function render() {
+              warn("a distinctive warning from JS");
+              return <root />;
+            }"#,
+        );
+        assert!(
+            logs_contain("a distinctive warning from JS"),
+            "warn() must actually reach a tracing::warn! log, not disappear"
         );
     }
 
