@@ -22,28 +22,24 @@ function nameOf(path: string) {
 }
 ---
 
-{
-  entries.length === 0 && (
-    <p>
-      <em>No screenshots committed yet.</em>
-    </p>
-  )
-}
+{entries.length === 0 && (
+  <p>
+    <em>No screenshots committed yet.</em>
+  </p>
+)}
 
 <div class="devtools-gallery">
-  {
-    entries.map(([path, mod]) => (
-      <figure>
-        <img
-          src={mod.default.src}
-          width={mod.default.width}
-          height={mod.default.height}
-          alt={nameOf(path)}
-        />
-        <figcaption>{nameOf(path)}</figcaption>
-      </figure>
-    ))
-  }
+  {entries.map(([path, mod]) => (
+    <figure>
+      <img
+        src={mod.default.src}
+        width={mod.default.width}
+        height={mod.default.height}
+        alt={nameOf(path)}
+      />
+      <figcaption>{nameOf(path)}</figcaption>
+    </figure>
+  ))}
 </div>
 
 <style>
