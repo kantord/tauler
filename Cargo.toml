@@ -60,8 +60,8 @@ tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 # Must match `optative-script`'s rquickjs major: a second version in the graph
 # makes `Ctx`/`Error` types from the two copies fail to unify at the UI-component
 # registration boundary. Bump only in lockstep with `optative-script`.
-rquickjs = { version = "=0.12.2", features = ["loader"] }
-rquickjs-serde = "=0.6.1"
+rquickjs = { version = "=0.13.0", features = ["loader"] }
+rquickjs-serde = "=0.7.0"
 # `svg-backend` is `tauler-screenshot`'s output path (`render_svg`); the bar itself
 # rasterizes through the default raster backend.
 takumi = { version = "=2.13.7", features = ["svg-backend"] }
