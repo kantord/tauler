@@ -126,6 +126,30 @@ is a constraint rather than a typo tolerance.
 Reach for this when your arrangement is not a stack of edges — a gap that does not
 correspond to any panel, say. An omitted side reserves nothing.
 
+## Gaps only reach the focused workspace
+
+i3 has no "set this gap on every workspace on this output" command — only
+`gaps <side> current set <px>`, which always targets whichever workspace is
+focused *right now*. So when a bar's gaps change (an output is plugged in, a
+layout reloads, tauler restarts), only the currently-focused workspace is
+corrected immediately.
+
+A workspace that was not focused at that moment keeps its old gaps — dead
+space, or windows sliding under the bar — until it is next focused. Focusing
+it then applies the correct gaps and i3 visibly resizes the tiled windows to
+fit: a real, one-time resize flash, not a glitch to work around.
+
+If you want a specific workspace's gaps correct from the moment it is
+created, without waiting on a focus event, set it once with i3's own static
+config directive instead:
+
+```
+workspace 3 gaps inner 12
+```
+
+That reserves space immediately, with no round-trip through tauler or i3's
+IPC at all.
+
 ## A note on units
 
 Every length here is a **logical** pixel, the same unit as `width` and `height` on a

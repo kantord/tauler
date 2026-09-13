@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0](https://github.com/kantord/tauler/compare/tauler-i3-v0.3.2...tauler-i3-v0.4.0) - 2026-09-09
+
+### Fixed
+
+- support per-display dpr ([#541](https://github.com/kantord/tauler/pull/541))
+
 ## [0.3.2](https://github.com/kantord/tauler/compare/tauler-i3-v0.3.1...tauler-i3-v0.3.2) - 2026-09-08
 
 ### Other

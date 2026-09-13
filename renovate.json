@@ -16,6 +16,11 @@
       "minimumReleaseAge": null
     },
     {
+      "description": "lockFileMaintenance has no release timestamp of its own -- it's a whole-lockfile refresh, not a single package bump -- so under the default timestamp-required behavior the age gate never clears and silently disables automerge below. This makes automerge here rely on the docs-ci.yaml npm audit job and ci.yml's cargo audit job as the only compensating checks; neither catches a same-day, not-yet-disclosed compromise.",
+      "matchUpdateTypes": ["lockFileMaintenance"],
+      "minimumReleaseAge": null
+    },
+    {
       "description": "Patch updates are low-review-effort; land them as one PR",
       "matchUpdateTypes": ["patch"],
       "groupName": "patch updates"

@@ -1,3 +1,27 @@
+//! i3's `gaps <side> current set <px>` only ever writes the *focused* workspace
+//! (`gaps_command`) — there is no "all workspaces on this output" or broadcast
+//! variant in i3's own grammar. So [`reconcile_gaps`] can only ever correct the
+//! workspace that happens to be focused at the moment it runs.
+//!
+//! A workspace that is *not* focused when a bar's gaps change (a new output
+//! plugged in, a layout reload, `tauler-i3` restarting) keeps its old gaps —
+//! dead space, or windows sliding under the bar — until it is next focused,
+//! at which point the next [`reconcile_gaps`] call corrects it and i3 visibly
+//! resizes the tiled windows to fit (a real, one-time resize flash, not a
+//! bug in that follow-up correction).
+//!
+//! A proactive broadcast (temporarily focus-switching through every
+//! workspace on the bar's output to apply gaps to each, as one batched i3
+//! command) was designed and rejected: it corrupts `workspace back_and_forth`
+//! history, silently clears "urgent" hints on workspaces the user never
+//! actually saw, and has a TOCTOU race against `get_workspaces()`. See
+//! issue #525 bug #5 for the full analysis.
+//!
+//! Users who want a given workspace's gaps correct from creation, without
+//! waiting for a focus event, can set them once via i3's own static
+//! `workspace <name> gaps inner|outer <px>` config directive instead — it
+//! needs no IPC round-trip at all.
+
 use std::os::unix::net::UnixStream;
 
 use swayipc::{Connection, Fallible, Node, Workspace};

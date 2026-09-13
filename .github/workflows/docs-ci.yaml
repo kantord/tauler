@@ -39,7 +39,7 @@ jobs:
     # docs/scripts/update-snapshots.sh runs locally — makes CI and every
     # contributor's machine the same environment instead of merely similar
     # ones. Bump together with @playwright/test; renovate.json groups them.
-    container: mcr.microsoft.com/playwright:v1.62.1-noble@sha256:dcc5531e97840b9b5e794f2814476b21571c5124a3fca2267d73041f56e7580e
+    container: mcr.microsoft.com/playwright:v1.63.0-noble@sha256:eff16c30e6f3f4af0a03fa4b706120d5e9b0891c344a27d64559aff5900a4a27
     defaults:
       run:
         working-directory: docs
@@ -67,7 +67,7 @@ jobs:
       # `cargo install wasm-bindgen-cli` needs one to compile its build
       # scripts (build.rs always runs on the host architecture, even when the
       # crate being built targets wasm32). Both confirmed directly against
-      # mcr.microsoft.com/playwright:v1.62.1-noble, not assumed.
+      # mcr.microsoft.com/playwright:v1.63.0-noble, not assumed.
       - name: Install system dependencies
         working-directory: .
         run: |

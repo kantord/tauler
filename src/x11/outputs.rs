@@ -80,6 +80,17 @@ pub fn build_output_map_settled(conn: &RustConnection, root: u32) -> HashMap<Str
     )
 }
 
+/// True when `context_dpr` (Xft.dpi/96 — what `ctx.screen_width` and an
+/// implicit-primary panel are computed against) and `output_dpr` (an
+/// output's own RandR-mm density) disagree by more than `threshold`,
+/// relative to `output_dpr`. Purely diagnostic — issue #525 bug #6 already
+/// fixed the behavior that made this divergence matter; this just surfaces
+/// it in logs so a squished-panel report can be triaged without re-deriving
+/// both numbers by hand.
+pub fn dprs_diverge(context_dpr: f32, output_dpr: f32, threshold: f32) -> bool {
+    output_dpr > 0.0 && ((context_dpr - output_dpr).abs() / output_dpr) > threshold
+}
+
 pub fn build_output_map(conn: &RustConnection, root: u32) -> HashMap<String, OutputInfo> {
     let mut map = HashMap::new();
     if let Ok(cookie) = conn.randr_get_screen_resources_current(root) {
@@ -190,6 +201,14 @@ fn emit_outputs(conn: &RustConnection, root: u32, key: &str, tx: &mpsc::Sender<S
     });
 }
 
+/// The RandR notify mask both output-watching threads subscribe with. `OUTPUT_CHANGE`
+/// catches a bare `xrandr --primary` switch or other output-only change with no
+/// resolution change — `SCREEN_CHANGE` alone misses that (issue #525's proposed
+/// design flagged this as a "Must").
+pub fn randr_event_mask() -> randr::NotifyMask {
+    randr::NotifyMask::SCREEN_CHANGE | randr::NotifyMask::OUTPUT_CHANGE
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -255,6 +274,18 @@ mod tests {
     }
 
     #[test]
+    fn dprs_diverge_flags_a_large_relative_gap_but_not_a_small_one() {
+        // Issue #525's worked example: Xft.dpi ~= 95 (context_dpr = 95.0 / 96.0
+        // ~= 0.99) against an EDID-derived RandR-mm density of roughly 1.5 for a
+        // dense panel misread at its native mm size. Relative gap here is
+        // (1.5 - 0.99) / 1.5 ~= 0.34, which is well past a 10% threshold.
+        assert!(dprs_diverge(0.99, 1.5, 0.1));
+
+        // A near-equal pair: (1.02 - 1.0) / 1.0 = 0.02, under the 10% threshold.
+        assert!(!dprs_diverge(1.02, 1.0, 0.1));
+    }
+
+    #[test]
     fn dpr_formula_does_not_divide_by_zero_when_both_mm_axes_are_zero() {
         let dpr = compute_dpr(1920.0, 1080.0, 0.0, 0.0);
         assert!(dpr.is_finite() && dpr > 0.0);
@@ -304,6 +335,21 @@ mod tests {
             "must stop reading after max_reads even if never stable"
         );
     }
+
+    #[test]
+    fn randr_event_mask_includes_screen_and_output_change() {
+        let mask = randr_event_mask();
+        assert_ne!(
+            u16::from(mask) & u16::from(randr::NotifyMask::SCREEN_CHANGE),
+            0,
+            "must include SCREEN_CHANGE"
+        );
+        assert_ne!(
+            u16::from(mask) & u16::from(randr::NotifyMask::OUTPUT_CHANGE),
+            0,
+            "must include OUTPUT_CHANGE"
+        );
+    }
 }
 
 pub fn outputs_thread(tx: mpsc::Sender<StreamItem>, key: String, stop: Arc<AtomicBool>) {
@@ -317,7 +363,7 @@ pub fn outputs_thread(tx: mpsc::Sender<StreamItem>, key: String, stop: Arc<Atomi
     let screen = conn.setup().roots[screen_num].clone();
     let root = screen.root;
 
-    if let Err(e) = conn.randr_select_input(root, randr::NotifyMask::SCREEN_CHANGE) {
+    if let Err(e) = conn.randr_select_input(root, randr_event_mask()) {
         tracing::error!(error = %e, "outputs_thread: randr_select_input failed");
         return;
     }
@@ -330,11 +376,17 @@ pub fn outputs_thread(tx: mpsc::Sender<StreamItem>, key: String, stop: Arc<Atomi
             break;
         }
         match conn.poll_for_event() {
-            Ok(Some(event)) => {
-                if matches!(event, x11rb::protocol::Event::RandrScreenChangeNotify(_)) {
+            Ok(Some(event)) => match event {
+                x11rb::protocol::Event::RandrScreenChangeNotify(_) => {
                     emit_outputs(&conn, root, &key, &tx);
                 }
-            }
+                x11rb::protocol::Event::RandrNotify(e)
+                    if e.sub_code == randr::Notify::OUTPUT_CHANGE =>
+                {
+                    emit_outputs(&conn, root, &key, &tx);
+                }
+                _ => {}
+            },
             Ok(None) => {
                 thread::sleep(Duration::from_millis(50));
             }

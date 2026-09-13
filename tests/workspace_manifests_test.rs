@@ -23,7 +23,7 @@ use std::path::{Path, PathBuf};
 
 /// Crate names this test does not expect to require the shared workspace version —
 /// see the module doc comment.
-const INDEPENDENTLY_VERSIONED_CRATES: &[&str] = &["tauler-ui-macro"];
+const INDEPENDENTLY_VERSIONED_CRATES: &[&str] = &["tauler-ui-macro", "tauler-core"];
 
 fn repo_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))

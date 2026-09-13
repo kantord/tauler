@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0](https://github.com/kantord/tauler/compare/tauler-v0.3.2...tauler-v0.4.0) - 2026-09-09
+
+### Fixed
+
+- support per-display dpr ([#541](https://github.com/kantord/tauler/pull/541))
+- resync panel position when RandR output geometry changes ([#540](https://github.com/kantord/tauler/pull/540))
+- *(deps)* update rust crate takumi to v2.13.7 ([#539](https://github.com/kantord/tauler/pull/539))
+
+### Other
+
+- batch of small fixes ([#544](https://github.com/kantord/tauler/pull/544))
+- *(deps)* lock file maintenance ([#502](https://github.com/kantord/tauler/pull/502))
+- *(deps)* update rust crate rstest to 0.27.0 ([#542](https://github.com/kantord/tauler/pull/542))
+
 ## [0.3.2](https://github.com/kantord/tauler/compare/tauler-v0.3.1...tauler-v0.3.2) - 2026-09-08
 
 ### Added
