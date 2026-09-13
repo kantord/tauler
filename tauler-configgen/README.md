@@ -1,4 +1,4 @@
-# tauler-configgen (not published to crates.io)
+# tauler-configgen
 
 Reads a two-document YAML schema — a flat list of node declarations, then a `minijinja`
 template — and generates the readable `.jsx` component source a layout file needs. Design
