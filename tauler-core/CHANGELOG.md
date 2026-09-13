@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.3](https://github.com/kantord/tauler/compare/tauler-core-v0.3.2...tauler-core-v0.3.3) - 2026-09-13
+
+### Added
+
+- allow reconciling config files from tauler ([#546](https://github.com/kantord/tauler/pull/546))
+
+### Fixed
+
+- *(deps)* update optative + quickjs ([#559](https://github.com/kantord/tauler/pull/559))
+
+### Other
+
+- batch of small fixes ([#544](https://github.com/kantord/tauler/pull/544))
+- *(deps)* update rust crate rstest to 0.27.0 ([#542](https://github.com/kantord/tauler/pull/542))
+
 ## [0.3.2](https://github.com/kantord/tauler/compare/tauler-core-v0.3.1...tauler-core-v0.3.2) - 2026-09-08
 
 ### Fixed
