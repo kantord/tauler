@@ -112,7 +112,11 @@ impl Lifecycle for WatchedPath {
         Ok(())
     }
 
-    fn exit(state: std::path::PathBuf, ctx: &mut WatchCtx, _: &mut ()) -> Result<(), notify::Error> {
+    fn exit(
+        state: std::path::PathBuf,
+        ctx: &mut WatchCtx,
+        _: &mut (),
+    ) -> Result<(), notify::Error> {
         ctx.interesting.lock().unwrap().remove(&state);
         // The directory watch itself is deliberately left in place: another
         // watched path may still live in the same directory, `watch()` is

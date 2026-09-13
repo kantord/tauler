@@ -18,9 +18,9 @@ use x11rb::{connection::Connection, protocol::xproto::*, rust_connection::RustCo
 
 mod app;
 mod presenter;
-use app::{InterestingPaths, TickReceivers};
 #[cfg(not(target_os = "macos"))]
 use app::{App, X11Init};
+use app::{InterestingPaths, TickReceivers};
 
 const FREEZE_WATCHDOG_POLL_SECS: u64 = 10;
 const FREEZE_STALE_THRESHOLD_SECS: u64 = 10;

@@ -35,6 +35,9 @@ fn main() {
     let conf = tauler_configgen::render_template(&schema.template, &data)
         .expect("template must render against the faithful port");
     std::fs::write("/tmp/config.rasi", &conf).unwrap();
-    println!("wrote rendered .rasi to /tmp/config.rasi ({} bytes)", conf.len());
+    println!(
+        "wrote rendered .rasi to /tmp/config.rasi ({} bytes)",
+        conf.len()
+    );
     println!("\n{}", conf);
 }

@@ -6,7 +6,10 @@ fn main() {
     let schema = tauler_configgen::parse(&src).expect("schema must parse");
     let generated = tauler_configgen::generate(&schema);
     std::fs::write("/tmp/rofi-theme.gen.jsx", &generated).unwrap();
-    println!("wrote generated component source to /tmp/rofi-theme.gen.jsx ({} bytes)", generated.len());
+    println!(
+        "wrote generated component source to /tmp/rofi-theme.gen.jsx ({} bytes)",
+        generated.len()
+    );
 
     // Faithful port of every selector/property in the real theme.rasi.tmpl,
     // using literal hex values, matching how RofiTheme.jsx now reads them from
@@ -102,6 +105,9 @@ fn main() {
     let rasi = tauler_configgen::render_template(&schema.template, &data)
         .expect("template must render against the faithful port");
     std::fs::write("/tmp/tauler-theme.rasi", &rasi).unwrap();
-    println!("wrote rendered .rasi to /tmp/tauler-theme.rasi ({} bytes)", rasi.len());
+    println!(
+        "wrote rendered .rasi to /tmp/tauler-theme.rasi ({} bytes)",
+        rasi.len()
+    );
     println!("\n{}", rasi);
 }
