@@ -1,8 +1,22 @@
-# tauler-configgen (prototype, not published)
+# tauler-configgen (not published to crates.io)
 
 Reads a two-document YAML schema — a flat list of node declarations, then a `minijinja`
-template — and generates the readable `.jsx` component source a layout file would import
-directly. Design record: `~/Downloads/tauler-config-files-design-record.md` §13/§14/§17/§18.
+template — and generates the readable `.jsx` component source a layout file needs. Design
+record: `~/Downloads/tauler-config-files-design-record.md` §13/§14/§17/§18.
+
+**A schema file is directly importable from a layout — no manual step at all.** tauler
+already owns JS module resolution for layout files (`ConfinedFsResolver`/`ConfinedFsLoader`
+in `optative-script`, confined to the layout's own directory tree); `SchemaAwareLoader`
+(`src/jsx.rs` in the main `tauler` crate) intercepts any import whose path ends in
+`.schema.yaml`, runs it through `parse` + `generate` right there, and hands QuickJS the
+result — the same way a `.jsx` import already gets run through `transform_source` first.
+`import { Rofi, Selector } from './my-theme.schema.yaml'` just works: no
+`cargo run --example verify_*`, no separate `*.generated.jsx` file to `cp` into place and
+keep in sync, and — since the schema file is now a real tracked import — the existing
+import-watch autoreload (this session's earlier, separate fix) covers editing it for free.
+Proven end to end by `a_schema_yaml_file_is_directly_importable_with_no_generate_step` in
+the main crate's `src/units.rs`, and live: `~/.config/tauler/components/*.schema.yaml` are
+what's actually deployed now, not a generated intermediate.
 
 **`renderTemplate` is now wired into tauler's actual runtime** (`src/jsx.rs` in the main
 `tauler` crate, §18.2) — generated code that calls it really runs. A real end-to-end test
@@ -41,6 +55,11 @@ both plain data, never Rust code.
   Border shorthand). `examples/rofi-full-theme.schema.yaml` — every selector and property
   in the *real* user theme this design has been tested against throughout, including
   compound selectors (`element selected`) and the array-valued `children` property.
+  `examples/kitty-config.schema.yaml` — the second, genuinely different grammar (flat
+  `directive value` lines, no selectors/nesting at all). `examples/rofi-config.schema.yaml`
+  — rofi's `configuration{}` block (behavior, not styling), the same flat shape as kitty's.
+  The latter three — not `rofi.schema.yaml`, which stays a toy worked example — are
+  deployed and running against the real desktop.
 
 34 tests, all green in this crate (`cargo test -p tauler-configgen`); the real end-to-end
 proof lives in the main `tauler` crate's test suite instead, since it needs a real
@@ -66,18 +85,18 @@ QuickJS engine this crate deliberately doesn't depend on.
 As of the rofi/kitty config-ownership work: `rofi-full-theme.schema.yaml` (theme
 selectors/properties), `rofi-config.schema.yaml` (rofi's `configuration{}` block —
 behavior, not styling), and `kitty-config.schema.yaml` (kitty's static settings) are all
-generated, deployed via chezmoi, and running against the real, live desktop —
-`~/.config/rofi/{theme,config}.rasi` and `~/.config/kitty/tauler-kitty-settings.conf` are
-tauler-`ConfigFile`-owned, not hand-written. `@variable` references were retired for real
-(not just designed away): colors flow as literal hex from
-`~/.config/tauler/rofi-colors.json`, read fresh every render() — no `@import`, no
-`colors.rasi`. Two hand-written-template-literal files remain unmigrated —
-`RecentFilesTheme.jsx` (rofi's fullscreen recent-files picker: `fullscreen`,
-`orientation`, `flow`, `calc()`, `@media` conditionals — constructs this crate's
-node/prop model doesn't yet have a story for) and none else; every other flat,
-non-selector settings file (kitty, rofi's `configuration{}`) now goes through the schema,
-closing what used to be an unprincipled inconsistency between which files got validation
-and which didn't.
+deployed via chezmoi *as schema files, imported directly* — running against the real,
+live desktop. `~/.config/rofi/{theme,config}.rasi` and
+`~/.config/kitty/tauler-kitty-settings.conf` are tauler-`ConfigFile`-owned, not
+hand-written, and there is no intermediate `*.generated.jsx` file for any of them — that
+whole class of file was deleted once direct schema import replaced it. `@variable`
+references were retired for real (not just designed away): colors flow as literal hex
+from `~/.config/tauler/rofi-colors.json`, read fresh every render() — no `@import`, no
+`colors.rasi`. One hand-written-template-literal file remains — `RecentFilesTheme.jsx`
+(rofi's fullscreen recent-files picker: `fullscreen`, `orientation`, `flow`, `calc()`,
+`@media` conditionals — constructs this crate's node/prop model doesn't yet have a story
+for); every other flat, non-selector settings file (kitty, rofi's `configuration{}`) goes
+through a schema.
 
 Second grammar tried for real: `kitty-config.schema.yaml` is a genuinely different shape
 (flat `directive value` lines, no selectors/nesting at all) from rofi's selector/property
@@ -91,27 +110,22 @@ adapter is a hypothetical seam, two is a real one" bar is now met.
   only ever iterates over collected children — there's no mechanism for a literal,
   schema-independent passthrough block). Extending the schema for this is a real design
   question, not yet answered, not attempted under time pressure.
-- **No CLI.** `generate`/`parse`/`render_template` are library functions only — nothing
-  runs the generator and writes a `.jsx` file to disk as part of a normal workflow yet.
-  Every deployed generated file in this project was produced by manually running a
-  `cargo run --example verify_*` and copying its output into the chezmoi source by hand
-  — 4 manual steps across 2 repos (edit the `.yaml`, run the example, `cp` the output,
-  `chezmoi apply` it), still real debt. One step of what used to be 5 is no longer manual:
-  `annotate_with_source_path` makes each `verify_*.rs` stamp its own "Source schema: ..."
-  line into the output itself, so that line no longer needs hand-typing after every `cp`
-  (found and fixed in review — a schema-format-agnostic generator has no way to know its
-  own file path, so something has to be told it once).
-- **No schema-file watching / regeneration-on-change** (design record §13.3's fix,
-  specified — extend `reconcile_import_watches`, branch in `handle_layout_reload` — but
-  not implemented). Editing a `.yaml` schema does not regenerate its `.jsx` component;
-  the manual step above is still required every time.
 - **No lifecycle/reload (`apply`-equivalent) story for a *generated* `ConfigFile`** — the
   hook exists and works (already shipped, exercised by hand-written `ConfigFile`s), but
   no generated schema so far has needed it, so nothing has designed how a schema author
   would expose that choice through the schema format itself.
 - **`serde_yaml_ng`, not `saphyr`.** Fine for now; the design record's own security
   reasoning (pure Rust, no `unsafe-libyaml`) argues for `saphyr` before this handles
-  schemas downloaded from strangers at scale.
+  schemas downloaded from strangers at scale. Matters more now than it used to: a schema
+  is no longer just an input to an offline `cargo run` a developer controls — it's
+  imported and parsed by the live runtime on every reconciler (re)start.
+- **`jsonschema` is disproportionately heavy for what it validates** — the large majority
+  of this crate's transitive dependencies (`ahash`, `fancy-regex`, `num-bigint`, email/URI/
+  date-time format validators, and more) exist to run one small, fixed metaschema check
+  (exactly one root node, every container names `children_as`) against document 1 of a
+  schema at import time. A hand-rolled check against that one fixed shape would need none
+  of it. Not urgent — the binary isn't size-constrained today — but worth knowing this is
+  now baggage shipping in every build of the real bar, not just a dev-time tool's problem.
 - **Array-of-non-string-values (`tab-stops`) untested.** Only the list-of-keywords case
   (bare strings) has been exercised; `items` supports any nested rule shape, but nothing
   has tried it with, say, nested distances.

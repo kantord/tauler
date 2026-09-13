@@ -315,6 +315,69 @@ impl Loader for NoFsLoader {
     }
 }
 
+/// The suffix every `tauler-configgen` schema file uses, here and in every schema under
+/// `tauler-configgen/examples/`. The one place this convention is spelled out in tauler's
+/// own code, not just followed by naming files consistently.
+const SCHEMA_FILE_SUFFIX: &str = ".schema.yaml";
+
+/// Wraps `ConfinedFsLoader`, intercepting `*.schema.yaml` imports before they'd
+/// otherwise be handed to QuickJS as literal (invalid) source text: a
+/// `tauler-configgen` schema is parsed and codegen'd into the same JS a hand-copied
+/// `*.generated.jsx` file used to contain, right here at import time.
+///
+/// This exists so a layout file can `import { Rofi, Selector } from
+/// './my-theme.schema.yaml'` directly — no `cargo run --example verify_*`, no `cp`
+/// into a separate `*.generated.jsx` file, nothing to keep in sync by hand. tauler
+/// already owns JS module resolution (that's what `ConfinedFsResolver`/
+/// `ConfinedFsLoader` are), so there's nothing stopping it from treating a schema
+/// file as a module source the same way it already treats `.jsx` as one via
+/// `transform_source` — codegen *is* that transform, just for a different source
+/// language. The existing import-watch autoreload (this session's earlier fix)
+/// covers `.schema.yaml` files for free: they're pushed into the same
+/// `loaded_paths` list any other import is, so editing a schema hot-reloads the
+/// same way editing a `.jsx` component already does.
+///
+/// `ConfinedFsResolver` needs no matching change — confirmed by a standalone test
+/// against the real `optative-script` crate before writing this: an import
+/// specifier with an explicit extension (`'./x.schema.yaml'`, as opposed to an
+/// extension-less `'./x'` relying on fallback resolution) resolves directly
+/// against the real file, regardless of the resolver's configured extension list.
+struct SchemaAwareLoader {
+    inner: optative_script::loader::ConfinedFsLoader,
+    loaded_paths: Arc<Mutex<Vec<PathBuf>>>,
+}
+
+impl SchemaAwareLoader {
+    fn new(loaded_paths: Arc<Mutex<Vec<PathBuf>>>) -> Self {
+        Self {
+            inner: optative_script::loader::ConfinedFsLoader::new(Arc::clone(&loaded_paths)),
+            loaded_paths,
+        }
+    }
+}
+
+impl Loader for SchemaAwareLoader {
+    fn load<'js>(
+        &mut self,
+        ctx: &rquickjs::Ctx<'js>,
+        name: &str,
+        attrs: Option<rquickjs::loader::ImportAttributes<'js>>,
+    ) -> rquickjs::Result<rquickjs::Module<'js, rquickjs::module::Declared>> {
+        if !name.ends_with(SCHEMA_FILE_SUFFIX) {
+            return self.inner.load(ctx, name, attrs);
+        }
+        let source =
+            std::fs::read_to_string(name).map_err(|_| rquickjs::Error::new_loading(name))?;
+        let schema = tauler_configgen::parse(&source).map_err(|e| {
+            tracing::error!(error = %e, path = name, "schema failed to parse");
+            rquickjs::Error::new_loading(name)
+        })?;
+        let generated = tauler_configgen::generate(&schema);
+        self.loaded_paths.lock().unwrap().push(PathBuf::from(name));
+        rquickjs::Module::declare(ctx.clone(), name, generated)
+    }
+}
+
 /// Whether an evaluator's runtime may touch the world. The render runtime may not:
 /// a Tick runs on the loop, and `sh` blocking it for the length of a subprocess is
 /// what the latency budgets forbid. The reconciler runtime must, because that is
@@ -372,7 +435,7 @@ impl JsxEvaluator {
             optative_script::build_runtime(
                 crate::ui::registry::UI_COMPONENTS,
                 optative_script::loader::ConfinedFsResolver::new(dir.to_path_buf()),
-                optative_script::loader::ConfinedFsLoader::new(Arc::clone(&loaded_paths)),
+                SchemaAwareLoader::new(Arc::clone(&loaded_paths)),
             )?
         } else {
             optative_script::build_runtime(

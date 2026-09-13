@@ -1711,6 +1711,94 @@ mod tests {
         assert!(conf.contains(r#"@theme "theme""#), "got: {conf}");
     }
 
+    /// The direct-import proof: a layout file can `import { ... } from
+    /// './some.schema.yaml'` with no manual `tauler_configgen::generate()` step and no
+    /// separate `*.generated.jsx` file at all — `SchemaAwareLoader` (`src/jsx.rs`)
+    /// intercepts the import and codegens it right there, same as every other real
+    /// end-to-end test in this file, just without the copy-paste-into-a-file step those
+    /// tests still simulate by embedding `generated` directly into the layout string.
+    /// This is what makes the manual "regenerate, then `cp` into chezmoi" workflow
+    /// (`tauler-configgen/README.md`'s "No CLI" gap) unnecessary for real deployments:
+    /// the schema file itself becomes the importable module.
+    #[test]
+    fn a_schema_yaml_file_is_directly_importable_with_no_generate_step() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("theme.schema.yaml"),
+            include_str!("../tauler-configgen/examples/rofi-full-theme.schema.yaml"),
+        )
+        .unwrap();
+        let target = dir.path().join("tauler-test.rasi");
+        let layout_path = dir.path().join("layout.jsx");
+
+        let layout = format!(
+            r##"
+            import {{ Rofi, Selector, BackgroundColor, TextColor }} from "./theme.schema.yaml";
+
+            const RofiTheme = ConfigFile({{
+              path: "{path}",
+              render: () => (
+                <Rofi>
+                  <Selector name="*">
+                    <BackgroundColor value="#2c343a" />
+                    <TextColor value="#e7dcc4" />
+                  </Selector>
+                </Rofi>
+              ),
+            }});
+
+            export default function render() {{
+              return <root><RofiTheme /></root>;
+            }}"##,
+            path = target.to_str().unwrap(),
+        );
+        std::fs::write(&layout_path, &layout).unwrap();
+
+        let evaluator = JsxEvaluator::new_reconciler(
+            &layout,
+            serde_json::Value::Null,
+            Some(dir.path()),
+            Default::default(),
+        )
+        .unwrap();
+
+        let report = crate::units::sweep(&evaluator, &HashMap::new());
+        assert_eq!(report.entered, 1, "got: {report:?}");
+
+        let rasi = std::fs::read_to_string(&target).unwrap();
+        assert!(rasi.contains("* {"), "got: {rasi}");
+        assert!(rasi.contains("background-color: #2c343a;"), "got: {rasi}");
+        assert!(rasi.contains("text-color: #e7dcc4;"), "got: {rasi}");
+    }
+
+    /// A schema file that fails to parse must surface as a clear load error at import
+    /// time — not a panic, not silently empty output — matching every other builtin's
+    /// error-handling convention in this codebase (`sh`, `renderTemplate`).
+    #[test]
+    fn importing_a_malformed_schema_yaml_file_is_a_clear_load_error_not_a_panic() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("broken.schema.yaml"), "not: [valid, schema").unwrap();
+
+        let layout = r#"
+            import { Whatever } from "./broken.schema.yaml";
+            export default function render() {
+              return <root />;
+            }"#;
+
+        let result = JsxEvaluator::new_reconciler(
+            layout,
+            serde_json::Value::Null,
+            Some(dir.path()),
+            Default::default(),
+        );
+
+        assert!(
+            result.is_err(),
+            "a malformed schema.yaml import must fail evaluator construction, not panic \
+             or silently produce an empty module"
+        );
+    }
+
     /// A twelve-line object-to-`.rasi` serialiser, used with the global
     /// `ConfigFile` helper. Neither `rasi()` nor `RofiTheme` is a tauler
     /// concept: the serialiser is ordinary JavaScript, and `ConfigFile` only

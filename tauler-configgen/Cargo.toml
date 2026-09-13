@@ -1,6 +1,6 @@
 [package]
 name = "tauler-configgen"
-description = "Prototype: generate readable JSX marker components from a config-format schema (design record, not yet part of the shipped bar)"
+description = "Generates readable JSX marker components from a config-format schema; a runtime dependency of the shipped tauler binary via SchemaAwareLoader"
 edition = "2021"
 version.workspace = true
 authors.workspace = true

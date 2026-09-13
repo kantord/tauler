@@ -932,6 +932,40 @@ impl App {
             }
         };
 
+        // Construct and evaluate the new layout FIRST, entirely against local state — a
+        // bad edit (a JS/JSX syntax error, or now, a `.schema.yaml` a layout imports
+        // failing to parse) must leave the currently-running layout's evaluator,
+        // reconciler, and dispatched Items untouched, the same "keep what's already in
+        // use on a bad reload" choice `theme_after_reload` below already makes for the
+        // theme file. Tearing `self.jsx_evaluator`/`self.reconciler` down unconditionally
+        // before attempting this — the previous shape — meant any failure here blanked
+        // the whole bar's reconciliation, not just the one thing that changed, until the
+        // next successful reload (found by review, tracing this exact function).
+        let base_dir = self.config_dir.clone();
+        let evaluator = match tauler::jsx::JsxEvaluator::new(
+            &loaded.js_source,
+            self.jsx_ctx.clone(),
+            Some(&base_dir),
+        ) {
+            Ok(evaluator) => evaluator,
+            Err(e) => {
+                tracing::error!(error = %e, "JSX compile error, keeping the layout already in use");
+                return false;
+            }
+        };
+        let loaded_paths = evaluator.loaded_paths();
+        // Matches the emptied `stream_values` a successful reload commits below — the
+        // new layout is evaluated exactly as it will be once installed, not against
+        // stream data a reload is about to clear anyway.
+        let out = match evaluator.eval(&HashMap::new()) {
+            Ok(out) => out,
+            Err(e) => {
+                tracing::error!(error = %e, "JSX eval error, keeping the layout already in use");
+                return false;
+            }
+        };
+
+        // Everything above succeeded — only now is it safe to replace state.
         let (mode, theme_file_path) = theme_selection(&loaded.config);
         tauler::reload_font_config(loaded.config.fonts);
         // Every frame the worker has kept was drawn with the fonts just replaced.
@@ -945,30 +979,10 @@ impl App {
 
         self.handle.set_desired(vec![]);
         self.stream_values.write().unwrap().clear();
-        self.jsx_evaluator = None;
-        self.reconciler = None;
-
-        let base_dir = self.config_dir.clone();
-        match tauler::jsx::JsxEvaluator::new(
-            &loaded.js_source,
-            self.jsx_ctx.clone(),
-            Some(&base_dir),
-        ) {
-            Ok(evaluator) => {
-                let loaded_paths = evaluator.loaded_paths();
-                let values = self.stream_values.read().unwrap().clone();
-                match evaluator.eval(&values) {
-                    Ok(out) => {
-                        self.apply_eval_result_dispatch(&out);
-                        self.jsx_evaluator = Some(evaluator);
-                        self.reconcile_import_watches(loaded_paths);
-                        self.spawn_reconciler(&loaded.js_source, &base_dir);
-                    }
-                    Err(e) => tracing::error!(error = %e, "JSX eval error"),
-                }
-            }
-            Err(e) => tracing::error!(error = %e, "JSX compile error"),
-        }
+        self.apply_eval_result_dispatch(&out);
+        self.jsx_evaluator = Some(evaluator);
+        self.reconcile_import_watches(loaded_paths);
+        self.spawn_reconciler(&loaded.js_source, &base_dir);
         self.reconcile_theme_file_watch(theme_file_path);
         tracing::info!("layout reloaded");
         true

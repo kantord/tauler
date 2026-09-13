@@ -1,38 +1,33 @@
-//! Prototype: schema → readable JSX component source, for tauler's config-file feature.
+//! Schema → readable JSX component source, for tauler's config-file feature. A runtime
+//! dependency of the main `tauler` binary: `SchemaAwareLoader` (`src/jsx.rs` in the main
+//! crate) calls [`parse`]/[`generate`] on every `*.schema.yaml` a layout file imports,
+//! live, in the shipped binary — not a build-time-only tool.
 //!
 //! Design record: `~/Downloads/tauler-config-files-design-record.md`, §13 (the codegen
 //! model, verified against real tauler source), §14 (the tech stack and worked example
 //! this crate makes real), and §17 (making the schema/generator config-format-independent
 //! — there is no rasi-specific concept anywhere in this crate's Rust code; the only place
-//! any format's syntax is known is a schema file's own data and its template text). Not
-//! yet wired into tauler's own QuickJS runtime — see this crate's `README` for what's
-//! still missing.
+//! any format's syntax is known is a schema file's own data and its template text). See
+//! this crate's `README` for what's still missing.
 //!
 //! The pipeline: [`schema::parse`] reads a two-document YAML schema (a flat list of node
 //! declarations, then a minijinja template) and returns a [`schema::Schema`] with every
 //! name already validated; [`codegen::generate`] turns that into the actual `.jsx` source
-//! a layout file would import; [`render::render_template`] is the Rust-side proof that the
-//! schema's own template, run against data shaped like what the generated components
-//! produce, yields the correct output text.
+//! text — evaluated live by a layout file's own module resolution via `SchemaAwareLoader`,
+//! or written to `/tmp` for offline inspection by this crate's own `examples/verify_*.rs`
+//! scripts; [`render::render_template`] is the Rust-side proof that the schema's own
+//! template, run against data shaped like what the generated components produce, yields
+//! the correct output text.
 
 mod codegen;
 mod identifier;
 mod render;
 mod schema;
 
-// The core pipeline: parse a schema, generate its JSX, prove its template renders.
 pub use codegen::generate;
 pub use identifier::{Identifier, InvalidIdentifier};
 pub use render::{render_template, RenderError};
 pub use schema::{parse, GenError, NodeSchema, PropRule, Schema};
-
-// Deployment helper, not a schema-processing primitive: stamps a source-schema comment
-// into `generate`'s output. Exists because every real deployment so far (rofi's theme,
-// rofi's `configuration{}`, kitty's settings) needed this line, and having each of this
-// crate's own `examples/verify_*.rs` scripts call it is how that stopped being manual
-// copy-paste — not something a schema-format-agnostic consumer would otherwise expect
-// from this crate's core API.
-pub use codegen::annotate_with_source_path;
 
 #[cfg(test)]
 mod integration_tests {

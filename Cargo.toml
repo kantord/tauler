@@ -84,6 +84,7 @@ tauler-ui-macro = { path = "tauler-ui-macro", version = "0.1.13" }
 # The wasm-clean subset, with the QuickJS half switched on. Same version pinning
 # rationale as `tauler-ui-macro` above.
 tauler-core = { path = "tauler-core", version = "0.3.2", features = ["quickjs"] }
+tauler-configgen = { path = "tauler-configgen" }
 optative = "=0.1.4"
 optative-process-pool = "=0.0.9"
 optative-derive = "=0.0.4"
@@ -112,7 +113,6 @@ image = "0.25.10"
 libc = "0.2.189"
 tracing-test = "0.2.6"
 rstest = "0.26.1"
-tauler-configgen = { path = "tauler-configgen" }
 
 [[bench]]
 name = "pipeline"

@@ -5,10 +5,7 @@
 fn main() {
     let src = std::fs::read_to_string("examples/kitty-config.schema.yaml").unwrap();
     let schema = tauler_configgen::parse(&src).expect("schema must parse");
-    let generated = tauler_configgen::annotate_with_source_path(
-        &tauler_configgen::generate(&schema),
-        "tauler-configgen/examples/kitty-config.schema.yaml",
-    );
+    let generated = tauler_configgen::generate(&schema);
     std::fs::write("/tmp/kitty-config.gen.jsx", &generated).unwrap();
     println!(
         "wrote generated component source to /tmp/kitty-config.gen.jsx ({} bytes)",
