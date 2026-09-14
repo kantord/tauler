@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0](https://github.com/kantord/tauler/compare/tauler-v0.4.1...tauler-v0.5.0) - 2026-09-14
+
+### Added
+
+- add package system ([#567](https://github.com/kantord/tauler/pull/567))
+
+### Other
+
+- *(deps)* bump rustls to 0.23.45 (RUSTSEC-2026-0285)
+
 ## [0.4.1](https://github.com/kantord/tauler/compare/tauler-v0.4.0...tauler-v0.4.1) - 2026-09-14
 
 ### Added
