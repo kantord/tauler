@@ -135,6 +135,29 @@ taken by a sibling `config.yaml` instead, and the file itself is `layout.jsx`.
 _Avoid_: config, config file, theme file (all three name the frontmatter or `config.yaml`,
 not this)
 
+**Package**:
+An `@gh/<owner>/<repo>` import a layout file names directly — a git repository tauler
+fetches, caches, and grants the same trust its own layout file has, shell exec included
+(see ADR 0041). Pinned to a commit by a Lockfile: a YAML file sibling to the layout file,
+mapping `owner/repo` to a commit and whether it is in **Development mode**. Importing one
+tauler has never seen is what creates its Lockfile entry, pinned to whatever commit was
+current at that moment — there is no separate "install" step.
+_Avoid_: dependency, module, library (a **Module** already names a different
+relationship — a subprocess, not a git repository)
+_Elsewhere_: package (npm, pip), dependency (Cargo) — the closest analogue in every one
+of those ecosystems, but this project's own Cargo packages (`tauler-core`, `tauler-i3`,
+...) are a separate, unrelated use of the same English word within this very repository;
+only context tells the two apart, the same way "config" is disambiguated elsewhere in
+this glossary.
+
+**Development mode**:
+A Package fetched once and never re-pinned or auto-updated afterward — `tauler pkg
+update` skips it. For someone actually developing the package, not merely using it: the
+checkout is theirs to edit by hand. Marked in the Lockfile, never in the layout file
+itself.
+_Avoid_: manual, unlocked, untracked (git already owns "untracked" for a different,
+unrelated state)
+
 **Extra font**:
 A font registered under `fonts.extra` in the layout file's frontmatter (or, on the legacy
 path, `config.yaml`), usable directly by name in a layout file (`font-[Name]`) with no

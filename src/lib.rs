@@ -11,6 +11,7 @@ pub mod layout;
 pub mod layout_source;
 pub mod managed_set;
 pub mod outbox;
+pub mod pkg;
 pub mod pointer;
 pub mod presentation;
 pub mod render;

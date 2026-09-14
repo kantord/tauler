@@ -386,6 +386,12 @@ pub(crate) struct App {
     item_rx: mpsc::Receiver<((String, Option<String>), String)>,
     bin_reload_rx: mpsc::Receiver<()>,
     reload_rx: mpsc::Receiver<()>,
+    /// Shared across reloads (and both the render and reconciler evaluators) so
+    /// its in-flight dedup table means something — see `docs/adr/0041`.
+    fetch_manager: Arc<tauler::pkg::fetch_manager::FetchManager>,
+    /// `~/.cache/tauler/pkg` in practice. Fixed for the process's lifetime, like
+    /// `config_dir`.
+    pkg_cache_root: std::path::PathBuf,
     stop: Arc<AtomicBool>,
     last_tick: Arc<std::sync::atomic::AtomicU64>,
     outputs: SurfaceOutputs,
@@ -550,6 +556,7 @@ fn theme_after_reload(current: &Theme, loaded: Result<Theme, ThemeLoadError>) ->
 impl App {
     #[cfg(not(target_os = "macos"))]
     #[allow(clippy::too_many_arguments)]
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn new_x11(
         x11: X11Init,
         handle: DataLoopHandle,
@@ -562,6 +569,8 @@ impl App {
         watcher: SharedWatcher,
         interesting: InterestingPaths,
         notifier: mpsc::SyncSender<()>,
+        fetch_manager: Arc<tauler::pkg::fetch_manager::FetchManager>,
+        pkg_cache_root: std::path::PathBuf,
     ) -> Self {
         let X11Init { panel_ctx, jsx_ctx } = x11;
         let dpr = panel_ctx.dpr;
@@ -608,6 +617,8 @@ impl App {
             item_rx: rx.item_rx,
             bin_reload_rx: rx.bin_reload_rx,
             reload_rx: rx.reload_rx,
+            fetch_manager,
+            pkg_cache_root,
             stop,
             last_tick,
             outputs: spawn_render_worker(command_tx),
@@ -640,6 +651,8 @@ impl App {
         watcher: SharedWatcher,
         interesting: InterestingPaths,
         notifier: mpsc::SyncSender<()>,
+        fetch_manager: Arc<tauler::pkg::fetch_manager::FetchManager>,
+        pkg_cache_root: std::path::PathBuf,
     ) -> Self {
         let (screen_width, screen_height) = server.primary_output_size().unwrap_or((1920, 1080));
         let initial_dpr = server.primary_output_scale();
@@ -686,6 +699,8 @@ impl App {
             item_rx: rx.item_rx,
             bin_reload_rx: rx.bin_reload_rx,
             reload_rx: rx.reload_rx,
+            fetch_manager,
+            pkg_cache_root,
             stop,
             last_tick,
             outputs: spawn_render_worker(command_tx),
@@ -717,6 +732,8 @@ impl App {
         last_tick: Arc<std::sync::atomic::AtomicU64>,
         watcher: SharedWatcher,
         interesting: InterestingPaths,
+        fetch_manager: Arc<tauler::pkg::fetch_manager::FetchManager>,
+        pkg_cache_root: std::path::PathBuf,
     ) -> Self {
         let MacInit {
             command_tx,
@@ -775,6 +792,8 @@ impl App {
             item_rx: rx.item_rx,
             bin_reload_rx: rx.bin_reload_rx,
             reload_rx: rx.reload_rx,
+            fetch_manager,
+            pkg_cache_root,
             stop,
             last_tick,
             outputs: spawn_render_worker(command_tx),
@@ -858,6 +877,20 @@ impl App {
         );
     }
 
+    /// Where a sibling Lockfile lives for whichever `LayoutSource` was actually
+    /// resolved, plus the shared `FetchManager`/cache root — everything
+    /// `GitPackageResolver` needs, per `docs/adr/0041`. `None` only if no layout
+    /// source has ever been found, which every call site here has already ruled
+    /// out by the time it asks.
+    fn package_context(&self) -> Option<tauler::pkg::PackageContext> {
+        let lockfile_path = self.layout_source.as_ref()?.dir().join("tauler-pkg.lock");
+        Some(tauler::pkg::PackageContext {
+            fetch_manager: Arc::clone(&self.fetch_manager),
+            lockfile_path,
+            cache_root: self.pkg_cache_root.clone(),
+        })
+    }
+
     fn initial_load(&mut self) {
         let Some(loaded) = load_layout_or_exit(self.layout_source.as_ref()) else {
             return;
@@ -865,14 +898,22 @@ impl App {
         let source = loaded.js_source;
         let t = std::time::Instant::now();
         let base_dir = self.config_dir.clone();
-        let evaluator =
-            match tauler::jsx::JsxEvaluator::new(&source, self.jsx_ctx.clone(), Some(&base_dir)) {
-                Ok(e) => e,
-                Err(e) => {
-                    tracing::error!(error = %e, "JSX compile error");
-                    return;
-                }
-            };
+        let evaluator = match self.package_context() {
+            Some(pkg_ctx) => tauler::jsx::JsxEvaluator::new_with_packages(
+                &source,
+                self.jsx_ctx.clone(),
+                Some(&base_dir),
+                pkg_ctx,
+            ),
+            None => tauler::jsx::JsxEvaluator::new(&source, self.jsx_ctx.clone(), Some(&base_dir)),
+        };
+        let evaluator = match evaluator {
+            Ok(e) => e,
+            Err(e) => {
+                tracing::error!(error = %e, "JSX compile error");
+                return;
+            }
+        };
         let loaded = evaluator.loaded_paths();
         let eval_out = evaluator.eval(&self.stream_values.read().unwrap());
         match eval_out {
@@ -906,6 +947,7 @@ impl App {
             Some(base_dir.to_path_buf()),
             std::sync::Arc::clone(&self.stream_values),
             globals,
+            self.package_context(),
         ));
     }
 
@@ -946,11 +988,20 @@ impl App {
         // the whole bar's reconciliation, not just the one thing that changed, until the
         // next successful reload (found by review, tracing this exact function).
         let base_dir = self.config_dir.clone();
-        let evaluator = match tauler::jsx::JsxEvaluator::new(
-            &loaded.js_source,
-            self.jsx_ctx.clone(),
-            Some(&base_dir),
-        ) {
+        let evaluator = match self.package_context() {
+            Some(pkg_ctx) => tauler::jsx::JsxEvaluator::new_with_packages(
+                &loaded.js_source,
+                self.jsx_ctx.clone(),
+                Some(&base_dir),
+                pkg_ctx,
+            ),
+            None => tauler::jsx::JsxEvaluator::new(
+                &loaded.js_source,
+                self.jsx_ctx.clone(),
+                Some(&base_dir),
+            ),
+        };
+        let evaluator = match evaluator {
             Ok(evaluator) => evaluator,
             Err(e) => {
                 tracing::error!(error = %e, "JSX compile error, keeping the layout already in use");

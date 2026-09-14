@@ -396,6 +396,118 @@ impl Loader for SchemaAwareLoader {
     }
 }
 
+/// Intercepts `@gh/owner/repo` Package specifiers, delegating everything else to
+/// `ConfinedFsResolver` — the same wrap-and-delegate shape `SchemaAwareLoader`
+/// already establishes. `pkg_ctx` is `None` for every evaluator built without
+/// package support (every existing caller of `JsxEvaluator::new`/`new_reconciler`
+/// — a `@gh/...` import then fails to resolve exactly as it does today, since
+/// nothing recognizes the prefix), and `Some` only for the two production call
+/// sites that opt in via `new_with_packages`/`new_reconciler_with_packages`. See
+/// ADR 0041's "Discovery lives in the resolver, not a separate scan step".
+struct GitPackageResolver {
+    inner: optative_script::loader::ConfinedFsResolver,
+    pkg_ctx: Option<crate::pkg::PackageContext>,
+}
+
+impl GitPackageResolver {
+    fn new(base_dir: PathBuf, pkg_ctx: Option<crate::pkg::PackageContext>) -> Self {
+        Self {
+            inner: optative_script::loader::ConfinedFsResolver::new(base_dir),
+            pkg_ctx,
+        }
+    }
+
+    /// Resolves an already-recognized `@gh/owner/repo` specifier.
+    ///
+    /// No Lockfile entry yet → this is the first time this layout file has
+    /// imported it (req #1/#4): kick a fetch that pins whatever commit `HEAD` is
+    /// right now and writes the new Lockfile entry, then fail resolution this
+    /// cycle, same as any other missing import. A Lockfile entry but no checkout
+    /// on disk yet (cold) → kick a fetch for the pinned commit (or the
+    /// Development-mode ref), same failure. A checkout already on disk (warm —
+    /// existence alone is a safe, sufficient check, since the atomic-rename write
+    /// path in `pkg::git` guarantees a directory is only ever there once fully
+    /// formed) → resolve the entry file inside it via a fresh
+    /// `ConfinedFsResolver` scoped to that one checkout, reusing its extension
+    /// fallback (`.js`/`.jsx`/`.ts`/`.tsx`) rather than reimplementing it.
+    fn resolve_package<'js>(
+        &self,
+        qjs_ctx: &rquickjs::Ctx<'js>,
+        base: &str,
+        name: &str,
+        owner: &str,
+        repo: &str,
+        pkg_ctx: &crate::pkg::PackageContext,
+    ) -> rquickjs::Result<String> {
+        let lockfile = crate::pkg::lockfile::Lockfile::load_from_path(&pkg_ctx.lockfile_path)
+            .map_err(|_| rquickjs::Error::new_resolving(base, name))?;
+
+        let Some(entry) = lockfile.get(owner, repo) else {
+            pkg_ctx.fetch_manager.request_first_fetch(
+                owner.to_string(),
+                repo.to_string(),
+                crate::pkg::remote_url(owner, repo),
+                pkg_ctx.cache_root.clone(),
+                pkg_ctx.lockfile_path.clone(),
+            );
+            return Err(rquickjs::Error::new_resolving(base, name));
+        };
+
+        let package_dir = crate::pkg::cache::package_cache_path(
+            &pkg_ctx.cache_root,
+            owner,
+            repo,
+            entry,
+            &pkg_ctx.lockfile_path,
+        )
+        .map_err(|_| rquickjs::Error::new_resolving(base, name))?;
+
+        if !package_dir.exists() {
+            let r#ref = if entry.development {
+                crate::pkg::cache::development_ref(&pkg_ctx.lockfile_path)
+                    .unwrap_or_else(|_| entry.commit.clone())
+            } else {
+                entry.commit.clone()
+            };
+            pkg_ctx.fetch_manager.request_fetch(
+                crate::pkg::fetch_manager::FetchKey {
+                    owner: owner.to_string(),
+                    repo: repo.to_string(),
+                    r#ref,
+                },
+                crate::pkg::remote_url(owner, repo),
+                pkg_ctx.cache_root.clone(),
+                package_dir,
+            );
+            return Err(rquickjs::Error::new_resolving(base, name));
+        }
+
+        // A synthetic base whose parent is `package_dir` — `ConfinedFsResolver`
+        // only ever reads `.parent()` off `base` to find where to resolve a
+        // relative specifier from, never checks that the file itself exists.
+        let synthetic_base = package_dir.join("__package_entry__");
+        let mut package_resolver = optative_script::loader::ConfinedFsResolver::new(package_dir);
+        package_resolver.resolve(qjs_ctx, &synthetic_base.to_string_lossy(), "./index", None)
+    }
+}
+
+impl Resolver for GitPackageResolver {
+    fn resolve<'js>(
+        &mut self,
+        ctx: &rquickjs::Ctx<'js>,
+        base: &str,
+        name: &str,
+        attrs: Option<rquickjs::loader::ImportAttributes<'js>>,
+    ) -> rquickjs::Result<String> {
+        if let Some(pkg_ctx) = self.pkg_ctx.clone() {
+            if let Some((owner, repo)) = crate::pkg::specifier::parse(name) {
+                return self.resolve_package(ctx, base, name, owner, repo, &pkg_ctx);
+            }
+        }
+        self.inner.resolve(ctx, base, name, attrs)
+    }
+}
+
 /// Whether an evaluator's runtime may touch the world. The render runtime may not:
 /// a Tick runs on the loop, and `sh` blocking it for the length of a subprocess is
 /// what the latency budgets forbid. The reconciler runtime must, because that is
@@ -413,7 +525,21 @@ impl JsxEvaluator {
         ctx: serde_json::Value,
         base_dir: Option<&Path>,
     ) -> rquickjs::Result<Self> {
-        Self::with_effects(source, ctx, base_dir, Effects::Denied)
+        Self::with_effects(source, ctx, base_dir, Effects::Denied, None)
+    }
+
+    /// The render runtime, with `@gh/owner/repo` Package imports resolved through
+    /// `pkg_ctx`. Every other caller keeps using plain `new` — this exists only
+    /// for the production call sites that actually construct a `PackageContext`
+    /// (see ADR 0041), so a `@gh/...` import stays exactly as unresolvable as it
+    /// always was for every existing test and call site that doesn't opt in.
+    pub fn new_with_packages(
+        source: &str,
+        ctx: serde_json::Value,
+        base_dir: Option<&Path>,
+        pkg_ctx: crate::pkg::PackageContext,
+    ) -> rquickjs::Result<Self> {
+        Self::with_effects(source, ctx, base_dir, Effects::Denied, Some(pkg_ctx))
     }
 
     /// The `globals` this evaluator reads and writes.
@@ -436,7 +562,22 @@ impl JsxEvaluator {
         base_dir: Option<&Path>,
         globals: SharedGlobals,
     ) -> rquickjs::Result<Self> {
-        let mut evaluator = Self::with_effects(source, ctx, base_dir, Effects::Allowed)?;
+        let mut evaluator = Self::with_effects(source, ctx, base_dir, Effects::Allowed, None)?;
+        evaluator.global_state = globals;
+        Ok(evaluator)
+    }
+
+    /// The reconciler runtime, with `@gh/owner/repo` Package imports resolved
+    /// through `pkg_ctx`. See [`Self::new_with_packages`].
+    pub fn new_reconciler_with_packages(
+        source: &str,
+        ctx: serde_json::Value,
+        base_dir: Option<&Path>,
+        globals: SharedGlobals,
+        pkg_ctx: crate::pkg::PackageContext,
+    ) -> rquickjs::Result<Self> {
+        let mut evaluator =
+            Self::with_effects(source, ctx, base_dir, Effects::Allowed, Some(pkg_ctx))?;
         evaluator.global_state = globals;
         Ok(evaluator)
     }
@@ -446,13 +587,14 @@ impl JsxEvaluator {
         ctx: serde_json::Value,
         base_dir: Option<&Path>,
         effects: Effects,
+        pkg_ctx: Option<crate::pkg::PackageContext>,
     ) -> rquickjs::Result<Self> {
         let loaded_paths: Arc<Mutex<Vec<PathBuf>>> = Arc::new(Mutex::new(Vec::new()));
 
         let (runtime, context) = if let Some(dir) = base_dir {
             optative_script::build_runtime(
                 crate::ui::registry::UI_COMPONENTS,
-                optative_script::loader::ConfinedFsResolver::new(dir.to_path_buf()),
+                GitPackageResolver::new(dir.to_path_buf(), pkg_ctx),
                 SchemaAwareLoader::new(Arc::clone(&loaded_paths)),
             )?
         } else {
@@ -1400,6 +1542,228 @@ export default function render() { return <span class="text-white">{String(Foo()
             result
         );
         let _ = std::fs::remove_dir_all(&tmp_dir);
+    }
+
+    /// Creates a local, network-free "remote" repo with `index.jsx` exporting
+    /// `Widget`, so `@gh/fixture/repo` resolves against it exactly the way a real
+    /// GitHub-hosted Package would — without any network access. Returns the
+    /// repo's path and the sha of its one commit.
+    fn git_package_fixture_repo(dir: &Path) -> (PathBuf, String) {
+        let repo = dir.join("remote-repo");
+        std::fs::create_dir_all(&repo).expect("create fixture repo dir");
+        let run = |args: &[&str]| {
+            let status = std::process::Command::new("git")
+                .args(args)
+                .current_dir(&repo)
+                .status()
+                .expect("run git");
+            assert!(status.success());
+        };
+        run(&["init", "--quiet"]);
+        run(&["config", "user.email", "test@example.com"]);
+        run(&["config", "user.name", "Test"]);
+        std::fs::write(
+            repo.join("index.jsx"),
+            "export default function Widget() { return 42; }",
+        )
+        .expect("write index.jsx");
+        run(&["add", "."]);
+        run(&["commit", "--quiet", "-m", "initial"]);
+        let output = std::process::Command::new("git")
+            .args(["rev-parse", "HEAD"])
+            .current_dir(&repo)
+            .output()
+            .expect("git rev-parse");
+        let sha = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        (repo, sha)
+    }
+
+    /// The full path, end to end, for an already-pinned-and-cached Package: the
+    /// Lockfile names a commit, that commit's checkout is already on disk (placed
+    /// here exactly the way a real fetch would — via `pkg::git::fetch_and_place`
+    /// against a local fixture repo, no network needed), and
+    /// `JsxEvaluator::new_with_packages` resolves, loads and evaluates it like any
+    /// other import. This is the resolver's warm path: Lockfile lookup → cache
+    /// path → nested `ConfinedFsResolver` extension fallback → the existing
+    /// `SchemaAwareLoader`/`ConfinedFsLoader` load-and-transform → QuickJS module
+    /// linking, exercised for real, not mocked at any layer.
+    #[test]
+    fn jsx_evaluator_resolves_a_warm_git_package_end_to_end() {
+        let dir = std::env::temp_dir().join(format!("tauler_git_pkg_warm_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("create dir");
+        let (remote, sha) = git_package_fixture_repo(&dir);
+
+        let layout_dir = dir.join("layout");
+        std::fs::create_dir_all(&layout_dir).expect("create layout dir");
+        let lockfile_path = layout_dir.join("tauler-pkg.lock");
+        let cache_root = dir.join("cache");
+
+        let final_path = crate::pkg::cache::pinned_cache_path(&cache_root, "fixture", "repo", &sha);
+        crate::pkg::git::fetch_and_place(&remote.to_string_lossy(), &sha, &cache_root, &final_path)
+            .expect("pre-warming the cache should succeed");
+
+        let mut lockfile = crate::pkg::lockfile::Lockfile::default();
+        lockfile.set(
+            "fixture",
+            "repo",
+            crate::pkg::lockfile::PackageEntry {
+                commit: sha.clone(),
+                development: false,
+            },
+        );
+        lockfile
+            .save_to_path(&lockfile_path)
+            .expect("saving the lockfile should succeed");
+
+        let (reload_tx, _reload_rx) = std::sync::mpsc::channel();
+        let pkg_ctx = crate::pkg::PackageContext {
+            fetch_manager: Arc::new(crate::pkg::fetch_manager::FetchManager::new(reload_tx)),
+            lockfile_path,
+            cache_root,
+        };
+
+        let layout_source = r#"import Widget from "@gh/fixture/repo";
+export default function render() { return <span class="text-white">{String(Widget())}</span>; }"#;
+
+        let result = JsxEvaluator::new_with_packages(
+            layout_source,
+            serde_json::Value::Null,
+            Some(&layout_dir),
+            pkg_ctx,
+        )
+        .unwrap_or_else(|e| panic!("expected the warm Package to resolve, got: {e}"))
+        .eval(&std::collections::HashMap::new())
+        .unwrap()
+        .layout;
+
+        assert_eq!(
+            result["children"][0], "42",
+            "expected the text child '42' from the imported Package's Widget(), got: {:?}",
+            result
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A Package with no Lockfile entry and nothing cached yet (the ordinary
+    /// startup/reload case for a brand-new import, ADR 0041's "Discovery" and
+    /// "Unified boot/reload policy" sections) fails resolution gracefully — an
+    /// `Err`, never a panic — the same as any other unresolvable import already
+    /// does. This is what lets `initial_load`/`handle_layout_reload` fall into
+    /// their existing non-fatal "log and don't touch live state" branch instead of
+    /// needing a new one.
+    #[test]
+    fn jsx_evaluator_fails_gracefully_on_a_cold_git_package() {
+        let dir = std::env::temp_dir().join(format!("tauler_git_pkg_cold_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("create dir");
+        let lockfile_path = dir.join("tauler-pkg.lock");
+        let cache_root = dir.join("cache");
+
+        let (reload_tx, _reload_rx) = std::sync::mpsc::channel();
+        let pkg_ctx = crate::pkg::PackageContext {
+            fetch_manager: Arc::new(crate::pkg::fetch_manager::FetchManager::new(reload_tx)),
+            lockfile_path,
+            cache_root,
+        };
+
+        let layout_source = r#"import Widget from "@gh/fixture/repo";
+export default function render() { return <span class="text-white">{String(Widget())}</span>; }"#;
+
+        let result = JsxEvaluator::new_with_packages(
+            layout_source,
+            serde_json::Value::Null,
+            Some(&dir),
+            pkg_ctx,
+        );
+
+        assert!(
+            result.is_err(),
+            "a cold Package must fail resolution, not panic or hang"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The same `@gh/owner/repo` specifier from a plain `JsxEvaluator::new` (no
+    /// `PackageContext` at all) fails exactly like any other unrecognized bare
+    /// specifier — every one of the ~35 existing call sites across this codebase
+    /// that never opted into package support keeps behaving exactly as it did
+    /// before this feature existed.
+    #[test]
+    fn a_git_package_specifier_without_a_package_context_fails_like_any_unknown_import() {
+        let result = JsxEvaluator::new(
+            r#"import Widget from "@gh/fixture/repo";
+export default function render() { return <root>{String(Widget())}</root>; }"#,
+            serde_json::Value::Null,
+            None,
+        );
+        assert!(result.is_err());
+    }
+
+    /// The req #7 escape hatch, exercised end to end: a Development-mode entry
+    /// (`development: true`, no pin enforced) resolves through the
+    /// `development-<hash>` cache path, not a commit sha, and evaluates exactly
+    /// like a pinned Package once its checkout is warm.
+    #[test]
+    fn jsx_evaluator_resolves_a_warm_development_mode_package_end_to_end() {
+        let dir =
+            std::env::temp_dir().join(format!("tauler_git_pkg_dev_mode_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("create dir");
+        let (remote, sha) = git_package_fixture_repo(&dir);
+
+        let layout_dir = dir.join("layout");
+        std::fs::create_dir_all(&layout_dir).expect("create layout dir");
+        let lockfile_path = layout_dir.join("tauler-pkg.lock");
+        let cache_root = dir.join("cache");
+
+        let mut lockfile = crate::pkg::lockfile::Lockfile::default();
+        lockfile.set(
+            "fixture",
+            "repo",
+            crate::pkg::lockfile::PackageEntry {
+                commit: sha.clone(),
+                development: true,
+            },
+        );
+        lockfile
+            .save_to_path(&lockfile_path)
+            .expect("saving the lockfile should succeed");
+
+        // Placed at the *development* ref, not the commit sha — proving the
+        // resolver actually reads `entry.development` rather than always using
+        // the pinned commit.
+        let dev_ref = crate::pkg::cache::development_ref(&lockfile_path)
+            .expect("development_ref should succeed");
+        let final_path =
+            crate::pkg::cache::pinned_cache_path(&cache_root, "fixture", "repo", &dev_ref);
+        crate::pkg::git::fetch_and_place(&remote.to_string_lossy(), &sha, &cache_root, &final_path)
+            .expect("pre-warming the cache should succeed");
+
+        let (reload_tx, _reload_rx) = std::sync::mpsc::channel();
+        let pkg_ctx = crate::pkg::PackageContext {
+            fetch_manager: Arc::new(crate::pkg::fetch_manager::FetchManager::new(reload_tx)),
+            lockfile_path,
+            cache_root,
+        };
+
+        let layout_source = r#"import Widget from "@gh/fixture/repo";
+export default function render() { return <span class="text-white">{String(Widget())}</span>; }"#;
+
+        let result = JsxEvaluator::new_with_packages(
+            layout_source,
+            serde_json::Value::Null,
+            Some(&layout_dir),
+            pkg_ctx,
+        )
+        .unwrap_or_else(|e| panic!("expected the Development-mode Package to resolve, got: {e}"))
+        .eval(&std::collections::HashMap::new())
+        .unwrap()
+        .layout;
+
+        assert_eq!(
+            result["children"][0], "42",
+            "expected the text child '42' from the Development-mode Package's Widget(), got: {:?}",
+            result
+        );
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

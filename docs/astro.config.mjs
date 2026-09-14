@@ -58,6 +58,7 @@ export default defineConfig({
         { slug: 'docs/layout' },
         { slug: 'docs/components' },
         { slug: 'docs/component-reference' },
+        { slug: 'docs/packages' },
         { slug: 'docs/macos' },
       ],
     }),

@@ -47,6 +47,17 @@ impl LayoutSource {
         }
         None
     }
+
+    /// The directory this source's own file(s) live in — where a sibling
+    /// Lockfile belongs (`docs/adr/0041`'s "the Lockfile sits next to the layout
+    /// file, wherever that is," not a hardcoded config-dir constant).
+    pub fn dir(&self) -> &std::path::Path {
+        let path = match self {
+            Self::Mdx(path) => path,
+            Self::Legacy { layout, .. } => layout,
+        };
+        path.parent().unwrap_or(path)
+    }
 }
 
 /// Why loading a `LayoutSource` failed.
@@ -225,6 +236,26 @@ mod tests {
         let detected = LayoutSource::detect(dir.path());
 
         assert_eq!(detected, Some(LayoutSource::Mdx(mdx_path)));
+    }
+
+    #[test]
+    fn dir_returns_the_directory_the_mdx_file_lives_in() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        write(dir.path(), "layout.op.mdx", "<Panel />\n");
+
+        let source = LayoutSource::detect(dir.path()).expect("should detect mdx");
+
+        assert_eq!(source.dir(), dir.path());
+    }
+
+    #[test]
+    fn dir_returns_the_directory_the_legacy_layout_file_lives_in() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        write(dir.path(), "layout.jsx", "<Panel />\n");
+
+        let source = LayoutSource::detect(dir.path()).expect("should detect legacy");
+
+        assert_eq!(source.dir(), dir.path());
     }
 
     #[test]
