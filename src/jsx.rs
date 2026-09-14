@@ -463,22 +463,36 @@ impl GitPackageResolver {
         .map_err(|_| rquickjs::Error::new_resolving(base, name))?;
 
         if !package_dir.exists() {
-            let r#ref = if entry.development {
-                crate::pkg::cache::development_ref(&pkg_ctx.lockfile_path)
-                    .unwrap_or_else(|_| entry.commit.clone())
+            if entry.development {
+                let r#ref = crate::pkg::cache::development_ref(&pkg_ctx.lockfile_path)
+                    .map_err(|_| rquickjs::Error::new_resolving(base, name))?;
+                // No commit to check out — that's the whole point of
+                // Development mode — so this clones the default branch's
+                // current tip, not `entry.commit` (which may be stale or
+                // absent) and not the `development-<hash>` string above
+                // (that's a cache-path key, never a real git ref).
+                pkg_ctx.fetch_manager.request_development_fetch(
+                    crate::pkg::fetch_manager::FetchKey {
+                        owner: owner.to_string(),
+                        repo: repo.to_string(),
+                        r#ref,
+                    },
+                    crate::pkg::remote_url(owner, repo),
+                    pkg_ctx.cache_root.clone(),
+                    package_dir,
+                );
             } else {
-                entry.commit.clone()
-            };
-            pkg_ctx.fetch_manager.request_fetch(
-                crate::pkg::fetch_manager::FetchKey {
-                    owner: owner.to_string(),
-                    repo: repo.to_string(),
-                    r#ref,
-                },
-                crate::pkg::remote_url(owner, repo),
-                pkg_ctx.cache_root.clone(),
-                package_dir,
-            );
+                pkg_ctx.fetch_manager.request_fetch(
+                    crate::pkg::fetch_manager::FetchKey {
+                        owner: owner.to_string(),
+                        repo: repo.to_string(),
+                        r#ref: entry.commit.clone(),
+                    },
+                    crate::pkg::remote_url(owner, repo),
+                    pkg_ctx.cache_root.clone(),
+                    package_dir,
+                );
+            }
             return Err(rquickjs::Error::new_resolving(base, name));
         }
 

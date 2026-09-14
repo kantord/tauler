@@ -5,7 +5,9 @@
 //! the ADR's "Cache hygiene" section); a failed fetch just becomes retriable again
 //! the moment its thread finishes.
 
-use crate::pkg::git::{fetch_and_place, fetch_head_and_place, PlaceOutcome};
+use crate::pkg::git::{
+    fetch_and_place, fetch_default_branch_and_place, fetch_head_and_place, PlaceOutcome,
+};
 use crate::pkg::lockfile::{Lockfile, PackageEntry};
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
@@ -76,18 +78,24 @@ impl FetchManager {
         self.in_flight.try_start(key)
     }
 
-    /// Non-blocking. If `key` is already in flight, this is a no-op — the caller
-    /// that's already fetching it will notify on success regardless. Otherwise
-    /// spawns a background thread that fetches and places the checkout; on
-    /// success it sends on `reload_tx` (the same channel a file watcher already
-    /// uses) so the normal reload path retries on its own. On failure it logs
-    /// loudly and sends nothing — there's nothing new to retry against yet.
-    pub fn request_fetch(
+    /// The one thread body shared by [`Self::request_fetch`] and
+    /// [`Self::request_development_fetch`] — everything about dedup, logging,
+    /// and waking `reload_tx` is identical between them. The only thing that
+    /// differs is which `pkg::git` function actually does the fetch: a pinned
+    /// Package has a real commit to `git checkout`, a Development-mode one
+    /// does not (nothing to check out — a plain clone already lands on the
+    /// default branch's tip). Found live, against a real Development-mode
+    /// Package: passing its `development-<hash>` cache-key string to `git
+    /// checkout` as if it were a ref always failed, silently (logged, never
+    /// panicked — but never woke reload either), because that string was
+    /// never a real git ref.
+    fn spawn_fetch(
         &self,
         key: FetchKey,
         remote: String,
         cache_root: PathBuf,
         final_path: PathBuf,
+        pinned_ref: Option<String>,
     ) {
         if !self.try_start(&key) {
             return;
@@ -96,8 +104,11 @@ impl FetchManager {
         let reload_tx = self.reload_tx.clone();
         let thread_key = key.clone();
         std::thread::spawn(move || {
-            let sha_or_ref = thread_key.r#ref.clone();
-            match fetch_and_place(&remote, &sha_or_ref, &cache_root, &final_path) {
+            let outcome = match &pinned_ref {
+                Some(sha_or_ref) => fetch_and_place(&remote, sha_or_ref, &cache_root, &final_path),
+                None => fetch_default_branch_and_place(&remote, &cache_root, &final_path),
+            };
+            match outcome {
                 Ok(PlaceOutcome::Placed) => {
                     tracing::info!(
                         owner = thread_key.owner,
@@ -125,6 +136,40 @@ impl FetchManager {
             }
             in_flight.finish(&thread_key);
         });
+    }
+
+    /// Non-blocking. If `key` is already in flight, this is a no-op — the caller
+    /// that's already fetching it will notify on success regardless. Otherwise
+    /// spawns a background thread that fetches and places the checkout at the
+    /// pinned commit `key.r#ref` names; on success it sends on `reload_tx` (the
+    /// same channel a file watcher already uses) so the normal reload path
+    /// retries on its own. On failure it logs loudly and sends nothing —
+    /// there's nothing new to retry against yet.
+    pub fn request_fetch(
+        &self,
+        key: FetchKey,
+        remote: String,
+        cache_root: PathBuf,
+        final_path: PathBuf,
+    ) {
+        let pinned_ref = Some(key.r#ref.clone());
+        self.spawn_fetch(key, remote, cache_root, final_path, pinned_ref);
+    }
+
+    /// Non-blocking, for a Development-mode Package whose checkout isn't on
+    /// disk yet: clones `remote`'s default branch (no commit to pin — that's
+    /// the whole point of Development mode) and places it at `final_path`
+    /// (the caller has already computed the `development-<hash>` cache path).
+    /// Deduping, logging, and waking `reload_tx` on success all work exactly
+    /// like [`Self::request_fetch`].
+    pub fn request_development_fetch(
+        &self,
+        key: FetchKey,
+        remote: String,
+        cache_root: PathBuf,
+        final_path: PathBuf,
+    ) {
+        self.spawn_fetch(key, remote, cache_root, final_path, None);
     }
 
     /// Non-blocking, for the "this Package has never been imported before" case
@@ -497,5 +542,44 @@ mod tests {
             Some(&sha_b),
             "pkg/b's pin must not have been lost to the race"
         );
+    }
+
+    /// Found live, against a real Development-mode Package (`@gh/...` marked
+    /// `development: true`): `resolve_package` was passing the
+    /// `development-<hash>` cache-key string to `request_fetch`, which hands
+    /// it straight to `git checkout` — always fails, since that string was
+    /// never a real ref. The fetch failed silently (logged, no wake), so a
+    /// cold Development-mode Package could never resolve. Fixed by
+    /// `request_development_fetch`, which clones the default branch instead
+    /// of attempting any checkout.
+    #[test]
+    fn request_development_fetch_wakes_reload_on_success() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let (repo, sha) = fixture_repo(dir.path());
+        let (tx, rx) = mpsc::channel();
+        let manager = FetchManager::new(tx);
+        let cache_root = dir.path().join("cache");
+        let final_path = cache_root
+            .join("gh")
+            .join("foo")
+            .join("bar")
+            .join("development-abc123");
+
+        manager.request_development_fetch(
+            key("development-abc123"),
+            repo.to_string_lossy().into_owned(),
+            cache_root,
+            final_path.clone(),
+        );
+
+        rx.recv_timeout(Duration::from_secs(10))
+            .expect("reload_tx should be woken on a successful development fetch");
+        assert!(final_path.join("index.jsx").exists());
+        let head = std::process::Command::new("git")
+            .args(["rev-parse", "HEAD"])
+            .current_dir(&final_path)
+            .output()
+            .expect("git rev-parse");
+        assert_eq!(String::from_utf8_lossy(&head.stdout).trim(), sha);
     }
 }

@@ -178,6 +178,28 @@ pub fn fetch_and_place(
     place(&temp_dir, final_path)
 }
 
+/// Clones `remote`'s default branch — whatever `HEAD` currently is, no
+/// checkout of a specific commit — and atomically places it at `final_path`.
+/// For a Development-mode Package (ADR 0041): no commit is pinned, so there is
+/// nothing to `git checkout`; a plain clone already lands on the default
+/// branch's tip. Distinct from [`fetch_head_and_place`], which additionally
+/// *computes* `final_path` from the resulting sha for the first-encounter
+/// case — here the caller already knows where a Development-mode checkout
+/// belongs (the `development-<hash>` cache path) before the clone even runs.
+pub fn fetch_default_branch_and_place(
+    remote: &str,
+    cache_root: &Path,
+    final_path: &Path,
+) -> Result<PlaceOutcome, FetchError> {
+    if final_path.exists() {
+        return Ok(PlaceOutcome::AlreadyPresent);
+    }
+    std::fs::create_dir_all(cache_root).map_err(FetchError::Rename)?;
+    let temp_dir = unique_temp_dir(cache_root);
+    clone_into(remote, &temp_dir)?;
+    place(&temp_dir, final_path)
+}
+
 /// Reads the commit sha `HEAD` points at inside an already-cloned repo.
 fn head_sha(repo_dir: &Path) -> Result<String, FetchError> {
     let output = Command::new("git")
@@ -328,6 +350,58 @@ mod tests {
 
         let outcome = fetch_and_place(&repo.to_string_lossy(), &sha, &cache_root, &final_path)
             .expect("fetch_and_place should succeed");
+
+        assert_eq!(outcome, PlaceOutcome::AlreadyPresent);
+        assert!(final_path.join("already-warm").exists());
+    }
+
+    /// Found live, against a real Development-mode Package: the cold-fetch
+    /// path was passing the `development-<hash>` cache-key string to `git
+    /// checkout` as if it were a real ref, which always fails (it isn't one).
+    /// A Development-mode fetch has no commit to check out at all — a plain
+    /// clone already lands on the default branch's tip.
+    #[test]
+    fn fetch_default_branch_and_place_does_not_attempt_a_checkout() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let (repo, sha) = fixture_repo(dir.path());
+        let cache_root = dir.path().join("cache");
+        let final_path = cache_root
+            .join("gh")
+            .join("foo")
+            .join("bar")
+            .join("development-abc123");
+
+        let outcome =
+            fetch_default_branch_and_place(&repo.to_string_lossy(), &cache_root, &final_path)
+                .expect("fetch_default_branch_and_place should succeed");
+
+        assert_eq!(outcome, PlaceOutcome::Placed);
+        assert!(final_path.join("index.jsx").exists());
+        // Sanity: it's really at HEAD, not stuck on some earlier state.
+        let head = std::process::Command::new("git")
+            .args(["rev-parse", "HEAD"])
+            .current_dir(&final_path)
+            .output()
+            .expect("git rev-parse");
+        assert_eq!(String::from_utf8_lossy(&head.stdout).trim(), sha);
+    }
+
+    #[test]
+    fn fetch_default_branch_and_place_is_a_no_op_when_the_final_path_is_already_warm() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let (repo, _sha) = fixture_repo(dir.path());
+        let cache_root = dir.path().join("cache");
+        let final_path = cache_root
+            .join("gh")
+            .join("foo")
+            .join("bar")
+            .join("development-abc123");
+        std::fs::create_dir_all(&final_path).expect("pre-warm final path");
+        std::fs::write(final_path.join("already-warm"), "x").expect("write marker");
+
+        let outcome =
+            fetch_default_branch_and_place(&repo.to_string_lossy(), &cache_root, &final_path)
+                .expect("fetch_default_branch_and_place should succeed");
 
         assert_eq!(outcome, PlaceOutcome::AlreadyPresent);
         assert!(final_path.join("already-warm").exists());
