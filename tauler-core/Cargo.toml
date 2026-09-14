@@ -11,7 +11,7 @@ edition = "2021"
 # even opens a release PR (release-plz/release-plz#2878), same as
 # tauler-ui-macro's identical carve-out below. See INDEPENDENTLY_VERSIONED_CRATES
 # in scripts/sync-workspace-versions.sh and tests/workspace_manifests_test.rs.
-version = "0.3.2"
+version = "0.3.3"
 authors.workspace = true
 license.workspace = true
 repository.workspace = true
