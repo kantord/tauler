@@ -25,6 +25,64 @@ use app::{InterestingPaths, TickReceivers};
 const FREEZE_WATCHDOG_POLL_SECS: u64 = 10;
 const FREEZE_STALE_THRESHOLD_SECS: u64 = 10;
 
+/// `tauler pkg update` — the first CLI subcommand this codebase has had.
+/// Dispatched before any window/App/logging setup: this is a short-lived,
+/// one-shot operation, not the bar starting up. See `docs/adr/0041`.
+fn run_pkg_subcommand(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
+    match args.get(2).map(String::as_str) {
+        Some("update") => {
+            let home = std::env::var("HOME").unwrap_or_default();
+            let config_dir = std::path::PathBuf::from(&home).join(".config/tauler");
+            let Some(layout_source) = tauler::layout_source::LayoutSource::detect(&config_dir)
+            else {
+                eprintln!(
+                    "tauler pkg update: no layout file found (checked layout.op.mdx and layout.jsx)"
+                );
+                std::process::exit(1);
+            };
+            let lockfile_path = layout_source.dir().join("tauler-pkg.lock");
+            let cache_root = std::path::PathBuf::from(&home).join(".cache/tauler/pkg");
+
+            let summary = tauler::pkg::update::update_all(&lockfile_path, &cache_root)?;
+            // Every pin change is printed, never silent — the security posture
+            // ADR 0041 names: nothing re-pins without this explicit, user-invoked
+            // command, and every change it makes is visible.
+            for pkg in &summary.packages {
+                match &pkg.outcome {
+                    tauler::pkg::update::PackageOutcome::Updated { old, new } => {
+                        println!("{}/{}: {old} -> {new}", pkg.owner, pkg.repo);
+                    }
+                    tauler::pkg::update::PackageOutcome::Unchanged => {
+                        println!("{}/{}: unchanged", pkg.owner, pkg.repo);
+                    }
+                    tauler::pkg::update::PackageOutcome::Development => {
+                        println!("{}/{}: skipped (development mode)", pkg.owner, pkg.repo);
+                    }
+                    tauler::pkg::update::PackageOutcome::Failed(e) => {
+                        eprintln!("{}/{}: failed: {e}", pkg.owner, pkg.repo);
+                    }
+                }
+            }
+            if summary.reaped > 0 {
+                println!(
+                    "removed {} orphaned temp director{}",
+                    summary.reaped,
+                    if summary.reaped == 1 { "y" } else { "ies" }
+                );
+            }
+            Ok(())
+        }
+        Some(other) => {
+            eprintln!("tauler pkg: unknown subcommand '{other}' (expected 'update')");
+            std::process::exit(1);
+        }
+        None => {
+            eprintln!("tauler pkg: expected a subcommand (e.g. 'update')");
+            std::process::exit(1);
+        }
+    }
+}
+
 fn detect_backend() -> &'static str {
     if cfg!(target_os = "macos") {
         return "macos";
@@ -236,6 +294,11 @@ fn init_x11() -> Result<X11Init, Box<dyn std::error::Error>> {
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let args: Vec<String> = std::env::args().collect();
+    if args.get(1).map(String::as_str) == Some("pkg") {
+        return run_pkg_subcommand(&args);
+    }
+
     init_logging();
 
     let log_path = {
@@ -270,6 +333,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let (reload_tx, reload_rx) = mpsc::channel::<()>();
     let (bin_reload_tx, bin_reload_rx) = mpsc::channel::<()>();
+    // Cloned before the move below: the fetch manager needs its own sender on
+    // the exact channel a file watcher already wakes, so a package fetch
+    // completing retries the layout the same way any other reload does
+    // (`docs/adr/0041`).
+    let fetch_manager = Arc::new(tauler::pkg::fetch_manager::FetchManager::new(
+        reload_tx.clone(),
+    ));
+    let pkg_cache_root = std::path::PathBuf::from(&home).join(".cache/tauler/pkg");
     let (_watcher, interesting) = setup_file_watchers(
         &config_dir,
         &exe_path,
@@ -305,6 +376,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         last_tick,
         watcher: Arc::clone(&_watcher),
         interesting: interesting.clone(),
+        fetch_manager: Arc::clone(&fetch_manager),
+        pkg_cache_root: pkg_cache_root.clone(),
     })?;
 
     #[cfg(not(target_os = "macos"))]
@@ -323,6 +396,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             Arc::clone(&_watcher),
             interesting.clone(),
             notifier.clone(),
+            Arc::clone(&fetch_manager),
+            pkg_cache_root.clone(),
         );
         data_loop.run(
             Arc::clone(&stop),
@@ -346,6 +421,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             Arc::clone(&_watcher),
             interesting.clone(),
             notifier.clone(),
+            Arc::clone(&fetch_manager),
+            pkg_cache_root.clone(),
         );
         data_loop.run(
             Arc::clone(&stop),

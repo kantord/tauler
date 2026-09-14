@@ -302,6 +302,7 @@ impl Reconciler {
         base_dir: Option<PathBuf>,
         stream_values: SharedStreamValues,
         globals: crate::jsx::SharedGlobals,
+        pkg_ctx: Option<crate::pkg::PackageContext>,
     ) -> Self {
         let stop = Arc::new(AtomicBool::new(false));
         let stop_thread = Arc::clone(&stop);
@@ -317,12 +318,19 @@ impl Reconciler {
         let handle = std::thread::Builder::new()
             .name("tauler-reconciler".into())
             .spawn(move || {
-                let evaluator = match JsxEvaluator::new_reconciler(
-                    &source,
-                    ctx,
-                    base_dir.as_deref(),
-                    globals,
-                ) {
+                let evaluator = match pkg_ctx {
+                    Some(pkg_ctx) => JsxEvaluator::new_reconciler_with_packages(
+                        &source,
+                        ctx,
+                        base_dir.as_deref(),
+                        globals,
+                        pkg_ctx,
+                    ),
+                    None => {
+                        JsxEvaluator::new_reconciler(&source, ctx, base_dir.as_deref(), globals)
+                    }
+                };
+                let evaluator = match evaluator {
                     Ok(e) => e,
                     Err(e) => {
                         tracing::error!(error = ?e, "the reconciler runtime failed to start");
@@ -900,6 +908,7 @@ mod tests {
             None,
             Arc::new(RwLock::new(HashMap::new())),
             Default::default(),
+            None,
         );
         std::thread::sleep(std::time::Duration::from_millis(900));
         drop(reconciler);
@@ -1093,6 +1102,7 @@ mod tests {
             None,
             Arc::new(RwLock::new(HashMap::new())),
             Default::default(),
+            None,
         );
 
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
