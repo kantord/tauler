@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.1](https://github.com/kantord/tauler/compare/tauler-aerospace-v0.4.0...tauler-aerospace-v0.4.1) - 2026-09-14
+
+### Other
+
+- update Cargo.lock dependencies
+
 ## [0.4.0](https://github.com/kantord/tauler/compare/tauler-aerospace-v0.3.2...tauler-aerospace-v0.4.0) - 2026-09-09
 
 ### Other

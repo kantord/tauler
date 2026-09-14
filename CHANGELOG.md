@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.1](https://github.com/kantord/tauler/compare/tauler-v0.4.0...tauler-v0.4.1) - 2026-09-14
+
+### Added
+
+- allow reconciling config files from tauler ([#546](https://github.com/kantord/tauler/pull/546))
+
+### Fixed
+
+- *(test)* stop watching a path under the system temp dir on macOS ([#561](https://github.com/kantord/tauler/pull/561))
+- *(deps)* update optative + quickjs ([#559](https://github.com/kantord/tauler/pull/559))
+
+### Other
+
+- *(deps)* lock file maintenance ([#565](https://github.com/kantord/tauler/pull/565))
+
 ## [0.4.0](https://github.com/kantord/tauler/compare/tauler-v0.3.2...tauler-v0.4.0) - 2026-09-09
 
 ### Fixed
