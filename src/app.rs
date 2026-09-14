@@ -556,7 +556,6 @@ fn theme_after_reload(current: &Theme, loaded: Result<Theme, ThemeLoadError>) ->
 impl App {
     #[cfg(not(target_os = "macos"))]
     #[allow(clippy::too_many_arguments)]
-    #[allow(clippy::too_many_arguments)]
     pub(crate) fn new_x11(
         x11: X11Init,
         handle: DataLoopHandle,

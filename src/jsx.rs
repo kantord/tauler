@@ -491,6 +491,34 @@ impl GitPackageResolver {
     }
 }
 
+/// If `base` — an already-resolved, canonicalized absolute path, since that's
+/// all a `Resolver` is ever handed as `base` — lives inside a Package's
+/// checkout under `cache_root`, returns that checkout's own root directory
+/// (`<cache_root>/gh/<owner>/<repo>/<ref>`). Without this, a relative import
+/// *inside* a Package's own source (`./components/Foo.jsx`, say) would fall
+/// through to the layout's own `ConfinedFsResolver` and be rejected as
+/// escaping its confinement root — a Package would only ever work if its
+/// entire source fit in one file.
+fn package_root_for(cache_root: &Path, base: &str) -> Option<PathBuf> {
+    let canonical_cache_root = cache_root.canonicalize().ok()?;
+    let relative = Path::new(base).strip_prefix(&canonical_cache_root).ok()?;
+    let mut components = relative.components();
+    let gh = components.next()?;
+    if gh.as_os_str() != "gh" {
+        return None;
+    }
+    let owner = components.next()?;
+    let repo = components.next()?;
+    let r#ref = components.next()?;
+    Some(
+        canonical_cache_root
+            .join(gh)
+            .join(owner)
+            .join(repo)
+            .join(r#ref),
+    )
+}
+
 impl Resolver for GitPackageResolver {
     fn resolve<'js>(
         &mut self,
@@ -502,6 +530,11 @@ impl Resolver for GitPackageResolver {
         if let Some(pkg_ctx) = self.pkg_ctx.clone() {
             if let Some((owner, repo)) = crate::pkg::specifier::parse(name) {
                 return self.resolve_package(ctx, base, name, owner, repo, &pkg_ctx);
+            }
+            if let Some(package_root) = package_root_for(&pkg_ctx.cache_root, base) {
+                let mut package_resolver =
+                    optative_script::loader::ConfinedFsResolver::new(package_root);
+                return package_resolver.resolve(ctx, base, name, attrs);
             }
         }
         self.inner.resolve(ctx, base, name, attrs)
@@ -1639,6 +1672,107 @@ export default function render() { return <span class="text-white">{String(Widge
         assert_eq!(
             result["children"][0], "42",
             "expected the text child '42' from the imported Package's Widget(), got: {:?}",
+            result
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A Package whose `index.jsx` itself imports a sibling file
+    /// (`./helper.jsx`) — found by review to be broken: `GitPackageResolver`
+    /// only special-cased the top-level `@gh/owner/repo` specifier, so a
+    /// relative import *inside* the Package's own source fell through to the
+    /// layout's `ConfinedFsResolver`, confined to the layout's own directory,
+    /// and was rejected as escaping it. Any Package with more than one file
+    /// was broken. `package_root_for` fixes this by recognizing that `base`
+    /// lives inside a Package's checkout and re-scoping confinement to that
+    /// checkout's own root.
+    #[test]
+    fn jsx_evaluator_resolves_a_multi_file_git_package_end_to_end() {
+        let dir =
+            std::env::temp_dir().join(format!("tauler_git_pkg_multi_file_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("create dir");
+
+        let remote = dir.join("remote-repo");
+        std::fs::create_dir_all(&remote).expect("create fixture repo dir");
+        let run = |args: &[&str]| {
+            let status = std::process::Command::new("git")
+                .args(args)
+                .current_dir(&remote)
+                .status()
+                .expect("run git");
+            assert!(status.success());
+        };
+        run(&["init", "--quiet"]);
+        run(&["config", "user.email", "test@example.com"]);
+        run(&["config", "user.name", "Test"]);
+        std::fs::write(
+            remote.join("helper.jsx"),
+            "export function helperValue() { return 99; }",
+        )
+        .expect("write helper.jsx");
+        std::fs::write(
+            remote.join("index.jsx"),
+            "import { helperValue } from './helper.jsx';\n\
+             export default function Widget() { return helperValue(); }",
+        )
+        .expect("write index.jsx");
+        run(&["add", "."]);
+        run(&["commit", "--quiet", "-m", "initial"]);
+        let output = std::process::Command::new("git")
+            .args(["rev-parse", "HEAD"])
+            .current_dir(&remote)
+            .output()
+            .expect("git rev-parse");
+        let sha = String::from_utf8_lossy(&output.stdout).trim().to_string();
+
+        let layout_dir = dir.join("layout");
+        std::fs::create_dir_all(&layout_dir).expect("create layout dir");
+        let lockfile_path = layout_dir.join("tauler-pkg.lock");
+        let cache_root = dir.join("cache");
+
+        let final_path = crate::pkg::cache::pinned_cache_path(&cache_root, "fixture", "repo", &sha);
+        crate::pkg::git::fetch_and_place(&remote.to_string_lossy(), &sha, &cache_root, &final_path)
+            .expect("pre-warming the cache should succeed");
+
+        let mut lockfile = crate::pkg::lockfile::Lockfile::default();
+        lockfile.set(
+            "fixture",
+            "repo",
+            crate::pkg::lockfile::PackageEntry {
+                commit: sha,
+                development: false,
+            },
+        );
+        lockfile
+            .save_to_path(&lockfile_path)
+            .expect("saving the lockfile should succeed");
+
+        let (reload_tx, _reload_rx) = std::sync::mpsc::channel();
+        let pkg_ctx = crate::pkg::PackageContext {
+            fetch_manager: Arc::new(crate::pkg::fetch_manager::FetchManager::new(reload_tx)),
+            lockfile_path,
+            cache_root,
+        };
+
+        let layout_source = r#"import Widget from "@gh/fixture/repo";
+export default function render() { return <span class="text-white">{String(Widget())}</span>; }"#;
+
+        let result = JsxEvaluator::new_with_packages(
+            layout_source,
+            serde_json::Value::Null,
+            Some(&layout_dir),
+            pkg_ctx,
+        )
+        .unwrap_or_else(|e| {
+            panic!("expected the multi-file Package's internal import to resolve, got: {e}")
+        })
+        .eval(&std::collections::HashMap::new())
+        .unwrap()
+        .layout;
+
+        assert_eq!(
+            result["children"][0], "99",
+            "expected the text child '99' from helper.jsx via index.jsx, got: {:?}",
             result
         );
         let _ = std::fs::remove_dir_all(&dir);

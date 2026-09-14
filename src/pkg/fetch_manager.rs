@@ -51,6 +51,16 @@ impl InFlight {
 pub struct FetchManager {
     in_flight: InFlight,
     reload_tx: mpsc::Sender<()>,
+    /// Serializes `record_new_pin` writes. Two sibling `@gh/...` imports in the
+    /// same layout file, both cold in the same module-link pass, are two
+    /// distinct `FetchKey`s (different `owner`/`repo`) and so are never deduped
+    /// against each other by `in_flight` — but they write the *same* Lockfile
+    /// file, and an unsynchronized read-modify-write from both threads could
+    /// silently drop one pin. This lock is only about that same-process,
+    /// same-file race; a second `tauler` process (or `pkg update` running
+    /// concurrently) writing the same Lockfile is the different, cross-process
+    /// case ADR 0041 already names as an accepted limitation.
+    lockfile_writes: Arc<Mutex<()>>,
 }
 
 impl FetchManager {
@@ -58,6 +68,7 @@ impl FetchManager {
         Self {
             in_flight: InFlight::new(),
             reload_tx,
+            lockfile_writes: Arc::new(Mutex::new(())),
         }
     }
 
@@ -142,22 +153,34 @@ impl FetchManager {
         }
         let in_flight = self.in_flight.clone();
         let reload_tx = self.reload_tx.clone();
+        let lockfile_writes = Arc::clone(&self.lockfile_writes);
         std::thread::spawn(move || {
             match fetch_head_and_place(&remote, &owner, &repo, &cache_root) {
-                Ok((sha, ..)) => match record_new_pin(&lockfile_path, &owner, &repo, &sha) {
-                    Ok(()) => {
-                        tracing::info!(
-                            owner,
-                            repo,
-                            commit = sha,
-                            "package pinned for the first time"
-                        );
-                        let _ = reload_tx.send(());
+                Ok((sha, ..)) => {
+                    let pin_result = {
+                        let _guard = lockfile_writes.lock().unwrap();
+                        record_new_pin(&lockfile_path, &owner, &repo, &sha)
+                    };
+                    match pin_result {
+                        Ok(()) => {
+                            tracing::info!(
+                                owner,
+                                repo,
+                                commit = sha,
+                                "package pinned for the first time"
+                            );
+                            let _ = reload_tx.send(());
+                        }
+                        Err(e) => {
+                            tracing::error!(
+                                owner,
+                                repo,
+                                error = %e,
+                                "failed to write new lockfile entry"
+                            );
+                        }
                     }
-                    Err(e) => {
-                        tracing::error!(owner, repo, error = %e, "failed to write new lockfile entry");
-                    }
-                },
+                }
                 Err(e) => {
                     tracing::error!(owner, repo, error = %e, "first-time package fetch failed");
                 }
@@ -168,9 +191,12 @@ impl FetchManager {
 }
 
 /// Reads the Lockfile at `lockfile_path` (or starts a fresh one if it doesn't
-/// exist yet), pins `owner/repo` to `sha`, and writes it back. Not a merge
-/// against concurrent writers — see ADR 0041's cache hygiene section on why that
-/// is an accepted, named limitation rather than something this issue asks for.
+/// exist yet), pins `owner/repo` to `sha`, and writes it back. Callers within
+/// this process serialize through `FetchManager::lockfile_writes`; a second
+/// `tauler` process (or `pkg update`) writing the same file concurrently is
+/// still unsynchronized — see ADR 0041's cache hygiene section on why that
+/// cross-process case is an accepted, named limitation rather than something
+/// this issue asks for.
 fn record_new_pin(lockfile_path: &Path, owner: &str, repo: &str, sha: &str) -> std::io::Result<()> {
     let mut lockfile = Lockfile::load_from_path(lockfile_path)
         .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
@@ -397,5 +423,79 @@ mod tests {
             .expect("first wake");
         rx.recv_timeout(Duration::from_secs(10))
             .expect("second wake");
+    }
+
+    /// Found by review: two *different* Packages discovered cold in the same
+    /// module-link pass (two sibling `@gh/...` imports, both new) are two
+    /// distinct `FetchKey`s, so `in_flight` never deduped them against each
+    /// other — but both threads read-modify-write the *same* Lockfile file.
+    /// Without `lockfile_writes` serializing that critical section, a losing
+    /// thread's read (taken before the winning thread's write landed) could
+    /// silently drop the winner's pin. This can't be forced deterministically
+    /// without flake-prone timing tricks, so what's asserted is the one thing
+    /// that has to hold regardless of interleaving now that writes are
+    /// serialized: both pins end up in the final Lockfile, not just one.
+    #[test]
+    fn two_concurrent_first_fetches_for_different_packages_both_end_up_pinned() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let (repo_a, sha_a) = fixture_repo(dir.path());
+        // A second, distinct fixture repo — `fixture_repo` always names its
+        // directory `fixture-repo`, so build the second one by hand under a
+        // different parent.
+        let other_dir = dir.path().join("other");
+        std::fs::create_dir_all(&other_dir).expect("create other dir");
+        let (repo_b, sha_b) = fixture_repo(&other_dir);
+
+        let (tx, rx) = mpsc::channel();
+        let manager = Arc::new(FetchManager::new(tx));
+        let cache_root = dir.path().join("cache");
+        let lockfile_path = dir.path().join("tauler-pkg.lock");
+
+        let m1 = Arc::clone(&manager);
+        let lockfile_path_1 = lockfile_path.clone();
+        let cache_root_1 = cache_root.clone();
+        let repo_a_str = repo_a.to_string_lossy().into_owned();
+        let t1 = std::thread::spawn(move || {
+            m1.request_first_fetch(
+                "pkg".to_string(),
+                "a".to_string(),
+                repo_a_str,
+                cache_root_1,
+                lockfile_path_1,
+            );
+        });
+
+        let m2 = Arc::clone(&manager);
+        let repo_b_str = repo_b.to_string_lossy().into_owned();
+        let t2 = std::thread::spawn(move || {
+            m2.request_first_fetch(
+                "pkg".to_string(),
+                "b".to_string(),
+                repo_b_str,
+                cache_root,
+                lockfile_path.clone(),
+            );
+        });
+
+        t1.join().unwrap();
+        t2.join().unwrap();
+        rx.recv_timeout(Duration::from_secs(10))
+            .expect("first wake");
+        rx.recv_timeout(Duration::from_secs(10))
+            .expect("second wake");
+
+        let final_lockfile_path = dir.path().join("tauler-pkg.lock");
+        let lockfile = crate::pkg::lockfile::Lockfile::load_from_path(&final_lockfile_path)
+            .expect("lockfile should be readable");
+        assert_eq!(
+            lockfile.get("pkg", "a").map(|e| &e.commit),
+            Some(&sha_a),
+            "pkg/a's pin must not have been lost to the race"
+        );
+        assert_eq!(
+            lockfile.get("pkg", "b").map(|e| &e.commit),
+            Some(&sha_b),
+            "pkg/b's pin must not have been lost to the race"
+        );
     }
 }
