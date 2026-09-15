@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.1](https://github.com/kantord/tauler/compare/tauler-v0.5.0...tauler-v0.5.1) - 2026-09-15
+
+### Fixed
+
+- specify js exception on stderr ([#571](https://github.com/kantord/tauler/pull/571))
+
 ## [0.5.0](https://github.com/kantord/tauler/compare/tauler-v0.4.1...tauler-v0.5.0) - 2026-09-14
 
 ### Added
