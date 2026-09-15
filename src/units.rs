@@ -141,9 +141,12 @@ pub fn sweep(
     evaluator: &JsxEvaluator,
     stream_values: &HashMap<(String, Option<String>), String>,
 ) -> SweepReport {
-    let Ok(batches) = evaluator.eval_units(stream_values) else {
-        tracing::error!("the reconciler runtime failed to evaluate the layout file");
-        return SweepReport::default();
+    let batches = match evaluator.eval_units(stream_values) {
+        Ok(batches) => batches,
+        Err(e) => {
+            tracing::error!(error = %e, "the reconciler runtime failed to evaluate the layout file");
+            return SweepReport::default();
+        }
     };
     if batches.is_empty() {
         return SweepReport {
@@ -333,7 +336,7 @@ impl Reconciler {
                 let evaluator = match evaluator {
                     Ok(e) => e,
                     Err(e) => {
-                        tracing::error!(error = ?e, "the reconciler runtime failed to start");
+                        tracing::error!(error = %e, "the reconciler runtime failed to start");
                         return;
                     }
                 };
