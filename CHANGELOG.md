@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.2](https://github.com/kantord/tauler/compare/tauler-v0.5.1...tauler-v0.5.2) - 2026-09-15
+
+### Added
+
+- add HOME const ([#573](https://github.com/kantord/tauler/pull/573))
+
 ## [0.5.1](https://github.com/kantord/tauler/compare/tauler-v0.5.0...tauler-v0.5.1) - 2026-09-15
 
 ### Fixed
