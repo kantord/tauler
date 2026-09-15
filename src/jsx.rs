@@ -805,6 +805,16 @@ impl JsxEvaluator {
                         .map_err(|_| rquickjs::Error::Unknown)?;
                     qjs_ctx.globals().set("ctx", js_ctx)?;
                 }
+                // A captured constant, not a live env read — safe in the render
+                // runtime the same way `ctx` already is. Lets `ConfigFile`
+                // (tauler-core/src/globals.rs) expand a leading `~/` in `path`
+                // the same way `crate::config::expand_tilde` already does for
+                // `theme.file`, `fonts.extra` and a Module's `bin` — a layout
+                // author writes a path the way they'd write it in a shell,
+                // never a hardcoded `/home/<user>/...`.
+                qjs_ctx
+                    .globals()
+                    .set("HOME", std::env::var("HOME").unwrap_or_default())?;
 
                 // Installed once, before the layout file can run: the collector and
                 // the hook dispatcher are the only JavaScript tauler adds to a
@@ -1173,6 +1183,34 @@ mod tests {
         .unwrap()
         .layout;
         assert_eq!(result["children"][0], "function");
+    }
+
+    /// `HOME` is a captured constant available in both runtimes, unlike `sh` —
+    /// so a layout can write a portable `~/...` path (via `ConfigFile`,
+    /// tauler-core/src/globals.rs) even in the render runtime, which never
+    /// touches the world otherwise.
+    #[test]
+    fn home_is_available_in_both_runtimes() {
+        let _guard = crate::config::HOME_ENV_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        unsafe { std::env::set_var("HOME", "/home/someone") };
+
+        let render_result =
+            eval(r#"export default function render() { return <root>{HOME}</root>; }"#).layout;
+        assert_eq!(render_result["children"][0], "/home/someone");
+
+        let reconciler_result = JsxEvaluator::new_reconciler(
+            r#"export default function render() { return <root>{HOME}</root>; }"#,
+            serde_json::Value::Null,
+            None,
+            Default::default(),
+        )
+        .unwrap()
+        .eval(&std::collections::HashMap::new())
+        .unwrap()
+        .layout;
+        assert_eq!(reconciler_result["children"][0], "/home/someone");
     }
 
     /// And it really runs: `typeof sh` only proves a binding exists, not that the

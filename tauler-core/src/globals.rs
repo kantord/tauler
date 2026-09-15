@@ -278,6 +278,12 @@ pub const JSX_GLOBALS_JS: &str = r#"
     // there is no signal to add here without a deeper change to how the
     // reconciler tracks unit types across Sweeps, which this is not.
     globalThis.ConfigFile = ({ path, render, apply, mode }) => {
+        // A path is config, and config gets to be written the way a person
+        // writes it in a shell — the same convention `expand_tilde` already
+        // gives `theme.file`, `fonts.extra` and a Module's `bin`
+        // (`src/config.rs`). `HOME` is a captured constant, not a live read,
+        // so this costs nothing beyond a string check.
+        if (path.startsWith('~/')) path = HOME + path.slice(1);
         const appliedMarker = `${path}.applied`;
         function write() {
             const rendered = render();

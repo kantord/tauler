@@ -1445,6 +1445,36 @@ mod tests {
         assert_eq!(std::fs::read_to_string(&target).unwrap(), "hello");
     }
 
+    /// A `~/`-prefixed `path` must land under the real home directory, the
+    /// same convention `expand_tilde` already gives `theme.file`, `fonts.extra`
+    /// and a Module's `bin` (`src/config.rs`) — a shared component (like
+    /// `dotfiles-tauler`'s `KittyConfig`) can write `path: "~/.config/..."`
+    /// instead of hardcoding a specific user's home directory.
+    #[test]
+    fn config_file_expands_a_leading_tilde_in_path() {
+        let _guard = crate::config::HOME_ENV_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let dir = tempfile::tempdir().unwrap();
+        unsafe { std::env::set_var("HOME", dir.path()) };
+
+        let source = r#"
+            const Theme = ConfigFile({ path: "~/theme.conf", render: () => "hello" });
+            export default function render() {
+              return <root><Theme /></root>;
+            }"#;
+        let evaluator =
+            JsxEvaluator::new_reconciler(source, serde_json::Value::Null, None, Default::default())
+                .unwrap();
+
+        let report = crate::units::sweep(&evaluator, &HashMap::new());
+        assert_eq!(report.entered, 1, "got: {report:?}");
+        assert_eq!(
+            std::fs::read_to_string(dir.path().join("theme.conf")).unwrap(),
+            "hello"
+        );
+    }
+
     /// The write must go through a temp-file-then-`mv` (`rename(2)` is atomic;
     /// `printf > path` in place is not — a reader can observe a partial write
     /// mid-truncate). Proven two ways: the final content is correct, and no
