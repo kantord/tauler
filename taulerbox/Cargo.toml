@@ -40,14 +40,18 @@ softbuffer = "0.4.8"
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 # `--vnc HOST:PORT` (main.rs): connects to a compartment's wayvnc server and
-# composites one live framebuffer into the window, proving the panel and the
-# nested desktop can render together. vnc-rs's crate name is `vnc-rs`, but the
-# library itself is `vnc` (see its `[lib] name = "vnc"`), so call sites use
-# `vnc::...`. It's built on tokio; taulerbox stays a synchronous program
-# otherwise and only spins up a `tokio::runtime::Runtime` for this one
-# connect-and-grab-a-frame step (see `fetch_one_vnc_frame` in main.rs).
+# keeps a persistent, continuously-updating connection composited into the
+# window (`spawn_vnc_worker`), also forwarding host pointer events into it.
+# vnc-rs's crate name is `vnc-rs`, but the library itself is `vnc` (see its
+# `[lib] name = "vnc"`), so call sites use `vnc::...`. It's built on tokio;
+# taulerbox stays a synchronous program otherwise and only spins up a
+# `tokio::runtime::Runtime` on the one dedicated worker thread that owns the
+# VNC connection for the program's life.
 vnc-rs = "0.5.3"
-tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "time"] }
+# "sync" is for `tokio::sync::mpsc` (the window-thread -> VNC-worker command
+# channel; see `spawn_vnc_worker`'s doc comment for why that side needs an
+# async-`recv`-able channel rather than a plain `std::sync::mpsc`).
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "time", "sync"] }
 
 [dev-dependencies]
 rstest = "0.27.0"
