@@ -316,10 +316,21 @@ fn fetch_one_vnc_frame(addr: &str) -> anyhow::Result<VncFrame> {
     })
 }
 
-/// Nearest-neighbor-scales `frame` into `dest_x, dest_y, dest_width,
-/// dest_height` within `framebuffer` (a `width * height` `0RGB` buffer, same
-/// convention as `render_framebuffer`'s output). No alpha blending: VNC
-/// framebuffers are opaque, so the destination pixel is simply overwritten.
+/// Nearest-neighbor-scales `frame` into the `dest_width * dest_height` box at
+/// `dest_x, dest_y` within `framebuffer` (a `width * height` `0RGB` buffer,
+/// same convention as `render_framebuffer`'s output), preserving `frame`'s
+/// own aspect ratio rather than stretching it to fill the box.
+///
+/// A VNC source (commonly 16:9, e.g. Sway's default headless output) and a
+/// destination box chosen for the window's layout are two independent
+/// aspect ratios with no reason to match — stretching one onto the other
+/// unconditionally produced a visibly squished picture (issue #582). The
+/// fitted rect is centered in the box; any leftover strip (top/bottom or
+/// left/right) is left untouched, which is the framebuffer's existing
+/// background color, not explicitly painted here.
+///
+/// No alpha blending: VNC framebuffers are opaque, so the destination pixel
+/// is simply overwritten.
 fn blit_vnc_frame(
     framebuffer: &mut [u32],
     fb_width: u32,
@@ -334,20 +345,31 @@ fn blit_vnc_frame(
         return;
     }
 
-    for row in 0..dest_height {
-        let dst_y = dest_y + row;
+    // The largest rect that fits inside dest_width x dest_height while
+    // keeping frame's own aspect ratio, then centered within that box.
+    let scale = (dest_width as f64 / frame.width as f64)
+        .min(dest_height as f64 / frame.height as f64);
+    let fit_width = ((frame.width as f64 * scale).round() as u32).max(1);
+    let fit_height = ((frame.height as f64 * scale).round() as u32).max(1);
+    let offset_x = (dest_width - fit_width) / 2;
+    let offset_y = (dest_height - fit_height) / 2;
+    let fit_x = dest_x + offset_x;
+    let fit_y = dest_y + offset_y;
+
+    for row in 0..fit_height {
+        let dst_y = fit_y + row;
         if dst_y >= fb_height {
             continue;
         }
-        let src_y = ((row as u64 * frame.height as u64) / dest_height as u64) as u32;
+        let src_y = ((row as u64 * frame.height as u64) / fit_height as u64) as u32;
         let src_y = src_y.min(frame.height - 1);
 
-        for col in 0..dest_width {
-            let dst_x = dest_x + col;
+        for col in 0..fit_width {
+            let dst_x = fit_x + col;
             if dst_x >= fb_width {
                 continue;
             }
-            let src_x = ((col as u64 * frame.width as u64) / dest_width as u64) as u32;
+            let src_x = ((col as u64 * frame.width as u64) / fit_width as u64) as u32;
             let src_x = src_x.min(frame.width - 1);
 
             let src_idx = ((src_y * frame.width + src_x) * 4) as usize;
