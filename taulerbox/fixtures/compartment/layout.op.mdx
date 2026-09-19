@@ -1,0 +1,112 @@
+---
+theme:
+  mode: dark
+---
+// Fixture proving the Units reconciler is wired into taulerbox end to end
+// (issue #582): a real `<Compartment>` Item, backed by real `msb`
+// commands, alongside the same trivial panel `fixtures/hello` uses so the
+// window still shows something.
+//
+// `Compartment` is defined here, at this file's own module scope, rather
+// than added to tauler-core's shared globals — native tauler must never gain
+// sandboxing features, so this stays local to taulerbox's own fixtures. A
+// layout file's top-level statements run once per evaluation, the same as
+// any other module-scope code, so a plain `globalThis.Compartment = (...) =>
+// {...}` assignment here is enough; no import or separate file is needed.
+//
+// Shaped after `tauler-core/src/globals.rs`'s `ConfigFile`: a factory
+// function closing over its own call args and returning a `unit()`
+// descriptor. `observe` reads `msb list --format json`; `enterOne` runs
+// `msb create`. There is deliberately no `updateOne` or `exitOne` — a
+// Compartment's identity never changes once created, and removing this
+// element from a layout must never destroy the VM.
+//
+// One deviation from a literal `<Compartment name=... image=... />`
+// self-closing tag, found empirically (see PR notes): `collect_units`
+// (src/jsx.rs) only recognizes a Unit Item when the JSX tag itself
+// evaluates to the `unit()`-produced descriptor object — the shape a plain
+// `const Light = unit({...}); <Light .../>` has. A *factory* used directly
+// as a JSX tag (`<Compartment name=.../>`) compiles to `h(Compartment,
+// props)`; because `Compartment` is a function, `h`'s "component" branch
+// calls it immediately and splices its return value into the tree
+// *unwrapped* (no `{type, props, children}` envelope) — exactly like a
+// component that returns another element would. That leaves the returned
+// `unit()` descriptor sitting bare in the tree with no `.type` field of its
+// own, which `collect_units`'s walk (`node.type.__estoKind`) never matches,
+// so it silently reconciles nothing. Confirmed by evaluating this exact
+// shape through `JsxEvaluator::eval_units` and observing an empty batch
+// list, then confirming a fix.
+//
+// The fix: call the factory once, at module scope (not inside JSX), and
+// bind the resulting descriptor to its own capitalized identifier. JSX
+// treats any capitalized tag as an identifier reference regardless of
+// whether it holds a function or a plain object, so `<TaulerboxVerifyCompartment
+// />` compiles to `h(TaulerboxVerifyCompartment, {})` — and since that
+// identifier is now the plain `unit()` descriptor object (not a function),
+// `h` takes its generic passthrough branch and wraps it as
+// `{type: TaulerboxVerifyCompartment, props: {}, children: []}`, which
+// `collect_units` does recognize.
+globalThis.Compartment = ({ name, image, home }) => {
+  function listRunning() {
+    const out = sh`msb list --format json 2>/dev/null || echo '[]'`;
+    try {
+      const parsed = JSON.parse(out);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch (e) {
+      return [];
+    }
+  }
+  function isRunning() {
+    return listRunning().some((sb) => sb.name === name && sb.status === "Running");
+  }
+  function create() {
+    // `msb create` boots detached by default in the installed `msb` 0.6.17 —
+    // it has no `-d`/`--detach` flag at all ("Create a sandbox and boot it
+    // in the background" per `msb create --help`); passing `-d` is a hard
+    // CLI error ("unexpected argument '-d' found"), confirmed by an actual
+    // failed run of this fixture.
+    if (home) {
+      sh`msb create --name ${name} -v ${home}:/root ${image}`;
+    } else {
+      sh`msb create --name ${name} ${image}`;
+    }
+  }
+  return unit({
+    key: () => name,
+    value: (f) => ("running" in f ? f : { running: false }),
+    reconciler: optativeSet({
+      observe: () => (isRunning() ? [{ running: true }] : []),
+    }),
+    enterOne: create,
+  });
+};
+
+const TaulerboxVerifyCompartment = Compartment({
+  name: "taulerbox-verify-582",
+  image: "debian",
+  home: null,
+});
+
+export default function render() {
+  return (
+    <root>
+      <panel id="hello" anchor="left" width={300} height={200}>
+        <div
+          class="text-foreground"
+          style={{
+            width: "100%",
+            height: "100%",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            fontSize: "24px",
+            backgroundColor: "#2563eb",
+          }}
+        >
+          hello taulerbox
+        </div>
+      </panel>
+      <TaulerboxVerifyCompartment />
+    </root>
+  );
+}

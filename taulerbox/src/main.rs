@@ -10,7 +10,7 @@
 use std::collections::HashMap;
 use std::num::NonZeroU32;
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 
 use clap::Parser;
 use taulerbox::compose::place;
@@ -209,6 +209,12 @@ impl ApplicationHandler for App {
 }
 
 fn main() -> anyhow::Result<()> {
+    tracing_subscriber::fmt()
+        .with_env_filter(
+            tracing_subscriber::EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")),
+        )
+        .init();
     let args = Args::parse();
 
     anyhow::ensure!(
@@ -234,7 +240,23 @@ fn main() -> anyhow::Result<()> {
         "screen_height": WINDOW_HEIGHT,
     });
     let base_dir = args.layout.parent().unwrap();
-    let evaluator = tauler::jsx::JsxEvaluator::new(&loaded.js_source, ctx_json, Some(base_dir))?;
+    let evaluator =
+        tauler::jsx::JsxEvaluator::new(&loaded.js_source, ctx_json.clone(), Some(base_dir))?;
+
+    // The reconciler runtime: its own thread, its own QuickJS runtime, sweeping
+    // forever for as long as this binding lives. `stream_values` starts empty —
+    // taulerbox has no live Streams yet — and `pkg_ctx` is `None`, same as every
+    // other call site that hasn't opted into `@gh/...` Package imports.
+    let stream_values: tauler::units::SharedStreamValues = Arc::new(RwLock::new(HashMap::new()));
+    let _reconciler = tauler::units::Reconciler::spawn(
+        loaded.js_source.clone(),
+        ctx_json,
+        Some(base_dir.to_path_buf()),
+        stream_values,
+        evaluator.globals_handle(),
+        None,
+    );
+
     let eval_output = evaluator.eval(&HashMap::new())?;
     let specs = tauler::parse_root_node(&eval_output.layout).map_err(|e| anyhow::anyhow!(e))?;
 

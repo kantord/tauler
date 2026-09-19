@@ -32,6 +32,13 @@ anyhow = "1.0.104"
 # plain dependencies here. Same version pins as the root crate's macOS target.
 winit = "0.30.13"
 softbuffer = "0.4.8"
+# So a reconciler-thread failure (a Unit's hook throwing, the reconciler
+# runtime failing to start) is visible somewhere: `tauler::units::Reconciler`
+# only ever reports through `tracing`, and with no subscriber installed those
+# calls go nowhere. Same crates and default filter as the root `tauler`
+# binary (`src/main.rs`).
+tracing = "0.1.44"
+tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 
 [dev-dependencies]
 rstest = "0.27.0"
