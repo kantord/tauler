@@ -2,43 +2,58 @@
 // window loop live here; layout placement math lives in `compose`, where it
 // can be tested without a display server.
 //
-// This first version is a static single render: the layout is evaluated
-// once (no live streams, no hot reload), each visible `Panel` is rasterized
-// once, and the result is blitted into a fixed-size window that stays open
-// until closed. See issue #582.
-
+// The window is resizable (issue #582). A resize has two independent
+// reactions, one instant and one debounced:
+//
+//   1. Panel placement is pure arithmetic over already-rasterized pixels
+//      (`compose::place` + a cached RGBA buffer per panel), so it is redone
+//      on every single `WindowEvent::Resized` with no debounce — there is no
+//      subprocess round trip to protect against.
+//   2. The compartment's nested Sway desktop is a live VM: telling it to
+//      change its own output resolution and pulling a fresh VNC frame is a
+//      slow `msb exec` + TCP round trip. Doing that on every resize event
+//      fired mid-drag would be far too slow, so it is debounced — run only
+//      once resizing has settled for ~300ms (see `pending_resize` on
+//      [`App`]). Until the debounced step completes, the stale VNC frame is
+//      immediately re-fit (aspect-preserved, no stretch) into the new
+//      destination rect, so the window never looks frozen mid-drag.
 use std::collections::HashMap;
 use std::num::NonZeroU32;
 use std::path::PathBuf;
+use std::process::Command;
 use std::sync::{Arc, RwLock};
 use std::time::{Duration, Instant};
 
 use clap::Parser;
-use taulerbox::compose::place;
+use taulerbox::compose::{place, PlacedPanel};
 use winit::application::ApplicationHandler;
 use winit::dpi::PhysicalSize;
 use winit::event::WindowEvent;
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
 use winit::window::{Window, WindowId};
 
-/// taulerbox has no real monitor and does not resize: the window is exactly
-/// this big, in physical pixels. Enlarged from the original 400x300 (sized
-/// only for the `hello`/`compartment` fixtures' single 300x200 panel) to
-/// leave room for a compartment's composited VNC view alongside the panel
-/// (see `VNC_DEST_*` below and `--vnc` in [`Args`]).
-const WINDOW_WIDTH: u32 = 900;
-const WINDOW_HEIGHT: u32 = 700;
+/// The window's size when first created. Purely a starting point now that
+/// the window is resizable — [`App::width`]/[`App::height`] track the live
+/// size after that. Chosen the same way the old fixed size was: big enough
+/// to show the `hello`/`compartment` fixtures' 300x200 panel alongside a
+/// compartment's composited VNC view (see [`vnc_dest_rect`]).
+const INITIAL_WINDOW_WIDTH: u32 = 900;
+const INITIAL_WINDOW_HEIGHT: u32 = 700;
 
-/// Hardcoded destination rect for the compartment's composited VNC frame,
-/// to the right of the `hello`/`compartment` fixtures' left-anchored 300px
-/// panel. Deliberately not derived from the layout file: declaring a
-/// compartment's on-screen position from layout is future scope (issue
-/// #582's task notes), this task only proves one frame can be pulled from a
-/// live VNC session and blitted in next to the panel.
-const VNC_DEST_X: u32 = 340;
-const VNC_DEST_Y: u32 = 40;
-const VNC_DEST_WIDTH: u32 = 520;
-const VNC_DEST_HEIGHT: u32 = 620;
+/// How long to wait, after the last `WindowEvent::Resized`, before treating
+/// a resize as "settled" and running the slow compartment-resize step (see
+/// module docs above and [`App::pending_resize`]).
+const RESIZE_DEBOUNCE: Duration = Duration::from_millis(300);
+
+/// Fixed gap, in pixels, used to derive the compartment's VNC destination
+/// rect from the current window size and the width of whatever panel is
+/// flush against the window's left edge (see [`vnc_dest_rect`]). Reverse-
+/// engineered from the fixture's original hardcoded rect: a 900x700 window
+/// with a 300px-wide left panel produced a 520x620 dest rect at (340, 40) —
+/// i.e. `dest_x = panel_width + MARGIN`, `dest_y = MARGIN`,
+/// `dest_width = window_width - dest_x - MARGIN`,
+/// `dest_height = window_height - 2*MARGIN`, all with `MARGIN = 40`.
+const VNC_DEST_MARGIN: u32 = 40;
 
 /// A native window that shows a tauler layout's Panels as pixel buffers,
 /// alongside a microVM compartment.
@@ -53,12 +68,21 @@ struct Args {
     home: PathBuf,
 
     /// `HOST:PORT` of a live VNC server (e.g. a compartment's wayvnc) to
-    /// connect to and pull exactly one frame from, composited into a
-    /// hardcoded rect (`VNC_DEST_*`) alongside the panel. Optional: when
-    /// absent, taulerbox behaves exactly as it does without this flag. Not a
-    /// continuously-updating stream yet — see issue #582's task notes.
+    /// connect to and composite into the window next to the panel (see
+    /// [`vnc_dest_rect`]). Optional: when absent, taulerbox behaves exactly
+    /// as it does without this flag.
     #[arg(long)]
     vnc: Option<String>,
+
+    /// Name of the `msb` sandbox to resize on the compartment's side of a
+    /// window resize (`swaymsg output <output> resolution <w>x<h>` run via
+    /// `msb exec`). Only meaningful together with `--vnc`; without it, a
+    /// resize still repositions panels and re-fits the existing VNC frame
+    /// into the new destination rect, it just cannot make Sway itself
+    /// change resolution. The `compartment` fixture's sandbox is named
+    /// `taulerbox-verify-582` (see `fixtures/compartment/layout.op.mdx`).
+    #[arg(long)]
+    compartment_name: Option<String>,
 }
 
 /// Alpha-composites one RGBA pixel over an opaque `0RGB` background pixel and
@@ -81,59 +105,109 @@ fn composite_over(bg: u32, r: u8, g: u8, b: u8, a: u8) -> u32 {
     (out_r << 16) | (out_g << 8) | out_b
 }
 
-/// Renders every visible panel and blits it into a `width * height` `0RGB`
-/// framebuffer, ready to hand straight to a softbuffer surface of the same
-/// size.
-fn render_framebuffer(
-    specs: &[tauler::layout::SurfaceSpec],
+/// One panel's rasterized content, cached by id after the first (and only)
+/// render. A panel's own pixel size depends only on its `SurfaceSpec`
+/// (width/height/dpr), never on the window size, so a resize never needs to
+/// re-rasterize this — only recompute where it goes (`compose::place`).
+struct PanelPixels {
     width: u32,
     height: u32,
+    rgba: Arc<Vec<u8>>,
+}
+
+/// Rasterizes every `Panel` spec exactly once, keyed by id, at its own
+/// native physical size (independent of window size).
+fn rasterize_panels(specs: &[tauler::layout::SurfaceSpec]) -> HashMap<String, PanelPixels> {
+    specs
+        .iter()
+        .filter(|spec| spec.kind == tauler::layout::SurfaceKind::Panel)
+        .map(|spec| {
+            let width = (spec.width as f32 * spec.dpr).round().max(1.0) as u32;
+            let height = (spec.height as f32 * spec.dpr).round().max(1.0) as u32;
+            let rgba = tauler::render_frame_rgba(&spec.content, width, height, spec.dpr, None);
+            (spec.id.clone(), PanelPixels { width, height, rgba })
+        })
+        .collect()
+}
+
+/// Blits one cached panel's pixels into `framebuffer` (a `width * height`
+/// `0RGB` buffer) at `(dest_x, dest_y)`. Any part of the panel that falls
+/// outside the framebuffer is simply skipped — this is what makes it safe to
+/// always blit a panel's full native size even when `compose::place` has
+/// clamped its visible rect to a smaller area near the window's far edge.
+fn blit_panel(framebuffer: &mut [u32], fb_width: u32, fb_height: u32, pixels: &PanelPixels, dest_x: i32, dest_y: i32) {
+    const BACKGROUND: u32 = 0x0000_0000;
+    for row in 0..pixels.height {
+        let dst_y = dest_y + row as i32;
+        if dst_y < 0 || dst_y >= fb_height as i32 {
+            continue;
+        }
+        for col in 0..pixels.width {
+            let dst_x = dest_x + col as i32;
+            if dst_x < 0 || dst_x >= fb_width as i32 {
+                continue;
+            }
+            let src_idx = ((row * pixels.width + col) as usize) * 4;
+            let Some(px) = pixels.rgba.get(src_idx..src_idx + 4) else {
+                continue;
+            };
+            let (r, g, b, a) = (px[0], px[1], px[2], px[3]);
+            let dest_idx = (dst_y as usize) * (fb_width as usize) + dst_x as usize;
+            if let Some(dest) = framebuffer.get_mut(dest_idx) {
+                *dest = composite_over(BACKGROUND, r, g, b, a);
+            }
+        }
+    }
+}
+
+/// Where the compartment's composited VNC frame goes: to the right of
+/// whichever panel is flush against the window's left edge, with a fixed
+/// margin on every other side (see [`VNC_DEST_MARGIN`]).
+fn vnc_dest_rect(window_width: u32, window_height: u32, placements: &[PlacedPanel]) -> (u32, u32, u32, u32) {
+    let left_panel_width = placements
+        .iter()
+        .filter(|p| p.visible && p.x == 0)
+        .map(|p| p.width)
+        .max()
+        .unwrap_or(0);
+
+    let dest_x = left_panel_width + VNC_DEST_MARGIN;
+    let dest_y = VNC_DEST_MARGIN;
+    let dest_width = window_width.saturating_sub(dest_x + VNC_DEST_MARGIN);
+    let dest_height = window_height.saturating_sub(2 * VNC_DEST_MARGIN);
+    (dest_x, dest_y, dest_width, dest_height)
+}
+
+/// Builds a fresh `width * height` `0RGB` framebuffer from already-rendered
+/// pieces: recomputes panel placement against the current window size and
+/// re-blits each panel's cached pixels, then (if a VNC frame is available)
+/// aspect-fits it into the current [`vnc_dest_rect`]. Cheap enough to call on
+/// every `WindowEvent::Resized` — no rasterization happens here, only
+/// arithmetic and pixel copies.
+fn build_framebuffer(
+    specs: &[tauler::layout::SurfaceSpec],
+    panel_pixels: &HashMap<String, PanelPixels>,
+    width: u32,
+    height: u32,
+    vnc_frame: Option<&VncFrame>,
 ) -> Vec<u32> {
     const BACKGROUND: u32 = 0x0000_0000;
     let mut framebuffer = vec![BACKGROUND; (width as usize) * (height as usize)];
 
-    let panel_specs: HashMap<&str, &tauler::layout::SurfaceSpec> = specs
-        .iter()
-        .filter(|spec| spec.kind == tauler::layout::SurfaceKind::Panel)
-        .map(|spec| (spec.id.as_str(), spec))
-        .collect();
-
     let placements = place(specs, (width, height));
-
     for placement in &placements {
         if !placement.visible {
             continue;
         }
-        let Some(spec) = panel_specs.get(placement.id.as_str()) else {
+        let Some(pixels) = panel_pixels.get(&placement.id) else {
             continue;
         };
-        if placement.width == 0 || placement.height == 0 {
-            continue;
-        }
+        blit_panel(&mut framebuffer, width, height, pixels, placement.x, placement.y);
+    }
 
-        let rgba = tauler::render_frame_rgba(&spec.content, placement.width, placement.height, spec.dpr, None);
-
-        for row in 0..placement.height {
-            let dest_y = placement.y + row as i32;
-            if dest_y < 0 || dest_y >= height as i32 {
-                continue;
-            }
-            for col in 0..placement.width {
-                let dest_x = placement.x + col as i32;
-                if dest_x < 0 || dest_x >= width as i32 {
-                    continue;
-                }
-                let src_idx = ((row * placement.width + col) as usize) * 4;
-                let Some(px) = rgba.get(src_idx..src_idx + 4) else {
-                    continue;
-                };
-                let (r, g, b, a) = (px[0], px[1], px[2], px[3]);
-                let dest_idx = (dest_y as usize) * (width as usize) + dest_x as usize;
-                if let Some(dest) = framebuffer.get_mut(dest_idx) {
-                    *dest = composite_over(BACKGROUND, r, g, b, a);
-                }
-            }
-        }
+    if let Some(frame) = vnc_frame {
+        let (dest_x, dest_y, dest_width, dest_height) = vnc_dest_rect(width, height, &placements);
+        blit_vnc_frame(&mut framebuffer, width, height, frame, dest_x, dest_y, dest_width, dest_height);
     }
 
     framebuffer
@@ -207,6 +281,17 @@ async fn try_connect_vnc_once(addr: &str) -> anyhow::Result<vnc::VncClient> {
     vnc::VncConnector::new(tcp)
         .set_auth_method(async move { Ok(String::new()) })
         .add_encoding(vnc::VncEncoding::Raw)
+        // Without this, wayvnc kills the connection (and, observed live,
+        // the whole wayvnc process) the moment the compositor's output
+        // resolution changes underneath an already-connected client that
+        // never declared it can handle a resize — exactly what happens
+        // here every debounced resize (`set_sway_output_resolution` runs,
+        // then this client reconnects to fetch a fresh frame while Sway is
+        // still applying the new mode). Advertising this pseudo-encoding is
+        // enough: `vnc-rs` translates a resize notification using it
+        // straight into the `VncEvent::SetResolution` `grab_one_frame`
+        // already handles, no extra decoding logic needed.
+        .add_encoding(vnc::VncEncoding::DesktopSizePseudo)
         .allow_shared(true)
         // Requests pixel data as [r, g, b, a] per pixel on the wire, so it
         // can be copied straight into `VncFrame::rgba` with no channel
@@ -306,8 +391,10 @@ async fn grab_one_frame(client: &vnc::VncClient) -> anyhow::Result<VncFrame> {
 
 /// Connects to `addr` (retrying while the compartment boots), grabs exactly
 /// one frame, then tears the connection down. Runs its own single-threaded
-/// async step inside an otherwise synchronous `main()`, per issue #582's
-/// task notes: taulerbox does not become an async program for this.
+/// async step inside an otherwise synchronous event loop, per issue #582's
+/// task notes: taulerbox does not become an async program for this. Called
+/// once at startup and again, synchronously, after each debounced resize
+/// settles.
 fn fetch_one_vnc_frame(addr: &str) -> anyhow::Result<VncFrame> {
     let runtime = tokio::runtime::Runtime::new()?;
     runtime.block_on(async {
@@ -318,7 +405,7 @@ fn fetch_one_vnc_frame(addr: &str) -> anyhow::Result<VncFrame> {
 
 /// Nearest-neighbor-scales `frame` into the `dest_width * dest_height` box at
 /// `dest_x, dest_y` within `framebuffer` (a `width * height` `0RGB` buffer,
-/// same convention as `render_framebuffer`'s output), preserving `frame`'s
+/// same convention as `build_framebuffer`'s output), preserving `frame`'s
 /// own aspect ratio rather than stretching it to fill the box.
 ///
 /// A VNC source (commonly 16:9, e.g. Sway's default headless output) and a
@@ -387,12 +474,87 @@ fn blit_vnc_frame(
     }
 }
 
-/// Owns the one window this build ever opens, and the static framebuffer it
-/// was told to show. `resumed` runs once, `RedrawRequested` re-presents the
-/// same framebuffer, and `CloseRequested` ends the event loop.
+/// Runs `bash -c script` inside the `msb` sandbox `name` and returns its
+/// stdout. Used for the two debounced-resize steps that need to reach into
+/// the compartment: discovering the real headless output name, and telling
+/// Sway to change its resolution (see [`discover_sway_output`] and
+/// [`set_sway_output_resolution`]).
+fn msb_exec(name: &str, script: &str) -> anyhow::Result<String> {
+    let output = Command::new("msb")
+        .args(["exec", name, "--no-tty", "--timeout", "20", "--", "bash", "-c", script])
+        .output()
+        .map_err(|e| anyhow::anyhow!("failed to spawn `msb exec {name}`: {e}"))?;
+    anyhow::ensure!(
+        output.status.success(),
+        "`msb exec {name}` failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    Ok(String::from_utf8_lossy(&output.stdout).into_owned())
+}
+
+/// A `swaymsg`-and-friends command line, run inside the compartment, that
+/// resolves `SWAYSOCK` itself first. Confirmed empirically: with only
+/// `XDG_RUNTIME_DIR`/`WAYLAND_DISPLAY` set, `swaymsg` in this headless setup
+/// fails with "Unable to retrieve socket path" — it does not glob
+/// `$XDG_RUNTIME_DIR` for the IPC socket the way a full session would, so
+/// `SWAYSOCK` has to be located and exported explicitly before calling it.
+fn swaymsg_script(command: &str) -> String {
+    format!(
+        "SWAYSOCK=$(ls /run/user/0/sway-ipc.*.sock | head -1); \
+         XDG_RUNTIME_DIR=/run/user/0 WAYLAND_DISPLAY=wayland-1 SWAYSOCK=$SWAYSOCK {command}"
+    )
+}
+
+/// Discovers the compartment's real headless Sway output name (e.g.
+/// `HEADLESS-1`) by asking Sway itself (`swaymsg -t get_outputs`) rather
+/// than assuming it — a name chosen by `wlroots` at runtime, not guaranteed
+/// stable across versions. Takes the first output reported; the fixture's
+/// headless backend only ever creates one.
+fn discover_sway_output(compartment_name: &str) -> anyhow::Result<String> {
+    let out = msb_exec(compartment_name, &swaymsg_script("swaymsg -t get_outputs"))?;
+    let outputs: serde_json::Value = serde_json::from_str(&out)
+        .map_err(|e| anyhow::anyhow!("could not parse `swaymsg -t get_outputs` output as JSON: {e} (output was: {out:?})"))?;
+    outputs
+        .as_array()
+        .and_then(|arr| arr.first())
+        .and_then(|o| o.get("name"))
+        .and_then(|n| n.as_str())
+        .map(|s| s.to_string())
+        .ok_or_else(|| anyhow::anyhow!("`swaymsg -t get_outputs` reported no outputs (output was: {out:?})"))
+}
+
+/// Runs `swaymsg output <output> resolution <width>x<height>` inside the
+/// compartment, changing Sway's own compositor output resolution — not just
+/// the client-side destination rect a VNC frame gets fit into.
+fn set_sway_output_resolution(compartment_name: &str, output: &str, width: u32, height: u32) -> anyhow::Result<()> {
+    msb_exec(compartment_name, &swaymsg_script(&format!("swaymsg output {output} resolution {width}x{height}")))?;
+    Ok(())
+}
+
+/// Owns the one window this build ever opens: the evaluated layout's specs,
+/// each panel's cached pixels, the current window size, the last VNC frame
+/// (if any), and enough state to run the debounced Sway-resize-and-refetch
+/// step (`vnc_addr`/`compartment_name`/`vnc_output_name`/`pending_resize`).
+/// See the module docs for the two-tier (instant reposition, debounced
+/// compartment resize) resize story.
 struct App {
     width: u32,
     height: u32,
+    specs: Vec<tauler::layout::SurfaceSpec>,
+    panel_pixels: HashMap<String, PanelPixels>,
+    vnc_addr: Option<String>,
+    compartment_name: Option<String>,
+    last_vnc_frame: Option<VncFrame>,
+    /// Cached after the first discovery — the headless output's name never
+    /// changes for the lifetime of the compartment, so there is no reason to
+    /// re-run `swaymsg -t get_outputs` on every resize.
+    vnc_output_name: Option<String>,
+    /// Set by a `WindowEvent::Resized` and cleared once the debounce window
+    /// (see `RESIZE_DEBOUNCE`) has elapsed with no further resize events —
+    /// at which point the settled size drives the slow compartment-resize
+    /// step. A later resize event simply overwrites this with a later
+    /// deadline, which is the entire debounce mechanism.
+    pending_resize: Option<Instant>,
     framebuffer: Vec<u32>,
     window: Option<Arc<Window>>,
     surface: Option<softbuffer::Surface<Arc<Window>, Arc<Window>>>,
@@ -416,6 +578,76 @@ impl App {
             Err(e) => eprintln!("taulerbox: buffer_mut failed: {e}"),
         }
     }
+
+    /// Recomputes the framebuffer from current state (window size, cached
+    /// panel pixels, last VNC frame) with no rasterization and no
+    /// subprocess calls — cheap enough to run on every resize event.
+    fn rebuild_framebuffer(&mut self) {
+        self.framebuffer = build_framebuffer(
+            &self.specs,
+            &self.panel_pixels,
+            self.width,
+            self.height,
+            self.last_vnc_frame.as_ref(),
+        );
+    }
+
+    /// The slow half of a resize: tell the compartment's Sway to actually
+    /// change its output resolution, then pull one fresh VNC frame at that
+    /// resolution. Runs only after a resize has settled (see
+    /// `pending_resize`). Best-effort: a failure here just leaves the
+    /// instantly-refit stale frame on screen, logged rather than fatal — the
+    /// same "must not stop the window from working" posture the initial
+    /// `--vnc` connection already has in `main()`.
+    fn handle_settled_resize(&mut self) {
+        let (Some(addr), Some(compartment_name)) = (self.vnc_addr.clone(), self.compartment_name.clone()) else {
+            return;
+        };
+
+        let placements = place(&self.specs, (self.width, self.height));
+        let (_, _, dest_width, dest_height) = vnc_dest_rect(self.width, self.height, &placements);
+        if dest_width == 0 || dest_height == 0 {
+            return;
+        }
+
+        if self.vnc_output_name.is_none() {
+            match discover_sway_output(&compartment_name) {
+                Ok(name) => {
+                    tracing::info!("taulerbox: discovered compartment output {name}");
+                    self.vnc_output_name = Some(name);
+                }
+                Err(e) => {
+                    eprintln!("taulerbox: could not discover compartment output: {e}");
+                    return;
+                }
+            }
+        }
+        let output = self.vnc_output_name.clone().expect("just set above");
+
+        if let Err(e) = set_sway_output_resolution(&compartment_name, &output, dest_width, dest_height) {
+            eprintln!("taulerbox: could not resize compartment output {output}: {e}");
+            return;
+        }
+
+        match fetch_one_vnc_frame(&addr) {
+            Ok(frame) => {
+                tracing::info!(
+                    "taulerbox: got a fresh {}x{} VNC frame from {addr} after resize",
+                    frame.width,
+                    frame.height
+                );
+                self.last_vnc_frame = Some(frame);
+                self.rebuild_framebuffer();
+                self.present();
+                if let Some(window) = &self.window {
+                    window.request_redraw();
+                }
+            }
+            Err(e) => {
+                eprintln!("taulerbox: could not fetch a fresh VNC frame after resize: {e}");
+            }
+        }
+    }
 }
 
 impl ApplicationHandler for App {
@@ -427,7 +659,7 @@ impl ApplicationHandler for App {
         let attrs = Window::default_attributes()
             .with_title("taulerbox")
             .with_inner_size(PhysicalSize::new(self.width, self.height))
-            .with_resizable(false);
+            .with_resizable(true);
         let window = match event_loop.create_window(attrs) {
             Ok(w) => Arc::new(w),
             Err(e) => {
@@ -473,7 +705,45 @@ impl ApplicationHandler for App {
         match event {
             WindowEvent::CloseRequested => event_loop.exit(),
             WindowEvent::RedrawRequested => self.present(),
+            WindowEvent::Resized(new_size) => {
+                self.width = new_size.width.max(1);
+                self.height = new_size.height.max(1);
+
+                if let Some(surface) = self.surface.as_mut() {
+                    if let (Some(w), Some(h)) = (NonZeroU32::new(self.width), NonZeroU32::new(self.height)) {
+                        if let Err(e) = surface.resize(w, h) {
+                            eprintln!("taulerbox: surface resize failed: {e}");
+                        }
+                    }
+                }
+
+                // Instant reaction: reposition panels and re-fit the stale
+                // VNC frame into the new destination rect. No subprocess
+                // calls, safe to do on every event fired mid-drag.
+                self.rebuild_framebuffer();
+                self.present();
+                if let Some(window) = &self.window {
+                    window.request_redraw();
+                }
+
+                // Debounced reaction: (re)schedule the slow compartment
+                // resize for once resizing settles. A later Resized event
+                // just overwrites this deadline, which is the debounce.
+                let deadline = Instant::now() + RESIZE_DEBOUNCE;
+                self.pending_resize = Some(deadline);
+                event_loop.set_control_flow(ControlFlow::WaitUntil(deadline));
+            }
             _ => {}
+        }
+    }
+
+    fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
+        if let Some(deadline) = self.pending_resize {
+            if Instant::now() >= deadline {
+                self.pending_resize = None;
+                event_loop.set_control_flow(ControlFlow::Wait);
+                self.handle_settled_resize();
+            }
         }
     }
 }
@@ -506,8 +776,8 @@ fn main() -> anyhow::Result<()> {
     let ctx_json = serde_json::json!({
         "output": "taulerbox",
         "dpi": 1.0,
-        "screen_width": WINDOW_WIDTH,
-        "screen_height": WINDOW_HEIGHT,
+        "screen_width": INITIAL_WINDOW_WIDTH,
+        "screen_height": INITIAL_WINDOW_HEIGHT,
     });
     let base_dir = args.layout.parent().unwrap();
     let evaluator =
@@ -530,11 +800,12 @@ fn main() -> anyhow::Result<()> {
     let eval_output = evaluator.eval(&HashMap::new())?;
     let specs = tauler::parse_root_node(&eval_output.layout).map_err(|e| anyhow::anyhow!(e))?;
 
-    let mut framebuffer = render_framebuffer(&specs, WINDOW_WIDTH, WINDOW_HEIGHT);
+    let panel_pixels = rasterize_panels(&specs);
 
     // Best-effort and additive: the window must still open and show the
     // panel even if the compartment is slow to boot or unreachable, so a
     // VNC failure here is logged and swallowed rather than propagated.
+    let mut last_vnc_frame: Option<VncFrame> = None;
     if let Some(addr) = &args.vnc {
         tracing::info!("taulerbox: --vnc given, connecting to compartment at {addr}...");
         match fetch_one_vnc_frame(addr) {
@@ -544,16 +815,7 @@ fn main() -> anyhow::Result<()> {
                     frame.width,
                     frame.height
                 );
-                blit_vnc_frame(
-                    &mut framebuffer,
-                    WINDOW_WIDTH,
-                    WINDOW_HEIGHT,
-                    &frame,
-                    VNC_DEST_X,
-                    VNC_DEST_Y,
-                    VNC_DEST_WIDTH,
-                    VNC_DEST_HEIGHT,
-                );
+                last_vnc_frame = Some(frame);
             }
             Err(e) => {
                 eprintln!(
@@ -563,12 +825,21 @@ fn main() -> anyhow::Result<()> {
         }
     }
 
+    let framebuffer = build_framebuffer(&specs, &panel_pixels, INITIAL_WINDOW_WIDTH, INITIAL_WINDOW_HEIGHT, last_vnc_frame.as_ref());
+
     let event_loop = EventLoop::new()?;
     event_loop.set_control_flow(ControlFlow::Wait);
 
     let mut app = App {
-        width: WINDOW_WIDTH,
-        height: WINDOW_HEIGHT,
+        width: INITIAL_WINDOW_WIDTH,
+        height: INITIAL_WINDOW_HEIGHT,
+        specs,
+        panel_pixels,
+        vnc_addr: args.vnc,
+        compartment_name: args.compartment_name,
+        last_vnc_frame,
+        vnc_output_name: None,
+        pending_resize: None,
         framebuffer,
         window: None,
         surface: None,

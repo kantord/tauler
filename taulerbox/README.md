@@ -23,7 +23,17 @@ Early scaffolding. No window yet.
 ## Use
 
 ```sh
-taulerbox <layout.op.mdx> --home <dir>
+taulerbox <layout.op.mdx> --home <dir> [--vnc <host:port>] [--compartment-name <name>]
 ```
 
-`--home` is bind-mounted as the compartment's home directory.
+- `--home` is bind-mounted as the compartment's home directory.
+- `--vnc` connects to a compartment's `wayvnc` server and composites its live desktop into
+  the window next to the panel(s). The window is resizable: resizing repositions panels
+  instantly, and — with `--compartment-name` also given — resizes the compartment's own
+  Sway output (via `msb exec ... swaymsg output ... resolution ...`) after the resize
+  settles, then re-fetches a frame at the new resolution. Without `--compartment-name`,
+  a resize still repositions panels and re-fits the existing VNC frame into the new
+  destination rect; it just cannot make Sway itself change resolution.
+- `--compartment-name` names the `msb` sandbox `--vnc` is talking to. For the
+  `fixtures/compartment` layout, that sandbox is named `taulerbox-verify-582` (see that
+  fixture's `Compartment(...)` call).
