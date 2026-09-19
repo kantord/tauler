@@ -11,7 +11,7 @@ use tauler::data::data_loop::{
 use tauler::hit_test::hit_test;
 use tauler::layout::OutputInfo;
 use tauler::managed_set::{Lifecycle, OptativeSet, Reconcile};
-use tauler::outbox::Outbox;
+use tauler::outbox::{Answered, Outbox};
 use tauler::pointer::{read_handler, Capture, Handler};
 #[cfg(not(target_os = "macos"))]
 use tauler::presentation::PresentationThread;
@@ -23,6 +23,7 @@ use tauler::presentation::{PointerEvent, PointerPhase, PresenterEvent, SurfaceCo
 use tauler::surface::{SurfaceOutputs, SurfaceSets};
 use tauler::theme::resolver::resolve_theme_tokens;
 use tauler::theme::{Theme, ThemeMode};
+use tauler::trace::Trace;
 #[cfg(target_os = "linux")]
 use tauler::windowing::wayland::WaylandDisplayServer;
 #[cfg(not(target_os = "macos"))]
@@ -189,6 +190,7 @@ fn apply_eval_result(
     surface_set: &mut SurfaceSets,
     outputs: &mut SurfaceOutputs,
     mod_init_fn: &dyn Fn() -> serde_json::Value,
+    trace: Option<Trace>,
 ) -> bool {
     let mut specs = match tauler::parse_root_node(&out.layout) {
         Ok(s) => s,
@@ -271,7 +273,7 @@ fn apply_eval_result(
     let combined: Vec<StreamSource> = stream_specs.into_iter().chain(module_specs).collect();
     handle.set_desired(combined);
 
-    let surface_errors = surface_set.reconcile_all(specs, &mut output_map.clone(), outputs);
+    let surface_errors = surface_set.reconcile_all(specs, &mut output_map.clone(), outputs, trace);
     log_lifecycle_errors(surface_errors);
     true
 }
@@ -424,7 +426,11 @@ fn spawn_render_worker(command_tx: mpsc::Sender<SurfaceCommand>) -> SurfaceOutpu
     let (jobs, job_rx) = mpsc::channel();
     let commands = command_tx.clone();
     thread::spawn(move || tauler::render::worker::run(job_rx, command_tx));
-    SurfaceOutputs { commands, jobs }
+    SurfaceOutputs {
+        commands,
+        jobs,
+        trace: None,
+    }
 }
 
 /// The layout and config a [`tauler::layout_source::LayoutSource`] resolves to right now,
@@ -807,7 +813,13 @@ impl App {
         state
     }
 
-    fn apply_eval_result_dispatch(&mut self, out: &tauler::jsx::EvalOutput) -> bool {
+    /// `trace` is the Trace of the input this eval answers, if any; it reaches
+    /// every repaint the reconcile requests (ADR 0042).
+    fn apply_eval_result_dispatch(
+        &mut self,
+        out: &tauler::jsx::EvalOutput,
+        trace: Option<Trace>,
+    ) -> bool {
         let mut layout = out.layout.clone();
         resolve_theme_tokens(&mut layout, &self.theme, self.theme_mode);
         // An `<img src="…">` naming a file has to be read off disk and put in
@@ -840,6 +852,7 @@ impl App {
             &mut self.surfaces,
             &mut self.outputs,
             &move || make_mod_init_value(&output_name, dpi, sw, sh),
+            trace,
         )
     }
 
@@ -918,7 +931,7 @@ impl App {
         match eval_out {
             Ok(out) => {
                 tracing::debug!(elapsed_ms = t.elapsed().as_millis(), "jsx eval");
-                self.apply_eval_result_dispatch(&out);
+                self.apply_eval_result_dispatch(&out, None);
                 self.jsx_evaluator = Some(evaluator);
                 self.reconcile_import_watches(loaded);
                 self.spawn_reconciler(&source, &base_dir);
@@ -1033,7 +1046,7 @@ impl App {
 
         self.handle.set_desired(vec![]);
         self.stream_values.write().unwrap().clear();
-        self.apply_eval_result_dispatch(&out);
+        self.apply_eval_result_dispatch(&out, None);
         self.jsx_evaluator = Some(evaluator);
         self.reconcile_import_watches(loaded_paths);
         self.spawn_reconciler(&loaded.js_source, &base_dir);
@@ -1086,11 +1099,17 @@ impl App {
     /// pointer is, of which only the newest is worth sending. A click is not
     /// that — it describes something that happened — so it goes out whatever
     /// else is in flight.
-    fn send(&mut self, intents: &serde_json::Value, supersedable: bool) {
+    ///
+    /// `trace` is the Trace of the pointer event these intents answer, if any;
+    /// each intent carries a copy into the outbox (ADR 0042).
+    fn send(&mut self, intents: &serde_json::Value, supersedable: bool, mut trace: Option<Trace>) {
         let Some(list) = intents.as_array() else {
             tracing::warn!(intents = %intents, "intents is not an array");
             return;
         };
+        if let Some(t) = trace.as_mut() {
+            t.mark_now("pass");
+        }
         let now = std::time::Instant::now();
         for intent in list {
             let (Some(channel), Some(event)) = (
@@ -1101,11 +1120,14 @@ impl App {
                 continue;
             };
             if supersedable {
-                if let Some(ready) = self.outbox.offer(now, channel, event.clone()) {
+                if let Some((ready, _)) =
+                    self.outbox
+                        .offer(now, channel, event.clone(), trace.clone())
+                {
                     self.write(channel, ready);
                 }
             } else {
-                self.outbox.urgent(now, channel);
+                self.outbox.urgent(now, channel, trace.clone());
                 self.write(channel, event.clone());
             }
         }
@@ -1155,7 +1177,7 @@ impl App {
             .as_ref()
             .and_then(|h| self.resolve(h, &pointer))
         {
-            self.send(&intents, false);
+            self.send(&intents, false, event.trace.clone());
         }
 
         // A press is the first drag event, so a plain click still sets a value and a
@@ -1170,7 +1192,7 @@ impl App {
         }
         let mut capture = Capture::new(event.panel_id.clone(), hit.rect, event.dpr, press);
         if let Some(intents) = self.resolve(on_drag, &pointer) {
-            self.send(&intents, false);
+            self.send(&intents, false, event.trace.clone());
             capture.seed(intents);
         }
         self.capture = Some(capture);
@@ -1194,7 +1216,7 @@ impl App {
             return;
         };
         if self.capture.as_mut().is_some_and(|c| c.is_new(&intents)) {
-            self.send(&intents, true);
+            self.send(&intents, true, event.trace.clone());
         }
     }
 
@@ -1262,7 +1284,7 @@ impl App {
             tauler::a11y::ACTIVATE_BUTTONS,
         );
         if let Some(intents) = self.resolve(&on_click, &pointer) {
-            self.send(&intents, false);
+            self.send(&intents, false, None);
         }
     }
 
@@ -1288,15 +1310,23 @@ impl App {
         }
 
         // A module that emitted a line has read what it was last sent, so its
-        // channel is free for whatever the drag has produced since.
+        // channel is free for whatever the drag has produced since. The line is
+        // attributed to the intent that was in flight, and that intent's Trace
+        // becomes this Pass's: the first one answered, if several were.
         let now = std::time::Instant::now();
+        let mut tick_trace: Option<Trace> = None;
         for channel in answered {
-            if let Some(next) = self.outbox.answered(now, &channel) {
+            let Answered { trace, next } = self.outbox.answered(now, &channel);
+            if let (None, Some(mut t)) = (tick_trace.as_ref(), trace) {
+                t.mark_now("answered");
+                tick_trace = Some(t);
+            }
+            if let Some((next, _)) = next {
                 self.write(&channel, next);
             }
         }
         // And a module that never answers must not be silenced for good.
-        for (channel, intent) in self.outbox.released(now) {
+        for (channel, intent, _) in self.outbox.released(now) {
             self.write(&channel, intent);
         }
 
@@ -1308,10 +1338,13 @@ impl App {
                 .jsx_evaluator
                 .as_ref()
                 .map(|e| e.eval(&self.stream_values.read().unwrap()));
+            if let Some(t) = tick_trace.as_mut() {
+                t.mark_now("eval");
+            }
             if let Some(eval_result) = eval_out {
                 match eval_result {
                     Ok(out) => {
-                        self.apply_eval_result_dispatch(&out);
+                        self.apply_eval_result_dispatch(&out, tick_trace);
                     }
                     Err(e) => tracing::error!(error = %e, "JSX re-eval error"),
                 }
@@ -1394,7 +1427,7 @@ impl App {
                     if let Some(eval_result) = eval_out {
                         match eval_result {
                             Ok(out) => {
-                                self.apply_eval_result_dispatch(&out);
+                                self.apply_eval_result_dispatch(&out, None);
                             }
                             Err(e) => {
                                 tracing::error!(error = %e, "JSX re-eval error on output change")
@@ -1462,11 +1495,19 @@ mod tests {
                         ]),
                         width: request.width,
                         height: request.height,
+                        trace: None,
                     });
                 }
             }
         });
-        (SurfaceOutputs { commands, jobs }, command_rx)
+        (
+            SurfaceOutputs {
+                commands,
+                jobs,
+                trace: None,
+            },
+            command_rx,
+        )
     }
 
     fn make_eval_output(layout: serde_json::Value) -> tauler::jsx::EvalOutput {
@@ -1514,6 +1555,7 @@ mod tests {
             &mut surface_set,
             &mut outputs,
             &noop_mod_init,
+            None,
         );
 
         let cmds: Vec<SurfaceCommand> = command_rx.try_iter().collect();
@@ -1563,6 +1605,7 @@ mod tests {
             &mut surface_set,
             &mut outputs,
             &noop_mod_init,
+            None,
         );
 
         let cmds: Vec<SurfaceCommand> = command_rx.try_iter().collect();
@@ -1618,6 +1661,7 @@ mod tests {
             &mut surface_set,
             &mut outputs,
             &noop_mod_init,
+            None,
         );
 
         assert_eq!(
@@ -1660,6 +1704,7 @@ mod tests {
             &mut surface_set,
             &mut outputs,
             &noop_mod_init,
+            None,
         );
 
         assert_eq!(
@@ -1697,6 +1742,7 @@ mod tests {
             &mut surface_set,
             &mut outputs,
             &noop_mod_init,
+            None,
         );
 
         let cmds: Vec<SurfaceCommand> = command_rx.try_iter().collect();

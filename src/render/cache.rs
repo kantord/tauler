@@ -108,6 +108,7 @@ mod tests {
             height,
             dpr: 1.0,
             backdrop: None,
+            trace: None,
         }
     }
 

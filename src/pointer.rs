@@ -167,6 +167,7 @@ mod motion_compression {
             dpr: 1.0,
             phase,
             buttons: 1,
+            trace: None,
         })
     }
 
