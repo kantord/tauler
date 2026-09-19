@@ -1,0 +1,32 @@
+[package]
+name = "taulerbox"
+description = "A native window that shows a tauler layout's Panels as pixel buffers, alongside a microVM compartment (issue #582)"
+keywords = ["tauler", "microvm", "sandbox", "desktop"]
+categories = ["command-line-utilities", "virtualization"]
+readme = "README.md"
+edition = "2021"
+version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+rust-version.workspace = true
+
+[[bin]]
+name = "taulerbox"
+path = "src/main.rs"
+
+[dependencies]
+# taulerbox depends on `tauler` the same way `tauler-screenshot` does (a plain
+# library dependency, path + version so `cargo publish --dry-run` still checks
+# against a real release): it reuses the presenter protocol (`presentation`),
+# panel placement math (`layout::surface_origin`) and the Units reconciler
+# (`units`), but never touches `src/app.rs`'s tick loop, which is private to
+# the `tauler` binary and not part of the library.
+tauler = { path = "..", version = "0.5.1" }
+clap = { version = "4.6.6", features = ["derive"] }
+serde_json = "1.0.151"
+anyhow = "1.0.104"
+
+[dev-dependencies]
+rstest = "0.27.0"

@@ -6426,6 +6426,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "taulerbox"
+version = "0.5.1"
+dependencies = [
+ "anyhow",
+ "clap",
+ "rstest",
+ "serde_json",
+ "tauler",
+]
+
+[[package]]
 name = "tempfile"
 version = "3.27.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
