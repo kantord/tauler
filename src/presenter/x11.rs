@@ -70,6 +70,7 @@ fn send_pointer(
         dpr: panel.dpr,
         phase,
         buttons,
+        trace: tauler::trace::Trace::begin(),
     }));
 }
 

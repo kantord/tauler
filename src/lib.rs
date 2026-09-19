@@ -16,6 +16,7 @@ pub mod pointer;
 pub mod presentation;
 pub mod render;
 pub mod surface;
+pub mod trace;
 pub mod units;
 pub mod windowing;
 pub mod workspaces;

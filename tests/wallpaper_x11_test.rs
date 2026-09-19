@@ -124,6 +124,7 @@ fn solid_frame(pixel: [u8; 4]) -> SurfaceFrame {
         pixels: Arc::new(pixel.repeat((w * h) as usize)),
         width: w,
         height: h,
+        trace: None,
     }
 }
 
