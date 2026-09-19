@@ -6433,7 +6433,9 @@ dependencies = [
  "clap",
  "rstest",
  "serde_json",
+ "softbuffer",
  "tauler",
+ "winit",
 ]
 
 [[package]]
