@@ -53,10 +53,10 @@ fn send_pointer(
     event_tx: &PresenterEvents,
     pt: &PresentationThread<X11PanelContext>,
     win: u32,
-    x: i16,
-    y: i16,
+    (x, y): (i16, i16),
     phase: PointerPhase,
     buttons: u16,
+    time: u32,
 ) {
     let Some(panel) = pt.presenter.panels.values().find(|p| p.win_id == win) else {
         return;
@@ -70,7 +70,7 @@ fn send_pointer(
         dpr: panel.dpr,
         phase,
         buttons,
-        trace: tauler::trace::Trace::begin(),
+        trace: tauler::trace::Trace::begin_at_monotonic_ms(time),
     }));
 }
 
@@ -161,7 +161,15 @@ pub(crate) fn run_x11_presenter_thread(
                 x11rb::protocol::Event::ButtonPress(e) if is_dispatchable_button(e.detail) => {
                     let held = dom_buttons(e.state) | dom_button(e.detail);
                     let phase = PointerPhase::Press;
-                    send_pointer(&event_tx, &pt, e.event, e.event_x, e.event_y, phase, held);
+                    send_pointer(
+                        &event_tx,
+                        &pt,
+                        e.event,
+                        (e.event_x, e.event_y),
+                        phase,
+                        held,
+                        e.time,
+                    );
                 }
                 // The pointer moved with button 1 down. X11 grabs the pointer to the
                 // window the press landed in, so these keep arriving even once it has
@@ -169,12 +177,28 @@ pub(crate) fn run_x11_presenter_thread(
                 x11rb::protocol::Event::MotionNotify(e) => {
                     let phase = PointerPhase::Move;
                     let held = dom_buttons(e.state);
-                    send_pointer(&event_tx, &pt, e.event, e.event_x, e.event_y, phase, held);
+                    send_pointer(
+                        &event_tx,
+                        &pt,
+                        e.event,
+                        (e.event_x, e.event_y),
+                        phase,
+                        held,
+                        e.time,
+                    );
                 }
                 x11rb::protocol::Event::ButtonRelease(e) if is_dispatchable_button(e.detail) => {
                     let held = dom_buttons(e.state) & !dom_button(e.detail);
                     let phase = PointerPhase::Release;
-                    send_pointer(&event_tx, &pt, e.event, e.event_x, e.event_y, phase, held);
+                    send_pointer(
+                        &event_tx,
+                        &pt,
+                        e.event,
+                        (e.event_x, e.event_y),
+                        phase,
+                        held,
+                        e.time,
+                    );
                 }
                 x11rb::protocol::Event::Error(e) => {
                     tracing::error!(error = ?e, "X11 async error");
