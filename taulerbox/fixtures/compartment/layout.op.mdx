@@ -65,11 +65,26 @@ globalThis.Compartment = ({ name, image, home }) => {
     // in the background" per `msb create --help`); passing `-d` is a hard
     // CLI error ("unexpected argument '-d' found"), confirmed by an actual
     // failed run of this fixture.
+    //
+    // `-p 5900:5900` (HOST:GUEST, confirmed via `msb create --help`)
+    // publishes the guest's VNC port so the headless Sway + wayvnc stack
+    // started by `postCreate` below is reachable from the host.
     if (home) {
-      sh`msb create --name ${name} -v ${home}:/root ${image}`;
+      sh`msb create --name ${name} -p 5900:5900 -v ${home}:/root ${image}`;
     } else {
-      sh`msb create --name ${name} ${image}`;
+      sh`msb create --name ${name} -p 5900:5900 ${image}`;
     }
+    postCreate();
+  }
+  // Bootstraps a headless Sway compositor + wayvnc inside the fresh
+  // compartment, verified end to end against real `msb` for issue #582:
+  // a plain `debian` microVM can run `WLR_BACKENDS=headless
+  // WLR_RENDERER=pixman` Sway (no GPU/DRM needed) with wayvnc serving it
+  // over VNC, reachable from the host — confirmed by reading a real RFB
+  // handshake (`RFB 003.008\n`) off the published port. `sway`/`wayvnc`
+  // are both in Debian trixie's default repos, no backports needed.
+  function postCreate() {
+    sh`msb exec ${name} --no-tty --timeout 180 -- bash -c 'DEBIAN_FRONTEND=noninteractive apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y sway wayvnc && mkdir -p /run/user/0 && XDG_RUNTIME_DIR=/run/user/0 WLR_BACKENDS=headless WLR_RENDERER=pixman WLR_LIBINPUT_NO_DEVICES=1 nohup sway > /tmp/sway.log 2>&1 & disown; sleep 4; XDG_RUNTIME_DIR=/run/user/0 WAYLAND_DISPLAY=wayland-1 nohup wayvnc 0.0.0.0 5900 > /tmp/wayvnc.log 2>&1 & disown'`;
   }
   return unit({
     key: () => name,
