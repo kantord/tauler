@@ -76,25 +76,24 @@ globalThis.Compartment = ({ name, image, home }) => {
     }
     postCreate();
   }
-  // Bootstraps a headless Sway compositor + wayvnc inside the fresh
-  // compartment, verified end to end against real `msb` for issue #582:
-  // a plain `debian` microVM can run `WLR_BACKENDS=headless
-  // WLR_RENDERER=pixman` Sway (no GPU/DRM needed) with wayvnc serving it
-  // over VNC, reachable from the host — confirmed by reading a real RFB
-  // handshake (`RFB 003.008\n`) off the published port. `sway`/`wayvnc`
-  // are both in Debian trixie's default repos, no backports needed.
+  // Starts headless Sway + wayvnc inside the fresh compartment. Both are
+  // baked into the `taulerbox-box` image at build time (see
+  // `taulerbox/Dockerfile` and `just taulerbox-image`) rather than
+  // installed here at runtime — the first version of this fixture ran
+  // `apt-get install sway wayvnc` on every boot, which also pulls in
+  // every Recommends package (measured at 253 packages on a real `debian`
+  // base: full ffmpeg codecs, PulseAudio, GPU drivers, a terminal
+  // emulator), and that reliably outran the `msb exec --timeout` window
+  // on real network conditions. Baking the image removes the runtime
+  // install entirely, so this step is now just starting two already-
+  // installed daemons — seconds, not minutes.
   function postCreate() {
-    // Found live, by running this exact script against a real `msb` VM
-    // (issue #582): a trailing `&` backgrounds the whole preceding `&&`
-    // AND-OR list in bash, not just the one command that looks
-    // backgrounded — `apt-get ... && apt-get install ... && nohup sway &`
-    // backgrounds the *install step too*, so `sleep 4` elapses while
-    // `apt-get install` (~2 minutes on this VM's spec) is still running,
-    // and wayvnc then fails outright because sway never actually started
-    // yet. The fix is the `;` right after `mkdir -p /run/user/0`: it ends
-    // that AND-OR list, so `nohup sway ...` starts its own list and the
-    // `&` right after backgrounds only that one command, as intended.
-    sh`msb exec ${name} --no-tty --timeout 180 -- bash -c 'DEBIAN_FRONTEND=noninteractive apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y sway wayvnc && mkdir -p /run/user/0; XDG_RUNTIME_DIR=/run/user/0 WLR_BACKENDS=headless WLR_RENDERER=pixman WLR_LIBINPUT_NO_DEVICES=1 nohup sway > /tmp/sway.log 2>&1 & disown; sleep 4; XDG_RUNTIME_DIR=/run/user/0 WAYLAND_DISPLAY=wayland-1 nohup wayvnc 0.0.0.0 5900 > /tmp/wayvnc.log 2>&1 & disown'`;
+    // The `;` right after `mkdir -p /run/user/0` matters: a trailing `&`
+    // backgrounds the *whole* preceding `&&` AND-OR list in bash, not
+    // just the command it looks attached to, so `mkdir ... && nohup sway
+    // &` would background the mkdir too (harmless here, but the same bug
+    // that broke the old apt-get-based version is worth not reintroducing).
+    sh`msb exec ${name} --no-tty --timeout 60 -- bash -c 'mkdir -p /run/user/0; XDG_RUNTIME_DIR=/run/user/0 WLR_BACKENDS=headless WLR_RENDERER=pixman WLR_LIBINPUT_NO_DEVICES=1 nohup sway > /tmp/sway.log 2>&1 & disown; sleep 2; XDG_RUNTIME_DIR=/run/user/0 WAYLAND_DISPLAY=wayland-1 nohup wayvnc 0.0.0.0 5900 > /tmp/wayvnc.log 2>&1 & disown'`;
   }
   return unit({
     key: () => name,
@@ -108,7 +107,9 @@ globalThis.Compartment = ({ name, image, home }) => {
 
 const TaulerboxVerifyCompartment = Compartment({
   name: "taulerbox-verify-582",
-  image: "debian",
+  // Built by `just taulerbox-image` and loaded into msb's local cache —
+  // sway + wayvnc are already installed in it, see `taulerbox/Dockerfile`.
+  image: "taulerbox-box",
   home: null,
 });
 
