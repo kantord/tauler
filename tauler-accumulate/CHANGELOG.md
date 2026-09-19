@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.2](https://github.com/kantord/tauler/compare/tauler-accumulate-v0.5.1...tauler-accumulate-v0.5.2) - 2026-09-19
+
+### Fixed
+
+- *(deps)* update patch updates ([#576](https://github.com/kantord/tauler/pull/576))
+
 ## [0.3.2](https://github.com/kantord/tauler/compare/tauler-accumulate-v0.3.1...tauler-accumulate-v0.3.2) - 2026-09-08
 
 ### Other
