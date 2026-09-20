@@ -47,10 +47,22 @@ use winit::window::{Window, WindowId};
 
 /// The window's size when first created. Purely a starting point now that
 /// the window is resizable — [`App::width`]/[`App::height`] track the live
-/// size after that. Chosen the same way the old fixed size was: big enough
-/// to show the `hello`/`compartment` fixtures' 300x200 panel alongside a
-/// compartment's composited VNC view (see [`vnc_dest_rect`]).
-const INITIAL_WINDOW_WIDTH: u32 = 900;
+/// size after that.
+///
+/// Chosen so [`vnc_dest_rect`]'s box is already close to Sway headless's
+/// default 1280x720 (16:9) output, not just "big enough to show the panel".
+/// A 900x700 window's dest box (520x620, ratio ~0.84) squeezed a 16:9
+/// source down to a 520x292 picture centered in that box, leaving roughly
+/// half the box as empty letterbox margin above and below — and, found
+/// live (issue #582), any pointer forwarding aimed at that margin clamps to
+/// the picture's nearest edge, so moving the mouse there looks exactly like
+/// forwarding is broken even though it works correctly inside the picture
+/// itself. 1482x700 makes the dest box 1102x620 (ratio ~1.777, matching
+/// 16:9 to within a pixel), so the picture fills the box edge to edge with
+/// no dead zone, no code change to `vnc_fit_rect`/`map_cursor_to_vnc_frame`
+/// needed — this only changes what box those functions are asked to fit
+/// into.
+const INITIAL_WINDOW_WIDTH: u32 = 1482;
 const INITIAL_WINDOW_HEIGHT: u32 = 700;
 
 /// How long to wait, after the last `WindowEvent::Resized`, before treating
