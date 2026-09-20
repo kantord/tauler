@@ -69,10 +69,26 @@ globalThis.Compartment = ({ name, image, home }) => {
     // `-p 5900:5900` (HOST:GUEST, confirmed via `msb create --help`)
     // publishes the guest's VNC port so the headless Sway + wayvnc stack
     // started by `postCreate` below is reachable from the host.
+    //
+    // `-c 2 -m 1G`: the `msb` default (1 vCPU, 512MB) was enough while the
+    // VNC client only requested incremental updates, but taulerbox now
+    // polls with `X11Event::FullRefresh` (see `taulerbox/src/main.rs`,
+    // issue #582) to avoid a different bug — incremental requests only
+    // answer when the compositor has real damage, which measured at ~1fps
+    // on an idle desktop. FullRefresh means a full frame is rendered and
+    // encoded on every poll regardless of activity, and 1 vCPU visibly
+    // struggled with that (a live run pegged taulerbox's own host-side
+    // process at 109% CPU processing the resulting stream, degrading
+    // pointer forwarding badly enough to look broken). This bump is a
+    // stopgap for the first mergeable version of the crate, not a fix for
+    // the underlying cost — VNC pays for a full redraw+encode+decode cycle
+    // every tick no matter how little changed, which is the ceiling a
+    // future guest-agent-over-vsock replacement (see the design notes for
+    // this issue) exists to remove, not something more CPU alone solves.
     if (home) {
-      sh`msb create --name ${name} -p 5900:5900 -v ${home}:/root ${image}`;
+      sh`msb create --name ${name} -p 5900:5900 -c 2 -m 1G -v ${home}:/root ${image}`;
     } else {
-      sh`msb create --name ${name} -p 5900:5900 ${image}`;
+      sh`msb create --name ${name} -p 5900:5900 -c 2 -m 1G ${image}`;
     }
     postCreate();
   }
