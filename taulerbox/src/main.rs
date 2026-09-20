@@ -65,16 +65,34 @@ use winit::window::{Window, WindowId};
 const INITIAL_WINDOW_WIDTH: u32 = 1482;
 const INITIAL_WINDOW_HEIGHT: u32 = 700;
 
-// A resolution cap on the compartment's rendered/blitted size (and on the
-// destination box `vnc_dest_rect` computes) was tried here and removed
-// (issue #582): it traded away the actual point of resize-reactivity — the
-// compartment matching whatever space the window has, including under a
-// tiling WM giving it a full-screen tile — for a performance ceiling.
-// Decided instead to accept that a very large window costs more to drive
-// (the destination-blit loop in `blit_vnc_frame` is O(destination pixels))
-// and keep the compartment matching the host window exactly. If this needs
-// revisiting, the removed commit shows the shape: cap `vnc_dest_rect`'s
-// output before it's used anywhere.
+/// Hard ceiling on the compartment's destination box (`vnc_dest_rect`) —
+/// what the compartment is asked to render at, and what `blit_vnc_frame`
+/// blits into — regardless of how large the actual window is.
+///
+/// This was removed once (issue #582) and brought back, both live-measured:
+/// removing it entirely restores true resize-fills-the-window behavior, but
+/// `blit_vnc_frame`'s nearest-neighbor blit is O(destination pixels), so a
+/// window i3 gives its full workspace (a lone window's normal, immediate
+/// state under i3 — not something that needs an explicit resize to reach)
+/// produces a destination box large enough (~2500x1800+) to peg a CPU core
+/// doing nothing but that blit, every ~33ms, indefinitely. The video itself
+/// keeps updating on schedule throughout — rendering a frame IS that busy
+/// work — but the event loop has no spare time left to poll the X11 socket
+/// between frames, so real input (`WindowEvent::CursorMoved`,
+/// `WindowEvent::Resized`) never gets dispatched at all: not "laggy", dead,
+/// from the moment the window opens.
+///
+/// 1920x1080 was tried first as a "generous but safe" middle ground and
+/// measured live to still be too much: ~100%+ of one core sustained, and a
+/// forwarded pointer move took as long as ~7 seconds to arrive — much
+/// better than uncapped (which never arrives), but still real, noticeable
+/// lag, not the "responsive" this cap exists to guarantee. 1280x720
+/// (Sway's own default headless resolution) is the highest point actually
+/// measured to stay responsive: ~65% of one core, pointer events forwarded
+/// and visible within a fraction of a second. Space beyond this in the
+/// window is left as background, not stretched into.
+const MAX_COMPARTMENT_WIDTH: u32 = 1280;
+const MAX_COMPARTMENT_HEIGHT: u32 = 720;
 
 /// Minimum gap between two forwarded pure pointer *moves* (button mask
 /// unchanged). A button-state change (a click or release) is never
@@ -228,9 +246,24 @@ fn vnc_dest_rect(window_width: u32, window_height: u32, placements: &[PlacedPane
 
     let dest_x = left_panel_width + VNC_DEST_MARGIN;
     let dest_y = VNC_DEST_MARGIN;
-    let dest_width = window_width.saturating_sub(dest_x + VNC_DEST_MARGIN);
-    let dest_height = window_height.saturating_sub(2 * VNC_DEST_MARGIN);
+    let raw_width = window_width.saturating_sub(dest_x + VNC_DEST_MARGIN);
+    let raw_height = window_height.saturating_sub(2 * VNC_DEST_MARGIN);
+    let (dest_width, dest_height) =
+        cap_compartment_resolution(raw_width, raw_height, MAX_COMPARTMENT_WIDTH, MAX_COMPARTMENT_HEIGHT);
     (dest_x, dest_y, dest_width, dest_height)
+}
+
+/// Scales `(width, height)` down, preserving its own aspect ratio, so
+/// neither dimension exceeds `(max_width, max_height)` — a no-op if it
+/// already fits. See [`MAX_COMPARTMENT_WIDTH`]'s doc for why this exists.
+fn cap_compartment_resolution(width: u32, height: u32, max_width: u32, max_height: u32) -> (u32, u32) {
+    if width == 0 || height == 0 || (width <= max_width && height <= max_height) {
+        return (width, height);
+    }
+    let scale = (max_width as f64 / width as f64).min(max_height as f64 / height as f64);
+    let capped_width = ((width as f64 * scale).round() as u32).max(1);
+    let capped_height = ((height as f64 * scale).round() as u32).max(1);
+    (capped_width, capped_height)
 }
 
 /// `true` when `(x, y)` (window-local physical pixels) falls inside `rect`
