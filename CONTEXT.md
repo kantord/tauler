@@ -91,6 +91,13 @@ The one thread that draws. Nothing else rasterizes, which is what lets the frame
 its private state rather than a global behind a lock.
 _Avoid_: render thread, rasterizer (that is takumi), render queue
 
+**Presenter**:
+What turns Frames into pixels on a display server and pointer input into events for the
+loop. It blocks on commands and display events together and never on a clock — see ADR
+0042.
+_Avoid_: display thread, backend (the backend is the whole seam; the Presenter is the
+part of it that runs), driver, event loop (what a Presenter is built from, not what it is)
+
 **Supersede**:
 What a newer Render request does to the unpainted one in a target's slot. A render already
 under way is never superseded — it finishes, and the newer request is drawn after it. See
@@ -440,6 +447,11 @@ faster. So a Minimal claim reading 10ms admits a true value anywhere in 2–18ms
 a Negligible claim needs measurement to within 1ms, which is what separates the two classes
 at all. Being faster than a budget never fails a claim — the numbers are ceilings.
 _Avoid_: benchmark, SLA, target
+
+**Trace**:
+The recorded timings of one input's journey to pixels, one entry per Hop. What a
+Latency claim is measured with; a Hop nobody traced has no class. See ADR 0042.
+_Avoid_: log, timing, profile (a profile is where CPU goes; a trace is where time goes)
 
 ### Accessibility
 

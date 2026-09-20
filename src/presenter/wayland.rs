@@ -103,6 +103,7 @@ pub(crate) fn run_wayland_presenter_thread(
                                     dpr: panel.dpr,
                                     phase: PointerPhase::Press,
                                     buttons: 1,
+                                    trace: tauler::trace::Trace::begin(),
                                 };
                                 let release = PointerEvent {
                                     phase: PointerPhase::Release,

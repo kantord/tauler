@@ -17,6 +17,13 @@
 //! impossible: an endless stream of updates still draws one snapshot to
 //! completion, then the next-newest, and so on (ADR 0023).
 //!
+//! A request may carry the [`Trace`](crate::trace::Trace) of the input it
+//! answers. When a request overwrites one in its slot it folds the older
+//! request's supersede count into its own, so the Trace that finally reaches the
+//! screen counts every frame that was replaced on the way; the worker marks
+//! `queued` when it takes the request out of its slot and `render` when the
+//! pixels are done (ADR 0042).
+//!
 //! Everything is drawn here, including the renders whose caller cannot carry on
 //! without the pixels — a window needs a picture before it can exist. Those
 //! arrive as [`RenderJob::Now`] and are answered on a reply channel while the
@@ -64,6 +71,8 @@ pub struct RenderRequest {
     pub height: u32,
     pub dpr: f32,
     pub backdrop: Option<Backdrop>,
+    /// The Trace of the input this repaint answers, if it is being traced.
+    pub trace: Option<crate::trace::Trace>,
 }
 
 /// What the pipeline asks the worker for.
@@ -143,19 +152,33 @@ impl Worker {
     }
 
     fn draw(&mut self, request: &RenderRequest) -> SurfaceFrame {
+        let mut trace = request.trace.clone();
+        if let Some(t) = trace.as_mut() {
+            t.mark("queued", Instant::now());
+        }
         let pixels = self.cache.frame(request);
-        self.last_render.insert(request.id.clone(), Instant::now());
+        let now = Instant::now();
+        if let Some(t) = trace.as_mut() {
+            t.mark("render", now);
+        }
+        self.last_render.insert(request.id.clone(), now);
         SurfaceFrame {
             pixels,
             width: request.width,
             height: request.height,
+            trace,
         }
     }
 
     /// Take one job.
     fn accept(&mut self, job: RenderJob) {
         match job {
-            RenderJob::Repaint(request) => {
+            RenderJob::Repaint(mut request) => {
+                if let Some(old) = self.pending.get(&request.id) {
+                    if let (Some(new), Some(old)) = (request.trace.as_mut(), old.trace.as_ref()) {
+                        new.supersedes(old);
+                    }
+                }
                 self.pending.insert(request.id.clone(), request);
             }
             RenderJob::Now { request, reply } => {
@@ -262,6 +285,7 @@ mod tests {
             height: 4,
             dpr: 1.0,
             backdrop: None,
+            trace: None,
         }
     }
 
@@ -396,6 +420,52 @@ mod tests {
         assert_eq!(
             repaint_decision(Instant::now(), w.last_render.get("p1").copied()),
             RepaintDecision::WaitUntil(w.last_render["p1"] + REPAINT_FLOOR)
+        );
+    }
+
+    /// ADR 0042: a request carries the Trace of the input that caused it. When
+    /// a newer Repaint takes the slot, its Trace absorbs everything the older
+    /// one had already superseded plus one; the worker marks how long the
+    /// request waited ("queued") and how long it drew ("render"), and the
+    /// frame carries the Trace on to the presenter.
+    #[test]
+    fn a_superseding_repaint_carries_the_count_into_the_frame() {
+        use crate::trace::Trace;
+
+        crate::render::init_global_ctx(crate::config::FontConfig::default());
+        let (commands, command_rx) = std::sync::mpsc::channel();
+        let mut w = Worker::new(commands);
+
+        for content in ["a", "b", "c"] {
+            let mut request = request("p1", content);
+            request.trace = Some(Trace::started_at(Instant::now()));
+            w.accept(RenderJob::Repaint(request));
+        }
+
+        w.draw_next();
+
+        let (id, frame) = match command_rx.recv_timeout(Duration::from_secs(5)) {
+            Ok(SurfaceCommand::UpdatePicture { id, frame }) => (id, frame),
+            other => panic!("expected an UpdatePicture, got {:?}", other.is_ok()),
+        };
+        assert_eq!(id, "p1");
+        let trace = frame
+            .trace
+            .expect("a frame drawn from a traced request must carry its Trace");
+        let report = trace.report(Instant::now());
+        assert!(
+            report.starts_with("queued="),
+            "the worker must mark when it starts drawing, as the time the \
+             request waited in its slot; got {report:?}"
+        );
+        assert!(
+            report.contains(" render="),
+            "the worker must mark when it finishes drawing; got {report:?}"
+        );
+        assert!(
+            report.ends_with("superseded=2"),
+            "\"c\" superseded \"b\", which had superseded \"a\": the surviving \
+             Trace must count both; got {report:?}"
         );
     }
 

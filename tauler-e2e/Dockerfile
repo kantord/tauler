@@ -9,7 +9,7 @@
 # Build context is the repo root, not this directory:
 #   docker build -f tauler-e2e/Dockerfile .
 
-FROM rust:1.98.1-bookworm@sha256:9a73a5088750b4c95158ab26629c854c3d6fc4b173cb7bc8079ad252d8ed7bfa AS builder
+FROM rust:1.98.1-bookworm@sha256:93ce27a88655056a51dbdd8f5f2d7ddc071c7b0070fb288a37b5a285fc83971e AS builder
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
         libwayland-dev libxkbcommon-dev libfontconfig-dev libxcb1-dev pkg-config \
@@ -38,7 +38,7 @@ RUN gcc -O2 -o /artifacts/a11y-probe tauler-e2e/a11y-probe.c \
         $(pkg-config --cflags atspi-2) \
         $(pkg-config --libs atspi-2 gobject-2.0)
 
-FROM debian:bookworm-slim@sha256:88200866dfff7ea7f5cbcb6ec7c8a701889efe6fe859fe64d6990e4b07ea4171
+FROM debian:bookworm-slim@sha256:3783cc01769c7b2b1b83a5c5ad96c815348e28ed7da68e2e3687004faa906251
 
 # dunst, rofi and kitty are here so that a rice can ship a real
 # `~/.config/dunst/dunstrc`, a real `.rasi` and a real `kitty.conf`, and so that

@@ -6,6 +6,7 @@ use crate::layout::{OutputInfo, Rect, SurfaceKind, SurfaceSpec};
 use crate::managed_set::{Lifecycle, OptativeSet, Reconcile, ReconcileErrors};
 use crate::presentation::{SurfaceCommand, SurfaceFrame};
 use crate::render::worker::{RenderJob, RenderRequest};
+use crate::trace::Trace;
 pub use crate::x11::panel::X11PanelContext;
 
 /// Where a reconciled surface sends its work.
@@ -18,6 +19,10 @@ pub use crate::x11::panel::X11PanelContext;
 pub struct SurfaceOutputs {
     pub commands: Sender<SurfaceCommand>,
     pub jobs: Sender<RenderJob>,
+    /// The Trace of the input the current Pass answers, if it is being traced.
+    /// Set by [`SurfaceSets::reconcile_all`] for the reconcile's duration so
+    /// every repaint it requests carries it (ADR 0042); `None` between passes.
+    pub trace: Option<Trace>,
 }
 
 impl SurfaceOutputs {
@@ -69,7 +74,7 @@ fn phys_size(spec: &SurfaceSpec) -> (u32, u32) {
 /// what `SurfaceState.backdrop` records, and a worker cropping for itself could
 /// draw against a wallpaper newer than the one the pipeline believes it drew
 /// against. Cropping costs ~0.5ms uncached and a refcount bump once cached.
-fn request_for(spec: &SurfaceSpec) -> (RenderRequest, u64) {
+fn request_for(spec: &SurfaceSpec, trace: Option<&Trace>) -> (RenderRequest, u64) {
     let (width, height) = phys_size(spec);
     let backdrop = crate::backdrop::crop_for(spec, (width, height));
     let generation = backdrop.as_ref().map(|b| b.generation).unwrap_or(0);
@@ -81,6 +86,7 @@ fn request_for(spec: &SurfaceSpec) -> (RenderRequest, u64) {
             height,
             dpr: spec.dpr,
             backdrop,
+            trace: trace.cloned(),
         },
         generation,
     )
@@ -98,7 +104,7 @@ fn render_now(
     spec: &SurfaceSpec,
     output: &SurfaceOutputs,
 ) -> Result<(SurfaceFrame, u64), anyhow::Error> {
-    let (request, generation) = request_for(spec);
+    let (request, generation) = request_for(spec, None);
     let frame = output.render_now(request)?;
     if spec.kind == SurfaceKind::Wallpaper {
         crate::backdrop::publish_wallpaper(
@@ -255,7 +261,7 @@ impl Lifecycle for Surface {
                 // worker sends itself. The request is guaranteed to be drawn or
                 // replaced by a newer one for this panel, so recording the
                 // generation now is not getting ahead of anything.
-                let (request, backdrop) = request_for(&new);
+                let (request, backdrop) = request_for(&new, output.trace.as_ref());
                 output.repaint(request)?;
                 state.backdrop = backdrop;
             }
@@ -304,15 +310,20 @@ impl SurfaceSets {
     /// `output_map` is threaded through as reconcile context so an anchored
     /// panel's *resolved* geometry — not just its declared spec — is part of
     /// what `reconcile_self` diffs (issue #537).
+    ///
+    /// `trace` is the Trace of the input this Pass answers, if any; every
+    /// repaint the reconcile requests carries a copy (ADR 0042).
     pub fn reconcile_all(
         &mut self,
         specs: Vec<SurfaceSpec>,
         output_map: &mut HashMap<String, OutputInfo>,
         output: &mut SurfaceOutputs,
+        trace: Option<Trace>,
     ) -> ReconcileErrors<String, anyhow::Error> {
         let (wallpapers, panels): (Vec<_>, Vec<_>) = specs
             .into_iter()
             .partition(|s| s.kind == SurfaceKind::Wallpaper);
+        output.trace = trace;
         let mut errors =
             self.wallpapers
                 .reconcile(wallpapers.into_iter().map(Surface), output_map, output);
@@ -320,6 +331,7 @@ impl SurfaceSets {
             self.panels
                 .reconcile(panels.into_iter().map(Surface), output_map, output),
         );
+        output.trace = None;
         errors
     }
 
@@ -385,6 +397,7 @@ mod tests {
                             ]),
                             width: request.width,
                             height: request.height,
+                            trace: None,
                         });
                     }
                     RenderJob::Repaint(request) => {
@@ -394,7 +407,15 @@ mod tests {
                 }
             }
         });
-        (SurfaceOutputs { commands, jobs }, command_rx, repaint_rx)
+        (
+            SurfaceOutputs {
+                commands,
+                jobs,
+                trace: None,
+            },
+            command_rx,
+            repaint_rx,
+        )
     }
 
     /// The repaints the stand-in has forwarded, waiting briefly for the first.
@@ -697,7 +718,7 @@ mod tests {
         panel.output = Some("ORDER".into());
 
         // Tick 1: the panel alone, with nothing behind it.
-        sets.reconcile_all(vec![panel.clone()], &mut HashMap::new(), &mut tx);
+        sets.reconcile_all(vec![panel.clone()], &mut HashMap::new(), &mut tx, None);
         let _ = rx.try_iter().count();
 
         // Tick 2: the same panel, plus a wallpaper underneath it. The panel is
@@ -706,7 +727,7 @@ mod tests {
         wallpaper.output = Some("ORDER".into());
         wallpaper.width = 100;
         wallpaper.height = 100;
-        sets.reconcile_all(vec![panel, wallpaper], &mut HashMap::new(), &mut tx);
+        sets.reconcile_all(vec![panel, wallpaper], &mut HashMap::new(), &mut tx, None);
 
         let cmds: Vec<SurfaceCommand> = rx.try_iter().collect();
         assert!(

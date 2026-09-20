@@ -390,6 +390,7 @@ impl ApplicationHandler for MacPresenter {
                             PointerPhase::Release
                         },
                         buttons: if pressed { dom_button(button) } else { 0 },
+                        trace: None,
                     }));
                 }
             }

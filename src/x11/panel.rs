@@ -449,6 +449,7 @@ mod tests {
             pixels: Arc::new(vec![0u8; (w * h * 4) as usize]),
             width: w,
             height: h,
+            trace: None,
         }
     }
 
@@ -704,6 +705,7 @@ mod tests {
             pixels: pixels.clone(),
             width: phys_width,
             height: phys_height,
+            trace: None,
         };
 
         let panel =

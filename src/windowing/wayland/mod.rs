@@ -689,6 +689,7 @@ mod tests {
             pixels: Arc::new(vec![0u8; (w * h * 4) as usize]),
             width: w,
             height: h,
+            trace: None,
         }
     }
 

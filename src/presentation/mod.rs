@@ -15,6 +15,8 @@ pub struct SurfaceFrame {
     pub pixels: Arc<Vec<u8>>,
     pub width: u32,
     pub height: u32,
+    /// The Trace of the input these pixels answer, if it is being traced.
+    pub trace: Option<crate::trace::Trace>,
 }
 
 /// The typed vocabulary the pipeline speaks to the presenter.
@@ -115,6 +117,9 @@ pub struct PointerEvent {
     /// Which buttons are held, as a DOM `buttons` bitmask: 1 primary, 2 secondary,
     /// 4 auxiliary. Handed to handlers untouched.
     pub buttons: u16,
+    /// The Trace begun when the display server delivered this event, if the
+    /// journey is being traced (ADR 0042).
+    pub trace: Option<crate::trace::Trace>,
 }
 
 /// Events the presenter thread sends back to the pipeline.
@@ -187,6 +192,9 @@ impl<DM: DisplayManager> Presenter<DM> {
         Self::default()
     }
 
+    /// Apply one command to the display. When an `UpdatePicture` frame carries a
+    /// [`Trace`](crate::trace::Trace), its report is logged (target
+    /// `tauler::trace`) the moment the frame is on screen (ADR 0042).
     pub fn apply(&mut self, cmd: SurfaceCommand, dm: &mut DM) -> anyhow::Result<()> {
         match cmd {
             SurfaceCommand::Create { spec, frame } => {
@@ -233,6 +241,13 @@ impl<DM: DisplayManager> Presenter<DM> {
                 if let Some(panel) = self.panels.get_mut(&id) {
                     if let Err(e) = dm.update_image(panel, &frame.pixels[..]) {
                         tracing::error!(panel = %id, error = %e, "presenter update_image failed");
+                    } else if let Some(t) = frame.trace.as_ref() {
+                        tracing::debug!(
+                            target: "tauler::trace",
+                            panel = %id,
+                            "{}",
+                            t.report(std::time::Instant::now())
+                        );
                     }
                 }
             }
@@ -330,6 +345,7 @@ mod tests {
             pixels: Arc::new(vec![0u8; 4]),
             width: 1,
             height: 1,
+            trace: None,
         }
     }
 
@@ -338,6 +354,7 @@ mod tests {
             pixels: Arc::new(vec![0u8; (width * height * 4) as usize]),
             width,
             height,
+            trace: None,
         }
     }
 
@@ -484,6 +501,7 @@ mod tests {
             pixels: Arc::new(vec![42u8; 4]),
             width: 1,
             height: 1,
+            trace: None,
         };
         p.apply(
             SurfaceCommand::UpdatePicture {
@@ -590,6 +608,7 @@ mod tests {
             pixels: Arc::new(vec![42u8; 4]),
             width: 1,
             height: 1,
+            trace: None,
         };
         p.apply(
             SurfaceCommand::UpdatePicture {
@@ -635,5 +654,65 @@ mod tests {
             !dm.calls.iter().any(|c| c.starts_with("move:")),
             "Move on unknown id must be a no-op"
         );
+    }
+
+    /// ADR 0042: a frame that carries a Trace reports its journey exactly once,
+    /// at the moment it reaches the screen; a frame without one says nothing.
+    #[test]
+    #[tracing_test::traced_test]
+    fn a_traced_frame_reaching_the_screen_reports_its_journey() {
+        use crate::trace::Trace;
+        use std::time::Instant;
+
+        let mut p: Presenter<MockDM> = Presenter::new();
+        let mut dm = MockDM::new();
+        p.apply(
+            SurfaceCommand::Create {
+                spec: spec("p1"),
+                frame: sized_frame(4, 2),
+            },
+            &mut dm,
+        )
+        .unwrap();
+
+        let traced = SurfaceFrame {
+            trace: Some({
+                let mut t = Trace::started_at(Instant::now());
+                t.mark("queued", Instant::now());
+                t
+            }),
+            ..sized_frame(4, 2)
+        };
+        p.apply(
+            SurfaceCommand::UpdatePicture {
+                id: "p1".to_string(),
+                frame: traced,
+            },
+            &mut dm,
+        )
+        .unwrap();
+        p.apply(
+            SurfaceCommand::UpdatePicture {
+                id: "p1".to_string(),
+                frame: sized_frame(4, 2),
+            },
+            &mut dm,
+        )
+        .unwrap();
+
+        logs_assert(|lines: &[&str]| {
+            let n = lines.iter().filter(|l| l.contains("superseded=0")).count();
+            match n {
+                1 => Ok(()),
+                _ => Err(format!(
+                    "one traced frame, one report; an untraced frame reports nothing (got {n} reports)"
+                )),
+            }
+        });
+        assert!(
+            logs_contain("presented="),
+            "the report carries the presented hop"
+        );
+        assert!(logs_contain("total="), "the report carries the total");
     }
 }
