@@ -198,7 +198,14 @@ fn rasterize_panels(specs: &[tauler::layout::SurfaceSpec]) -> HashMap<String, Pa
             let width = (spec.width as f32 * spec.dpr).round().max(1.0) as u32;
             let height = (spec.height as f32 * spec.dpr).round().max(1.0) as u32;
             let rgba = tauler::render_frame_rgba(&spec.content, width, height, spec.dpr, None);
-            (spec.id.clone(), PanelPixels { width, height, rgba })
+            (
+                spec.id.clone(),
+                PanelPixels {
+                    width,
+                    height,
+                    rgba,
+                },
+            )
         })
         .collect()
 }
@@ -208,7 +215,14 @@ fn rasterize_panels(specs: &[tauler::layout::SurfaceSpec]) -> HashMap<String, Pa
 /// outside the framebuffer is simply skipped — this is what makes it safe to
 /// always blit a panel's full native size even when `compose::place` has
 /// clamped its visible rect to a smaller area near the window's far edge.
-fn blit_panel(framebuffer: &mut [u32], fb_width: u32, fb_height: u32, pixels: &PanelPixels, dest_x: i32, dest_y: i32) {
+fn blit_panel(
+    framebuffer: &mut [u32],
+    fb_width: u32,
+    fb_height: u32,
+    pixels: &PanelPixels,
+    dest_x: i32,
+    dest_y: i32,
+) {
     const BACKGROUND: u32 = 0x0000_0000;
     for row in 0..pixels.height {
         let dst_y = dest_y + row as i32;
@@ -236,7 +250,11 @@ fn blit_panel(framebuffer: &mut [u32], fb_width: u32, fb_height: u32, pixels: &P
 /// Where the compartment's composited VNC frame goes: to the right of
 /// whichever panel is flush against the window's left edge, with a fixed
 /// margin on every other side (see [`VNC_DEST_MARGIN`]).
-fn vnc_dest_rect(window_width: u32, window_height: u32, placements: &[PlacedPanel]) -> (u32, u32, u32, u32) {
+fn vnc_dest_rect(
+    window_width: u32,
+    window_height: u32,
+    placements: &[PlacedPanel],
+) -> (u32, u32, u32, u32) {
     let left_panel_width = placements
         .iter()
         .filter(|p| p.visible && p.x == 0)
@@ -248,15 +266,24 @@ fn vnc_dest_rect(window_width: u32, window_height: u32, placements: &[PlacedPane
     let dest_y = VNC_DEST_MARGIN;
     let raw_width = window_width.saturating_sub(dest_x + VNC_DEST_MARGIN);
     let raw_height = window_height.saturating_sub(2 * VNC_DEST_MARGIN);
-    let (dest_width, dest_height) =
-        cap_compartment_resolution(raw_width, raw_height, MAX_COMPARTMENT_WIDTH, MAX_COMPARTMENT_HEIGHT);
+    let (dest_width, dest_height) = cap_compartment_resolution(
+        raw_width,
+        raw_height,
+        MAX_COMPARTMENT_WIDTH,
+        MAX_COMPARTMENT_HEIGHT,
+    );
     (dest_x, dest_y, dest_width, dest_height)
 }
 
 /// Scales `(width, height)` down, preserving its own aspect ratio, so
 /// neither dimension exceeds `(max_width, max_height)` — a no-op if it
 /// already fits. See [`MAX_COMPARTMENT_WIDTH`]'s doc for why this exists.
-fn cap_compartment_resolution(width: u32, height: u32, max_width: u32, max_height: u32) -> (u32, u32) {
+fn cap_compartment_resolution(
+    width: u32,
+    height: u32,
+    max_width: u32,
+    max_height: u32,
+) -> (u32, u32) {
     if width == 0 || height == 0 || (width <= max_width && height <= max_height) {
         return (width, height);
     }
@@ -377,12 +404,19 @@ fn build_framebuffer(
         let Some(pixels) = panel_pixels.get(&placement.id) else {
             continue;
         };
-        blit_panel(&mut framebuffer, width, height, pixels, placement.x, placement.y);
+        blit_panel(
+            &mut framebuffer,
+            width,
+            height,
+            pixels,
+            placement.x,
+            placement.y,
+        );
     }
 
     if let Some(frame) = vnc_frame {
-        let (dest_x, dest_y, dest_width, dest_height) = vnc_dest_rect(width, height, &placements);
-        blit_vnc_frame(&mut framebuffer, width, height, frame, dest_x, dest_y, dest_width, dest_height);
+        let dest_rect = vnc_dest_rect(width, height, &placements);
+        blit_vnc_frame(&mut framebuffer, width, height, frame, dest_rect);
     }
 
     framebuffer
@@ -487,7 +521,13 @@ async fn try_connect_vnc_once(addr: &str) -> anyhow::Result<vnc::VncClient> {
 /// own since it's the one piece of by-hand pixel-copy arithmetic in that
 /// loop worth naming and testing in isolation from the async plumbing
 /// around it.
-fn copy_rect_into_canvas(canvas: &mut [u8], width: u32, height: u32, rect: &vnc::Rect, data: &[u8]) {
+fn copy_rect_into_canvas(
+    canvas: &mut [u8],
+    width: u32,
+    height: u32,
+    rect: &vnc::Rect,
+    data: &[u8],
+) {
     let rect_w = rect.width as usize;
     let rect_h = rect.height as usize;
     for row in 0..rect_h {
@@ -695,11 +735,9 @@ fn blit_vnc_frame(
     fb_width: u32,
     fb_height: u32,
     frame: &VncFrame,
-    dest_x: u32,
-    dest_y: u32,
-    dest_width: u32,
-    dest_height: u32,
+    dest_rect: (u32, u32, u32, u32),
 ) {
+    let (dest_x, dest_y, dest_width, dest_height) = dest_rect;
     let Some((offset_x, offset_y, fit_width, fit_height)) =
         vnc_fit_rect(frame.width, frame.height, dest_width, dest_height)
     else {
@@ -746,7 +784,17 @@ fn blit_vnc_frame(
 /// [`set_sway_output_resolution`]).
 fn msb_exec(name: &str, script: &str) -> anyhow::Result<String> {
     let output = Command::new("msb")
-        .args(["exec", name, "--no-tty", "--timeout", "20", "--", "bash", "-c", script])
+        .args([
+            "exec",
+            name,
+            "--no-tty",
+            "--timeout",
+            "20",
+            "--",
+            "bash",
+            "-c",
+            script,
+        ])
         .output()
         .map_err(|e| anyhow::anyhow!("failed to spawn `msb exec {name}`: {e}"))?;
     anyhow::ensure!(
@@ -777,22 +825,37 @@ fn swaymsg_script(command: &str) -> String {
 /// headless backend only ever creates one.
 fn discover_sway_output(compartment_name: &str) -> anyhow::Result<String> {
     let out = msb_exec(compartment_name, &swaymsg_script("swaymsg -t get_outputs"))?;
-    let outputs: serde_json::Value = serde_json::from_str(&out)
-        .map_err(|e| anyhow::anyhow!("could not parse `swaymsg -t get_outputs` output as JSON: {e} (output was: {out:?})"))?;
+    let outputs: serde_json::Value = serde_json::from_str(&out).map_err(|e| {
+        anyhow::anyhow!(
+            "could not parse `swaymsg -t get_outputs` output as JSON: {e} (output was: {out:?})"
+        )
+    })?;
     outputs
         .as_array()
         .and_then(|arr| arr.first())
         .and_then(|o| o.get("name"))
         .and_then(|n| n.as_str())
         .map(|s| s.to_string())
-        .ok_or_else(|| anyhow::anyhow!("`swaymsg -t get_outputs` reported no outputs (output was: {out:?})"))
+        .ok_or_else(|| {
+            anyhow::anyhow!("`swaymsg -t get_outputs` reported no outputs (output was: {out:?})")
+        })
 }
 
 /// Runs `swaymsg output <output> resolution <width>x<height>` inside the
 /// compartment, changing Sway's own compositor output resolution — not just
 /// the client-side destination rect a VNC frame gets fit into.
-fn set_sway_output_resolution(compartment_name: &str, output: &str, width: u32, height: u32) -> anyhow::Result<()> {
-    msb_exec(compartment_name, &swaymsg_script(&format!("swaymsg output {output} resolution {width}x{height}")))?;
+fn set_sway_output_resolution(
+    compartment_name: &str,
+    output: &str,
+    width: u32,
+    height: u32,
+) -> anyhow::Result<()> {
+    msb_exec(
+        compartment_name,
+        &swaymsg_script(&format!(
+            "swaymsg output {output} resolution {width}x{height}"
+        )),
+    )?;
     Ok(())
 }
 
@@ -934,7 +997,9 @@ impl App {
         }
         let output = self.vnc_output_name.clone().expect("just set above");
 
-        if let Err(e) = set_sway_output_resolution(&compartment_name, &output, dest_width, dest_height) {
+        if let Err(e) =
+            set_sway_output_resolution(&compartment_name, &output, dest_width, dest_height)
+        {
             eprintln!("taulerbox: could not resize compartment output {output}: {e}");
         }
     }
@@ -977,7 +1042,8 @@ impl App {
         // moment it happens, only its *position updates in between* are
         // coalesced away. See `POINTER_MOVE_THROTTLE`'s doc.
         let mask = self.cursor_buttons;
-        let is_pure_move = matches!(self.last_pointer_forward, Some((_, last_mask)) if last_mask == mask);
+        let is_pure_move =
+            matches!(self.last_pointer_forward, Some((_, last_mask)) if last_mask == mask);
         if is_pure_move {
             if let Some((last_at, _)) = self.last_pointer_forward {
                 if last_at.elapsed() < POINTER_MOVE_THROTTLE {
@@ -1155,7 +1221,9 @@ impl ApplicationHandler for App {
                 self.height = new_size.height.max(1);
 
                 if let Some(surface) = self.surface.as_mut() {
-                    if let (Some(w), Some(h)) = (NonZeroU32::new(self.width), NonZeroU32::new(self.height)) {
+                    if let (Some(w), Some(h)) =
+                        (NonZeroU32::new(self.width), NonZeroU32::new(self.height))
+                    {
                         if let Err(e) = surface.resize(w, h) {
                             eprintln!("taulerbox: surface resize failed: {e}");
                         }
@@ -1247,7 +1315,13 @@ fn main() -> anyhow::Result<()> {
 
     let panel_pixels = rasterize_panels(&specs);
 
-    let framebuffer = build_framebuffer(&specs, &panel_pixels, INITIAL_WINDOW_WIDTH, INITIAL_WINDOW_HEIGHT, None);
+    let framebuffer = build_framebuffer(
+        &specs,
+        &panel_pixels,
+        INITIAL_WINDOW_WIDTH,
+        INITIAL_WINDOW_HEIGHT,
+        None,
+    );
 
     let event_loop = EventLoop::new()?;
     event_loop.set_control_flow(ControlFlow::Wait);

@@ -14,12 +14,16 @@ use tauler::layout::{surface_origin, Rect, SurfaceKind, SurfaceSpec};
 /// Returns `(x, y, width, height, visible)` where x/y/width/height are the
 /// unclamped dimensions, and `visible` indicates whether the rectangle
 /// intersects the window.
-fn clamp_to_window(x: i32, y: i32, width: u32, height: u32, window: (u32, u32)) -> (i32, i32, u32, u32, bool) {
+fn clamp_to_window(
+    x: i32,
+    y: i32,
+    width: u32,
+    height: u32,
+    window: (u32, u32),
+) -> (i32, i32, u32, u32, bool) {
     // Compute visible based on ORIGINAL unclamped dimensions
-    let visible = x < window.0 as i32
-        && x + width as i32 > 0
-        && y < window.1 as i32
-        && y + height as i32 > 0;
+    let visible =
+        x < window.0 as i32 && x + width as i32 > 0 && y < window.1 as i32 && y + height as i32 > 0;
 
     // Only clamp dimensions if the rectangle is at least partially visible
     if visible {
@@ -131,7 +135,10 @@ mod tests {
         let placed = place(std::slice::from_ref(&spec), window);
 
         assert_eq!(placed.len(), 1);
-        assert_eq!(placed[0].x, 0, "left-anchored panel must be flush with x = 0");
+        assert_eq!(
+            placed[0].x, 0,
+            "left-anchored panel must be flush with x = 0"
+        );
     }
 
     fn unanchored_panel_spec(id: &str, x: i32, y: i32, dpr: f32) -> SurfaceSpec {
@@ -172,8 +179,14 @@ mod tests {
         assert_eq!(placed.len(), 2);
         assert_eq!(placed[0].x, 200, "panel A's x must be x * dpr = 100 * 2.0");
         assert_eq!(placed[0].y, 100, "panel A's y must be y * dpr = 50 * 2.0");
-        assert_eq!(placed[1].x, 15, "panel B's x must be x * dpr = 10 * 1.5, independent of panel A");
-        assert_eq!(placed[1].y, 30, "panel B's y must be y * dpr = 20 * 1.5, independent of panel A");
+        assert_eq!(
+            placed[1].x, 15,
+            "panel B's x must be x * dpr = 10 * 1.5, independent of panel A"
+        );
+        assert_eq!(
+            placed[1].y, 30,
+            "panel B's y must be y * dpr = 20 * 1.5, independent of panel A"
+        );
     }
 
     #[test]
@@ -233,7 +246,11 @@ mod tests {
 
         let placed = place(&[wallpaper, panel], window);
 
-        assert_eq!(placed.len(), 1, "the wallpaper spec must not produce a PlacedPanel");
+        assert_eq!(
+            placed.len(),
+            1,
+            "the wallpaper spec must not produce a PlacedPanel"
+        );
         assert_eq!(
             placed[0].id, "left-panel",
             "the only placed surface must be the panel, not the wallpaper"
@@ -313,8 +330,14 @@ mod tests {
         let placed = place(std::slice::from_ref(&spec), window);
 
         assert_eq!(placed.len(), 1);
-        assert_eq!(placed[0].x, 0, "x must be clamped to the window's left edge");
-        assert_eq!(placed[0].width, 50, "width must be adjusted to fit the visible portion");
+        assert_eq!(
+            placed[0].x, 0,
+            "x must be clamped to the window's left edge"
+        );
+        assert_eq!(
+            placed[0].width, 50,
+            "width must be adjusted to fit the visible portion"
+        );
         assert_eq!(
             placed[0].visible, true,
             "panel extending past left edge but overlapping must still be visible"
