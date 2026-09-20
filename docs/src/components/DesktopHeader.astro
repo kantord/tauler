@@ -41,7 +41,7 @@ import SocialIcons from '@astrojs/starlight/components/SocialIcons.astro'
     }
 
     /* Search sits in the middle column and centers itself within it —
-       gets its own zone instead of being clustered with GITHUB/INSTALL. */
+         gets its own zone instead of being clustered with GITHUB/INSTALL. */
     .dx-search {
       display: flex;
       justify-content: center;
@@ -75,13 +75,13 @@ import SocialIcons from '@astrojs/starlight/components/SocialIcons.astro'
         display: none;
       }
       /* The 44px (--spacing-s5) gap between wordmark/nav/tools is sized
-         for the desktop row's breathing room; on a narrow phone it alone
-         can exceed the space left after the wordmark, INSTALL and the
-         icon buttons — every gap-shrink candidate here is already
-         minimal, so this is the one that has room to give.
-         Real case: at 375–390px this freed exactly the room the
-         wordmark needed and the fallback below never triggers; the
-         ellipsis is a safety net for anything narrower still. */
+             for the desktop row's breathing room; on a narrow phone it alone
+             can exceed the space left after the wordmark, INSTALL and the
+             icon buttons — every gap-shrink candidate here is already
+             minimal, so this is the one that has room to give.
+             Real case: at 375–390px this freed exactly the room the
+             wordmark needed and the fallback below never triggers; the
+             ellipsis is a safety net for anything narrower still. */
       .dx-header {
         gap: var(--spacing-s3);
       }

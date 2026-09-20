@@ -39,12 +39,12 @@ const isSplash = entry.data.template === 'splash'
       height: 100%;
       pointer-events: none;
       /* The draw itself can't happen before the page's first paint (it's a
-         deferred module script, same as the landing's own Stage.astro, and
-         deliberately so — it stays off the critical rendering path rather
-         than delay real content). That gap is fine; what read as a "flicker"
-         was the canvas going from nothing to fully drawn in a single frame.
-         Fading it in turns an instant pop into a transition, which the eye
-         reads as intentional rather than as something breaking. */
+             deferred module script, same as the landing's own Stage.astro, and
+             deliberately so — it stays off the critical rendering path rather
+             than delay real content). That gap is fine; what read as a "flicker"
+             was the canvas going from nothing to fully drawn in a single frame.
+             Fading it in turns an instant pop into a transition, which the eye
+             reads as intentional rather than as something breaking. */
       opacity: 0;
       transition: opacity 0.4s ease;
     }
@@ -53,8 +53,8 @@ const isSplash = entry.data.template === 'splash'
     }
 
     /* The slab sits above the canvas — see the stacking note in the
-       script below for why an explicit z-index is required here, not
-       just DOM order. */
+         script below for why an explicit z-index is required here, not
+         just DOM order. */
     :global(.page) {
       position: relative;
       z-index: 1;
