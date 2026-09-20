@@ -87,6 +87,25 @@ const INITIAL_WINDOW_HEIGHT: u32 = 700;
 const MAX_COMPARTMENT_WIDTH: u32 = 1280;
 const MAX_COMPARTMENT_HEIGHT: u32 = 720;
 
+/// Minimum gap between two forwarded pure pointer *moves* (button mask
+/// unchanged). A button-state change (a click or release) is never
+/// throttled by this — see `sync_pointer`.
+///
+/// Found live (issue #582): `sync_pointer` forwarded unconditionally on
+/// every single `WindowEvent::CursorMoved`, and X11 can fire those at a
+/// much higher rate than any RFB round trip can keep up with — real
+/// movement queued commands onto `spawn_vnc_worker`'s unbounded channel
+/// faster than the worker (one `client.input().await` at a time, sharing
+/// its connection's lock with the constant `FullRefresh` frame stream) could
+/// ever drain them, so the compartment's cursor lagged the backlog by many
+/// seconds rather than tracking live — this is the same class of problem
+/// tauler's own native presenters already solve for real pointer motion via
+/// `compress_motion` (`src/app.rs`), which this forwarding path never had an
+/// equivalent of. 16ms (~60Hz) is far more granularity than a human can
+/// perceive in cursor position and far below the video's own 33ms refresh
+/// cadence, so nothing here is lost by not forwarding faster than this.
+const POINTER_MOVE_THROTTLE: Duration = Duration::from_millis(16);
+
 /// How long to wait, after the last `WindowEvent::Resized`, before treating
 /// a resize as "settled" and running the slow compartment-resize step (see
 /// module docs above and [`App::pending_resize`]).
@@ -220,8 +239,25 @@ fn vnc_dest_rect(window_width: u32, window_height: u32, placements: &[PlacedPane
 
     let dest_x = left_panel_width + VNC_DEST_MARGIN;
     let dest_y = VNC_DEST_MARGIN;
-    let dest_width = window_width.saturating_sub(dest_x + VNC_DEST_MARGIN);
-    let dest_height = window_height.saturating_sub(2 * VNC_DEST_MARGIN);
+    let raw_width = window_width.saturating_sub(dest_x + VNC_DEST_MARGIN);
+    let raw_height = window_height.saturating_sub(2 * VNC_DEST_MARGIN);
+
+    // Capped here, not just in `handle_settled_resize`'s swaymsg call, so
+    // every consumer of this rect — the blit destination, pointer-position
+    // mapping, and the compartment resize request — agrees on one bounded
+    // size. Capping only the *requested guest render resolution* and
+    // leaving this rect at the window's full, uncapped size was found live
+    // (issue #582) to still be a severe cost on its own: `blit_vnc_frame`'s
+    // nearest-neighbor upscale iterates every DESTINATION pixel, so a huge
+    // dest box (an i3-tiled window given most of a real monitor produced a
+    // ~2520x1820 one) meant ~4.6 million pixel copies every ~33ms tick
+    // regardless of how small the source frame was — enough on its own to
+    // peg a CPU core and starve the event loop of time to process ordinary
+    // X11 input, which is what made pointer forwarding look frozen even
+    // after the guest-side resolution was already capped. Any window space
+    // beyond this cap is simply left as background, not stretched into.
+    let (dest_width, dest_height) =
+        cap_compartment_resolution(raw_width, raw_height, MAX_COMPARTMENT_WIDTH, MAX_COMPARTMENT_HEIGHT);
     (dest_x, dest_y, dest_width, dest_height)
 }
 
@@ -826,6 +862,11 @@ struct App {
     /// step. A later resize event simply overwrites this with a later
     /// deadline, which is the entire debounce mechanism.
     pending_resize: Option<Instant>,
+    /// When a pure pointer *move* (button mask unchanged) was last actually
+    /// forwarded, and what mask it carried — used to throttle moves without
+    /// ever throttling a button-state change. See [`POINTER_MOVE_THROTTLE`]'s
+    /// doc for why this exists.
+    last_pointer_forward: Option<(Instant, u8)>,
     framebuffer: Vec<u32>,
     window: Option<Arc<Window>>,
     surface: Option<softbuffer::Surface<Arc<Window>, Arc<Window>>>,
@@ -885,12 +926,12 @@ impl App {
         };
 
         let placements = place(&self.specs, (self.width, self.height));
+        // Already capped inside `vnc_dest_rect` itself, so this agrees with
+        // whatever size the blit and pointer-mapping paths are using too.
         let (_, _, dest_width, dest_height) = vnc_dest_rect(self.width, self.height, &placements);
         if dest_width == 0 || dest_height == 0 {
             return;
         }
-        let (dest_width, dest_height) =
-            cap_compartment_resolution(dest_width, dest_height, MAX_COMPARTMENT_WIDTH, MAX_COMPARTMENT_HEIGHT);
 
         if self.vnc_output_name.is_none() {
             match discover_sway_output(&compartment_name) {
@@ -943,7 +984,22 @@ impl App {
         else {
             return;
         };
-        self.send_vnc_pointer(frame_x, frame_y, self.cursor_buttons);
+
+        // Throttle pure moves (same mask as last forwarded); never throttle
+        // a button-state change — a click must always reach the wire the
+        // moment it happens, only its *position updates in between* are
+        // coalesced away. See `POINTER_MOVE_THROTTLE`'s doc.
+        let mask = self.cursor_buttons;
+        let is_pure_move = matches!(self.last_pointer_forward, Some((_, last_mask)) if last_mask == mask);
+        if is_pure_move {
+            if let Some((last_at, _)) = self.last_pointer_forward {
+                if last_at.elapsed() < POINTER_MOVE_THROTTLE {
+                    return;
+                }
+            }
+        }
+        self.last_pointer_forward = Some((Instant::now(), mask));
+        self.send_vnc_pointer(frame_x, frame_y, mask);
     }
 
     /// Forwards one wheel "click": RFB has no continuous scroll delta, so a
@@ -1243,6 +1299,7 @@ fn main() -> anyhow::Result<()> {
         host_cursor_hidden: false,
         vnc_output_name: None,
         pending_resize: None,
+        last_pointer_forward: None,
         framebuffer,
         window: None,
         surface: None,
