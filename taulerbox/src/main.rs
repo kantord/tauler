@@ -65,6 +65,28 @@ use winit::window::{Window, WindowId};
 const INITIAL_WINDOW_WIDTH: u32 = 1482;
 const INITIAL_WINDOW_HEIGHT: u32 = 700;
 
+/// Hard ceiling on the resolution taulerbox will ever ask the compartment's
+/// Sway to render at, regardless of how large the destination box on screen
+/// actually is. `blit_vnc_frame` already scales any source frame into any
+/// destination box, so a capped source just gets upscaled — a small
+/// sharpness cost, not a functional one.
+///
+/// Found live (issue #582): under a tiling WM (i3), taulerbox's window is
+/// not a fixed size chosen by dragging a border — it can be handed however
+/// much screen the WM gives it, which on a real monitor was measured at a
+/// destination box resolving to a 2960x1986 request. Sway happily rendered
+/// at that size, and every `FullRefresh` frame at ~23.5MB (2960*1986*4),
+/// requested up to 30 times a second, saturated the pipeline badly enough
+/// that pointer forwarding — which shares the same connection and its lock
+/// with the frame stream (see `spawn_vnc_worker`'s doc comment) — could
+/// take a long time to catch up: forwarded events kept being computed and
+/// sent correctly (confirmed live), but visibly moving the compartment's
+/// cursor was delayed by however long the backlog took to drain, sometimes
+/// long enough to look permanently stuck. This ceiling keeps the per-frame
+/// cost bounded no matter how big the window gets.
+const MAX_COMPARTMENT_WIDTH: u32 = 1280;
+const MAX_COMPARTMENT_HEIGHT: u32 = 720;
+
 /// How long to wait, after the last `WindowEvent::Resized`, before treating
 /// a resize as "settled" and running the slow compartment-resize step (see
 /// module docs above and [`App::pending_resize`]).
@@ -201,6 +223,22 @@ fn vnc_dest_rect(window_width: u32, window_height: u32, placements: &[PlacedPane
     let dest_width = window_width.saturating_sub(dest_x + VNC_DEST_MARGIN);
     let dest_height = window_height.saturating_sub(2 * VNC_DEST_MARGIN);
     (dest_x, dest_y, dest_width, dest_height)
+}
+
+/// Scales `(width, height)` down, preserving its own aspect ratio, so
+/// neither dimension exceeds `(max_width, max_height)` — a no-op if it
+/// already fits. Used to keep the resolution taulerbox asks a compartment's
+/// Sway to render at bounded, independent of how large the destination box
+/// on screen (`vnc_dest_rect`) happens to be (see [`MAX_COMPARTMENT_WIDTH`]'s
+/// doc for why this exists).
+fn cap_compartment_resolution(width: u32, height: u32, max_width: u32, max_height: u32) -> (u32, u32) {
+    if width == 0 || height == 0 || (width <= max_width && height <= max_height) {
+        return (width, height);
+    }
+    let scale = (max_width as f64 / width as f64).min(max_height as f64 / height as f64);
+    let capped_width = ((width as f64 * scale).round() as u32).max(1);
+    let capped_height = ((height as f64 * scale).round() as u32).max(1);
+    (capped_width, capped_height)
 }
 
 /// `true` when `(x, y)` (window-local physical pixels) falls inside `rect`
@@ -851,6 +889,8 @@ impl App {
         if dest_width == 0 || dest_height == 0 {
             return;
         }
+        let (dest_width, dest_height) =
+            cap_compartment_resolution(dest_width, dest_height, MAX_COMPARTMENT_WIDTH, MAX_COMPARTMENT_HEIGHT);
 
         if self.vnc_output_name.is_none() {
             match discover_sway_output(&compartment_name) {
