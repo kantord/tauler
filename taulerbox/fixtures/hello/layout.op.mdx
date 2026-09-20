@@ -1,0 +1,30 @@
+---
+theme:
+  mode: dark
+---
+// Minimal fixture for taulerbox's first real window: one free-floating panel,
+// left-anchored, with a background color that is neither black nor white so a
+// screenshot can prove real content rendered rather than a blank window.
+
+export default function render() {
+  return (
+    <root>
+      <panel id="hello" anchor="left" width={300} height={200}>
+        <div
+          class="text-foreground"
+          style={{
+            width: "100%",
+            height: "100%",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            fontSize: "24px",
+            backgroundColor: "#2563eb",
+          }}
+        >
+          hello taulerbox
+        </div>
+      </panel>
+    </root>
+  );
+}

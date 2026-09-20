@@ -1,0 +1,154 @@
+---
+theme:
+  mode: dark
+---
+// Fixture proving the Units reconciler is wired into taulerbox end to end
+// (issue #582): a real `<Compartment>` Item, backed by real `msb`
+// commands, alongside the same trivial panel `fixtures/hello` uses so the
+// window still shows something.
+//
+// `Compartment` is defined here, at this file's own module scope, rather
+// than added to tauler-core's shared globals — native tauler must never gain
+// sandboxing features, so this stays local to taulerbox's own fixtures. A
+// layout file's top-level statements run once per evaluation, the same as
+// any other module-scope code, so a plain `globalThis.Compartment = (...) =>
+// {...}` assignment here is enough; no import or separate file is needed.
+//
+// Shaped after `tauler-core/src/globals.rs`'s `ConfigFile`: a factory
+// function closing over its own call args and returning a `unit()`
+// descriptor. `observe` reads `msb list --format json`; `enterOne` runs
+// `msb create`. There is deliberately no `updateOne` or `exitOne` — a
+// Compartment's identity never changes once created, and removing this
+// element from a layout must never destroy the VM.
+//
+// One deviation from a literal `<Compartment name=... image=... />`
+// self-closing tag, found empirically (see PR notes): `collect_units`
+// (src/jsx.rs) only recognizes a Unit Item when the JSX tag itself
+// evaluates to the `unit()`-produced descriptor object — the shape a plain
+// `const Light = unit({...}); <Light .../>` has. A *factory* used directly
+// as a JSX tag (`<Compartment name=.../>`) compiles to `h(Compartment,
+// props)`; because `Compartment` is a function, `h`'s "component" branch
+// calls it immediately and splices its return value into the tree
+// *unwrapped* (no `{type, props, children}` envelope) — exactly like a
+// component that returns another element would. That leaves the returned
+// `unit()` descriptor sitting bare in the tree with no `.type` field of its
+// own, which `collect_units`'s walk (`node.type.__estoKind`) never matches,
+// so it silently reconciles nothing. Confirmed by evaluating this exact
+// shape through `JsxEvaluator::eval_units` and observing an empty batch
+// list, then confirming a fix.
+//
+// The fix: call the factory once, at module scope (not inside JSX), and
+// bind the resulting descriptor to its own capitalized identifier. JSX
+// treats any capitalized tag as an identifier reference regardless of
+// whether it holds a function or a plain object, so `<TaulerboxVerifyCompartment
+// />` compiles to `h(TaulerboxVerifyCompartment, {})` — and since that
+// identifier is now the plain `unit()` descriptor object (not a function),
+// `h` takes its generic passthrough branch and wraps it as
+// `{type: TaulerboxVerifyCompartment, props: {}, children: []}`, which
+// `collect_units` does recognize.
+globalThis.Compartment = ({ name, image, home }) => {
+  function listRunning() {
+    const out = sh`msb list --format json 2>/dev/null || echo '[]'`;
+    try {
+      const parsed = JSON.parse(out);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch (e) {
+      return [];
+    }
+  }
+  function isRunning() {
+    return listRunning().some((sb) => sb.name === name && sb.status === "Running");
+  }
+  function create() {
+    // `msb create` boots detached by default in the installed `msb` 0.6.17 —
+    // it has no `-d`/`--detach` flag at all ("Create a sandbox and boot it
+    // in the background" per `msb create --help`); passing `-d` is a hard
+    // CLI error ("unexpected argument '-d' found"), confirmed by an actual
+    // failed run of this fixture.
+    //
+    // `-p 5900:5900` (HOST:GUEST, confirmed via `msb create --help`)
+    // publishes the guest's VNC port so the headless Sway + wayvnc stack
+    // started by `postCreate` below is reachable from the host.
+    //
+    // `-c 2 -m 1G`: the `msb` default (1 vCPU, 512MB) was enough while the
+    // VNC client only requested incremental updates, but taulerbox now
+    // polls with `X11Event::FullRefresh` (see `taulerbox/src/main.rs`,
+    // issue #582) to avoid a different bug — incremental requests only
+    // answer when the compositor has real damage, which measured at ~1fps
+    // on an idle desktop. FullRefresh means a full frame is rendered and
+    // encoded on every poll regardless of activity, and 1 vCPU visibly
+    // struggled with that (a live run pegged taulerbox's own host-side
+    // process at 109% CPU processing the resulting stream, degrading
+    // pointer forwarding badly enough to look broken). This bump is a
+    // stopgap for the first mergeable version of the crate, not a fix for
+    // the underlying cost — VNC pays for a full redraw+encode+decode cycle
+    // every tick no matter how little changed, which is the ceiling a
+    // future guest-agent-over-vsock replacement (see the design notes for
+    // this issue) exists to remove, not something more CPU alone solves.
+    if (home) {
+      sh`msb create --name ${name} -p 5900:5900 -c 2 -m 1G -v ${home}:/root ${image}`;
+    } else {
+      sh`msb create --name ${name} -p 5900:5900 -c 2 -m 1G ${image}`;
+    }
+    postCreate();
+  }
+  // Starts headless Sway + wayvnc inside the fresh compartment. Both are
+  // baked into the `taulerbox-box` image at build time (see
+  // `taulerbox/Dockerfile` and `just taulerbox-image`) rather than
+  // installed here at runtime — the first version of this fixture ran
+  // `apt-get install sway wayvnc` on every boot, which also pulls in
+  // every Recommends package (measured at 253 packages on a real `debian`
+  // base: full ffmpeg codecs, PulseAudio, GPU drivers, a terminal
+  // emulator), and that reliably outran the `msb exec --timeout` window
+  // on real network conditions. Baking the image removes the runtime
+  // install entirely, so this step is now just starting two already-
+  // installed daemons — seconds, not minutes.
+  function postCreate() {
+    // The `;` right after `mkdir -p /run/user/0` matters: a trailing `&`
+    // backgrounds the *whole* preceding `&&` AND-OR list in bash, not
+    // just the command it looks attached to, so `mkdir ... && nohup sway
+    // &` would background the mkdir too (harmless here, but the same bug
+    // that broke the old apt-get-based version is worth not reintroducing).
+    sh`msb exec ${name} --no-tty --timeout 60 -- bash -c 'mkdir -p /run/user/0; XDG_RUNTIME_DIR=/run/user/0 WLR_BACKENDS=headless WLR_RENDERER=pixman WLR_LIBINPUT_NO_DEVICES=1 nohup sway > /tmp/sway.log 2>&1 & disown; sleep 2; XDG_RUNTIME_DIR=/run/user/0 WAYLAND_DISPLAY=wayland-1 nohup wayvnc 0.0.0.0 5900 > /tmp/wayvnc.log 2>&1 & disown'`;
+  }
+  return unit({
+    key: () => name,
+    value: (f) => ("running" in f ? f : { running: false }),
+    reconciler: optativeSet({
+      observe: () => (isRunning() ? [{ running: true }] : []),
+    }),
+    enterOne: create,
+  });
+};
+
+const TaulerboxVerifyCompartment = Compartment({
+  name: "taulerbox-verify-582",
+  // Built by `just taulerbox-image` and loaded into msb's local cache —
+  // sway + wayvnc are already installed in it, see `taulerbox/Dockerfile`.
+  image: "taulerbox-box",
+  home: null,
+});
+
+export default function render() {
+  return (
+    <root>
+      <panel id="hello" anchor="left" width={300} height={200}>
+        <div
+          class="text-foreground"
+          style={{
+            width: "100%",
+            height: "100%",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            fontSize: "24px",
+            backgroundColor: "#2563eb",
+          }}
+        >
+          hello taulerbox
+        </div>
+      </panel>
+      <TaulerboxVerifyCompartment />
+    </root>
+  );
+}

@@ -61,6 +61,18 @@ e2e-image:
 e2e: e2e-image
     cargo test -p tauler-e2e -- --ignored --test-threads=1
 
+# taulerbox's compartment desktop image (sway + wayvnc baked in — see taulerbox/Dockerfile
+# for why this isn't installed at runtime), built and loaded into msb's local image cache.
+taulerbox-image:
+    @docker buildx version >/dev/null 2>&1 || { \
+        echo "docker buildx is required."; \
+        exit 1; \
+    }
+    docker buildx build -f taulerbox/Dockerfile -t taulerbox-box:local --load taulerbox
+    docker save taulerbox-box:local -o /tmp/taulerbox-box.tar
+    msb load -i /tmp/taulerbox-box.tar -t taulerbox-box
+    rm -f /tmp/taulerbox-box.tar
+
 # The pinned browser the web comparison is measured against.
 web-e2e-image:
     @docker buildx version >/dev/null 2>&1 || { \

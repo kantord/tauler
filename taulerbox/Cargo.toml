@@ -1,0 +1,66 @@
+[package]
+name = "taulerbox"
+description = "A native window that shows a tauler layout's Panels as pixel buffers, alongside a microVM compartment (issue #582)"
+keywords = ["tauler", "microvm", "sandbox", "desktop"]
+categories = ["command-line-utilities", "virtualization"]
+readme = "README.md"
+edition = "2021"
+version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+rust-version.workspace = true
+
+[package.metadata.binstall]
+pkg-url = "{ repo }/releases/download/{ name }-v{ version }/{ name }-{ target }{ archive-suffix }"
+pkg-fmt = "tgz"
+bin-dir = "{ bin }{ binary-ext }"
+
+[package.metadata.binstall.signing]
+algorithm = "minisign"
+pubkey = "RWSIIxAW8MOpS1/+qA/KhHpVtPwT58dU4A4YY0sw+DN02POargT6PDM0"
+
+[[bin]]
+name = "taulerbox"
+path = "src/main.rs"
+
+[dependencies]
+# taulerbox depends on `tauler` the same way `tauler-screenshot` does (a plain
+# library dependency, path + version so `cargo publish --dry-run` still checks
+# against a real release): it reuses the presenter protocol (`presentation`),
+# panel placement math (`layout::surface_origin`) and the Units reconciler
+# (`units`), but never touches `src/app.rs`'s tick loop, which is private to
+# the `tauler` binary and not part of the library.
+tauler = { path = "..", version = "0.5.2" }
+clap = { version = "4.6.6", features = ["derive"] }
+serde_json = "1.0.151"
+anyhow = "1.0.104"
+# Unlike the root `tauler` crate (which only pulls these in `cfg(target_os =
+# "macos")`), taulerbox opens its one window on every platform, so they are
+# plain dependencies here. Same version pins as the root crate's macOS target.
+winit = "0.30.13"
+softbuffer = "0.4.8"
+# So a reconciler-thread failure (a Unit's hook throwing, the reconciler
+# runtime failing to start) is visible somewhere: `tauler::units::Reconciler`
+# only ever reports through `tracing`, and with no subscriber installed those
+# calls go nowhere. Same crates and default filter as the root `tauler`
+# binary (`src/main.rs`).
+tracing = "0.1.44"
+tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
+# `--vnc HOST:PORT` (main.rs): connects to a compartment's wayvnc server and
+# keeps a persistent, continuously-updating connection composited into the
+# window (`spawn_vnc_worker`), also forwarding host pointer events into it.
+# vnc-rs's crate name is `vnc-rs`, but the library itself is `vnc` (see its
+# `[lib] name = "vnc"`), so call sites use `vnc::...`. It's built on tokio;
+# taulerbox stays a synchronous program otherwise and only spins up a
+# `tokio::runtime::Runtime` on the one dedicated worker thread that owns the
+# VNC connection for the program's life.
+vnc-rs = "0.5.3"
+# "sync" is for `tokio::sync::mpsc` (the window-thread -> VNC-worker command
+# channel; see `spawn_vnc_worker`'s doc comment for why that side needs an
+# async-`recv`-able channel rather than a plain `std::sync::mpsc`).
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "time", "sync"] }
+
+[dev-dependencies]
+rstest = "0.27.0"
