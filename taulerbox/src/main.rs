@@ -443,13 +443,28 @@ enum VncCommand {
     Pointer { x: u16, y: u16, mask: u8 },
 }
 
-/// How often the worker asks the server for the next incremental
-/// framebuffer update while a connection is open. `vnc-rs` does not do this
-/// on its own — per RFB, a client must explicitly request each update after
-/// the previous one arrives (confirmed against the crate's own README
-/// example, which does exactly this on a 16ms tick after flushing a
-/// rendered frame). 33ms (~30 requests/sec) is plenty for a letterboxed
-/// mirror rather than a full remote-desktop client.
+/// How often the worker asks the server for the next framebuffer update
+/// while a connection is open. `vnc-rs` does not do this on its own — per
+/// RFB, a client must explicitly request each update after the previous one
+/// arrives (confirmed against the crate's own README example, which does
+/// exactly this on a 16ms tick after flushing a rendered frame). 33ms (~30
+/// requests/sec) is plenty for a letterboxed mirror rather than a full
+/// remote-desktop client.
+///
+/// The request sent on each tick is `X11Event::FullRefresh` (non-incremental
+/// — see the call site), not `Refresh`. Measured live (issue #582): a raw
+/// RFB probe talking to `wayvnc` directly, bypassing taulerbox entirely,
+/// showed incremental requests answered in single-digit milliseconds when a
+/// real update was pending, but averaging ~1 second/frame overall — an
+/// *incremental* request only gets a response once the server has real
+/// damage to report, and on an idle headless desktop the only thing
+/// generating damage was Sway's own status-bar clock ticking once a second.
+/// Mouse-only movement did not reliably count as damage either, which is
+/// why forwarded pointer motion felt sluggish. `FullRefresh` makes the
+/// server answer unconditionally on every tick, trading a small constant
+/// bandwidth cost (a full frame's worth of Raw pixels, `VNC_REFRESH_INTERVAL`
+/// times a second) for updates that track input at the tick rate instead of
+/// the compositor's own idle redraw cadence.
 const VNC_REFRESH_INTERVAL: Duration = Duration::from_millis(33);
 
 /// Spawns the one dedicated OS thread that owns the VNC connection for the
@@ -468,9 +483,11 @@ const VNC_REFRESH_INTERVAL: Duration = Duration::from_millis(33);
 ///    synchronous (winit's own event loop) and only ever wants "whatever
 ///    the newest frame is", which `Receiver::try_iter` on the other end
 ///    gives for free;
-///  - on a `VNC_REFRESH_INTERVAL` tick, sends an incremental
-///    `X11Event::Refresh` so the server keeps the updates coming (RFB
-///    requires this explicit re-request; see `VNC_REFRESH_INTERVAL`'s doc);
+///  - on a `VNC_REFRESH_INTERVAL` tick, sends a non-incremental
+///    `X11Event::FullRefresh` so the server answers on every tick rather
+///    than waiting for its own idle redraw cadence (RFB requires this
+///    explicit re-request either way; see `VNC_REFRESH_INTERVAL`'s doc for
+///    why non-incremental specifically);
 ///  - drains `cmd_rx` (a `tokio::sync::mpsc::UnboundedReceiver`, chosen over
 ///    a plain `std::sync::mpsc` receiver here because this side needs an
 ///    `.await`-able recv to sit in the same `tokio::select!` as the other
@@ -553,7 +570,7 @@ fn spawn_vnc_worker(
                             }
                         }
                         _ = refresh.tick() => {
-                            if let Err(e) = client.input(vnc::X11Event::Refresh).await {
+                            if let Err(e) = client.input(vnc::X11Event::FullRefresh).await {
                                 tracing::warn!(
                                     "taulerbox: could not request the next VNC frame ({e}); reconnecting"
                                 );
