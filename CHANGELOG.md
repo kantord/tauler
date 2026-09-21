@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.0](https://github.com/kantord/tauler/compare/tauler-v0.5.2...tauler-v0.6.0) - 2026-09-21
+
+### Added
+
+- add taulerbox crate ([#584](https://github.com/kantord/tauler/pull/584))
+- add an opt-in latency trace from pointer event to PutImage ([#585](https://github.com/kantord/tauler/pull/585))
+
+### Fixed
+
+- *(deps)* update patch updates ([#590](https://github.com/kantord/tauler/pull/590))
+
+### Other
+
+- *(deps)* lock file maintenance ([#594](https://github.com/kantord/tauler/pull/594))
+- *(deps)* lock file maintenance ([#591](https://github.com/kantord/tauler/pull/591))
+
 ## [0.5.2](https://github.com/kantord/tauler/compare/tauler-v0.5.1...tauler-v0.5.2) - 2026-09-19
 
 ### Added
