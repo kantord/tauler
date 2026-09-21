@@ -37,7 +37,7 @@ optative = "=0.1.4"
 # The QuickJS half: registration, the `EsEntry` table and `UiComponent::js_fn`. Enabled by
 # `tauler`, never by the web build — `rquickjs-sys` compiles QuickJS from C and there is no
 # wasm32-unknown-unknown sysroot for it (ADR 0025).
-rquickjs = { version = "=0.13.0", features = ["loader"], optional = true }
+rquickjs = { version = "=0.14.0", features = ["loader"], optional = true }
 rquickjs-serde = { version = "=0.7.0", optional = true }
 optative-script = { version = "=0.0.12", optional = true }
 
