@@ -3951,7 +3951,7 @@ dependencies = [
  "oxc_semantic",
  "oxc_span",
  "oxc_transformer",
- "rquickjs",
+ "rquickjs 0.13.0",
  "serde",
  "sha2",
  "thiserror 2.0.20",
@@ -5263,7 +5263,16 @@ version = "0.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b7d96fb23e8ff51c8d4772ea84e44b5238543b7d81e9cc23c0219511a8f16482"
 dependencies = [
- "rquickjs-core",
+ "rquickjs-core 0.13.0",
+]
+
+[[package]]
+name = "rquickjs"
+version = "0.14.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a0a22bf72f515cc4189dd7c63d016f6de92a11eee98ddf7dd64794198f6eb34e"
+dependencies = [
+ "rquickjs-core 0.14.0",
 ]
 
 [[package]]
@@ -5274,7 +5283,18 @@ checksum = "7c6dbfedfbf458dc119c21ccd032c7527d185210b11a1ae796cd04106e6db280"
 dependencies = [
  "hashbrown 0.17.1",
  "relative-path 2.0.1",
- "rquickjs-sys",
+ "rquickjs-sys 0.13.0",
+]
+
+[[package]]
+name = "rquickjs-core"
+version = "0.14.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6657979a24d543e5fc66f32cef2f47ca82ce8eb55cec5f7d59a12b7b570bbf24"
+dependencies = [
+ "hashbrown 0.17.1",
+ "relative-path 2.0.1",
+ "rquickjs-sys 0.14.0",
 ]
 
 [[package]]
@@ -5283,7 +5303,7 @@ version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "89a073c3b9a6a88cdddbf2cb50d8dab016a0aaaf891133e4d2eaee37dc2b01bc"
 dependencies = [
- "rquickjs",
+ "rquickjs 0.13.0",
  "serde",
 ]
 
@@ -5292,6 +5312,15 @@ name = "rquickjs-sys"
 version = "0.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "53d0aaff245bed1c6f3c39e477fb6b98d710d9d298bfec7c8dfc589bed0e5cef"
+dependencies = [
+ "cc",
+]
+
+[[package]]
+name = "rquickjs-sys"
+version = "0.14.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cee271d0eeba64f0915b846cb7ae02e16faf3dfdffdca91731101d9d30fe3423"
 dependencies = [
  "cc",
 ]
@@ -6283,7 +6312,7 @@ dependencies = [
  "optative-derive",
  "optative-process-pool",
  "optative-script",
- "rquickjs",
+ "rquickjs 0.14.0",
  "rquickjs-serde",
  "rstest",
  "serde",
@@ -6342,7 +6371,7 @@ version = "0.3.4"
 dependencies = [
  "optative",
  "optative-script",
- "rquickjs",
+ "rquickjs 0.14.0",
  "rquickjs-serde",
  "rstest",
  "serde",
