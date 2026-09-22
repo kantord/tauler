@@ -1,4 +1,4 @@
-# syntax=docker/dockerfile:1
+# syntax=docker/dockerfile:1@sha256:ecfaec9ed6d810b56388c508f4121597bfbba70d41a6dfeee4d8cad5f295fc32
 #
 # The compartment's desktop image: headless Sway + wayvnc baked in, so
 # `msb create` boots straight into a ready-to-start desktop instead of
@@ -13,7 +13,7 @@
 # conditions. `--no-install-recommends` here cuts it back to just what
 # sway/wayvnc actually need, baked in at build time instead of gambled on
 # at every compartment's first boot.
-FROM debian:trixie
+FROM debian:trixie@sha256:9cc080028c43b27d2074d63a5f9caf7166d731494965616c1a6d2827a004585c
 
 RUN apt-get update && \
     apt-get install -y --no-install-recommends sway wayvnc && \
