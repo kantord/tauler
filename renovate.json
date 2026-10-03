@@ -6,8 +6,7 @@
   ],
   "minimumReleaseAge": "3 days",
   "lockFileMaintenance": {
-    "enabled": true,
-    "automerge": true
+    "enabled": false
   },
   "customManagers": [
     {
@@ -21,13 +20,8 @@
   ],
   "packageRules": [
     {
-      "description": "Tag-tracking deps (non-semver refs, e.g. dtolnay/rust-toolchain@stable, or a Dockerfile FROM pinned to a floating tag + digest like rust:1.98.0-bookworm) only get digest updates, which have no release timestamp, so the age gate would block them forever",
-      "matchUpdateTypes": ["digest"],
-      "minimumReleaseAge": null
-    },
-    {
-      "description": "lockFileMaintenance has no release timestamp of its own -- it's a whole-lockfile refresh, not a single package bump -- so under the default timestamp-required behavior the age gate never clears and silently disables automerge below. This makes automerge here rely on the docs-ci.yaml npm audit job and ci.yml's cargo audit job as the only compensating checks; neither catches a same-day, not-yet-disclosed compromise.",
-      "matchUpdateTypes": ["lockFileMaintenance"],
+      "description": "Tag-tracking deps (non-semver refs, e.g. dtolnay/rust-toolchain@stable, or a Dockerfile FROM pinned to a floating tag + digest like rust:1.98.0-bookworm) only get digest updates, which have no release timestamp, so the age gate would block them forever. Same for `pin`/`pinDigest`: pinning rewrites a range or tag to what is already in use (`0.25.1` -> `=0.25.1`), so there is no new release to age, and Renovate does not support minimumReleaseAge for pin updates. Left gated, the whole `pin dependencies` PR sits `pending` forever",
+      "matchUpdateTypes": ["digest", "pin", "pinDigest"],
       "minimumReleaseAge": null
     },
     {
@@ -36,7 +30,7 @@
       "groupName": "patch updates"
     },
     {
-      "description": "Pinned, not bumped: under `bump` the manifest gets a caret range, and `cargo update` resolves past the version Renovate picked once `minimumReleaseAge` holds a newer release back (jsonschema 0.58.3 vs 0.58.5, PR #597). `=x.y.z` leaves cargo no room to resolve anything else.",
+      "description": "Pinned, not bumped: under `bump` the manifest gets a caret range, and `cargo update` resolves past the version Renovate picked once `minimumReleaseAge` holds a newer release back (jsonschema 0.58.3 vs 0.58.5, PR #597). `=x.y.z` leaves cargo no room to resolve anything else. Lockfile maintenance is disabled (top of file) for the same reason: it refreshes every transitive crate to the newest in-range release with no age check, and a whole-lockfile refresh has no release timestamp for the gate to measure. With direct deps pinned and no scheduled refresh, Cargo.lock only changes when a gated bump forces it; transitive security fixes come from `cargo audit` in ci.yml.",
       "matchManagers": ["cargo"],
       "rangeStrategy": "pin"
     },
