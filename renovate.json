@@ -48,6 +48,12 @@
       "rangeStrategy": "pin"
     },
     {
+      "description": "tauler and optative are deeply intertwined and often developed together, so the release-age delay on optative crates is counter-productive. rquickjs stays gated: it is third-party.",
+      "matchManagers": ["cargo"],
+      "matchPackageNames": ["/^optative/"],
+      "minimumReleaseAge": null
+    },
+    {
       "description": "takumi re-exports takumi-core types; a lone bump of either puts two takumi-core versions in the graph and the ImageSource/ImageBuffer types stop unifying. Pinned for the same reason as the quickjs group — under `bump`, `minimumReleaseAge` held takumi at 2.7.3 while the lockfile update resolved 2.9.2, and the two takumi-core versions that pulled in did not compile.",
       "matchManagers": ["cargo"],
       "matchPackageNames": ["/^takumi/"],
