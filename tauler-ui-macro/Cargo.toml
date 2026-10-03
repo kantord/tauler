@@ -25,7 +25,7 @@ rust-version.workspace = true
 proc-macro = true
 
 [dependencies]
-rstml = "0.13.1"
-syn = { version = "3.0.6", features = ["full"] }
-quote = "1.0.47"
-proc-macro2 = "1.0.107"
+rstml = "=0.13.1"
+syn = { version = "=3.0.6", features = ["full"] }
+quote = "=1.0.47"
+proc-macro2 = "=1.0.107"

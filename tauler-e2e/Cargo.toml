@@ -10,7 +10,7 @@ repository.workspace = true
 rust-version.workspace = true
 
 [dependencies]
-anyhow = "1.0.104"
-image = "0.25.10"
-serde_json = "1.0.151"
-testcontainers = { version = "0.28.0", features = ["blocking"] }
+anyhow = "=1.0.104"
+image = "=0.25.10"
+serde_json = "=1.0.151"
+testcontainers = { version = "=0.28.0", features = ["blocking"] }
