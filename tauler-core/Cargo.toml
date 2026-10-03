@@ -24,10 +24,10 @@ rust-version.workspace = true
 # `cargo check -p tauler-core --target wasm32-unknown-unknown` is what enforces it.
 
 [dependencies]
-serde = { version = "1.0.229", features = ["derive"] }
-serde_json = "1.0.151"
-serde_yaml = "0.9.34"
-thiserror = "2.0.21"
+serde = { version = "=1.0.229", features = ["derive"] }
+serde_json = "=1.0.151"
+serde_yaml = "=0.9.34"
+thiserror = "=2.0.21"
 tauler-ui-macro = { path = "../tauler-ui-macro", version = "0.1.14" }
 # The Unit reconciler's diff core (units_reconcile.rs): pure, no QuickJS, so it
 # belongs here rather than behind the `quickjs` feature — a browser Unit needs
@@ -46,10 +46,10 @@ optative-script = { version = "=0.0.12", optional = true }
 # different version of the crate, so the two are one version number in two places.
 # CI installs `wasm-bindgen-cli` at this same version.
 wasm-bindgen = "=0.2.129"
-serde-wasm-bindgen = "0.6.5"
+serde-wasm-bindgen = "=0.6.5"
 
 [dev-dependencies]
-rstest = "0.27.0"
+rstest = "=0.27.0"
 
 [features]
 default = []
