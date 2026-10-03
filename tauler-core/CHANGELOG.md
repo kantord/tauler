@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.5](https://github.com/kantord/tauler/compare/tauler-core-v0.3.4...tauler-core-v0.3.5) - 2026-10-03
+
+### Fixed
+
+- *(deps)* update patch updates ([#593](https://github.com/kantord/tauler/pull/593))
+
 ## [0.3.4](https://github.com/kantord/tauler/compare/tauler-core-v0.3.3...tauler-core-v0.3.4) - 2026-09-19
 
 ### Added
