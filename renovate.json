@@ -26,8 +26,9 @@
       "groupName": "patch updates"
     },
     {
+      "description": "Pinned, not bumped: under `bump` the manifest gets a caret range, and `cargo update` resolves past the version Renovate picked once `minimumReleaseAge` holds a newer release back (jsonschema 0.58.3 vs 0.58.5, PR #597). `=x.y.z` leaves cargo no room to resolve anything else.",
       "matchManagers": ["cargo"],
-      "rangeStrategy": "bump"
+      "rangeStrategy": "pin"
     },
     {
       "description": "optative-script pins an rquickjs major, and tauler uses rquickjs types directly at the UI-component registration boundary (src/ui/registry.rs, src/jsx.rs). Two rquickjs versions in the graph make `Ctx`/`Error` fail to unify, so a lone bump of any one of these never compiles. Pinned, not bumped: a caret range lets `cargo update` resolve past the version Renovate picked, which is how the two copies get in.",
