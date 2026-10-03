@@ -9,6 +9,16 @@
     "enabled": true,
     "automerge": true
   },
+  "customManagers": [
+    {
+      "description": "wasm-bindgen-cli is installed by `cargo install` in workflow files, which no built-in manager reads. Without this, Renovate bumps the crate pin and leaves the CLI behind.",
+      "customType": "regex",
+      "managerFilePatterns": ["/^\\.github/workflows/.+\\.ya?ml$/"],
+      "matchStrings": ["cargo install wasm-bindgen-cli --version (?<currentValue>\\S+)"],
+      "depNameTemplate": "wasm-bindgen-cli",
+      "datasourceTemplate": "crate"
+    }
+  ],
   "packageRules": [
     {
       "description": "Tag-tracking deps (non-semver refs, e.g. dtolnay/rust-toolchain@stable, or a Dockerfile FROM pinned to a floating tag + digest like rust:1.98.0-bookworm) only get digest updates, which have no release timestamp, so the age gate would block them forever",
@@ -41,6 +51,12 @@
       "matchManagers": ["cargo"],
       "matchPackageNames": ["/^takumi/"],
       "groupName": "takumi crates",
+      "rangeStrategy": "pin"
+    },
+    {
+      "description": "The wasm-bindgen CLI refuses to process a module built against a different version of the crate, so the crate pins (tauler-core, tauler-web) and the CLI installs in workflows are one version in several places. Pinned and grouped so they move together; a lone crate bump also breaks `cargo publish` of dependents until the next tauler-core release (#605).",
+      "matchPackageNames": ["wasm-bindgen", "wasm-bindgen-cli"],
+      "groupName": "wasm-bindgen (crate + CLI)",
       "rangeStrategy": "pin"
     },
     {
