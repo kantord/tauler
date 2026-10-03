@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.6](https://github.com/kantord/tauler/compare/tauler-core-v0.3.5...tauler-core-v0.3.6) - 2026-10-03
+
+### Fixed
+
+- *(deps)* update optative + quickjs ([#596](https://github.com/kantord/tauler/pull/596))
+- *(deps)* pin dependencies ([#592](https://github.com/kantord/tauler/pull/592))
+
 ## [0.3.5](https://github.com/kantord/tauler/compare/tauler-core-v0.3.4...tauler-core-v0.3.5) - 2026-10-03
 
 ### Fixed
