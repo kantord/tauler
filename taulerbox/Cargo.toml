@@ -60,7 +60,7 @@ vnc-rs = "=0.6.0"
 # "sync" is for `tokio::sync::mpsc` (the window-thread -> VNC-worker command
 # channel; see `spawn_vnc_worker`'s doc comment for why that side needs an
 # async-`recv`-able channel rather than a plain `std::sync::mpsc`).
-tokio = { version = "=1.53.1", features = ["rt-multi-thread", "macros", "net", "time", "sync"] }
+tokio = { version = "=1.53.2", features = ["rt-multi-thread", "macros", "net", "time", "sync"] }
 
 [dev-dependencies]
 rstest = "=0.27.0"
