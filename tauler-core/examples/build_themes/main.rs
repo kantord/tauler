@@ -2,27 +2,32 @@
 //!
 //!     cargo run -p tauler-core --example build_themes
 //!
-//! For each workload: check the scheme out at its pinned commit into a temp dir, read its seed
-//! (background, foreground, 16 ANSI colours) in a headless `nvim --clean` for each mode, derive
-//! every token from the seed (`derive.rs`, the same way for every scheme), and write
-//! `src/themes/<name>/theme.yaml` plus the upstream LICENSE verbatim. The output is committed;
-//! nothing here runs at build or run time of tauler.
+//! For each workload: check the scheme out at its pinned commit into a temp dir, load it in a
+//! headless `nvim --clean`, ask that Neovim the questions in `generate/queries.yaml` (one per
+//! token, see `queries.rs`), and write `src/themes/<name>/theme.yaml` from the answers plus the
+//! upstream licence verbatim. The output is committed; nothing here runs at build or run time of
+//! tauler.
 //!
-//! DECISION: a Cargo example, not a script. The repo's tooling is Rust and shell, and an
-//! example reuses `serde_yaml` and `tauler_core::theme::contrast` with no new crate in the
-//! workspace. Rejected: Python with PyYAML (a second language for one tool), a new workspace
-//! member (every member is a release-plz and manifest-test concern).
+//! DECISION: a theme is exactly what the scheme answers. Nothing is blended, nudged or guessed: a
+//! token with no answer, or a text/surface pair under the contrast floor, stops the workload with
+//! the names of the offenders, and the fix is a different query for that token (`queries:` on the
+//! workload) or a different scheme. Rejected: deriving the tokens from the background, foreground
+//! and ANSI colours and repairing what came out, which could ship any scheme but ~400 lines of
+//! colour code later and with colours that were no longer the scheme's own.
+//!
+//! DECISION: a Cargo example, not a script. The repo's tooling is Rust and shell, and an example
+//! reuses `serde_yaml` and `tauler_core::theme::contrast` with no new crate in the workspace.
 //!
 //! DECISION: the temp checkout is reused when it already exists at the pinned commit. Two
 //! workloads on the same repo and commit share one clone.
 
-mod derive;
+mod queries;
 
-use derive::{derive, token_order, Seed};
+use queries::{ask, mode_of, run, Overrides, Table};
 use serde::Deserialize;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use tauler_core::theme::ThemeMode;
+use tauler_core::theme::{contrast, Theme, ThemeMode};
 
 #[derive(Deserialize)]
 struct Conf {
@@ -36,41 +41,19 @@ struct Workload {
     rev: String,
     license: String,
     colorscheme: String,
-    /// A hint for schemes that branch on `&background`; see `dump.lua`.
+    /// A hint for schemes that branch on `&background`.
     #[serde(default = "default_background")]
     background: String,
-    /// The ANSI colour that is the accent. See `derive.rs` for why this is a parameter.
-    #[serde(default = "default_primary")]
-    primary: String,
+    /// Lua run before the scheme loads, for a scheme that must be configured to answer (a
+    /// terminal-colour switch, an opaque background).
+    setup: Option<String>,
+    /// Token → query, replacing the table's for this scheme.
+    #[serde(default)]
+    queries: Overrides,
 }
 
 fn default_background() -> String {
     "dark".to_string()
-}
-
-fn default_primary() -> String {
-    "blue".to_string()
-}
-
-#[derive(Deserialize)]
-struct Dump {
-    bg: String,
-    fg: String,
-    ansi: Vec<String>,
-    mode: String,
-    #[serde(default)]
-    #[allow(dead_code)]
-    fallback: bool,
-}
-
-fn run(cmd: &mut Command) -> String {
-    let out = cmd.output().unwrap_or_else(|e| panic!("{cmd:?}: {e}"));
-    assert!(
-        out.status.success(),
-        "{cmd:?} failed: {}",
-        String::from_utf8_lossy(&out.stderr)
-    );
-    String::from_utf8(out.stdout).expect("utf-8 output")
 }
 
 /// A checkout of `repo` at exactly `rev`, in the temp dir.
@@ -98,70 +81,72 @@ fn checkout(repo: &str, rev: &str) -> PathBuf {
     dir
 }
 
-/// The seed (and the mode it turned out to be) `w`'s colour scheme gives in a pristine Neovim with
-/// only `repo_dir` on its runtimepath.
-fn seed(dump_lua: &Path, repo_dir: &Path, w: &Workload) -> (Seed, ThemeMode) {
-    let json = run(Command::new("nvim")
-        .args(["--headless", "--clean", "-l"])
-        .arg(dump_lua)
-        .env("RTP", repo_dir)
-        .env("CS", &w.colorscheme)
-        .env("BGMODE", &w.background));
-    let dump: Dump = serde_json::from_str(&json).expect("dump.lua prints JSON");
-    let seed_mode = if dump.mode == "light" {
-        ThemeMode::Light
-    } else {
-        ThemeMode::Dark
-    };
-    let seed = Seed {
-        bg: dump.bg,
-        fg: dump.fg,
-        ansi: dump
-            .ansi
-            .try_into()
-            .unwrap_or_else(|v: Vec<String>| panic!("expected 16 ANSI colours, got {}", v.len())),
-    };
-    // The background decides the label. `&background` is only a hint: a scheme that ignores it
-    // (41 of the 151 colour schemes tried) leaves it at whatever the hint said.
-    let mode = if derive::is_dark(&seed.bg) {
-        ThemeMode::Dark
-    } else {
-        ThemeMode::Light
-    };
-    if mode != seed_mode {
-        eprintln!(
-            "note: {}: &background is `{}` but its background {} is {}; using the background",
-            w.name,
-            dump.mode,
-            seed.bg,
-            if mode == ThemeMode::Dark {
-                "dark"
-            } else {
-                "light"
-            }
-        );
+/// `w`'s theme as `(mode, colour per token in table order)`, or why the scheme cannot ship.
+fn extract(
+    themes_dir: &Path,
+    table: &Table,
+    w: &Workload,
+    repo_dir: &Path,
+) -> Result<(ThemeMode, Vec<(String, String)>), String> {
+    let answers = ask(
+        &themes_dir.join("generate/query.lua"),
+        &repo_dir.to_string_lossy(),
+        &w.colorscheme,
+        &w.background,
+        w.setup.as_deref(),
+        &table.questions(&w.queries),
+    )?;
+    let page = answers
+        .get(table.page())
+        .ok_or("the scheme answers no page colour (a transparent background?)")?;
+    let mode = mode_of(page);
+    let resolved = table.resolve(mode, &w.queries, &answers);
+
+    let missing: Vec<&str> = table.tokens().filter(|t| resolved[*t].is_none()).collect();
+    if !missing.is_empty() {
+        return Err(format!("no answer for: {}", missing.join(", ")));
     }
-    let misses = derive::ansi_hue_misses(&seed);
-    assert!(
-        misses.len() <= derive::MAX_HUE_MISSES,
-        "{}: its terminal colours are not in ANSI hue order ({misses:?}); `destructive` and the \
-         chart colours would come out the wrong hue — drop the scheme",
-        w.name
-    );
-    if !misses.is_empty() {
-        eprintln!(
-            "note: {}: terminal slots far from their hue: {misses:?}",
-            w.name
-        );
+    let colours: Vec<(String, String)> = table
+        .tokens()
+        .map(|t| (t.to_string(), resolved[t].clone().expect("checked above")))
+        .collect();
+
+    let yaml: String = colours
+        .iter()
+        .map(|(t, c)| format!("  {t}: \"{c}\"\n"))
+        .collect();
+    let theme = Theme::from_yaml(&format!(
+        "name: {}\nmode: {}\ncolors:\n{yaml}",
+        w.name,
+        label(mode)
+    ))
+    .map_err(|e| format!("the answers do not form a theme: {e}"))?;
+    let under: Vec<String> = contrast::failures(&theme, contrast::HARD_FLOOR)
+        .iter()
+        .map(|f| {
+            format!(
+                "{} on {} = {:.2}",
+                f.foreground,
+                f.surface,
+                f.ratio.unwrap_or(0.0)
+            )
+        })
+        .collect();
+    if !under.is_empty() {
+        return Err(format!(
+            "pairs under {}:1: {} — give one of those tokens a different query under `queries:`",
+            contrast::HARD_FLOOR,
+            under.join("; ")
+        ));
     }
-    (seed, mode)
+    Ok((mode, colours))
 }
 
-fn block(tokens: &std::collections::BTreeMap<String, String>) -> String {
-    token_order()
-        .iter()
-        .map(|k| format!("  {k}: \"{}\"\n", tokens[k]))
-        .collect()
+fn label(mode: ThemeMode) -> &'static str {
+    match mode {
+        ThemeMode::Dark => "dark",
+        ThemeMode::Light => "light",
+    }
 }
 
 fn main() {
@@ -170,39 +155,42 @@ fn main() {
         &std::fs::read_to_string(themes_dir.join("themebuild.yaml")).expect("read themebuild.yaml"),
     )
     .expect("parse themebuild.yaml");
-    let dump_lua = themes_dir.join("generate/dump.lua");
+    let table = Table::parse(
+        &std::fs::read_to_string(themes_dir.join("generate/queries.yaml"))
+            .expect("read queries.yaml"),
+    )
+    .unwrap_or_else(|e| panic!("{e}"));
 
-    for w in conf.themes {
+    let mut failed = false;
+    for w in &conf.themes {
         let repo_dir = checkout(&w.repo, &w.rev);
-        let (seed, mode) = seed(&dump_lua, &repo_dir, &w);
-        let tokens = derive(&seed, &w.primary);
-        let (donor, ui) = derive::accent_separation(&seed);
-        assert!(
-            ui >= donor.min(derive::MIN_SEPARATION) - 1e-9,
-            "{}: making its accents readable pulled two of them together (distance {donor:.3} -> {ui:.3}); \
-             give this workload a different `primary`, or drop the scheme",
-            w.name
-        );
+        let (mode, colours) = match extract(&themes_dir, &table, w, &repo_dir) {
+            Ok(ok) => ok,
+            Err(why) => {
+                eprintln!("{}: {why}", w.name);
+                failed = true;
+                continue;
+            }
+        };
 
         let out_dir = themes_dir.join(&w.name);
         std::fs::create_dir_all(&out_dir).expect("create theme dir");
         let header = format!(
             "# GENERATED by `cargo run -p tauler-core --example build_themes` — do not edit.\n\
              # Source: {} at {} ({}), colour scheme `{}`.\n\
-             # Derived from the scheme's background, foreground and 16 terminal colours by\n\
-             # examples/build_themes/derive.rs; the ANSI colours are the scheme's own, unchanged.\n",
+             # Every colour is the scheme's own answer to a question in generate/queries.yaml.\n",
             w.repo, w.rev, w.license, w.colorscheme
         );
-        let mode_label = match mode {
-            ThemeMode::Dark => "dark",
-            ThemeMode::Light => "light",
-        };
+        let body: String = colours
+            .iter()
+            .map(|(t, c)| format!("  {t}: \"{c}\"\n"))
+            .collect();
         std::fs::write(
             out_dir.join("theme.yaml"),
             format!(
-                "{header}name: {}\nmode: {mode_label}\ncolors:\n{}",
+                "{header}name: {}\nmode: {}\ncolors:\n{body}",
                 w.name,
-                block(&tokens)
+                label(mode)
             ),
         )
         .expect("write theme.yaml");
@@ -227,6 +215,7 @@ fn main() {
                 std::fs::copy(&src, out_dir.join(file)).expect("copy licence file");
             }
         }
-        println!("wrote {} ({mode_label})", out_dir.display());
+        println!("wrote {} ({})", out_dir.display(), label(mode));
     }
+    assert!(!failed, "some workloads cannot ship; see above");
 }

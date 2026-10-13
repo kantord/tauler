@@ -113,6 +113,31 @@ mod tests {
         assert_eq!(default_for(ThemeMode::Light).mode, ThemeMode::Light);
     }
 
+    /// A token that is the same colour in every built-in theme of a mode is a token the themes are
+    /// not really answering — a default, not a choice. Only `mode`s with two or more themes are
+    /// checked, and the ANSI black and white that two schemes may legitimately share are allowed.
+    #[test]
+    fn no_token_is_one_colour_across_every_built_in_of_a_mode() {
+        use crate::theme::ThemeMode;
+        use std::collections::BTreeSet;
+        let themes: Vec<_> = names().iter().map(|n| by_name(n).unwrap()).collect();
+        for mode in [ThemeMode::Dark, ThemeMode::Light] {
+            let of_mode: Vec<_> = themes.iter().filter(|t| t.mode == mode).collect();
+            assert!(of_mode.len() >= 2, "{mode:?} has fewer than two built-ins");
+            for token in of_mode[0].colors.keys() {
+                if token == "ansi-black" || token == "ansi-white" {
+                    continue;
+                }
+                let colours: BTreeSet<_> =
+                    of_mode.iter().filter_map(|t| t.colors.get(token)).collect();
+                assert!(
+                    colours.len() > 1,
+                    "`{token}` is {colours:?} in every {mode:?} built-in"
+                );
+            }
+        }
+    }
+
     #[test]
     fn built_in_names_are_unique() {
         let mut names = names();

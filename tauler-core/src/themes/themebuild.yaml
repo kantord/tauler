@@ -2,49 +2,48 @@
 #
 # TERM: **Workload** — one entry below: which Neovim colour scheme to read, at which commit.
 #   Each produces one built-in theme in `themes/<name>/`.
-#
-# DECISION: one extraction for every scheme — `generate/dump.lua` reads a seed (background,
-#   foreground, 16 ANSI colours) and `examples/build_themes/derive.rs` derives every token from
-#   it. There is no per-scheme code, so adding a scheme is a workload entry, not a generator.
-#   Rejected: a hand-written mapping per scheme (what tokyonight had at first) — it looked
-#   slightly more designed and could not be applied to the next scheme.
-#
-# `background:` is only a hint for schemes that branch on &background (e.g. gruvbox-material);
-# it defaults to dark, and a scheme that sets its own wins.
-#
-# ASSUMPTION: `primary` defaults to blue for every workload (`primary:` overrides it). Not
-#   confirmed; it is the one token that cannot be derived.
 #   Avoid: preset, import (nothing here is imported at runtime; the output is committed).
 #
+# DECISION: one extraction for every scheme — a Neovim that has loaded the scheme is asked the
+#   questions in `generate/queries.yaml` and each answer is a token's colour. There is no
+#   per-scheme code, so adding a scheme is a workload entry, not a generator. A scheme whose
+#   answers fall short of the contrast floor is fixed with `queries:` below, one token at a time, or
+#   not shipped. Rejected: deriving the colours from a seed and repairing them (the previous
+#   design): it could ship any scheme but with colours that were no longer the scheme's own.
+#
 # DECISION: every style a scheme ships is its own workload and its own theme, and the theme's
-#   mode is whatever the style turned out to be — read from `&background` after the scheme loads
-#   and checked against the luminance of its background, never declared here. One theme is one
-#   mode (see `Theme`). Rejected: pairing a dark style with a light one into one theme, which
-#   is what this did before themes carried a mode.
+#   mode is the page colour's: dark if it is closer in contrast to black than to white, whatever
+#   the scheme says `&background` is. One theme is one mode (see `Theme`).
 #
 # DECISION: each workload runs in a headless Neovim started with `--clean` against a fresh
-#   checkout in a temp dir, so the output depends on the pinned commit and our derivation,
-#   never on whoever ran the build's own Neovim config or plugins.
+#   checkout in a temp dir, so the output depends on the pinned commit and the queries, never on
+#   whoever ran the build's own Neovim config or plugins.
 #
-# DECISION: Apache-2.0 schemes are fine to ship. Each theme folder carries the upstream
-#   LICENSE verbatim and its theme.yaml header states the source commit and that the values
-#   were converted, not changed. Rejected: MIT/BSD only — it would exclude tokyonight.
+# DECISION: Apache-2.0 schemes are fine to ship. Each theme folder carries the upstream licence
+#   verbatim and its theme.yaml header states the source commit. Rejected: MIT/BSD only — it
+#   would exclude tokyonight.
+#
+# Fields: `colorscheme`; `background` (default dark) is only a hint for schemes that branch on
+#   &background; `setup` is Lua run before the scheme loads, for one that must be configured to
+#   answer; `queries` maps a token to a query that replaces the table's for this scheme.
 #
 # SPEC: `rev` is a full commit, never a branch or tag — the output must be reproducible.
-#
-# Each theme folder gets the upstream LICENSE (and NOTICE, if there is one) verbatim, so a
-# folder copied on its own still carries its notice.
 themes:
   - name: tokyonight-night
     repo: https://github.com/folke/tokyonight.nvim
     rev: cdc07ac78467a233fd62c493de29a17e0cf2b2b6
     license: Apache-2.0
     colorscheme: tokyonight-night
+    # tokyonight's comment colour is 2.8:1 on its page; `Conceal` is its quiet colour that is not.
+    queries:
+      muted-foreground: Conceal.fg
   - name: tokyonight-storm
     repo: https://github.com/folke/tokyonight.nvim
     rev: cdc07ac78467a233fd62c493de29a17e0cf2b2b6
     license: Apache-2.0
     colorscheme: tokyonight-storm
+    queries:
+      muted-foreground: Conceal.fg
   - name: tokyonight-moon
     repo: https://github.com/folke/tokyonight.nvim
     rev: cdc07ac78467a233fd62c493de29a17e0cf2b2b6
@@ -55,3 +54,9 @@ themes:
     rev: cdc07ac78467a233fd62c493de29a17e0cf2b2b6
     license: Apache-2.0
     colorscheme: tokyonight-day
+    # Its default panel colour leaves no quiet text colour that reads on it; the floating-window
+    # colour does.
+    queries:
+      card: NormalFloat.bg
+      secondary: NormalFloat.bg
+      muted-foreground: Conceal.fg

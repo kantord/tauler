@@ -228,16 +228,16 @@ fn builtin_theme_scenario(
 #[test]
 #[ignore = "needs Docker and `just e2e-image`"]
 fn builtin_theme_by_name_draws_the_dark_palette() -> Result<()> {
-    // tokyonight-night: `background` is #1a1b26; `sidebar` and `popover` are both #14141e
-    // (derived: the background faded toward black).
+    // tokyonight-night: `background` is #1a1b26; `sidebar` and `popover` are both #16161e, the
+    // scheme's own answer for a panel (`Pmenu.bg`).
     builtin_theme_scenario(
         "builtin-theme-dark",
         "builtin-theme-by-name-draws-the-dark-palette",
         "tokyonight-night",
         Palette {
             background: [0x1a, 0x1b, 0x26],
-            sidebar: [0x14, 0x14, 0x1e],
-            popover: [0x14, 0x14, 0x1e],
+            sidebar: [0x16, 0x16, 0x1e],
+            popover: [0x16, 0x16, 0x1e],
         },
     )
 }
@@ -245,16 +245,16 @@ fn builtin_theme_by_name_draws_the_dark_palette() -> Result<()> {
 #[test]
 #[ignore = "needs Docker and `just e2e-image`"]
 fn builtin_theme_by_name_draws_the_light_palette() -> Result<()> {
-    // tokyonight-day: `background` is #e1e2e7; `sidebar` and `popover` are #cad1e3 (derived: the
-    // background is too close to white to fade, so the panel steps toward the foreground).
+    // tokyonight-day: `background` is #e1e2e7; `sidebar` and `popover` are #d0d5e3, the scheme's
+    // own answer for a floating window (`NormalFloat.bg`, which this workload asks for).
     builtin_theme_scenario(
         "builtin-theme-light",
         "builtin-theme-by-name-draws-the-light-palette",
         "tokyonight-day",
         Palette {
             background: [0xe1, 0xe2, 0xe7],
-            sidebar: [0xca, 0xd1, 0xe3],
-            popover: [0xca, 0xd1, 0xe3],
+            sidebar: [0xd0, 0xd5, 0xe3],
+            popover: [0xd0, 0xd5, 0xe3],
         },
     )
 }

@@ -10,7 +10,8 @@ light had no colours, and nothing said so. Software that left Vim's single `back
 behind (VS Code's per-appearance themes, tinted-theming's `variant`) ships one theme per
 appearance and labels it, so a theme can neither be missing the palette for the mode it is shown
 in, nor be shown on the wrong background by accident. It also makes a built-in theme one scheme
-in one mode, derived the same way for every scheme, instead of a hand-paired dark and light.
+in one mode, read from a running Neovim the same way for every scheme, instead of a hand-paired
+dark and light.
 
 `theme.mode` stays, optional, and wins when set: it picks the default theme's mode when no theme
 is named and overrides the label of a named one — the colours do not move, so it only changes

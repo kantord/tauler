@@ -1,0 +1,101 @@
+# What a theme's colours are read from, one query per token and mode.
+#
+# TERM: **Query** — a question put to a running Neovim that has loaded one colour scheme, answered
+#   with one colour. `Group.attr` is a highlight group's `fg`, `bg` or `sp` (links followed, so it is
+#   the effective value); `g:name` is a global variable (`g:terminal_color_4`); `=token` means "the
+#   same colour as that other token". Nothing else: no fallbacks, no blending, no nudging.
+#   Avoid: lookup, selector, mapping (a mapping says token->group; this says token->colour).
+#
+# DECISION: a token has one query for dark themes and one for light ones, or a single query for
+#   both. The two can differ because schemes do not dim, tint and outline the same way on a dark
+#   page as on a light one — measured on 171 scheme variants (123 dark, 48 light), the best query
+#   for `card` is `Pmenu.bg` on dark and `CursorColumn.bg` on light.
+#
+# DECISION: the queries were picked by scoring every plausible group against the corpus, not by
+#   what the group is *for*. `border: Whitespace.fg` is on the list because a visible-but-quiet
+#   line colour is what `border` needs, and `Whitespace` held one in 93% of dark and 100% of light
+#   schemes; the semantically obvious `WinSeparator` held one far less often. Where the question is
+#   which *hue* a token has (primary, destructive, charts), the query is a terminal colour slot,
+#   because a group can be any hue and a slot is red, green or blue by contract.
+#
+# SPEC: every core and ANSI token has an entry, and no entry names an unknown token.
+#
+# SPEC: a query that gets no value leaves its token undefined; the theme is then incomplete and is
+#   refused. A scheme that cannot answer a query is not shipped, or the workload overrides that one
+#   token (see themebuild.yaml); it is not papered over here.
+#
+# DECISION: the floor for every pair, `muted-foreground` included, is 3:1 (`theme::contrast`).
+#   That is where Material's own code puts its secondary text at its default contrast level and
+#   WCAG puts large text and UI components. The cost: of 171 scheme variants, 62 ship from this
+#   table as it stands and about 112 could with a per-scheme override, because editor schemes dim
+#   comments on purpose (tokyonight's is 2.8:1). Rejected: a lower floor for muted text, which
+#   would admit roughly 20 more but drift from both references.
+#
+# DECISION: the table was chosen by scoring candidate queries over the corpus on three numbers —
+#   how often a scheme answers at all, how often its pairs clear the floor and whether the answer
+#   is the same colour in many themes (a default every scheme inherits) — which is what the
+#   `stress_themes` example reports for any manifest. What a query is *for* did not count.
+#
+# DECISION: `primary` is terminal slot 4 (blue) and `destructive` slot 1 (red), the *normal*
+#   variants, so the accent is blue in every theme. The bright slots were the first choice and are
+#   worse: over the corpus the normal slot clears 3:1 with the right hue at least as often in both
+#   modes (red 75% vs 72% on dark, 81% vs 79% on light; blue 63% vs 61%, 79% vs 75%), and on
+#   tokyonight-day the bright blue and red are 2.6:1 and 2.5:1 where the normal ones are 3.1 and 3.0.
+#   A group such as `PreProc` scored higher on contrast but is cyan in one scheme and orange in the
+#   next, which is why a slot is used. Blue is also the accent stylix and base16-nvim pick. Changing it
+#   is one line here, then `build_themes`.
+
+background: Normal.bg
+foreground: Normal.fg
+
+card: { dark: Pmenu.bg, light: CursorColumn.bg }
+card-foreground: Normal.fg
+popover: =card
+popover-foreground: Normal.fg
+
+primary: g:terminal_color_4
+primary-foreground: Normal.bg
+secondary: ColorColumn.bg
+secondary-foreground: Normal.fg
+muted: ColorColumn.bg
+muted-foreground: { dark: Comment.fg, light: Folded.fg }
+accent: Visual.bg
+accent-foreground: Normal.fg
+destructive: g:terminal_color_1
+destructive-foreground: Normal.bg
+
+border: Whitespace.fg
+input: =border
+ring: { dark: Function.fg, light: CursorLineNr.fg }
+
+chart-1: g:terminal_color_1
+chart-2: g:terminal_color_2
+chart-3: g:terminal_color_3
+chart-4: g:terminal_color_4
+chart-5: g:terminal_color_5
+
+sidebar: =card
+sidebar-foreground: =card-foreground
+sidebar-primary: =primary
+sidebar-primary-foreground: =primary-foreground
+sidebar-accent: =accent
+sidebar-accent-foreground: =accent-foreground
+sidebar-border: =border
+sidebar-ring: =ring
+
+ansi-black: g:terminal_color_0
+ansi-red: g:terminal_color_1
+ansi-green: g:terminal_color_2
+ansi-yellow: g:terminal_color_3
+ansi-blue: g:terminal_color_4
+ansi-magenta: g:terminal_color_5
+ansi-cyan: g:terminal_color_6
+ansi-white: g:terminal_color_7
+ansi-bright-black: g:terminal_color_8
+ansi-bright-red: g:terminal_color_9
+ansi-bright-green: g:terminal_color_10
+ansi-bright-yellow: g:terminal_color_11
+ansi-bright-blue: g:terminal_color_12
+ansi-bright-magenta: g:terminal_color_13
+ansi-bright-cyan: g:terminal_color_14
+ansi-bright-white: g:terminal_color_15

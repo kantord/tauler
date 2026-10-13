@@ -279,18 +279,25 @@ The one layout every theme is rendered through — each token, each pair, the te
 a few components — so a theme's defects are visible at a glance.
 _Avoid_: demo, preview, mockup
 
-**Seed**:
-The background, the foreground and the 16 ANSI colours of one colour scheme in one mode: all a
-built-in theme is made from.
-_Avoid_: base colours, palette
+**Query**:
+A question put to a running Neovim that has loaded a colour scheme, answered with one colour: a
+highlight group's foreground or background, or a global such as a terminal colour.
+_Avoid_: lookup, selector, mapping
 
-**Ladder**:
-The few surface and line colours a UI needs between its background and its foreground — raised
-panels, muted fills, borders, the focus ring. A seed has none, so a built-in theme works one out.
-_Avoid_: elevation scale, shade ramp
+**Query table**:
+For each theme token, the query whose answer is its colour, with a separate query for dark and for
+light themes where they differ. The whole of how a built-in theme is made from a colour scheme:
+nothing is blended, nudged or guessed.
+_Avoid_: mapping, preset
+
+**Override**:
+A query that one workload gives for one token in place of the query table's, so a scheme whose own
+answer is unusable can still ship.
+_Avoid_: patch, fix-up
 
 **Workload**:
-One colour scheme at a pinned revision, named for the built-in theme it produces.
+One colour scheme at a pinned revision, named for the built-in theme it produces, with any
+overrides it needs.
 _Avoid_: preset, import
 
 ### Scenarios
