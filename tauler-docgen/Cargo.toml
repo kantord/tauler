@@ -23,4 +23,4 @@ optative-script = "=0.0.13"
 
 [dev-dependencies]
 tempfile = "=3.27.0"
-insta = "=1.48.0"
+insta = "=1.49.0"
