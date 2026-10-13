@@ -56,7 +56,22 @@ fn default_background() -> String {
     "dark".to_string()
 }
 
-/// A checkout of `repo` at exactly `rev`, in the temp dir.
+/// Whether `dir` is a git checkout whose HEAD is exactly `rev`.
+///
+/// SPEC: a directory that merely *exists* is not a checkout. `git init` creates `.git` before the
+/// fetch, so a run that died between the two leaves a repository with nothing in it, and trusting
+/// the directory would hand every later run an empty scheme.
+fn holds_commit(dir: &Path, rev: &str) -> bool {
+    Command::new("git")
+        .arg("-C")
+        .arg(dir)
+        .args(["rev-parse", "HEAD"])
+        .output()
+        .map(|o| o.status.success() && String::from_utf8_lossy(&o.stdout).trim() == rev)
+        .unwrap_or(false)
+}
+
+/// A checkout of `repo` at exactly `rev`, in the temp dir, reusing one that already holds `rev`.
 fn checkout(repo: &str, rev: &str) -> PathBuf {
     assert_eq!(rev.len(), 40, "`rev` must be a full commit, got {rev:?}");
     let slug: String = repo
@@ -66,7 +81,10 @@ fn checkout(repo: &str, rev: &str) -> PathBuf {
     let dir = std::env::temp_dir()
         .join("tauler-themebuild")
         .join(format!("{slug}-{rev}"));
-    if !dir.join(".git").exists() {
+    if dir.exists() && !holds_commit(&dir, rev) {
+        std::fs::remove_dir_all(&dir).expect("remove an incomplete checkout");
+    }
+    if !dir.exists() {
         std::fs::create_dir_all(&dir).expect("create checkout dir");
         run(Command::new("git").args(["init", "--quiet"]).arg(&dir));
         run(Command::new("git")
@@ -79,6 +97,34 @@ fn checkout(repo: &str, rev: &str) -> PathBuf {
             .args(["checkout", "--quiet", "FETCH_HEAD"]));
     }
     dir
+}
+
+const LICENCE_NAMES: [&str; 4] = ["LICENSE", "LICENSE.md", "LICENSE.txt", "COPYING"];
+
+/// The upstream licence files in `repo_dir`, by the name that repository gave them.
+///
+/// SPEC: a scheme with none is refused — before anything of its theme is written, so a refusal
+/// never leaves an unlicensed theme behind.
+fn licence_files(repo_dir: &Path) -> Result<Vec<&'static str>, String> {
+    let found: Vec<&'static str> = LICENCE_NAMES
+        .into_iter()
+        .filter(|n| repo_dir.join(n).exists())
+        .collect();
+    if found.is_empty() {
+        Err("no licence file in the repository — refusing to ship an unlicensed theme".into())
+    } else {
+        Ok(found)
+    }
+}
+
+/// Copy `files` (and a NOTICE, if there is one) verbatim from `repo_dir` into `out_dir`.
+fn copy_licence_files(repo_dir: &Path, out_dir: &Path, files: &[&str]) {
+    for file in files.iter().copied().chain(["NOTICE"]) {
+        let src = repo_dir.join(file);
+        if src.exists() {
+            std::fs::copy(&src, out_dir.join(file)).expect("copy licence file");
+        }
+    }
 }
 
 /// `w`'s theme as `(mode, colour per token in table order)`, or why the scheme cannot ship.
@@ -97,7 +143,7 @@ fn extract(
         &table.questions(&w.queries),
     )?;
     let page = answers
-        .get(table.page())
+        .get(&table.page())
         .ok_or("the scheme answers no page colour (a transparent background?)")?;
     let mode = mode_of(page);
     let resolved = table.resolve(mode, &w.queries, &answers);
@@ -161,11 +207,26 @@ fn main() {
     )
     .unwrap_or_else(|e| panic!("{e}"));
 
+    for w in &conf.themes {
+        table
+            .check_overrides(&w.queries)
+            .unwrap_or_else(|e| panic!("{}: {e}", w.name));
+    }
+
     let mut failed = false;
     for w in &conf.themes {
         let repo_dir = checkout(&w.repo, &w.rev);
         let (mode, colours) = match extract(&themes_dir, &table, w, &repo_dir) {
             Ok(ok) => ok,
+            Err(why) => {
+                eprintln!("{}: {why}", w.name);
+                failed = true;
+                continue;
+            }
+        };
+
+        let licences = match licence_files(&repo_dir) {
+            Ok(files) => files,
             Err(why) => {
                 eprintln!("{}: {why}", w.name);
                 failed = true;
@@ -195,27 +256,80 @@ fn main() {
         )
         .expect("write theme.yaml");
 
-        // The upstream licence text, copied verbatim under its own file name. Repositories name
-        // it differently (`LICENSE`, `LICENSE.md`, `COPYING`...); one with none is refused.
-        let licence_names = ["LICENSE", "LICENSE.md", "LICENSE.txt", "COPYING"];
-        let found: Vec<&str> = licence_names
-            .iter()
-            .copied()
-            .filter(|n| repo_dir.join(n).exists())
-            .collect();
-        assert!(
-            !found.is_empty(),
-            "{} has no licence file at {} — refusing to ship an unlicensed theme",
-            w.repo,
-            w.rev
-        );
-        for file in found.iter().copied().chain(["NOTICE"]) {
-            let src = repo_dir.join(file);
-            if src.exists() {
-                std::fs::copy(&src, out_dir.join(file)).expect("copy licence file");
-            }
-        }
+        copy_licence_files(&repo_dir, &out_dir, &licences);
         println!("wrote {} ({})", out_dir.display(), label(mode));
     }
     assert!(!failed, "some workloads cannot ship; see above");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A fresh, empty directory unique to this test run.
+    fn scratch(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir()
+            .join("tauler-themebuild-tests")
+            .join(format!("{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    fn git(dir: &Path, args: &[&str]) -> String {
+        let mut cmd = Command::new("git");
+        cmd.arg("-C")
+            .arg(dir)
+            .args(["-c", "user.name=t", "-c", "user.email=t@example.com"])
+            .args(args)
+            .env("GIT_CONFIG_GLOBAL", "/dev/null");
+        run(&mut cmd)
+    }
+
+    #[test]
+    fn a_repository_without_a_licence_is_refused() {
+        let dir = scratch("no-licence");
+        let err = licence_files(&dir).unwrap_err();
+        assert!(err.contains("no licence file"), "{err}");
+    }
+
+    #[test]
+    fn a_licence_is_found_under_the_name_the_repository_gave_it() {
+        let dir = scratch("licence-md");
+        std::fs::write(dir.join("LICENSE.md"), "MIT").unwrap();
+        assert_eq!(licence_files(&dir), Ok(vec!["LICENSE.md"]));
+    }
+
+    #[test]
+    fn a_licence_refusal_happens_before_anything_is_written() {
+        // `licence_files` is called with only the repository directory; there is no output
+        // directory for it to have touched.
+        let repo = scratch("refusal-repo");
+        let out = scratch("refusal-out");
+        assert!(licence_files(&repo).is_err());
+        assert_eq!(std::fs::read_dir(&out).unwrap().count(), 0);
+    }
+
+    #[test]
+    fn a_repository_with_nothing_fetched_does_not_hold_the_commit() {
+        let dir = scratch("empty-init");
+        git(&dir, &["init", "--quiet"]);
+        assert!(
+            dir.join(".git").exists(),
+            "the half-made checkout looks present"
+        );
+        assert!(!holds_commit(&dir, &"a".repeat(40)));
+    }
+
+    #[test]
+    fn a_checkout_holds_exactly_its_own_commit() {
+        let dir = scratch("with-commit");
+        git(&dir, &["init", "--quiet"]);
+        std::fs::write(dir.join("f"), "x").unwrap();
+        git(&dir, &["add", "f"]);
+        git(&dir, &["commit", "--quiet", "-m", "c"]);
+        let head = git(&dir, &["rev-parse", "HEAD"]).trim().to_string();
+        assert!(holds_commit(&dir, &head));
+        assert!(!holds_commit(&dir, &"b".repeat(40)));
+    }
 }

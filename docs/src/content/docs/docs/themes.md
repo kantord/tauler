@@ -78,8 +78,8 @@ fonts:
 `name` and `mode` are required. Colours are CSS colours: `#rrggbb`, `#rrggbbaa` or `oklch(…)`.
 `radius` and `fonts` are optional.
 
-A theme that leaves a required colour out does not load — tauler stops at startup and lists
-what is missing, instead of drawing elements with no colour.
+A theme that leaves a required colour out, or gives any colour a value that is not one, does not
+load — tauler stops at startup and says which, instead of drawing elements with no colour.
 
 ### Colours every theme defines
 

@@ -52,8 +52,8 @@ fn all() -> Vec<Theme> {
         .map(|yaml| {
             Theme::from_yaml(yaml)
                 .expect("embedded built-in theme is invalid")
-                .complete()
-                .expect("embedded built-in theme is incomplete")
+                .validated()
+                .expect("embedded built-in theme is invalid")
         })
         .collect()
 }

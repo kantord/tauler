@@ -88,7 +88,7 @@ fn main() {
             Some(
                 tauler::theme::Theme::from_yaml(&yaml)
                     .unwrap_or_else(|e| panic!("{}: {e}", path.display()))
-                    .complete()
+                    .validated()
                     .unwrap_or_else(|e| panic!("{}: {e}", path.display())),
             )
         }

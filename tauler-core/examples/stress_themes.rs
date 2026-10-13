@@ -54,7 +54,7 @@ fn run_one(root: &Path, table: &Table, e: &Entry) -> Result<Outcome, String> {
         e.setup.as_deref(),
         &table.questions(&none),
     )?;
-    let page = answers.get(table.page()).ok_or("no page colour")?;
+    let page = answers.get(&table.page()).ok_or("no page colour")?;
     let mode = mode_of(page);
     let colours = table.resolve(mode, &none, &answers);
 

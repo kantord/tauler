@@ -476,8 +476,9 @@ enum ThemeLoadError {
         path: std::path::PathBuf,
         source: serde_yaml::Error,
     },
-    /// The file parsed but leaves core or ANSI tokens undefined (`Theme::complete`).
-    Incomplete(tauler::theme::IncompleteTheme),
+    /// The file parsed but leaves core or ANSI tokens undefined, or has a value that is not a colour
+    /// (`Theme::validated`).
+    Invalid(tauler::theme::InvalidTheme),
     /// `theme.name` matched no built-in.
     Unknown(tauler::theme::builtin::UnknownTheme),
     /// Both `theme.name` and `theme.file` were set.
@@ -493,7 +494,7 @@ impl std::fmt::Display for ThemeLoadError {
             Self::Parse { path, source } => {
                 write!(f, "invalid theme YAML in {}: {source}", path.display())
             }
-            Self::Incomplete(e) => write!(f, "{e}"),
+            Self::Invalid(e) => write!(f, "{e}"),
             Self::Unknown(e) => write!(f, "{e}"),
             Self::Ambiguous => write!(f, "theme.name and theme.file are both set; use one"),
         }
@@ -502,7 +503,7 @@ impl std::fmt::Display for ThemeLoadError {
 
 /// TERM: **Theme source** — where a bar's theme comes from: the shipped default (neither
 /// field set), a built-in by `theme.name`, or a YAML file by `theme.file`.
-/// Avoid: theme selection (the old name, which also carried the mode — see [`theme_selection`]).
+/// Avoid: theme selection.
 ///
 /// DECISION: two optional fields, not an enum, so that naming both is representable and fails
 /// at load ([`ThemeLoadError::Ambiguous`]) under the same startup/reload policy as every other
@@ -551,8 +552,8 @@ impl ThemeSource {
                         path: path.clone(),
                         source,
                     })?
-                    .complete()
-                    .map_err(ThemeLoadError::Incomplete)?;
+                    .validated()
+                    .map_err(ThemeLoadError::Invalid)?;
                 for f in
                     tauler::theme::contrast::failures(&theme, tauler::theme::contrast::HARD_FLOOR)
                 {
@@ -594,7 +595,7 @@ fn with_mode_override(theme: Theme, wanted: Option<ThemeMode>) -> Theme {
 /// Loading it is [`ThemeSource::load`]'s job. The two are separate because naming no source
 /// is not a failure while naming one tauler cannot use is, and only the caller knows which of
 /// those it can survive.
-fn theme_selection(config: &TaulerConfig) -> ThemeSource {
+fn theme_source_from(config: &TaulerConfig) -> ThemeSource {
     let file = config
         .theme
         .file
@@ -609,14 +610,15 @@ fn theme_selection(config: &TaulerConfig) -> ThemeSource {
 
 /// The theme to start with, or no tauler at all (`docs/adr/0033`).
 ///
-/// Startup has no palette on screen to keep, so an unusable `theme.file` ends the process.
+/// Startup has no palette on screen to keep, so an unusable theme (a bad `theme.file`, an unknown
+/// `theme.name`, both set, or one with missing or invalid colours) ends the process.
 /// The reason goes to stderr as well as the log, because a bar that never appears is read at
 /// the terminal it was launched from.
 fn load_theme_or_exit(source: &ThemeSource) -> Theme {
     match source.load() {
         Ok(theme) => theme,
         Err(e) => {
-            tracing::error!(error = %e, "unusable theme file");
+            tracing::error!(error = %e, "unusable theme");
             eprintln!("tauler: {e}");
             std::process::exit(1);
         }
@@ -624,17 +626,25 @@ fn load_theme_or_exit(source: &ThemeSource) -> Theme {
 }
 
 /// The theme to render with after a config reload: the newly loaded one, or the one already on
-/// screen when the file went bad (`docs/adr/0033`).
+/// screen when the new one cannot be loaded (`docs/adr/0033`).
 ///
 /// Unlike startup this never exits. A reload fires on every write to the file, so an editor
 /// saving it half-written is an ordinary event, and ending a running bar over one would be a
 /// worse failure than the stale palette it replaces.
-fn theme_after_reload(current: &Theme, loaded: Result<Theme, ThemeLoadError>) -> Theme {
+///
+/// SPEC: the theme that stays still takes the new `theme.mode`. The mode is a separate line of
+/// the config; a reload that changed it and happened to break the theme must not quietly keep the
+/// old label.
+fn theme_after_reload(
+    current: &Theme,
+    loaded: Result<Theme, ThemeLoadError>,
+    mode: Option<ThemeMode>,
+) -> Theme {
     match loaded {
         Ok(theme) => theme,
         Err(e) => {
-            tracing::error!(error = %e, "unusable theme file, keeping the theme already in use");
-            current.clone()
+            tracing::error!(error = %e, "could not load the theme, keeping the theme already in use");
+            with_mode_override(current.clone(), mode)
         }
     }
 }
@@ -674,7 +684,7 @@ impl App {
         let config = load_layout_or_exit(layout_source.as_ref())
             .map(|l| l.config)
             .unwrap_or_default();
-        let theme_source = theme_selection(&config);
+        let theme_source = theme_source_from(&config);
         let theme = load_theme_or_exit(&theme_source);
         #[cfg(target_os = "linux")]
         let (a11y, a11y_rx) = tauler::a11y::A11y::new(notifier);
@@ -756,7 +766,7 @@ impl App {
         let config = load_layout_or_exit(layout_source.as_ref())
             .map(|l| l.config)
             .unwrap_or_default();
-        let theme_source = theme_selection(&config);
+        let theme_source = theme_source_from(&config);
         let theme = load_theme_or_exit(&theme_source);
         let (a11y, a11y_rx) = tauler::a11y::A11y::new(notifier);
         let mut state = Self {
@@ -849,7 +859,7 @@ impl App {
         let config = load_layout_or_exit(layout_source.as_ref())
             .map(|l| l.config)
             .unwrap_or_default();
-        let theme_source = theme_selection(&config);
+        let theme_source = theme_source_from(&config);
         let theme = load_theme_or_exit(&theme_source);
         let mut state = Self {
             theme,
@@ -1110,14 +1120,14 @@ impl App {
         };
 
         // Everything above succeeded — only now is it safe to replace state.
-        let theme_source = theme_selection(&loaded.config);
+        let theme_source = theme_source_from(&loaded.config);
         tauler::reload_font_config(loaded.config.fonts);
         // Every frame the worker has kept was drawn with the fonts just replaced.
         let _ = self
             .outputs
             .jobs
             .send(tauler::render::worker::RenderJob::FontsChanged);
-        self.theme = theme_after_reload(&self.theme, theme_source.load());
+        self.theme = theme_after_reload(&self.theme, theme_source.load(), theme_source.mode);
 
         self.handle.set_desired(vec![]);
         self.stream_values.write().unwrap().clear();
@@ -1536,7 +1546,7 @@ impl Drop for App {
 mod tests {
     use super::{
         apply_eval_result, load_layout_or_exit, make_mod_init_value, merge_module_props,
-        stream_calls_to_specs, theme_after_reload, theme_file_watch_desired, theme_selection,
+        stream_calls_to_specs, theme_after_reload, theme_file_watch_desired, theme_source_from,
         ThemeSource,
     };
     use std::collections::HashMap;
@@ -1936,14 +1946,14 @@ mod tests {
         );
     }
 
-    /// Claim: when theme.file is set to a tilde path in config, theme_selection returns
+    /// Claim: when theme.file is set to a tilde path in config, theme_source_from returns
     /// the tilde-expanded absolute path.
     #[test]
-    fn theme_selection_returns_expanded_path_when_file_is_configured() {
+    fn theme_source_from_expands_the_path_when_file_is_configured() {
         let config = TaulerConfig::from_yaml("theme:\n  file: ~/some/theme.yaml\n")
             .expect("valid yaml should parse");
 
-        let source = theme_selection(&config);
+        let source = theme_source_from(&config);
 
         let home = std::env::var("HOME").expect("HOME must be set");
         let expected = PathBuf::from(&home).join("some/theme.yaml");
@@ -1954,14 +1964,14 @@ mod tests {
         );
     }
 
-    /// Claim: when no theme.file is configured, theme_selection returns None so the
+    /// Claim: when no theme.file is configured, theme_source_from returns None so the
     /// caller knows there is no file to watch.
     #[test]
-    fn theme_selection_returns_none_when_no_file_configured() {
+    fn theme_source_from_has_no_file_when_none_is_configured() {
         let config =
             TaulerConfig::from_yaml("theme:\n  mode: dark\n").expect("valid yaml should parse");
 
-        let source = theme_selection(&config);
+        let source = theme_source_from(&config);
 
         assert_eq!(
             source.file, None,
@@ -2025,7 +2035,7 @@ mod tests {
         let err = from_file(&path)
             .load()
             .expect_err("an incomplete theme must not load");
-        assert!(matches!(err, super::ThemeLoadError::Incomplete(_)), "{err}");
+        assert!(matches!(err, super::ThemeLoadError::Invalid(_)), "{err}");
         assert!(err.to_string().contains("foreground"), "{err}");
     }
 
@@ -2195,12 +2205,42 @@ mod tests {
         let dir = tempfile::tempdir().expect("tempdir");
         let missing = dir.path().join("nowhere.yaml");
 
-        let theme = theme_after_reload(&current, from_file(&missing).load());
+        let theme = theme_after_reload(&current, from_file(&missing).load(), None);
 
         assert_eq!(
             dark_background(&theme).as_deref(),
             Some("#112233"),
             "a failed reload must keep the theme already in use, not substitute the default"
+        );
+    }
+
+    /// Claim: a reload that names a built-in that does not exist keeps the theme on screen, the
+    /// same as one whose file is bad — an unknown name is an ordinary typo mid-edit.
+    #[test]
+    fn theme_after_reload_keeps_the_current_theme_when_the_name_is_unknown() {
+        let current = theme_with_dark_bg("#112233");
+
+        let theme = theme_after_reload(&current, named("tokyonihgt-night").load(), None);
+
+        assert_eq!(dark_background(&theme).as_deref(), Some("#112233"));
+    }
+
+    /// Claim: the theme that stays takes the new `theme.mode` — only the label changes.
+    #[test]
+    fn theme_after_reload_applies_a_changed_mode_to_the_theme_it_keeps() {
+        let current = theme_with_dark_bg("#112233");
+        assert_eq!(current.mode, ThemeMode::Dark);
+
+        let theme = theme_after_reload(
+            &current,
+            named("no-such-theme").load(),
+            Some(ThemeMode::Light),
+        );
+
+        assert_eq!(theme.mode, ThemeMode::Light);
+        assert_eq!(
+            theme.colors, current.colors,
+            "the colours are the theme's own"
         );
     }
 
@@ -2212,7 +2252,11 @@ mod tests {
         let path = dir.path().join("theme.yaml");
         std::fs::write(&path, complete_theme_yaml("#445566")).expect("write theme");
 
-        let theme = theme_after_reload(&theme_with_dark_bg("#112233"), from_file(&path).load());
+        let theme = theme_after_reload(
+            &theme_with_dark_bg("#112233"),
+            from_file(&path).load(),
+            None,
+        );
 
         assert_eq!(
             dark_background(&theme).as_deref(),

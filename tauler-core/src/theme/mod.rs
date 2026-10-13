@@ -112,33 +112,52 @@ pub struct Theme {
     pub fonts: HashMap<String, String>,
 }
 
-/// A theme that does not define every token it must.
+/// A theme that cannot be drawn with: it leaves a required token undefined, or gives one a value
+/// that is not a colour. Either way the element would render with no colour and say nothing.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct IncompleteTheme {
+pub struct InvalidTheme {
     pub name: String,
     pub missing: Vec<&'static str>,
+    /// `(token, value)` for every colour that does not parse.
+    pub not_colours: Vec<(String, String)>,
 }
 
-impl std::fmt::Display for IncompleteTheme {
+impl std::fmt::Display for InvalidTheme {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "theme `{}` is missing: {}",
-            self.name,
-            self.missing.join(", ")
-        )
+        write!(f, "theme `{}`", self.name)?;
+        if !self.missing.is_empty() {
+            write!(f, " is missing: {}", self.missing.join(", "))?;
+        }
+        if !self.not_colours.is_empty() {
+            let bad: Vec<String> = self
+                .not_colours
+                .iter()
+                .map(|(t, v)| format!("{t} = {v}"))
+                .collect();
+            let joiner = if self.missing.is_empty() {
+                " has"
+            } else {
+                "; has"
+            };
+            write!(
+                f,
+                "{joiner} values that are not colours: {}",
+                bad.join(", ")
+            )?;
+        }
+        Ok(())
     }
 }
 
-impl std::error::Error for IncompleteTheme {}
+impl std::error::Error for InvalidTheme {}
 
 impl Theme {
     /// The shipped default for dark backgrounds, used when a config names no theme.
     pub fn default_theme() -> Self {
         serde_yaml::from_str::<Self>(DEFAULT_DARK)
             .expect("embedded default theme is invalid")
-            .complete()
-            .expect("embedded default theme is incomplete")
+            .validated()
+            .expect("embedded default theme is invalid")
     }
 
     pub fn from_yaml(yaml: &str) -> Result<Self, serde_yaml::Error> {
@@ -151,7 +170,7 @@ impl Theme {
     /// lists above) so a message built from it does not shuffle between runs.
     ///
     /// DECISION: enforced everywhere a theme is loaded — a `theme.file`, a built-in, the
-    /// embedded default — through [`Theme::complete`], under the ADR 0033 policy (startup
+    /// embedded default — through [`Theme::validated`], under the ADR 0033 policy (startup
     /// exits, a reload keeps the theme on screen). Rejected: enforcing only on built-ins,
     /// which leaves the silent unstyled bar for every user-written theme.
     pub fn missing_tokens(&self) -> Vec<&'static str> {
@@ -163,15 +182,34 @@ impl Theme {
             .collect()
     }
 
-    /// This theme if it defines every core and ANSI token, else why not.
-    pub fn complete(self) -> Result<Self, IncompleteTheme> {
+    /// Every colour whose value is not a CSS colour, as `(token, value)`, in token order.
+    pub fn not_colours(&self) -> Vec<(String, String)> {
+        let mut bad: Vec<(String, String)> = self
+            .colors
+            .iter()
+            .filter(|(_, v)| color::parse_color(v).is_err())
+            .map(|(t, v)| (t.clone(), v.clone()))
+            .collect();
+        bad.sort();
+        bad
+    }
+
+    /// This theme if it defines every core and ANSI token and every value is a colour, else why
+    /// not.
+    ///
+    /// SPEC: a theme that passes can be drawn with: nothing it names resolves to nothing. The
+    /// check is on the *values* as well as the keys, because a key with `banana` in it is exactly
+    /// as silent a failure as a missing key.
+    pub fn validated(self) -> Result<Self, InvalidTheme> {
         let missing = self.missing_tokens();
-        if missing.is_empty() {
+        let not_colours = self.not_colours();
+        if missing.is_empty() && not_colours.is_empty() {
             Ok(self)
         } else {
-            Err(IncompleteTheme {
+            Err(InvalidTheme {
                 name: self.name,
                 missing,
+                not_colours,
             })
         }
     }
@@ -185,11 +223,67 @@ mod tests {
     fn a_theme_missing_tokens_says_which() {
         let theme =
             Theme::from_yaml("name: t\nmode: dark\ncolors:\n  background: \"#000\"\n").unwrap();
-        let err = theme.complete().unwrap_err();
+        let err = theme.validated().unwrap_err();
         let msg = err.to_string();
         assert!(msg.contains("theme `t`"), "{msg}");
         assert!(msg.contains("foreground"), "{msg}");
         assert!(!msg.contains("missing: background"), "{msg}");
+    }
+
+    /// A full theme with `colors` overridden by `(token, value)` pairs.
+    fn full_theme_with(overrides: &[(&str, &str)]) -> Theme {
+        let mut colors: HashMap<String, String> = CORE_TOKENS
+            .iter()
+            .chain(ANSI_TOKENS)
+            .map(|t| (t.to_string(), "#808080".to_string()))
+            .collect();
+        for (k, v) in overrides {
+            colors.insert(k.to_string(), v.to_string());
+        }
+        Theme {
+            name: "t".into(),
+            mode: ThemeMode::Dark,
+            colors,
+            radius: HashMap::new(),
+            fonts: HashMap::new(),
+        }
+    }
+
+    #[test]
+    fn a_value_that_is_not_a_colour_is_refused_by_token_and_value() {
+        let err = full_theme_with(&[("background", "banana"), ("ansi-red", "not-a-colour")])
+            .validated()
+            .unwrap_err();
+        let msg = err.to_string();
+        assert!(msg.contains("background = banana"), "{msg}");
+        assert!(msg.contains("ansi-red = not-a-colour"), "{msg}");
+    }
+
+    #[test]
+    fn hex_with_and_without_alpha_and_oklch_are_colours() {
+        let t = full_theme_with(&[
+            ("background", "#1a1b26"),
+            ("card", "#1a1b26e6"),
+            ("border", "oklch(1 0 0 / 10%)"),
+        ]);
+        assert!(t.validated().is_ok());
+    }
+
+    #[test]
+    fn a_token_outside_the_known_set_must_still_be_a_colour() {
+        let err = full_theme_with(&[("my-own-token", "nope")])
+            .validated()
+            .unwrap_err();
+        assert!(err.to_string().contains("my-own-token = nope"), "{err}");
+    }
+
+    #[test]
+    fn missing_and_invalid_are_reported_together() {
+        let mut t = full_theme_with(&[("background", "banana")]);
+        t.colors.remove("foreground");
+        let msg = t.validated().unwrap_err().to_string();
+        assert!(msg.contains("missing: foreground"), "{msg}");
+        assert!(msg.contains("background = banana"), "{msg}");
     }
 
     #[test]
