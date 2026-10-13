@@ -6306,6 +6306,7 @@ dependencies = [
 name = "tauler-core"
 version = "0.3.6"
 dependencies = [
+ "color",
  "optative",
  "optative-script",
  "rquickjs",
@@ -6338,6 +6339,7 @@ dependencies = [
  "anyhow",
  "image",
  "serde_json",
+ "tauler-core",
  "testcontainers",
 ]
 

@@ -135,12 +135,11 @@ how often it does)
 
 **Layout file**:
 The single `layout.op.mdx` file that declares everything a bar *is*, plus — in a YAML
-frontmatter block at its top — theme mode and font choice: what to render with, never what
+frontmatter block at its top — theme choice and font choice: what to render with, never what
 to render. Anything describing a surface, its contents or its data belongs in the layout
 file's body, not its frontmatter. On the legacy split-file path, the frontmatter's place is
 taken by a sibling `config.yaml` instead, and the file itself is `layout.jsx`.
-_Avoid_: config, config file, theme file (all three name the frontmatter or `config.yaml`,
-not this)
+_Avoid_: config, config file (both name the frontmatter or `config.yaml`, not this)
 
 **Package**:
 An `@gh/<owner>/<repo>` import a layout file names directly — a git repository tauler
@@ -226,6 +225,73 @@ every Panel's reservation is subtracted. Never a surface tauler draws; `<Workspa
 frames it without ever covering it.
 _Avoid_: workspace (unqualified — i3 already owns that word for a virtual desktop; this
 is the area one occupies on screen, not the desktop itself)
+
+### Themes
+
+**Theme**:
+One palette for one appearance: a named set of colours, corner radii and font roles, labelled
+dark or light. A colour scheme that comes in a dark and a light style is two themes.
+_Avoid_: skin, colour scheme (a scheme is what a built-in theme is made from, not the theme)
+_Elsewhere_: a VS Code colour theme (one per appearance, labelled `vs` or `vs-dark`), a
+tinted-theming scheme (`variant: dark | light`)
+
+**Theme mode**:
+The dark or light label a theme carries. A config may set its own, which relabels the theme
+without touching its colours and so changes only which `dark:` / `light:` class variants apply.
+_Avoid_: appearance, theme type
+
+**Theme file**:
+A YAML file that defines one theme, named by the layout file's frontmatter to use that theme
+instead of a built-in one. Not the layout file and not its frontmatter.
+_Avoid_: palette file, colour file
+
+**Built-in theme**:
+A theme that ships with tauler and is chosen by its name instead of by a file. The default
+theme is the built-in used when none is named, one per mode.
+_Avoid_: preset, bundled theme, stock theme
+_Elsewhere_: the themes VS Code bundles
+
+**Theme source**:
+Where a bar's theme comes from: a built-in theme by name, a theme file, or nothing named, which
+means the default theme. Naming both a built-in and a file is a mistake, never a preference
+order.
+_Avoid_: theme selection
+
+**Core token**:
+A colour name every theme must define because something in tauler reads it.
+_Avoid_: required colour, mandatory key
+_Elsewhere_: shadcn/ui's colour variables (`background`, `primary`, `muted-foreground`, …),
+whose vocabulary tauler borrows
+
+**ANSI token**:
+One of the 16 terminal colours a theme defines, normal and bright, so a theme can colour a
+terminal as well as the bar.
+_Avoid_: terminal colour, term colour
+_Elsewhere_: a terminal's `color0`–`color15`, base16's ANSI mapping
+
+**Pair**:
+A text colour and the surface colour it is read on, such as a card's foreground on the card.
+The unit a theme's contrast is judged in.
+_Avoid_: combo, contrast pair
+
+**Swatch scene**:
+The one layout every theme is rendered through — each token, each pair, the terminal colours and
+a few components — so a theme's defects are visible at a glance.
+_Avoid_: demo, preview, mockup
+
+**Seed**:
+The background, the foreground and the 16 ANSI colours of one colour scheme in one mode: all a
+built-in theme is made from.
+_Avoid_: base colours, palette
+
+**Ladder**:
+The few surface and line colours a UI needs between its background and its foreground — raised
+panels, muted fills, borders, the focus ring. A seed has none, so a built-in theme works one out.
+_Avoid_: elevation scale, shade ramp
+
+**Workload**:
+One colour scheme at a pinned revision, named for the built-in theme it produces.
+_Avoid_: preset, import
 
 ### Scenarios
 

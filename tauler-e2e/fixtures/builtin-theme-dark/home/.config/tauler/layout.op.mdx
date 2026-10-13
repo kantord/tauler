@@ -1,0 +1,159 @@
+---
+theme:
+  mode: dark
+  name: tokyonight-night
+---
+// Scenario: a built-in theme, chosen by name, on a desktop that looks lived in.
+// There is no theme file anywhere in this fixture — `theme.name` is the whole selection.
+//
+// Nothing here names a colour. Every surface is the token a shadcn-style UI would use for it:
+//   sidebar      — `sidebar*` for the rail, with its own accent / primary / ring / border
+//   launcher     — `popover*` for the plate, `input` + `ring` for the field, `accent` for the
+//                  selected row
+//   notification — `popover*` again, with `destructive` for the failure
+//   charts       — `chart-1` .. `chart-5` for the CPU history bars
+//   terminals    — two kitty windows (see `e2e-demo-session`) whose colours the test writes from
+//                  this theme's `background`, `foreground` and `ansi-*` tokens, not from this file
+// so a token that is missing, unreadable, or indistinguishable from its neighbour shows up
+// as a real defect on a real surface, not as a swatch someone has to remember to look at.
+//
+// Geometry (tauler-e2e/tests/scenarios.rs restates it by hand):
+//   rail     272×1080 at 0,0     — anchored left, reserved
+//   slip     400×132  at 1480,40 — free-floating, above; a build notification
+//   launcher 680×360  at 620,300 — free-floating, above; an app launcher
+//
+// The two floats have square outer corners on purpose: this desktop has no compositor, so a
+// rounded window would show the X root (black) in its corners instead of the surface behind.
+import { Badge } from "@ui/badge";
+import { Progress } from "@ui/progress";
+
+const WORKSPACES = [
+  { n: 1, name: "code", active: true },
+  { n: 2, name: "web" },
+  { n: 3, name: "chat", unread: 3 },
+  { n: 4, name: "music" },
+];
+
+const CPU = [
+  ["chart-1", 22],
+  ["chart-2", 48],
+  ["chart-3", 35],
+  ["chart-4", 64],
+  ["chart-5", 41],
+  ["chart-1", 72],
+  ["chart-2", 55],
+  ["chart-3", 30],
+];
+
+const RESULTS = [
+  ["Firefox", "Web Browser", true],
+  ["Files", "File Manager"],
+  ["Terminal", "kitty"],
+  ["Firefox Developer Edition", "Web Browser"],
+  ["Fontforge", "Font Editor"],
+];
+
+function Workspace({ n, name, active, unread }) {
+  const look = active
+    ? "bg-sidebar-accent text-sidebar-accent-foreground border border-sidebar-ring"
+    : "text-sidebar-foreground border border-sidebar";
+  return (
+    <div class={`flex flex-row items-center justify-between rounded-md px-3 py-2 ${look}`}>
+      <span class="text-[13px]">{`${n}  ${name}`}</span>
+      {unread ? <Badge variant="destructive"><span>{String(unread)}</span></Badge> : null}
+    </div>
+  );
+}
+
+function Rail() {
+  return (
+    <div class="flex flex-col h-full w-full gap-3 px-4 py-4 bg-sidebar text-sidebar-foreground border-r border-sidebar-border">
+      <div class="flex flex-row items-center justify-between">
+        <span class="text-[16px] text-sidebar-foreground">tauler</span>
+        <Badge variant="outline"><span>tokyonight-night</span></Badge>
+      </div>
+      <span class="text-[10px] text-muted-foreground">WORKSPACES</span>
+      <div class="flex flex-col gap-1">
+        {WORKSPACES.map((w) => <Workspace n={w.n} name={w.name} active={w.active} unread={w.unread} />)}
+      </div>
+      <div class="flex flex-row justify-between rounded-md px-3 py-2 bg-sidebar-primary text-sidebar-primary-foreground">
+        <span class="text-[13px]">Deploy to staging</span>
+        <span class="text-[13px]">→</span>
+      </div>
+      <div class="border-t border-sidebar-border" />
+      <span class="text-[10px] text-muted-foreground">CPU · LAST 8 MINUTES</span>
+      <div class="flex flex-row items-end gap-1 h-[56px]">
+        {CPU.map(([c, v]) => <div class={`bg-${c} w-[24px] rounded-t-sm`} style={{ height: `${v}%` }} />)}
+      </div>
+      <div class="flex flex-col gap-2">
+        <div class="flex flex-row justify-between">
+          <span class="text-[11px] text-muted-foreground">Memory</span>
+          <span class="text-[11px] text-sidebar-foreground">72%</span>
+        </div>
+        <Progress value={72} />
+        <div class="flex flex-row justify-between">
+          <span class="text-[11px] text-muted-foreground">Disk</span>
+          <span class="text-[11px] text-sidebar-foreground">31%</span>
+        </div>
+        <Progress value={31} />
+      </div>
+    </div>
+  );
+}
+
+function Slip() {
+  return (
+    <div class="flex flex-col w-full h-full gap-2 p-4 bg-popover text-popover-foreground border border-border">
+      <div class="flex flex-row items-center justify-between">
+        <span class="text-[14px] text-popover-foreground">Build failed</span>
+        <Badge variant="destructive"><span>exit 101</span></Badge>
+      </div>
+      <span class="text-[12px] text-muted-foreground">cargo build --release · tauler v0.6.1</span>
+      <span class="text-[12px] text-popover-foreground">error[E0433]: cannot find type `ThemeSource`</span>
+    </div>
+  );
+}
+
+function Launcher() {
+  return (
+    <div class="flex flex-col w-full h-full gap-2 p-4 bg-popover text-popover-foreground border border-border">
+      <div class="flex flex-row items-center rounded-md px-3 py-2 bg-background border border-ring">
+        <span class="text-[15px] text-foreground">fire</span>
+        <span class="text-[15px] text-muted-foreground">fox</span>
+      </div>
+      <div class="flex flex-col gap-1">
+        {RESULTS.map(([name, hint, selected]) => (
+          <div class={`flex flex-row items-center justify-between rounded-md px-3 py-2 ${selected ? "bg-accent text-accent-foreground" : "text-popover-foreground"}`}>
+            <span class="text-[14px]">{name}</span>
+            <span class={`text-[12px] ${selected ? "text-accent-foreground" : "text-muted-foreground"}`}>{hint}</span>
+          </div>
+        ))}
+      </div>
+      <div class="flex-1" />
+      <div class="flex flex-row justify-between border-t border-border pt-2">
+        <span class="text-[11px] text-muted-foreground">↵ open</span>
+        <span class="text-[11px] text-muted-foreground">↑↓ select · esc close</span>
+      </div>
+    </div>
+  );
+}
+
+export default function render() {
+  return (
+    <root>
+      <I3Layout module="/usr/local/bin/tauler-i3">
+        <Panel id="rail" anchor="left" size={272}>
+          <Rail />
+        </Panel>
+      </I3Layout>
+      {/* Free-floating and stacked above the clients. Neither reserves space — only
+          <Panel> inside <I3Layout> eats an edge. */}
+      <panel id="slip" x={1480} y={40} width={400} height={132} above={true}>
+        <Slip />
+      </panel>
+      <panel id="launcher" x={620} y={300} width={680} height={360} above={true}>
+        <Launcher />
+      </panel>
+    </root>
+  );
+}

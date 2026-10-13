@@ -14,3 +14,7 @@ anyhow = "=1.0.104"
 image = "=0.25.10"
 serde_json = "=1.0.151"
 testcontainers = { version = "=0.28.0", features = ["blocking"] }
+
+[dev-dependencies]
+# The scenarios build a terminal's colours from the same built-in theme the bar is told to use.
+tauler-core = { path = "../tauler-core", version = "0.3.6" }

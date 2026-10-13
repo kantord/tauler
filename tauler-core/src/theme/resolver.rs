@@ -6,30 +6,33 @@ use std::collections::HashMap;
 /// Only tokens this project defines are touched — a colour, a radius, a font. Everything else
 /// is passed through verbatim, which is what lets one attribute carry both theme
 /// tokens and plain Tailwind utilities takumi resolves on its own.
-pub fn resolve_theme_tokens(value: &mut serde_json::Value, theme: &Theme, mode: ThemeMode) {
+///
+/// The theme's own `mode` decides which `dark:` / `light:` variants survive: the ones that match
+/// are unwrapped, the others dropped.
+pub fn resolve_theme_tokens(value: &mut serde_json::Value, theme: &Theme) {
     match value {
         serde_json::Value::Object(map) => {
             if let Some(class) = map.get_mut("class") {
                 if let Some(s) = class.as_str() {
-                    let resolved = resolve_tw(s, theme, mode);
+                    let resolved = resolve_tw(s, theme);
                     *class = serde_json::Value::String(resolved);
                 }
             }
             for v in map.values_mut() {
-                resolve_theme_tokens(v, theme, mode);
+                resolve_theme_tokens(v, theme);
             }
         }
         serde_json::Value::Array(arr) => {
             for v in arr {
-                resolve_theme_tokens(v, theme, mode);
+                resolve_theme_tokens(v, theme);
             }
         }
         _ => {}
     }
 }
 
-pub fn resolve_tw(classes: &str, theme: &Theme, mode: ThemeMode) -> String {
-    let colors = theme.colors_for_mode(mode);
+pub fn resolve_tw(classes: &str, theme: &Theme) -> String {
+    let (colors, mode) = (&theme.colors, theme.mode);
     classes
         .split_whitespace()
         .filter_map(|token| {
@@ -137,27 +140,38 @@ mod tests {
     use super::*;
     use rstest::rstest;
 
-    fn test_theme() -> Theme {
-        Theme::from_yaml(
+    /// A theme for `mode`, with that mode's palette: the dark one is the light one inverted.
+    fn test_theme(mode: ThemeMode) -> Theme {
+        let (label, colors) = match mode {
+            ThemeMode::Dark => (
+                "dark",
+                r#"
+  primary: "oklch(0.922 0 0)"
+  foreground: "oklch(0.985 0 0)"
+  muted-foreground: "oklch(0.708 0 0)"
+  border: "oklch(1 0 0 / 10%)""#,
+            ),
+            ThemeMode::Light => (
+                "light",
+                r#"
+  primary: "oklch(0.205 0 0)"
+  muted-foreground: "oklch(0.556 0 0)"
+  border: "oklch(0.922 0 0)""#,
+            ),
+        };
+        Theme::from_yaml(&format!(
             r#"
-colors:
-  light:
-    primary: "oklch(0.205 0 0)"
-    muted-foreground: "oklch(0.556 0 0)"
-    border: "oklch(0.922 0 0)"
-  dark:
-    primary: "oklch(0.922 0 0)"
-    foreground: "oklch(0.985 0 0)"
-    muted-foreground: "oklch(0.708 0 0)"
-    border: "oklch(1 0 0 / 10%)"
+name: test
+mode: {label}
+colors:{colors}
 radius:
   sm: "0.375rem"
   lg: "0.625rem"
 fonts:
   heading: "Lora"
   display: "JetBrains Mono"
-"#,
-        )
+"#
+        ))
         .unwrap()
     }
 
@@ -240,34 +254,28 @@ fonts:
         #[case] mode: ThemeMode,
         #[case] expected: &str,
     ) {
-        let theme = test_theme();
-        assert_eq!(resolve_tw(input, &theme, mode), expected);
+        let theme = test_theme(mode);
+        assert_eq!(resolve_tw(input, &theme), expected);
     }
 
     #[test]
     fn resolve_tw_multiple_tokens_processed_independently() {
-        let theme = test_theme();
+        let theme = test_theme(ThemeMode::Dark);
         assert_eq!(
-            resolve_tw("flex bg-primary", &theme, ThemeMode::Dark),
+            resolve_tw("flex bg-primary", &theme),
             "flex bg-[oklch(0.922_0_0)]"
         );
     }
 
     #[test]
     fn resolve_tw_dark_modifier_light_mode_drops_token_from_multi_class_string() {
-        let theme = test_theme();
-        assert_eq!(
-            resolve_tw("flex dark:bg-primary", &theme, ThemeMode::Light),
-            "flex"
-        );
+        let theme = test_theme(ThemeMode::Light);
+        assert_eq!(resolve_tw("flex dark:bg-primary", &theme), "flex");
     }
 
     #[test]
     fn resolve_tw_light_modifier_dark_mode_drops_token_from_multi_class_string() {
-        let theme = test_theme();
-        assert_eq!(
-            resolve_tw("flex light:bg-primary", &theme, ThemeMode::Dark),
-            "flex"
-        );
+        let theme = test_theme(ThemeMode::Dark);
+        assert_eq!(resolve_tw("flex light:bg-primary", &theme), "flex");
     }
 }

@@ -5,50 +5,69 @@
 # The one inversion the design allows is the galley slip: a light paper surface
 # on a dark desktop. That is what `popover` carries here — every other surface
 # token stays in the ink.
+name: monolith
+mode: dark
 colors:
-  light: {}
-  dark:
-    background: "#221F2B"
-    foreground: "#E9E4DA"
+  background: "#221F2B"
+  foreground: "#E9E4DA"
 
-    # `card` is a plate. Alpha, so the panel paints it over its root-bg crop and
-    # the engraving in the wallpaper reads faintly through the plate above it.
-    card: "#2B2836d9"
-    card-foreground: "#E9E4DA"
+  # `card` is a plate. Alpha, so the panel paints it over its root-bg crop and
+  # the engraving in the wallpaper reads faintly through the plate above it.
+  card: "#2B2836d9"
+  card-foreground: "#E9E4DA"
 
-    # The galley slip: paper.
-    popover: "#E9E4DA"
-    popover-foreground: "#221F2B"
+  # The galley slip: paper.
+  popover: "#E9E4DA"
+  popover-foreground: "#221F2B"
 
-    primary: "#D8B25E"
-    primary-foreground: "#1B1924"
-    secondary: "#2B2836"
-    secondary-foreground: "#E9E4DA"
+  primary: "#D8B25E"
+  primary-foreground: "#1B1924"
+  secondary: "#2B2836"
+  secondary-foreground: "#E9E4DA"
 
-    muted: "#2B2836"
-    muted-foreground: "#8E86A0"
-    accent: "#D8B25E"
-    accent-foreground: "#1B1924"
-    destructive: "#B4674B"
+  muted: "#2B2836"
+  muted-foreground: "#8E86A0"
+  accent: "#D8B25E"
+  accent-foreground: "#1B1924"
+  destructive: "#B4674B"
 
-    border: "#D8B25E38"
-    input: "#D8B25E38"
-    ring: "#D8B25E"
+  border: "#D8B25E38"
+  input: "#D8B25E38"
+  ring: "#D8B25E"
 
-    chart-1: "#D8B25E"
-    chart-2: "#B4674B"
-    chart-3: "#8E86A0"
-    chart-4: "#E9E4DA"
-    chart-5: "#6C6478"
+  chart-1: "#D8B25E"
+  chart-2: "#B4674B"
+  chart-3: "#8E86A0"
+  chart-4: "#E9E4DA"
+  chart-5: "#6C6478"
 
-    sidebar: "#1B1924"
-    sidebar-foreground: "#E9E4DA"
-    sidebar-primary: "#D8B25E"
-    sidebar-primary-foreground: "#1B1924"
-    sidebar-accent: "#2B2836"
-    sidebar-accent-foreground: "#E9E4DA"
-    sidebar-border: "#D8B25E38"
-    sidebar-ring: "#D8B25E"
+  sidebar: "#1B1924"
+  sidebar-foreground: "#E9E4DA"
+  sidebar-primary: "#D8B25E"
+  sidebar-primary-foreground: "#1B1924"
+  sidebar-accent: "#2B2836"
+  sidebar-accent-foreground: "#E9E4DA"
+  sidebar-border: "#D8B25E38"
+  sidebar-ring: "#D8B25E"
+
+  # tauler: terminal colours — a shared placeholder, not part of this rice
+  destructive-foreground: "#E9E4DA"
+  ansi-black: "#000000"
+  ansi-red: "#cc0000"
+  ansi-green: "#4e9a06"
+  ansi-yellow: "#c4a000"
+  ansi-blue: "#3465a4"
+  ansi-magenta: "#75507b"
+  ansi-cyan: "#06989a"
+  ansi-white: "#d3d7cf"
+  ansi-bright-black: "#555753"
+  ansi-bright-red: "#ef2929"
+  ansi-bright-green: "#8ae234"
+  ansi-bright-yellow: "#fce94f"
+  ansi-bright-blue: "#729fcf"
+  ansi-bright-magenta: "#ad7fa8"
+  ansi-bright-cyan: "#34e2e2"
+  ansi-bright-white: "#eeeeec"
 
 # No radius anywhere: an engraved plate has a square corner. Every token is 0 so
 # that a component reaching for `rounded-2xl` out of habit still comes out square.

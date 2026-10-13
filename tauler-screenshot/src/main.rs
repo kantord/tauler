@@ -15,14 +15,31 @@ fn parse_theme_mode(s: &str) -> Result<ThemeMode, String> {
 #[derive(Parser)]
 #[command(name = "tauler-screenshot")]
 struct Args {
+    /// The JSX layout to render. Not needed with `--swatch`.
+    #[arg(long, required_unless_present = "swatch")]
+    input: Option<String>,
+
+    /// Resolve theme tokens against this built-in theme (`theme.name`) instead of the default.
     #[arg(long)]
-    input: String,
+    theme_name: Option<String>,
+
+    /// Resolve theme tokens against this theme YAML file instead of the default. Takes
+    /// precedence over `--theme-name`; the file must define every core and ANSI token.
+    #[arg(long)]
+    theme_file: Option<std::path::PathBuf>,
+
+    /// Render the swatch scene — every token, every pair, the ANSI strip and a few
+    /// components — for the theme, instead of `--input`.
+    #[arg(long)]
+    swatch: bool,
 
     #[arg(long)]
     output: String,
 
-    #[arg(long, default_value = "dark", value_parser = parse_theme_mode)]
-    theme: ThemeMode,
+    /// Which shipped default to render with. With `--theme-name` or `--theme-file` it overrides
+    /// the mode that theme carries, as `theme.mode` does in a config.
+    #[arg(long, value_parser = parse_theme_mode)]
+    theme: Option<ThemeMode>,
 
     /// Render width in CSS pixels. The document is this wide (including 16px margins).
     #[arg(long, default_value_t = tauler::preview::WIDTH)]
@@ -64,17 +81,50 @@ struct Args {
 fn main() {
     let args = Args::parse();
 
-    let source = std::fs::read_to_string(&args.input)
-        .unwrap_or_else(|e| panic!("failed to read {}: {}", args.input, e));
+    let palette = match (&args.theme_file, args.theme_name.as_deref()) {
+        (Some(path), _) => {
+            let yaml = std::fs::read_to_string(path)
+                .unwrap_or_else(|e| panic!("failed to read {}: {e}", path.display()));
+            Some(
+                tauler::theme::Theme::from_yaml(&yaml)
+                    .unwrap_or_else(|e| panic!("{}: {e}", path.display()))
+                    .complete()
+                    .unwrap_or_else(|e| panic!("{}: {e}", path.display())),
+            )
+        }
+        (None, Some(name)) => {
+            Some(tauler::theme::builtin::by_name(name).unwrap_or_else(|e| panic!("{e}")))
+        }
+        (None, None) => None,
+    };
+    // `--theme` overrides the mode the theme carries, as `theme.mode` does in a config.
+    let palette = palette.map(|p| tauler::theme::Theme {
+        mode: args.theme.unwrap_or(p.mode),
+        ..p
+    });
+
+    let source = if args.swatch {
+        let palette = palette.clone().unwrap_or_else(|| {
+            tauler::theme::builtin::default_for(args.theme.unwrap_or(ThemeMode::Dark))
+        });
+        tauler::theme::swatch::jsx(&palette)
+    } else {
+        let input = args
+            .input
+            .as_deref()
+            .expect("clap requires --input without --swatch");
+        std::fs::read_to_string(input).unwrap_or_else(|e| panic!("failed to read {input}: {e}"))
+    };
 
     let shot = render(
         &source,
         &Options {
-            theme: args.theme,
+            theme: args.theme.unwrap_or(ThemeMode::Dark),
             width: args.width,
             font_path: args.font_path,
             symbol_font_path: args.symbol_font_path,
             files_only: args.files_only,
+            palette,
         },
     )
     .unwrap_or_else(|e| panic!("{e}"));

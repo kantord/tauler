@@ -305,7 +305,7 @@ mod tests {
 
         let loaded = load(&LayoutSource::Mdx(mdx_path)).expect("valid mdx should load");
 
-        assert_eq!(loaded.config.theme.mode, ThemeMode::Light);
+        assert_eq!(loaded.config.theme.mode, Some(ThemeMode::Light));
         assert!(
             loaded.js_source.contains(r#"<Panel id="sidebar" />"#),
             "expected the JSX body to survive lowering, got: {}",
@@ -325,7 +325,7 @@ mod tests {
         let loaded =
             load(&LayoutSource::Mdx(mdx_path)).expect("mdx without frontmatter should load");
 
-        assert_eq!(loaded.config.theme.mode, ThemeMode::Dark);
+        assert_eq!(loaded.config.theme.mode, None);
     }
 
     #[test]
@@ -376,7 +376,7 @@ mod tests {
         })
         .expect("valid legacy pair should load");
 
-        assert_eq!(loaded.config.theme.mode, ThemeMode::Light);
+        assert_eq!(loaded.config.theme.mode, Some(ThemeMode::Light));
         assert_eq!(loaded.js_source, "<Panel id=\"sidebar\" />\n");
     }
 
@@ -392,7 +392,7 @@ mod tests {
         })
         .expect("missing config.yaml is not an error");
 
-        assert_eq!(loaded.config.theme.mode, ThemeMode::Dark);
+        assert_eq!(loaded.config.theme.mode, None);
     }
 
     #[test]

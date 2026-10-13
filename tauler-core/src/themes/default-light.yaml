@@ -1,0 +1,67 @@
+# DECISION: the default has chromatic ANSI colours (the Tango palette) although every other
+# token is chroma 0. The 16 terminal colours are meaningless as greys, and they are only read
+# through `ansi-*`, never by the bar's own components, so the grey bar stays grey.
+#
+# DECISION: the dark default is Tango's own palette and the light default its darker shades, so
+# the colours stay legible on a light background. (`ansi-white` is a light grey in the light
+# default, as terminal light themes do.)
+name: default-light
+mode: light
+colors:
+  background: "oklch(1 0 0)"
+  foreground: "oklch(0.145 0 0)"
+  card: "oklch(1 0 0)"
+  card-foreground: "oklch(0.145 0 0)"
+  popover: "oklch(1 0 0)"
+  popover-foreground: "oklch(0.145 0 0)"
+  primary: "oklch(0.205 0 0)"
+  primary-foreground: "oklch(0.985 0 0)"
+  secondary: "oklch(0.97 0 0)"
+  secondary-foreground: "oklch(0.205 0 0)"
+  muted: "oklch(0.97 0 0)"
+  muted-foreground: "oklch(0.556 0 0)"
+  accent: "oklch(0.97 0 0)"
+  accent-foreground: "oklch(0.205 0 0)"
+  destructive: "oklch(0.577 0.245 27.325)"
+  border: "oklch(0.922 0 0)"
+  input: "oklch(0.922 0 0)"
+  ring: "oklch(0.708 0 0)"
+  chart-1: "oklch(0.646 0.222 41.116)"
+  chart-2: "oklch(0.6 0.118 184.704)"
+  chart-3: "oklch(0.398 0.07 227.392)"
+  chart-4: "oklch(0.828 0.189 84.429)"
+  chart-5: "oklch(0.769 0.188 70.08)"
+  sidebar: "oklch(0.985 0 0)"
+  sidebar-foreground: "oklch(0.145 0 0)"
+  sidebar-primary: "oklch(0.205 0 0)"
+  sidebar-primary-foreground: "oklch(0.985 0 0)"
+  sidebar-accent: "oklch(0.97 0 0)"
+  sidebar-accent-foreground: "oklch(0.205 0 0)"
+  sidebar-border: "oklch(0.922 0 0)"
+  sidebar-ring: "oklch(0.708 0 0)"
+  destructive-foreground: "oklch(0.985 0 0)"
+  ansi-black: "#2e3436"
+  ansi-red: "#a40000"
+  ansi-green: "#4e9a06"
+  ansi-yellow: "#c4a000"
+  ansi-blue: "#204a87"
+  ansi-magenta: "#5c3566"
+  ansi-cyan: "#047377"
+  ansi-white: "#babdb6"
+  ansi-bright-black: "#555753"
+  ansi-bright-red: "#cc0000"
+  ansi-bright-green: "#73d216"
+  ansi-bright-yellow: "#edd400"
+  ansi-bright-blue: "#3465a4"
+  ansi-bright-magenta: "#75507b"
+  ansi-bright-cyan: "#06989a"
+  ansi-bright-white: "#eeeeec"
+
+radius:
+  sm: "0.375rem"
+  md: "0.5rem"
+  lg: "0.625rem"
+  xl: "0.875rem"
+  2xl: "1.125rem"
+  3xl: "1.375rem"
+  4xl: "1.625rem"

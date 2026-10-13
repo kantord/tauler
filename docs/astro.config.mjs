@@ -52,6 +52,7 @@ export default defineConfig({
       sidebar: [
         { slug: 'docs' },
         { slug: 'docs/layout-file' },
+        { slug: 'docs/themes' },
         { slug: 'docs/elements' },
         { slug: 'docs/data' },
         { slug: 'docs/units' },

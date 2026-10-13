@@ -33,6 +33,10 @@ tauler-ui-macro = { path = "../tauler-ui-macro", version = "0.1.15" }
 # belongs here rather than behind the `quickjs` feature — a browser Unit needs
 # the same diffing native Units get (ADR 0037).
 optative = "=0.1.4"
+# CSS Color 4 parsing, for the contrast check on theme pairs. Pure Rust (it is already in the
+# graph via takumi).
+# Verified: `cargo check -p tauler-core --target wasm32-unknown-unknown` passes with it.
+color = "=0.3.3"
 
 # The QuickJS half: registration, the `EsEntry` table and `UiComponent::js_fn`. Enabled by
 # `tauler`, never by the web build — `rquickjs-sys` compiles QuickJS from C and there is no

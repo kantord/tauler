@@ -1,0 +1,118 @@
+#!/bin/sh
+# Two kitty windows showing what a terminal looks like in daily use, over data that is the same
+# on every run: a synthetic git repository with fixed authors and dates, and a directory of
+# files with fixed modification times. Nothing here reads the host or the network.
+#
+#   e2e-demo-session /out/<scenario>/kitty-colors.conf
+#
+# The colours file is the only thing that varies between runs, and it is written by the test
+# from the same built-in theme the bar is using — so a terminal that does not match the bar is a
+# bug in the theme, not a decision in this script.
+#
+# Output stability is the point: commit hashes depend on content, author, committer and both
+# dates, all pinned below, so a screenshot differs from the last one only if the theme did.
+set -eu
+
+colors="${1:?usage: e2e-demo-session <kitty colours .conf>}"
+
+export GIT_AUTHOR_NAME="Ada Example" GIT_AUTHOR_EMAIL="ada@example.com"
+export GIT_COMMITTER_NAME="Ada Example" GIT_COMMITTER_EMAIL="ada@example.com"
+export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null
+export TZ=UTC LC_ALL=C.UTF-8
+
+demo=/root/tauler-demo
+rm -rf "$demo"
+mkdir -p "$demo/src" "$demo/docs" "$demo/scripts"
+cd "$demo"
+
+commit() {
+    date="$1"; shift
+    GIT_AUTHOR_DATE="$date" GIT_COMMITTER_DATE="$date" git commit --quiet "$@"
+}
+
+git init --quiet -b main
+printf 'fn main() {\n    println!("hello");\n}\n' > src/main.rs
+printf '# tauler-demo\n\nA small project.\n' > README.md
+git add . && commit "2026-09-01T09:00:00Z" -m "Initial commit"
+
+printf 'pub fn greet(name: &str) -> String {\n    format!("hello, {name}")\n}\n' > src/lib.rs
+git add . && commit "2026-09-03T14:30:00Z" -m "Add a greeting function"
+git tag v0.1.0
+
+git checkout --quiet -b feature/themes
+printf '# Themes\n\nTODO: document the built-in themes.\n' > docs/themes.md
+git add . && commit "2026-09-10T11:15:00Z" -m "Sketch the themes page"
+git checkout --quiet main
+printf 'fn main() {\n    println!("{}", demo::greet("world"));\n}\n' > src/main.rs
+git add . && commit "2026-09-12T16:45:00Z" -m "Use the greeting from main"
+GIT_AUTHOR_DATE="2026-09-14T10:00:00Z" GIT_COMMITTER_DATE="2026-09-14T10:00:00Z" \
+    git merge --quiet --no-ff feature/themes -m "Merge branch 'feature/themes'"
+
+# A working tree with every state `git status` colours: staged, modified, untracked.
+printf '# tauler-demo\n\nA small project.\n\nSee docs/themes.md.\n' > README.md
+git add README.md
+printf 'pub fn greet(name: &str) -> String {\n    format!("hello, {name}!")\n}\n' > src/lib.rs
+printf '#!/bin/sh\necho build\n' > scripts/build.sh && chmod +x scripts/build.sh
+printf 'notes\n' > TODO.txt
+
+# Files for `ls`: a directory, an executable, a symlink, an archive, plain files.
+tar -czf docs/archive.tar.gz README.md 2>/dev/null
+ln -sf src/main.rs main-link
+find . -path ./.git -prune -o -type f -print -o -type l -print \
+    | while read -r f; do touch -h -d "2026-09-14 10:00:00" "$f"; done
+touch -d "2026-09-14 10:00:00" src docs scripts
+
+kitty_conf=/tmp/kitty-demo.conf
+{
+    cat <<'CONF'
+font_family      JetBrains Mono
+font_size        11
+window_padding_width 12
+confirm_os_window_close 0
+enable_audio_bell no
+cursor_blink_interval 0
+remember_window_size no
+CONF
+    cat "$colors"
+} > "$kitty_conf"
+
+# A prompt in the colours a prompt really uses (below, in demo-lib.sh), so the screenshot shows
+# the palette doing a job rather than being listed. `run` prints the command before running it,
+# as a transcript.
+script_a=/tmp/demo-a.sh
+cat > "$script_a" <<'A'
+. /tmp/demo-lib.sh
+cd /root/tauler-demo
+run colorscript -e crunch
+run ls -l --color=always
+run git log --graph --oneline --decorate --color=always
+exec sleep infinity
+A
+script_b=/tmp/demo-b.sh
+cat > "$script_b" <<'B'
+. /tmp/demo-lib.sh
+cd /root/tauler-demo
+run git status
+run git diff --color=always
+run grep -rn --color=always TODO .
+exec sleep infinity
+B
+cat > /tmp/demo-lib.sh <<'LIB'
+run() {
+    printf '\033[34m~/tauler-demo\033[0m \033[35mmain\033[0m \033[32m❯\033[0m %s\n' "$*"
+    "$@" || true
+}
+export GIT_PAGER=cat GIT_CONFIG_GLOBAL=/dev/null
+LIB
+
+i3-msg "workspace 1" >/dev/null 2>&1
+for title in demo-a demo-b; do
+    case "$title" in demo-a) script="$script_a" ;; *) script="$script_b" ;; esac
+    LC_ALL=C.UTF-8 kitty --config "$kitty_conf" --title "$title" sh "$script" &
+    i=0
+    until i3-msg -t get_tree 2>/dev/null | grep -q "\"$title\""; do
+        i=$((i + 1))
+        [ "$i" -lt 200 ] || { echo "e2e: kitty $title never mapped" >&2; exit 1; }
+        sleep 0.1
+    done
+done
