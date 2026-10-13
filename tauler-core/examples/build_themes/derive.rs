@@ -139,6 +139,59 @@ pub fn is_dark(bg: &str) -> bool {
     ratio(bg, "#000000") < ratio(bg, "#ffffff")
 }
 
+/// How far a panel must sit from the page to read as a panel (about one just-noticeable
+/// difference).
+pub const MIN_SURFACE_SEPARATION: f64 = 0.02;
+
+/// The colour of `card`, `popover` and `sidebar`: the page faded away from the foreground — toward
+/// black on a dark page, toward white on a light one — unless that leaves it too close to the page
+/// to see. A page that is already near white (or black) cannot fade further, and then the panel
+/// steps toward the foreground instead, as base16 and zenbones.nvim do. Measured on 168 distinct
+/// seeds, the first rule alone left 48 of them, all light, with a panel indistinguishable from the
+/// page.
+fn panel_colour(bg: &str, fg: &str) -> String {
+    let away = mix(bg, if is_dark(bg) { "#000000" } else { "#ffffff" }, 87.0);
+    if distance(&away, bg) >= MIN_SURFACE_SEPARATION {
+        away
+    } else {
+        mix(bg, fg, 87.0)
+    }
+}
+
+/// How many accent slots may hold a hue far from their name before a scheme is refused. One or
+/// two are a scheme's own choice (a brown "yellow", a teal "green"); three or more were, in every
+/// case measured, a palette in another order (oxocarbon) or hues guessed from highlight groups
+/// (miasma, deus).
+pub const MAX_HUE_MISSES: usize = 2;
+
+/// The accent hues whose terminal slot holds a colour of a different hue, as `(name, hue°)`.
+///
+/// SPEC: `ansi[1..=6]` are red, green, yellow, blue, magenta and cyan in that order. A scheme that
+/// fills the slots in some other order (oxocarbon puts blue in the red slot) would make
+/// `destructive` blue; this names the slots that are off by more than 60° so the generator can say
+/// so. Slots with almost no chroma carry no hue and are never reported.
+pub fn ansi_hue_misses(seed: &Seed) -> Vec<(&'static str, f32)> {
+    const EXPECTED: [(&str, f32); 6] = [
+        ("red", 29.0),
+        ("green", 142.0),
+        ("yellow", 110.0),
+        ("blue", 264.0),
+        ("magenta", 328.0),
+        ("cyan", 195.0),
+    ];
+    EXPECTED
+        .iter()
+        .enumerate()
+        .filter_map(|(i, (name, want))| {
+            let [_, chroma, hue, _] = parse(&seed.ansi[1 + i])
+                .to_alpha_color::<color::Oklch>()
+                .components;
+            let off = (hue - want).abs();
+            (chroma > 0.03 && off.min(360.0 - off) > 60.0).then_some((*name, hue))
+        })
+        .collect()
+}
+
 /// The smallest Oklab distance two accents may end up at before they read as one colour.
 pub const MIN_SEPARATION: f64 = 0.05;
 
@@ -242,7 +295,7 @@ pub fn derive(seed: &Seed, primary: &str) -> BTreeMap<String, String> {
         accents[i - 1].clone()
     };
 
-    let panel = mix(bg, if is_dark(bg) { "#000000" } else { "#ffffff" }, 87.0);
+    let panel = panel_colour(bg, fg);
     let elevated = mix(bg, fg, 90.0);
     let border = mix(bg, fg, 80.0);
     let input = mix(bg, fg, 85.0);
@@ -357,8 +410,52 @@ mod tests {
         ]
     }
 
+    /// A pastel light scheme: its accents are all under 3:1 on its background.
+    fn pastel() -> Seed {
+        Seed {
+            bg: "#fdf6e3".into(),
+            fg: "#5c6a72".into(),
+            ansi: [
+                "#5c6a72", "#f85552", "#8da101", "#dfa000", "#3a94c5", "#df69ba", "#35a77c",
+                "#dfddc8", "#829181", "#f85552", "#8da101", "#dfa000", "#3a94c5", "#df69ba",
+                "#35a77c", "#f4f0d9",
+            ]
+            .map(String::from),
+        }
+    }
+
+    /// tokyonight-day: its bright accents are 2.5:1 but its normal ones are not.
+    fn tokyonight_day() -> Seed {
+        Seed {
+            bg: "#e1e2e7".into(),
+            fg: "#3760bf".into(),
+            ansi: [
+                "#b4b5b9", "#f52a65", "#587539", "#8c6c3e", "#2e7de9", "#9854f1", "#007197",
+                "#6172b0", "#a1a6c5", "#ff4774", "#5c8524", "#a27629", "#358aff", "#a463ff",
+                "#007ea8", "#3760bf",
+            ]
+            .map(String::from),
+        }
+    }
+
+    fn plain(bg: &str, fg: &str) -> Seed {
+        let mut ansi = [
+            "#000000", "#cc3333", "#33aa33", "#ccaa33", "#3355cc", "#aa33aa", "#33aaaa", "#cccccc",
+            "#555555", "#ff5555", "#55ff55", "#ffff55", "#5577ff", "#ff55ff", "#55ffff", "#ffffff",
+        ]
+        .map(String::from);
+        ansi[0] = bg.to_string();
+        Seed {
+            bg: bg.into(),
+            fg: fg.into(),
+            ansi,
+        }
+    }
+
     fn all_seeds() -> Vec<(&'static str, Seed)> {
         let mut v = seeds();
+        v.push(("pure white", plain("#ffffff", "#24292f")));
+        v.push(("pure black", plain("#000000", "#e6e6e6")));
         v.push(("pastel", pastel()));
         v.push(("tokyonight-day", tokyonight_day()));
         v
@@ -398,44 +495,6 @@ mod tests {
         let t = derive(&seed, "green");
         assert_eq!(t["primary"], "#9fe044");
         assert_eq!(t["sidebar-primary"], "#9fe044");
-    }
-
-    #[test]
-    fn panels_fade_away_from_the_foreground_in_both_modes() {
-        let mut all = seeds();
-        let (_, light) = all.remove(1);
-        let (_, dark) = all.remove(0);
-        // Dark: the card is darker than the background. Light: it is lighter.
-        assert!(ratio(&derive(&dark, "blue")["card"], "#000000") < ratio(&dark.bg, "#000000"));
-        assert!(ratio(&derive(&light, "blue")["card"], "#ffffff") < ratio(&light.bg, "#ffffff"));
-    }
-
-    /// A pastel light scheme: its accents are all under 3:1 on its background.
-    fn pastel() -> Seed {
-        Seed {
-            bg: "#fdf6e3".into(),
-            fg: "#5c6a72".into(),
-            ansi: [
-                "#5c6a72", "#f85552", "#8da101", "#dfa000", "#3a94c5", "#df69ba", "#35a77c",
-                "#dfddc8", "#829181", "#f85552", "#8da101", "#dfa000", "#3a94c5", "#df69ba",
-                "#35a77c", "#f4f0d9",
-            ]
-            .map(String::from),
-        }
-    }
-
-    /// tokyonight-day: its bright accents are 2.5:1 but its normal ones are not.
-    fn tokyonight_day() -> Seed {
-        Seed {
-            bg: "#e1e2e7".into(),
-            fg: "#3760bf".into(),
-            ansi: [
-                "#b4b5b9", "#f52a65", "#587539", "#8c6c3e", "#2e7de9", "#9854f1", "#007197",
-                "#6172b0", "#a1a6c5", "#ff4774", "#5c8524", "#a27629", "#358aff", "#a463ff",
-                "#007ea8", "#3760bf",
-            ]
-            .map(String::from),
-        }
     }
 
     #[test]
@@ -489,6 +548,35 @@ mod tests {
         let seed = tokyonight_day();
         let (donor, ui) = ui_accents(&seed);
         assert_eq!(donor, ui);
+    }
+
+    #[test]
+    fn a_panel_is_visibly_different_from_the_page_even_on_pure_white_and_black() {
+        for (name, seed) in all_seeds() {
+            let t = derive(&seed, "blue");
+            let d = distance(&t["card"], &t["background"]);
+            assert!(
+                d >= MIN_SURFACE_SEPARATION - 1e-9,
+                "{name}: card is {d:.3} from the page"
+            );
+        }
+    }
+
+    #[test]
+    fn a_panel_still_fades_away_from_the_foreground_when_it_can() {
+        // A mid-dark page has room to go darker, so it keeps doing so.
+        let t = derive(&seeds().remove(0).1, "blue");
+        assert!(ratio(&t["card"], "#000000") < ratio(&t["background"], "#000000"));
+    }
+
+    #[test]
+    fn a_terminal_palette_in_the_wrong_hue_order_is_named() {
+        let mut seed = plain("#ffffff", "#24292f");
+        // oxocarbon's order: its "red" slot holds a blue.
+        seed.ansi[1] = "#0f62fe".into();
+        let misses = ansi_hue_misses(&seed);
+        assert!(misses.iter().any(|(n, _)| *n == "red"), "{misses:?}");
+        assert!(ansi_hue_misses(&plain("#ffffff", "#24292f")).is_empty());
     }
 
     #[test]

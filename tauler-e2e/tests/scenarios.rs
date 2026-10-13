@@ -245,16 +245,16 @@ fn builtin_theme_by_name_draws_the_dark_palette() -> Result<()> {
 #[test]
 #[ignore = "needs Docker and `just e2e-image`"]
 fn builtin_theme_by_name_draws_the_light_palette() -> Result<()> {
-    // tokyonight-day: `background` is #e1e2e7; `sidebar`, `popover` #e5e6ea
-    // (derived: the background faded toward white).
+    // tokyonight-day: `background` is #e1e2e7; `sidebar` and `popover` are #cad1e3 (derived: the
+    // background is too close to white to fade, so the panel steps toward the foreground).
     builtin_theme_scenario(
         "builtin-theme-light",
         "builtin-theme-by-name-draws-the-light-palette",
         "tokyonight-day",
         Palette {
             background: [0xe1, 0xe2, 0xe7],
-            sidebar: [0xe5, 0xe6, 0xea],
-            popover: [0xe5, 0xe6, 0xea],
+            sidebar: [0xca, 0xd1, 0xe3],
+            popover: [0xca, 0xd1, 0xe3],
         },
     )
 }

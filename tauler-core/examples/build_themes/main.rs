@@ -108,10 +108,10 @@ fn seed(dump_lua: &Path, repo_dir: &Path, w: &Workload) -> (Seed, ThemeMode) {
         .env("CS", &w.colorscheme)
         .env("BGMODE", &w.background));
     let dump: Dump = serde_json::from_str(&json).expect("dump.lua prints JSON");
-    let mode = match dump.mode.as_str() {
-        "dark" => ThemeMode::Dark,
-        "light" => ThemeMode::Light,
-        other => panic!("{}: unknown &background `{other}`", w.name),
+    let seed_mode = if dump.mode == "light" {
+        ThemeMode::Light
+    } else {
+        ThemeMode::Dark
     };
     let seed = Seed {
         bg: dump.bg,
@@ -121,20 +121,39 @@ fn seed(dump_lua: &Path, repo_dir: &Path, w: &Workload) -> (Seed, ThemeMode) {
             .try_into()
             .unwrap_or_else(|v: Vec<String>| panic!("expected 16 ANSI colours, got {}", v.len())),
     };
-    // The label and the colours must agree, or the theme would be shown on the wrong background.
-    assert_eq!(
-        derive::is_dark(&seed.bg),
-        mode == ThemeMode::Dark,
-        "{}: &background is `{}` but its background {} is {}",
-        w.name,
-        dump.mode,
-        seed.bg,
-        if derive::is_dark(&seed.bg) {
-            "dark"
-        } else {
-            "light"
-        }
+    // The background decides the label. `&background` is only a hint: a scheme that ignores it
+    // (41 of the 151 colour schemes tried) leaves it at whatever the hint said.
+    let mode = if derive::is_dark(&seed.bg) {
+        ThemeMode::Dark
+    } else {
+        ThemeMode::Light
+    };
+    if mode != seed_mode {
+        eprintln!(
+            "note: {}: &background is `{}` but its background {} is {}; using the background",
+            w.name,
+            dump.mode,
+            seed.bg,
+            if mode == ThemeMode::Dark {
+                "dark"
+            } else {
+                "light"
+            }
+        );
+    }
+    let misses = derive::ansi_hue_misses(&seed);
+    assert!(
+        misses.len() <= derive::MAX_HUE_MISSES,
+        "{}: its terminal colours are not in ANSI hue order ({misses:?}); `destructive` and the \
+         chart colours would come out the wrong hue — drop the scheme",
+        w.name
     );
+    if !misses.is_empty() {
+        eprintln!(
+            "note: {}: terminal slots far from their hue: {misses:?}",
+            w.name
+        );
+    }
     (seed, mode)
 }
 

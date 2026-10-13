@@ -15,7 +15,8 @@
 mod derive;
 
 use derive::{
-    accent_separation, derive, distance, is_dark, token_order, ui_accents, Seed, MIN_SEPARATION,
+    accent_separation, ansi_hue_misses, derive, distance, is_dark, token_order, ui_accents, Seed,
+    MIN_SEPARATION,
 };
 use serde::Deserialize;
 use std::collections::BTreeMap;
@@ -102,6 +103,23 @@ fn run_one(dump_lua: &PathBuf, e: &Entry) -> Result<String, String> {
     let raw_fg_ratio = contrast::ratio(&seed.fg, &seed.bg).unwrap_or(0.0);
     let fg_nudged = tokens["foreground"] != seed.fg;
 
+    // The derived theme itself, for looking at.
+    if let Ok(dir) = std::env::var("STRESS_OUT") {
+        let name = format!(
+            "{}__{}__{}",
+            e.repo.replace('/', "_"),
+            e.colorscheme,
+            dump.mode
+        );
+        let _ = std::fs::write(
+            std::path::Path::new(&dir).join(format!("{name}.yaml")),
+            format!(
+                "name: {name}\nmode: {}\ncolors:\n{yaml_colors}",
+                if is_dark(&seed.bg) { "dark" } else { "light" }
+            ),
+        );
+    }
+
     // How far each surface and line sits from the page: a panel that is the page's own colour is
     // an invisible panel.
     let sep = |token: &str| distance(&tokens[token], &tokens["background"]);
@@ -118,10 +136,16 @@ fn run_one(dump_lua: &PathBuf, e: &Entry) -> Result<String, String> {
         .min_by(|a, b| a.1.total_cmp(&b.1))
         .unwrap();
 
+    let misses = ansi_hue_misses(&seed)
+        .iter()
+        .map(|(n, _)| *n)
+        .collect::<Vec<_>>()
+        .join("+");
+
     // A key to spot two entries that are the same scheme.
     let key = format!("{}|{}|{}", seed.bg, seed.fg, seed.ansi.join(","));
     Ok(format!(
-        "ok\t{}\t{}\t{}\t{}\t{}\t{}\t{:.2}\t{}\t{}\t{:.3}\t{:.3}\t{}\t{}\t{}:{:.3}\t{:.3}",
+        "ok\t{}\t{}\t{}\t{}\t{}\t{}\t{:.2}\t{}\t{}\t{:.3}\t{:.3}\t{}\t{}\t{}:{:.3}\t{:.3}\t{}",
         dump.mode,
         u8::from(mode_agrees),
         u8::from(dump.fallback),
@@ -137,7 +161,12 @@ fn run_one(dump_lua: &PathBuf, e: &Entry) -> Result<String, String> {
         key,
         weakest,
         weakest_sep,
-        sep("card")
+        sep("card"),
+        if misses.is_empty() {
+            "-".to_string()
+        } else {
+            misses
+        }
     ))
 }
 
@@ -150,7 +179,7 @@ fn main() {
             .expect("parse manifest");
     let dump_lua = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src/themes/generate/dump.lua");
 
-    println!("repo\tcolorscheme\tbg_hint\tresult\tmode\tmode_agrees\tfallback\tmissing\tfloor_fail\tbg\tfg_ratio\tfg_nudged\taccents_nudged\tdonor_sep\tui_sep\tguard_ok\tseed_key\tweakest_surface\tcard_sep\tlicense");
+    println!("repo\tcolorscheme\tbg_hint\tresult\tmode\tmode_agrees\tfallback\tmissing\tfloor_fail\tbg\tfg_ratio\tfg_nudged\taccents_nudged\tdonor_sep\tui_sep\tguard_ok\tseed_key\tweakest_surface\tcard_sep\thue_misses\tlicense");
     let queue = Arc::new(Mutex::new(entries.into_iter().collect::<Vec<_>>()));
     let lines: Arc<Mutex<BTreeMap<usize, String>>> = Arc::new(Mutex::new(BTreeMap::new()));
     let total = queue.lock().unwrap().len();
@@ -189,7 +218,7 @@ fn main() {
     for h in handles {
         h.join().unwrap();
     }
-    for (_, l) in lines.lock().unwrap().iter() {
+    for l in lines.lock().unwrap().values() {
         println!("{l}");
     }
 }

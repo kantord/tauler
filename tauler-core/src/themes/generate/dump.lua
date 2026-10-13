@@ -42,7 +42,19 @@ end
 
 local normal = vim.api.nvim_get_hl(0, { name = "Normal", link = false })
 local bg, fg = hex(normal.bg), hex(normal.fg)
-assert(bg and fg, vim.env.CS .. " does not set Normal's background and foreground")
+-- A scheme that defaults to a transparent background (solarized-osaka) leaves `Normal` without
+-- one; the nearest thing it does colour is a floating window or the popup menu.
+local bg_fallback = false
+if not bg then
+  for _, group in ipairs({ "NormalFloat", "Pmenu", "SignColumn", "ColorColumn" }) do
+    local h = vim.api.nvim_get_hl(0, { name = group, link = false })
+    if h.bg then
+      bg, bg_fallback = hex(h.bg), true
+      break
+    end
+  end
+end
+assert(bg and fg, vim.env.CS .. " sets no background and foreground for Normal, or for a window")
 
 local ansi = {}
 for i = 0, 15 do ansi[i + 1] = vim.g["terminal_color_" .. i] end
@@ -50,7 +62,7 @@ for i = 0, 15 do ansi[i + 1] = vim.g["terminal_color_" .. i] end
 -- Whatever the scheme left unset is filled in, and `fallback` says so: a missing hue comes from
 -- the highlight group every scheme styles for it, black and white from the background and
 -- foreground, and a missing bright variant is the normal one.
-local fallback = false
+local fallback = bg_fallback
 local hues = {
   [2] = function() return fg_of("DiagnosticError") end,
   [3] = function() return fg_of("DiagnosticOk") or fg_of("String") end,
