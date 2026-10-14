@@ -43,7 +43,7 @@ Write `~/.config/tauler/layout.op.mdx`:
 ```jsx
 ---
 theme:
-  mode: dark        # or light
+  name: tokyonight-night   # a built-in theme — see the Themes page
 fonts:
   primary: "Inter"
 ---

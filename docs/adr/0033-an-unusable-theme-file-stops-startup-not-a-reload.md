@@ -46,7 +46,8 @@ config and reading the theme are separate calls (`theme_selection_from_config`, 
 because only the first can tell those two cases apart.
 
 Theme mode and the watched theme path come from `config.yaml`, not from the theme file, so a
-reload applies both even when the theme itself failed to load. Otherwise fixing a broken
+reload applies both even when the theme itself failed to load. (Superseded for mode by ADR 0043:
+a theme now carries its own mode, and `theme.mode` only overrides it.) Otherwise fixing a broken
 path by pointing `theme.file` somewhere new would leave the watcher on the old one, and the
 fix would never fire a reload.
 

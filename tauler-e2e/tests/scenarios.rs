@@ -111,6 +111,154 @@ fn workspaces_frames_the_area_beside_the_sidebar() -> Result<()> {
     Ok(())
 }
 
+/// A kitty colours file for `theme`: its background, foreground and the 16 `ansi-*`
+/// tokens as `color0`..`color15`. This is the one place a terminal is told what the theme is —
+/// there is no layout-side API for it yet, so the test does it from the Rust `Theme` directly.
+fn kitty_colors(theme: &tauler_core::theme::Theme) -> String {
+    let colors = &theme.colors;
+    let get = |key: &str| {
+        colors
+            .get(key)
+            .unwrap_or_else(|| panic!("theme `{}` has no `{key}`", theme.name))
+            .clone()
+    };
+    let mut out = format!(
+        "background {}\nforeground {}\ncursor {}\nselection_background {}\nselection_foreground {}\n",
+        get("background"),
+        get("foreground"),
+        get("foreground"),
+        get("accent"),
+        get("accent-foreground"),
+    );
+    let names = [
+        "black", "red", "green", "yellow", "blue", "magenta", "cyan", "white",
+    ];
+    for (i, name) in names.iter().enumerate() {
+        out.push_str(&format!("color{i} {}\n", get(&format!("ansi-{name}"))));
+        out.push_str(&format!(
+            "color{} {}\n",
+            i + 8,
+            get(&format!("ansi-bright-{name}"))
+        ));
+    }
+    out
+}
+
+/// What a built-in theme is expected to draw, written by hand from its theme file.
+struct Palette {
+    background: [u8; 3],
+    sidebar: [u8; 3],
+    popover: [u8; 3],
+}
+
+/// A built-in theme, selected by `theme.name` alone — no theme file in the fixture.
+///
+/// The desktop is a left rail, two free-floating plates (a notification and a launcher) and two
+/// kitty terminals, each drawn from the tokens a UI would use for that surface. Pixels where
+/// nothing else is drawn are therefore exact tokens: the rail's bottom edge is the theme's
+/// `sidebar`, the launcher's bottom-right padding its `popover`, and an empty stretch of a
+/// terminal its `background` — which kitty only has because the test wrote it from this theme.
+/// That proves the name resolved to the built-in, the mode picked the right palette, and that
+/// each surface reached for its own token.
+fn builtin_theme_scenario(
+    scenario: &str,
+    devtools_name: &str,
+    theme_name: &str,
+    expected: Palette,
+) -> Result<()> {
+    // Photographed at twice the density: the screen is 3840×2160 at 192 dpi, which tauler and
+    // kitty both read from Xft.dpi, so every logical size below doubles in pixels. The
+    // screenshot is the same desktop with four times the pixels — sharp when it is shown large,
+    // where a 1920×1080 capture is enlarged and blurs.
+    const K: u32 = 2;
+    let screen = Screen {
+        width: 1920 * K,
+        height: 1080 * K,
+        dpi: 96 * K,
+    };
+    let theme = tauler_core::theme::builtin::by_name(theme_name).expect("built-in theme");
+    std::fs::write(
+        tauler_e2e::scenario_out_dir(scenario)?.join("kitty-colors.conf"),
+        kitty_colors(&theme),
+    )?;
+
+    let k = K as i32;
+    let (_desktop, screenshot) = run_on(
+        screen,
+        scenario,
+        devtools_name,
+        Expected {
+            gaps: Gaps {
+                left: 272 * K,
+                right: 0,
+                top: 0,
+                bottom: 0,
+            },
+            panels: vec![
+                rect(0, 0, 272 * K, 1080 * K),
+                rect(1480 * k, 40 * k, 400 * K, 132 * K),
+                rect(620 * k, 300 * k, 680 * K, 360 * K),
+            ],
+            clients: 2,
+        },
+    )?;
+    let [r, g, b, _] = pixel_at(&screenshot, 136 * K, 1070 * K)?;
+    assert_eq!(
+        [r, g, b],
+        expected.sidebar,
+        "the rail's own pixel is not the theme's `sidebar`"
+    );
+    // Inside the launcher's 16px padding, below its footer row, inside the 1px border.
+    let [r, g, b, _] = pixel_at(&screenshot, 1290 * K, 650 * K)?;
+    assert_eq!(
+        [r, g, b],
+        expected.popover,
+        "the launcher's own pixel is not the theme's `popover`"
+    );
+    // An empty stretch of the left terminal, below its output and clear of the launcher.
+    let [r, g, b, _] = pixel_at(&screenshot, 500 * K, 1000 * K)?;
+    assert_eq!(
+        [r, g, b],
+        expected.background,
+        "the terminal's own pixel is not the theme's `background` — kitty did not get the colours"
+    );
+    Ok(())
+}
+
+#[test]
+#[ignore = "needs Docker and `just e2e-image`"]
+fn builtin_theme_by_name_draws_the_dark_palette() -> Result<()> {
+    // tokyonight-night: `background` is #1a1b26; `sidebar` and `popover` are both #16161e, the
+    // scheme's own answer for a panel (`Pmenu.bg`).
+    builtin_theme_scenario(
+        "builtin-theme-dark",
+        "builtin-theme-by-name-draws-the-dark-palette",
+        "tokyonight-night",
+        Palette {
+            background: [0x1a, 0x1b, 0x26],
+            sidebar: [0x16, 0x16, 0x1e],
+            popover: [0x16, 0x16, 0x1e],
+        },
+    )
+}
+
+#[test]
+#[ignore = "needs Docker and `just e2e-image`"]
+fn builtin_theme_by_name_draws_the_light_palette() -> Result<()> {
+    // tokyonight-day: `background` is #e1e2e7; `sidebar` and `popover` are #d0d5e3, the scheme's
+    // own answer for a floating window (`NormalFloat.bg`, which this workload asks for).
+    builtin_theme_scenario(
+        "builtin-theme-light",
+        "builtin-theme-by-name-draws-the-light-palette",
+        "tokyonight-day",
+        Palette {
+            background: [0xe1, 0xe2, 0xe7],
+            sidebar: [0xd0, 0xd5, 0xe3],
+            popover: [0xd0, 0xd5, 0xe3],
+        },
+    )
+}
+
 /// The showcase: one floating bar over a wallpaper tauler painted itself.
 ///
 /// Held to exactly the same contract as the two above — the extra assertions
@@ -472,7 +620,16 @@ fn thermal_crops_one_field_across_every_window() -> Result<()> {
 /// runs twice), so keying the devtools gallery on the fixture name would let the second
 /// test's screenshot silently overwrite the first's.
 fn run(scenario: &str, devtools_name: &str, expected: Expected) -> Result<(Desktop, PathBuf)> {
-    let screen = Screen::default();
+    run_on(Screen::default(), scenario, devtools_name, expected)
+}
+
+/// As [`run`], on `screen` — for a scenario photographed at a higher density.
+fn run_on(
+    screen: Screen,
+    scenario: &str,
+    devtools_name: &str,
+    expected: Expected,
+) -> Result<(Desktop, PathBuf)> {
     let desktop = Desktop::start(scenario, screen)?;
 
     let gaps = wait_for("tauler-i3 to write the gaps", || {

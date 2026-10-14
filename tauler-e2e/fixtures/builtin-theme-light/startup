@@ -1,0 +1,5 @@
+#!/bin/sh
+# Two kitty windows over a synthetic git repository, coloured from the theme under test.
+# The colours file is written by the test (`kitty_colors` in tests/scenarios.rs) before this
+# container starts, from the same built-in theme the bar is told to use.
+exec e2e-demo-session "/out/$SCENARIO/kitty-colors.conf"

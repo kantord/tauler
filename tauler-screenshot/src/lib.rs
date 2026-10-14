@@ -32,6 +32,8 @@ pub use tauler::theme::ThemeMode;
 /// preview width, with fonts resolved through fontconfig.
 #[derive(Debug, Clone)]
 pub struct Options {
+    /// Which shipped default to render with when `palette` is `None`. Ignored when a palette is
+    /// given: a theme carries its own mode.
     pub theme: ThemeMode,
     /// Document width in CSS pixels, including the 16px margins.
     pub width: u32,
@@ -47,6 +49,12 @@ pub struct Options {
     /// host's fonts are never consulted, so the output is the same on every
     /// machine. `Default` is `false`.
     pub files_only: bool,
+    /// The theme to resolve theme tokens against. `None` is the shipped default for `theme`.
+    ///
+    /// Named `palette`, not `theme`, because `theme` above is the *mode* — the two words
+    /// mean different things in `CONTEXT.md` and a rename of the older field is a breaking
+    /// change to a published crate.
+    pub palette: Option<tauler::theme::Theme>,
 }
 
 impl Default for Options {
@@ -57,6 +65,7 @@ impl Default for Options {
             font_path: None,
             symbol_font_path: None,
             files_only: false,
+            palette: None,
         }
     }
 }
@@ -139,7 +148,10 @@ pub fn render(jsx_source: &str, options: &Options) -> Result<Screenshot, Error> 
     tauler::init_global_ctx(font_config.clone());
     tauler::reload_font_config(font_config);
 
-    let theme = tauler::theme::Theme::default_theme();
+    let theme = options
+        .palette
+        .clone()
+        .unwrap_or_else(|| tauler::theme::builtin::default_for(options.theme));
 
     let eval_output = JsxEvaluator::new(jsx_source, serde_json::Value::Null, None)
         .map_err(|e| Error(e.to_string()))?
@@ -147,7 +159,7 @@ pub fn render(jsx_source: &str, options: &Options) -> Result<Screenshot, Error> 
         .map_err(|e| Error(e.to_string()))?;
 
     let mut layout = eval_output.layout;
-    resolve_theme_tokens(&mut layout, &theme, options.theme);
+    resolve_theme_tokens(&mut layout, &theme);
 
     use tauler::preview::{CANVAS_CLASS, FRAME_CLASS};
     // The frame makes every component render at the full content width, whether
@@ -164,7 +176,7 @@ pub fn render(jsx_source: &str, options: &Options) -> Result<Screenshot, Error> 
         "class": CANVAS_CLASS,
         "children": [frame]
     });
-    resolve_theme_tokens(&mut canvas, &theme, options.theme);
+    resolve_theme_tokens(&mut canvas, &theme);
 
     // After resolution, not before: the point of harvesting is to see the
     // classes as takumi sees them, which is the same string the browser will be

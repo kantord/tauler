@@ -6,30 +6,33 @@ use std::collections::HashMap;
 /// Only tokens this project defines are touched — a colour, a radius, a font. Everything else
 /// is passed through verbatim, which is what lets one attribute carry both theme
 /// tokens and plain Tailwind utilities takumi resolves on its own.
-pub fn resolve_theme_tokens(value: &mut serde_json::Value, theme: &Theme, mode: ThemeMode) {
+///
+/// The theme's own `mode` decides which `dark:` / `light:` variants survive: the ones that match
+/// are unwrapped, the others dropped.
+pub fn resolve_theme_tokens(value: &mut serde_json::Value, theme: &Theme) {
     match value {
         serde_json::Value::Object(map) => {
             if let Some(class) = map.get_mut("class") {
                 if let Some(s) = class.as_str() {
-                    let resolved = resolve_tw(s, theme, mode);
+                    let resolved = resolve_tw(s, theme);
                     *class = serde_json::Value::String(resolved);
                 }
             }
             for v in map.values_mut() {
-                resolve_theme_tokens(v, theme, mode);
+                resolve_theme_tokens(v, theme);
             }
         }
         serde_json::Value::Array(arr) => {
             for v in arr {
-                resolve_theme_tokens(v, theme, mode);
+                resolve_theme_tokens(v, theme);
             }
         }
         _ => {}
     }
 }
 
-pub fn resolve_tw(classes: &str, theme: &Theme, mode: ThemeMode) -> String {
-    let colors = theme.colors_for_mode(mode);
+pub fn resolve_tw(classes: &str, theme: &Theme) -> String {
+    let (colors, mode) = (&theme.colors, theme.mode);
     classes
         .split_whitespace()
         .filter_map(|token| {
@@ -37,10 +40,9 @@ pub fn resolve_tw(classes: &str, theme: &Theme, mode: ThemeMode) -> String {
             let (important, inner) = strip_important(inner);
             let (inner, opacity) = strip_opacity(inner);
             let resolved = resolve_inner(inner, colors, &theme.radius, &theme.fonts);
-            let resolved = if let Some(op) = opacity {
-                format!("{}{}", resolved, op)
-            } else {
-                resolved
+            let resolved = match opacity {
+                Some(op) => with_opacity(resolved, op),
+                None => resolved,
             };
             let resolved = if important {
                 format!("!{}", resolved)
@@ -51,6 +53,31 @@ pub fn resolve_tw(classes: &str, theme: &Theme, mode: ThemeMode) -> String {
         })
         .collect::<Vec<_>>()
         .join(" ")
+}
+
+/// `utility-[#rrggbb]` with `/<percent>` applied, as the 8-digit hex `utility-[#rrggbbaa]`.
+///
+/// SPEC: a hex theme colour with an opacity renders at that opacity. takumi does not read
+/// `bg-[#rrggbb]/50` — text came out black and a background vanished — but does read the 8-digit
+/// form, so that is what a token with an opacity becomes. Any other value (an `oklch()`, say)
+/// keeps the suffix as written.
+fn with_opacity(resolved: String, opacity: &str) -> String {
+    let hex_alpha = resolved
+        .strip_suffix(']')
+        .and_then(|s| s.rsplit_once("-[#"))
+        .filter(|(_, rgb)| rgb.len() == 6 && rgb.chars().all(|c| c.is_ascii_hexdigit()))
+        .zip(
+            opacity
+                .strip_prefix('/')
+                .and_then(|p| p.parse::<u32>().ok()),
+        );
+    match hex_alpha {
+        Some(((prefix, rgb), percent)) => {
+            let alpha = (percent.min(100) * 255 + 50) / 100;
+            format!("{prefix}-[#{rgb}{alpha:02x}]")
+        }
+        None => format!("{resolved}{opacity}"),
+    }
 }
 
 fn strip_important(inner: &str) -> (bool, &str) {
@@ -137,28 +164,54 @@ mod tests {
     use super::*;
     use rstest::rstest;
 
-    fn test_theme() -> Theme {
-        Theme::from_yaml(
+    /// A theme for `mode`, with that mode's palette: the dark one is the light one inverted.
+    fn test_theme(mode: ThemeMode) -> Theme {
+        let (label, colors) = match mode {
+            ThemeMode::Dark => (
+                "dark",
+                r#"
+  primary: "oklch(0.922 0 0)"
+  foreground: "oklch(0.985 0 0)"
+  muted-foreground: "oklch(0.708 0 0)"
+  border: "oklch(1 0 0 / 10%)""#,
+            ),
+            ThemeMode::Light => (
+                "light",
+                r#"
+  primary: "oklch(0.205 0 0)"
+  muted-foreground: "oklch(0.556 0 0)"
+  border: "oklch(0.922 0 0)""#,
+            ),
+        };
+        Theme::from_yaml(&format!(
             r#"
-colors:
-  light:
-    primary: "oklch(0.205 0 0)"
-    muted-foreground: "oklch(0.556 0 0)"
-    border: "oklch(0.922 0 0)"
-  dark:
-    primary: "oklch(0.922 0 0)"
-    foreground: "oklch(0.985 0 0)"
-    muted-foreground: "oklch(0.708 0 0)"
-    border: "oklch(1 0 0 / 10%)"
+name: test
+mode: {label}
+colors:{colors}
 radius:
   sm: "0.375rem"
   lg: "0.625rem"
 fonts:
   heading: "Lora"
   display: "JetBrains Mono"
-"#,
-        )
+"#
+        ))
         .unwrap()
+    }
+
+    /// Claim: a hex token with an opacity becomes an 8-digit hex, the form takumi renders.
+    #[rstest]
+    #[case("text-foreground/50", "text-[#c0caf580]")]
+    #[case("bg-foreground/10", "bg-[#c0caf51a]")]
+    #[case("border-foreground/100", "border-[#c0caf5ff]")]
+    #[case("bg-foreground/0", "bg-[#c0caf500]")]
+    fn a_hex_token_with_an_opacity_becomes_eight_digit_hex(
+        #[case] class: &str,
+        #[case] expected: &str,
+    ) {
+        let theme =
+            Theme::from_yaml("name: t\nmode: dark\ncolors:\n  foreground: \"#c0caf5\"\n").unwrap();
+        assert_eq!(resolve_tw(class, &theme), expected);
     }
 
     #[rstest]
@@ -240,34 +293,28 @@ fonts:
         #[case] mode: ThemeMode,
         #[case] expected: &str,
     ) {
-        let theme = test_theme();
-        assert_eq!(resolve_tw(input, &theme, mode), expected);
+        let theme = test_theme(mode);
+        assert_eq!(resolve_tw(input, &theme), expected);
     }
 
     #[test]
     fn resolve_tw_multiple_tokens_processed_independently() {
-        let theme = test_theme();
+        let theme = test_theme(ThemeMode::Dark);
         assert_eq!(
-            resolve_tw("flex bg-primary", &theme, ThemeMode::Dark),
+            resolve_tw("flex bg-primary", &theme),
             "flex bg-[oklch(0.922_0_0)]"
         );
     }
 
     #[test]
     fn resolve_tw_dark_modifier_light_mode_drops_token_from_multi_class_string() {
-        let theme = test_theme();
-        assert_eq!(
-            resolve_tw("flex dark:bg-primary", &theme, ThemeMode::Light),
-            "flex"
-        );
+        let theme = test_theme(ThemeMode::Light);
+        assert_eq!(resolve_tw("flex dark:bg-primary", &theme), "flex");
     }
 
     #[test]
     fn resolve_tw_light_modifier_dark_mode_drops_token_from_multi_class_string() {
-        let theme = test_theme();
-        assert_eq!(
-            resolve_tw("flex light:bg-primary", &theme, ThemeMode::Dark),
-            "flex"
-        );
+        let theme = test_theme(ThemeMode::Dark);
+        assert_eq!(resolve_tw("flex light:bg-primary", &theme), "flex");
     }
 }

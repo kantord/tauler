@@ -24,25 +24,30 @@ pub fn expand_tilde(path: &str) -> std::path::PathBuf {
     }
 }
 
-fn default_theme_mode() -> ThemeMode {
-    ThemeMode::Dark
-}
-
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Default, Deserialize)]
 pub struct ThemeConfig {
-    #[serde(default = "default_theme_mode")]
-    pub mode: ThemeMode,
+    /// The mode to treat the theme as. A theme carries its own (`Theme::mode`); this is optional
+    /// and, when set, wins: with no `name` or `file` it picks the shipped default for
+    /// that mode (dark when absent), and with one it overrides the mode the theme says.
+    ///
+    /// DECISION: kept, as an override, rather than removed or made a check. A config written
+    /// before themes carried a mode says `mode: light` and means it, and silently ignoring that
+    /// key would draw a dark bar. Overriding changes only the label — the colours are the
+    /// theme's — so it decides which `dark:` / `light:` class variants apply and nothing else.
+    /// Rejected: an error when the two disagree, which refuses a combination the user asked for.
+    /// `auto` is gone: it was parsed and treated as dark, and following the OS would need two
+    /// theme names, not a mode.
+    #[serde(default)]
+    pub mode: Option<ThemeMode>,
     #[serde(default)]
     pub file: Option<String>,
-}
-
-impl Default for ThemeConfig {
-    fn default() -> Self {
-        Self {
-            mode: ThemeMode::Dark,
-            file: None,
-        }
-    }
+    /// A built-in theme, by its own `name` (`tauler_core::theme::builtin`).
+    ///
+    /// DECISION: `name` and `file` are two keys, not one polymorphic `theme.use`. Naming both
+    /// is a load error (ADR 0033 policy), not "the file wins": the caller stated two
+    /// preferences, and picking one silently is the failure that ADR exists to prevent.
+    #[serde(default)]
+    pub name: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -136,13 +141,18 @@ mod tests {
     fn config_from_yaml_parses_light_theme_mode() {
         let yaml = "theme:\n  mode: light";
         let config = TaulerConfig::from_yaml(yaml).expect("valid yaml should parse");
-        assert_eq!(config.theme.mode, ThemeMode::Light);
+        assert_eq!(config.theme.mode, Some(ThemeMode::Light));
     }
 
     #[test]
-    fn config_from_yaml_defaults_to_dark_when_theme_absent() {
+    fn config_from_yaml_leaves_the_mode_unset_when_theme_absent() {
         let config = TaulerConfig::from_yaml("").expect("empty yaml should parse");
-        assert_eq!(config.theme.mode, ThemeMode::Dark);
+        assert_eq!(config.theme.mode, None);
+    }
+
+    #[test]
+    fn config_from_yaml_rejects_the_removed_auto_mode() {
+        assert!(TaulerConfig::from_yaml("theme:\n  mode: auto").is_err());
     }
 
     #[test]

@@ -65,6 +65,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         xterm \
         rxvt-unicode \
         kitty \
+        git ca-certificates \
         libgl1-mesa-dri \
         dunst \
         rofi \
@@ -80,6 +81,17 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         at-spi2-core \
         dbus-x11 \
     && rm -rf /var/lib/apt/lists/*
+
+# shell-color-scripts (MIT) — a terminal showing the 16 ANSI colours as art, which is what a
+# theme's `ansi-*` tokens are for. Pinned to a commit and copied rather than `make install`ed,
+# because the whole install is two `cp`s and `make` is not otherwise in this image. Used by
+# `e2e-demo-session`, never by tauler.
+RUN git clone --quiet https://gitlab.com/dwt1/shell-color-scripts /tmp/scs \
+    && git -C /tmp/scs checkout --quiet 576735cf656ece1bfd314e617b91c0e9d486d262 \
+    && mkdir -p /opt/shell-color-scripts/colorscripts \
+    && cp -rf /tmp/scs/colorscripts/* /opt/shell-color-scripts/colorscripts \
+    && cp /tmp/scs/colorscript.sh /usr/local/bin/colorscript \
+    && rm -rf /tmp/scs
 
 COPY --from=builder /artifacts/tauler /artifacts/tauler-i3 /artifacts/a11y-probe /usr/local/bin/
 

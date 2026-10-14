@@ -85,8 +85,8 @@ contents — a `<style>` body would otherwise render as visible text.
 Utilities neither tauler's theme layer nor the renderer recognizes pass straight through,
 so an unknown class is inert rather than an error. Theme tokens — `bg-card`,
 `text-muted-foreground`, `border-border`, `rounded-lg` — are substituted for the values in
-your layout file's frontmatter (or, on the legacy path, `config.yaml`) before rendering.
-See [Screen layout](/docs/layout/) for where those come from.
+the active theme before rendering. See [Themes](/docs/themes/) for the names and for how
+to choose or write a theme.
 
 **`style` takes an object, not a CSS string.** That is what lets a value be computed per
 tick:
@@ -136,12 +136,12 @@ tauler's part is only registering the font so the class has something to resolve
 ### Font roles
 
 A theme can also assign fonts to **roles** — the same idea as `bg-card` or `rounded-lg`
-in [Styling: `class` and `style`](#styling-class-and-style), just for fonts. The theme
-file's `fonts:` map names a role and points it at a font. A layout file reaches that
+in [Styling: `class` and `style`](#styling-class-and-style), just for fonts. A theme's
+`fonts:` map names a role and points it at a font. A layout file reaches that
 role with `font-<role>`:
 
 ```yaml
-# theme file
+# in a theme file
 fonts:
   heading: "Lora"
 ```

@@ -50,16 +50,16 @@ pub fn use_string_stream(bin: String, script: Option<String>) -> String {
 #[wasm_bindgen(js_name = taulerRegisterModule)]
 pub fn register_module(_bin: String, _props: JsValue) {}
 
-/// Rewrite a tree's theme tokens for one mode, as the desktop does before rendering.
+/// Rewrite a tree's theme tokens against the shipped default theme for one mode, as the desktop
+/// does before rendering.
 #[wasm_bindgen(js_name = taulerResolveTheme)]
 pub fn resolve_theme(tree: JsValue, mode: &str) -> Result<JsValue, JsValue> {
     let mut tree: Value = serde_wasm_bindgen::from_value(tree)?;
-    let theme = crate::theme::Theme::default_theme();
-    let mode = match mode {
-        "light" => crate::theme::ThemeMode::Light,
-        _ => crate::theme::ThemeMode::Dark,
+    let theme = match mode {
+        "light" => crate::theme::builtin::default_for(crate::theme::ThemeMode::Light),
+        _ => crate::theme::builtin::default_for(crate::theme::ThemeMode::Dark),
     };
-    crate::theme::resolver::resolve_theme_tokens(&mut tree, &theme, mode);
+    crate::theme::resolver::resolve_theme_tokens(&mut tree, &theme);
     to_js(&tree)
 }
 

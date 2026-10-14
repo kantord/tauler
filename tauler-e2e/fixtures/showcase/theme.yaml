@@ -9,49 +9,68 @@
 # block nobody renders would be three dozen lines of unverifiable colour.
 # `colors_for_mode` reads one map or the other, never both.
 
+name: rose-pine-moon
+mode: dark
 colors:
-  light: {}
-  dark:
-    background: "#232136"
-    foreground: "#e0def4"
+  background: "#232136"
+  foreground: "#e0def4"
 
-    # `card` is the bar's own surface. It is deliberately *not* opaque: the
-    # panel paints it over the root-bg crop, and the alpha is the entire reason
-    # the bar looks like it belongs to the wallpaper rather than sitting on it.
-    card: "#2a273fd9"
-    card-foreground: "#e0def4"
-    popover: "#2a273f"
-    popover-foreground: "#e0def4"
+  # `card` is the bar's own surface. It is deliberately *not* opaque: the
+  # panel paints it over the root-bg crop, and the alpha is the entire reason
+  # the bar looks like it belongs to the wallpaper rather than sitting on it.
+  card: "#2a273fd9"
+  card-foreground: "#e0def4"
+  popover: "#2a273f"
+  popover-foreground: "#e0def4"
 
-    primary: "#c4a7e7"
-    primary-foreground: "#232136"
-    secondary: "#393552"
-    secondary-foreground: "#e0def4"
+  primary: "#c4a7e7"
+  primary-foreground: "#232136"
+  secondary: "#393552"
+  secondary-foreground: "#e0def4"
 
-    muted: "#393552"
-    muted-foreground: "#908caa"
-    accent: "#ea9a97"
-    accent-foreground: "#232136"
-    destructive: "#eb6f92"
+  muted: "#393552"
+  muted-foreground: "#908caa"
+  accent: "#ea9a97"
+  accent-foreground: "#232136"
+  destructive: "#eb6f92"
 
-    border: "#ffffff1a"
-    input: "#ffffff26"
-    ring: "#c4a7e7"
+  border: "#ffffff1a"
+  input: "#ffffff26"
+  ring: "#c4a7e7"
 
-    chart-1: "#c4a7e7"
-    chart-2: "#9ccfd8"
-    chart-3: "#f6c177"
-    chart-4: "#ea9a97"
-    chart-5: "#3e8fb0"
+  chart-1: "#c4a7e7"
+  chart-2: "#9ccfd8"
+  chart-3: "#f6c177"
+  chart-4: "#ea9a97"
+  chart-5: "#3e8fb0"
 
-    sidebar: "#2a273f"
-    sidebar-foreground: "#e0def4"
-    sidebar-primary: "#c4a7e7"
-    sidebar-primary-foreground: "#232136"
-    sidebar-accent: "#393552"
-    sidebar-accent-foreground: "#e0def4"
-    sidebar-border: "#ffffff1a"
-    sidebar-ring: "#c4a7e7"
+  sidebar: "#2a273f"
+  sidebar-foreground: "#e0def4"
+  sidebar-primary: "#c4a7e7"
+  sidebar-primary-foreground: "#232136"
+  sidebar-accent: "#393552"
+  sidebar-accent-foreground: "#e0def4"
+  sidebar-border: "#ffffff1a"
+  sidebar-ring: "#c4a7e7"
+
+  # tauler: terminal colours — a shared placeholder, not part of this rice
+  destructive-foreground: "#e0def4"
+  ansi-black: "#000000"
+  ansi-red: "#cc0000"
+  ansi-green: "#4e9a06"
+  ansi-yellow: "#c4a000"
+  ansi-blue: "#3465a4"
+  ansi-magenta: "#75507b"
+  ansi-cyan: "#06989a"
+  ansi-white: "#d3d7cf"
+  ansi-bright-black: "#555753"
+  ansi-bright-red: "#ef2929"
+  ansi-bright-green: "#8ae234"
+  ansi-bright-yellow: "#fce94f"
+  ansi-bright-blue: "#729fcf"
+  ansi-bright-magenta: "#ad7fa8"
+  ansi-bright-cyan: "#34e2e2"
+  ansi-bright-white: "#eeeeec"
 
 radius:
   sm: "6px"

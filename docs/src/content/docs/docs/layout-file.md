@@ -29,12 +29,12 @@ stream values are cleared, so a reload is a cold start, not a refresh.
 Components are plain JS functions that take props and return a tree. There is nothing to
 register: JSX handles `<Card />` as a function call already.
 
-Theme mode and font choice live in a YAML frontmatter block at the top of the file:
+Theme and font choice live in a YAML frontmatter block at the top of the file:
 
 ```jsx
 ---
 theme:
-  mode: dark
+  name: tokyonight-night
 fonts:
   primary: JetBrains Mono
 ---
@@ -54,7 +54,8 @@ frontmatter — the same distinction a `_layout.jsx` vs `config.yaml` split used
 across two files now lives inside one.
 
 A `layout.op.mdx` with no frontmatter block at all is valid — it just means the shipped
-defaults for theme and fonts apply, the same as an absent `config.yaml` always meant.
+defaults for theme and fonts apply, the same as an absent `config.yaml` always meant. The
+theme choices are on the [Themes](/docs/themes/) page.
 
 Despite the extension, nothing here parses markdown into content — everything after the
 closing `---` line is ordinary JSX, passed through exactly as written. A bare heading or

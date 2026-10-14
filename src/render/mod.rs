@@ -643,7 +643,6 @@ mod tests {
         crate::theme::resolver::resolve_theme_tokens(
             &mut content,
             &crate::theme::Theme::default_theme(),
-            crate::theme::ThemeMode::Dark,
         );
         let node = crate::layout::parse_layout(&content).expect("probe layout should parse");
         let options = RenderOptions::builder()
