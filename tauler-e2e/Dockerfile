@@ -104,6 +104,12 @@ RUN git clone --quiet https://gitlab.com/dwt1/shell-color-scripts /tmp/scs \
     && cp /tmp/scs/colorscript.sh /usr/local/bin/colorscript \
     && rm -rf /tmp/scs
 
+# The components package the themed fixtures import (`@gh/kantord/dotfiles-tauler`), placed where
+# tauler looks for a pinned package so nothing is fetched at run time. A fixture's
+# `tauler-pkg.lock` names this commit. TEMPORARY form: a copy of the local checkout, staged by
+# `just e2e-package`; it becomes a `git clone` at a pinned commit once that is pushed.
+COPY tauler-e2e/pkg/ /root/.cache/tauler/pkg/
+
 COPY --from=builder /artifacts/tauler /artifacts/tauler-i3 /artifacts/a11y-probe /usr/local/bin/
 
 # /usr/local/share/fonts, not /usr/local/share/tauler/fonts: nothing reads the

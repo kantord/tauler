@@ -1,5 +1,20 @@
 #!/bin/sh
-# Two kitty windows and a GTK4 file manager over a synthetic git repository, coloured from the theme under test.
-# The colours file is written by the test (`kitty_colors` in tests/scenarios.rs) before this
-# container starts, from the same built-in theme the bar is told to use.
-exec e2e-demo-session "/out/$SCENARIO/kitty-colors.conf" "/out/$SCENARIO/gtk"
+# Two kitty windows and a GTK4 file manager over a synthetic git repository, coloured from the theme
+# under test — by tauler, through the layout's `KittyTheme` / `I3Theme` / `GtkTheme` Units.
+#
+# This runs before tauler starts, so it must not block on tauler: the wait for the files those Units
+# write happens in the background, and the windows open once they exist. Opening them earlier would
+# show a terminal in kitty's default colours.
+(
+    i=0
+    until [ -s "$HOME/.config/kitty/tauler-kitty-theme.conf" ] \
+        && [ -s "$HOME/.config/i3/tauler-theme.conf" ] \
+        && [ -s "$HOME/.config/gtk-4.0/gtk.css" ]; do
+        i=$((i + 1))
+        [ "$i" -lt 300 ] || { echo "e2e: tauler never wrote the theme files" >&2; exit 1; }
+        sleep 0.1
+    done
+    # libadwaita draws light or dark chrome around the colours from the desktop's colour-scheme
+    # setting, and there is no settings daemon here.
+    exec e2e-demo-session "$HOME/.config/kitty/tauler-kitty-theme.conf" prefer-dark
+) &

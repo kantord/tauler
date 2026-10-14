@@ -11,3 +11,5 @@
 # git to be compared against (ADR 0026).
 /docs/public/tauler/
 /docs/.tauler/
+# staged copy of the components package for the e2e image (see `just e2e-package`)
+/tauler-e2e/pkg/

@@ -50,7 +50,16 @@ check-wasm:
 
 # The e2e image compiles tauler inside itself; the cache mounts that make that
 # bearable are BuildKit-only, which is why this is not left to testcontainers.
-e2e-image:
+# TEMPORARY, until the package units are pushed: stage the local checkout of the components
+# package where the image copies it from. The final form of the Dockerfile `git clone`s a pinned
+# commit instead, and this recipe goes away.
+pkg_src := env_var_or_default("DOTFILES_TAULER", "~/repos/dotfiles-tauler")
+e2e-package:
+    rm -rf tauler-e2e/pkg
+    mkdir -p tauler-e2e/pkg/gh/kantord/dotfiles-tauler/e2e0e2e0e2e0e2e0e2e0e2e0e2e0e2e0e2e0e2e0
+    tar --exclude=.git -C {{pkg_src}} -cf - . | tar -x -C tauler-e2e/pkg/gh/kantord/dotfiles-tauler/e2e0e2e0e2e0e2e0e2e0e2e0e2e0e2e0e2e0e2e0
+
+e2e-image: e2e-package
     @docker buildx version >/dev/null 2>&1 || { \
         echo "docker buildx is required: the image uses BuildKit cache mounts."; \
         echo "Arch: pacman -S docker-buildx    Debian/Ubuntu: apt install docker-buildx-plugin"; \
