@@ -649,6 +649,27 @@ fn theme_after_reload(
     }
 }
 
+/// `base` (the layout's `ctx`) with the active theme under `theme`: `{ name, mode, colors }`.
+///
+/// SPEC: a layout can read the colours it is drawn with. A Unit that writes another program's
+/// colour file (a terminal, a launcher) renders it from `ctx.theme.colors`, so that program
+/// follows `theme` instead of keeping a palette of its own.
+///
+/// The evaluators take it at construction, so every theme change has to rebuild them; a theme
+/// change always arrives as a layout reload (`handle_layout_reload`), which does.
+fn jsx_ctx_with_theme(base: &serde_json::Value, theme: &Theme) -> serde_json::Value {
+    let mut ctx = base.clone();
+    ctx["theme"] = serde_json::json!({
+        "name": theme.name,
+        "mode": match theme.mode {
+            ThemeMode::Dark => "dark",
+            ThemeMode::Light => "light",
+        },
+        "colors": theme.colors,
+    });
+    ctx
+}
+
 impl App {
     #[cfg(not(target_os = "macos"))]
     #[allow(clippy::too_many_arguments)]
@@ -997,14 +1018,12 @@ impl App {
         let source = loaded.js_source;
         let t = std::time::Instant::now();
         let base_dir = self.config_dir.clone();
+        let ctx = jsx_ctx_with_theme(&self.jsx_ctx, &self.theme);
         let evaluator = match self.package_context() {
-            Some(pkg_ctx) => tauler::jsx::JsxEvaluator::new_with_packages(
-                &source,
-                self.jsx_ctx.clone(),
-                Some(&base_dir),
-                pkg_ctx,
-            ),
-            None => tauler::jsx::JsxEvaluator::new(&source, self.jsx_ctx.clone(), Some(&base_dir)),
+            Some(pkg_ctx) => {
+                tauler::jsx::JsxEvaluator::new_with_packages(&source, ctx, Some(&base_dir), pkg_ctx)
+            }
+            None => tauler::jsx::JsxEvaluator::new(&source, ctx, Some(&base_dir)),
         };
         let evaluator = match evaluator {
             Ok(e) => e,
@@ -1021,7 +1040,7 @@ impl App {
                 self.apply_eval_result_dispatch(&out, None);
                 self.jsx_evaluator = Some(evaluator);
                 self.reconcile_import_watches(loaded);
-                self.spawn_reconciler(&source, &base_dir);
+                self.spawn_reconciler(&source, &base_dir, &self.theme.clone());
             }
             Err(e) => tracing::error!(error = %e, "JSX eval error"),
         }
@@ -1035,14 +1054,14 @@ impl App {
     /// between two Ticks. The cost of being wrong is one module evaluation per
     /// load, which ADR 0034 already accounts for; the cost of guessing wrong the
     /// other way would be a Unit that silently never reconciles.
-    fn spawn_reconciler(&mut self, source: &str, base_dir: &std::path::Path) {
+    fn spawn_reconciler(&mut self, source: &str, base_dir: &std::path::Path, theme: &Theme) {
         let Some(globals) = self.jsx_evaluator.as_ref().map(|e| e.globals_handle()) else {
             return;
         };
         self.reconciler = None;
         self.reconciler = Some(tauler::units::Reconciler::spawn(
             source.to_string(),
-            self.jsx_ctx.clone(),
+            jsx_ctx_with_theme(&self.jsx_ctx, theme),
             Some(base_dir.to_path_buf()),
             std::sync::Arc::clone(&self.stream_values),
             globals,
@@ -1087,18 +1106,18 @@ impl App {
         // the whole bar's reconciliation, not just the one thing that changed, until the
         // next successful reload (found by review, tracing this exact function).
         let base_dir = self.config_dir.clone();
+        let theme_source = theme_source_from(&loaded.config);
+        // The theme the layout is evaluated against is the one it will be drawn with.
+        let theme = theme_after_reload(&self.theme, theme_source.load(), theme_source.mode);
+        let ctx = jsx_ctx_with_theme(&self.jsx_ctx, &theme);
         let evaluator = match self.package_context() {
             Some(pkg_ctx) => tauler::jsx::JsxEvaluator::new_with_packages(
                 &loaded.js_source,
-                self.jsx_ctx.clone(),
+                ctx,
                 Some(&base_dir),
                 pkg_ctx,
             ),
-            None => tauler::jsx::JsxEvaluator::new(
-                &loaded.js_source,
-                self.jsx_ctx.clone(),
-                Some(&base_dir),
-            ),
+            None => tauler::jsx::JsxEvaluator::new(&loaded.js_source, ctx, Some(&base_dir)),
         };
         let evaluator = match evaluator {
             Ok(evaluator) => evaluator,
@@ -1120,21 +1139,20 @@ impl App {
         };
 
         // Everything above succeeded — only now is it safe to replace state.
-        let theme_source = theme_source_from(&loaded.config);
         tauler::reload_font_config(loaded.config.fonts);
         // Every frame the worker has kept was drawn with the fonts just replaced.
         let _ = self
             .outputs
             .jobs
             .send(tauler::render::worker::RenderJob::FontsChanged);
-        self.theme = theme_after_reload(&self.theme, theme_source.load(), theme_source.mode);
+        self.theme = theme;
 
         self.handle.set_desired(vec![]);
         self.stream_values.write().unwrap().clear();
         self.apply_eval_result_dispatch(&out, None);
         self.jsx_evaluator = Some(evaluator);
         self.reconcile_import_watches(loaded_paths);
-        self.spawn_reconciler(&loaded.js_source, &base_dir);
+        self.spawn_reconciler(&loaded.js_source, &base_dir, &self.theme.clone());
         self.reconcile_theme_file_watch(theme_source.file);
         tracing::info!("layout reloaded");
         true
@@ -2194,6 +2212,20 @@ mod tests {
     #[test]
     fn load_layout_or_exit_returns_none_when_no_source_is_detected() {
         assert!(load_layout_or_exit(None).is_none());
+    }
+
+    /// Claim: the layout's `ctx` carries the active theme, beside what it already had.
+    #[test]
+    fn the_layout_context_carries_the_active_theme() {
+        let theme = theme_with_dark_bg("#112233");
+        let base = serde_json::json!({ "screen_height": 1080 });
+
+        let ctx = super::jsx_ctx_with_theme(&base, &theme);
+
+        assert_eq!(ctx["screen_height"], 1080);
+        assert_eq!(ctx["theme"]["name"], serde_json::json!(theme.name));
+        assert_eq!(ctx["theme"]["mode"], "dark");
+        assert_eq!(ctx["theme"]["colors"]["background"], "#112233");
     }
 
     /// Claim: a theme.file that breaks while tauler is running leaves the palette already on

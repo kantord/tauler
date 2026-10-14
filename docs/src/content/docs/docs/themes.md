@@ -135,3 +135,18 @@ is light; the other is dropped.
 ```jsx
 <span class="text-sm light:font-semibold">12:45</span>
 ```
+
+### Colours as values
+
+A class can only paint with a colour. To hand a colour to something else — a terminal's
+colour file, a gradient stop — read it from `ctx.theme`: `name`, `mode` (`"dark"` or
+`"light"`) and `colors`, keyed by the names above.
+
+```jsx
+const accent = ctx.theme.colors["primary"];      // "#7aa2f7"
+const red = ctx.theme.colors["ansi-red"];
+```
+
+It is the theme in use, so editing `theme` rewrites everything built from it. A
+[Unit](/docs/units/) that writes another program's config from `ctx.theme` makes that
+program follow the theme with no sync script.
