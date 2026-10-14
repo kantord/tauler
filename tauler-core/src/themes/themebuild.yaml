@@ -60,3 +60,82 @@ themes:
       card: NormalFloat.bg
       secondary: NormalFloat.bg
       muted-foreground: Conceal.fg
+  - name: catppuccin-mocha
+    repo: https://github.com/catppuccin/nvim
+    rev: edefef779ab08ce1a4a404713e3012b0d202bd35
+    license: MIT
+    colorscheme: catppuccin-mocha
+    setup: require("catppuccin").setup({ flavour = "mocha", term_colors = true })
+  - name: catppuccin-macchiato
+    repo: https://github.com/catppuccin/nvim
+    rev: edefef779ab08ce1a4a404713e3012b0d202bd35
+    license: MIT
+    colorscheme: catppuccin-macchiato
+    setup: require("catppuccin").setup({ flavour = "macchiato", term_colors = true })
+  - name: catppuccin-frappe
+    repo: https://github.com/catppuccin/nvim
+    rev: edefef779ab08ce1a4a404713e3012b0d202bd35
+    license: MIT
+    colorscheme: catppuccin-frappe
+    setup: require("catppuccin").setup({ flavour = "frappe", term_colors = true })
+  - name: catppuccin-latte
+    repo: https://github.com/catppuccin/nvim
+    rev: edefef779ab08ce1a4a404713e3012b0d202bd35
+    license: MIT
+    colorscheme: catppuccin-latte
+    background: light
+    setup: require("catppuccin").setup({ flavour = "latte", term_colors = true })
+    queries:
+      muted-foreground: Comment.fg
+  - name: rose-pine
+    repo: https://github.com/rose-pine/neovim
+    rev: ff483051a47e27d84bdef47703538df1ed9f4a47
+    license: MIT
+    colorscheme: rose-pine-main
+  - name: rose-pine-moon
+    repo: https://github.com/rose-pine/neovim
+    rev: ff483051a47e27d84bdef47703538df1ed9f4a47
+    license: MIT
+    colorscheme: rose-pine-moon
+  - name: rose-pine-dawn
+    repo: https://github.com/rose-pine/neovim
+    rev: ff483051a47e27d84bdef47703538df1ed9f4a47
+    license: MIT
+    colorscheme: rose-pine-dawn
+    background: light
+    queries:
+      muted-foreground: Comment.fg
+  - name: kanagawa-wave
+    repo: https://github.com/rebelot/kanagawa.nvim
+    rev: bb85e4bfc8d89b0e62c8fa53ccdd13d12e2f77b3
+    license: MIT
+    colorscheme: kanagawa-wave
+    queries:
+      muted-foreground: Conceal.fg
+  - name: kanagawa-dragon
+    repo: https://github.com/rebelot/kanagawa.nvim
+    rev: bb85e4bfc8d89b0e62c8fa53ccdd13d12e2f77b3
+    license: MIT
+    colorscheme: kanagawa-dragon
+    queries:
+      muted-foreground: Conceal.fg
+  - name: kanagawa-lotus
+    repo: https://github.com/rebelot/kanagawa.nvim
+    rev: bb85e4bfc8d89b0e62c8fa53ccdd13d12e2f77b3
+    license: MIT
+    colorscheme: kanagawa-lotus
+    background: light
+  - name: everforest-dark
+    repo: https://github.com/sainnhe/everforest
+    rev: 85a86eb62409e3ec88713bff3d1b9d7374e112e4
+    license: MIT
+    colorscheme: everforest
+    queries:
+      muted-foreground: TabLine.fg
+  - name: gruvbox-material-dark
+    repo: https://github.com/sainnhe/gruvbox-material
+    rev: 11d779b26a9ab2b3db8c22c6ac9fb6e8ed4fea79
+    license: MIT
+    colorscheme: gruvbox-material
+    queries:
+      card: StatusLine.bg

@@ -20,18 +20,31 @@ theme:
 
 With no `theme:` block at all, tauler draws with `default-dark`.
 
-| Theme                                  | Mode  | Notes                                               |
-| -------------------------------------- | ----- | --------------------------------------------------- |
-| `default-dark`, `default-light`        | dark, light | Neutral greys. What you get when you name nothing. |
-| `tokyonight-night`                     | dark  | From the Tokyo Night colour scheme.                 |
-| `tokyonight-storm`, `tokyonight-moon`  | dark  | The other two Tokyo Night dark styles.              |
-| `tokyonight-day`                       | light | Tokyo Night's light style.                          |
+| Theme                                                                    | Mode        | Notes                                              |
+| ------------------------------------------------------------------------ | ----------- | -------------------------------------------------- |
+| `default-dark`, `default-light`                                          | dark, light | Neutral greys. What you get when you name nothing. |
+| `tokyonight-night`, `tokyonight-storm`, `tokyonight-moon`                | dark        | The three Tokyo Night dark styles.                 |
+| `tokyonight-day`                                                         | light       | Tokyo Night's light style.                         |
+| `catppuccin-mocha`, `catppuccin-macchiato`, `catppuccin-frappe`          | dark        | Catppuccin's three dark flavours.                  |
+| `catppuccin-latte`                                                       | light       | Catppuccin's light flavour.                        |
+| `rose-pine`, `rose-pine-moon`                                            | dark        | Rosé Pine's two dark styles.                       |
+| `rose-pine-dawn`                                                         | light       | Rosé Pine's light style.                           |
+| `kanagawa-wave`, `kanagawa-dragon`                                       | dark        | Kanagawa's two dark styles.                        |
+| `kanagawa-lotus`                                                         | light       | Kanagawa's light style.                            |
+| `everforest-dark`                                                        | dark        | Everforest, default contrast.                      |
+| `gruvbox-material-dark`                                                  | dark        | Gruvbox Material, default contrast.                |
 
 An unknown name stops tauler at startup and lists the names it knows. If you reload a layout
 file whose theme can't be loaded, the theme already on screen stays and the reason is logged.
 
-The Tokyo Night themes are made from [tokyonight.nvim](https://github.com/folke/tokyonight.nvim)
-(Apache-2.0).
+The built-in themes are made from these Neovim colour schemes, each under its own licence, which
+ships with the theme in the repository:
+[tokyonight.nvim](https://github.com/folke/tokyonight.nvim) (Apache-2.0),
+[catppuccin/nvim](https://github.com/catppuccin/nvim),
+[rose-pine/neovim](https://github.com/rose-pine/neovim),
+[kanagawa.nvim](https://github.com/rebelot/kanagawa.nvim),
+[everforest](https://github.com/sainnhe/everforest) and
+[gruvbox-material](https://github.com/sainnhe/gruvbox-material) (all MIT).
 
 ### Mode
 

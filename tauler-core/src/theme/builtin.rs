@@ -24,6 +24,18 @@ const SOURCES: &[&str] = &[
     include_str!("../themes/tokyonight-storm/theme.yaml"),
     include_str!("../themes/tokyonight-moon/theme.yaml"),
     include_str!("../themes/tokyonight-day/theme.yaml"),
+    include_str!("../themes/catppuccin-mocha/theme.yaml"),
+    include_str!("../themes/catppuccin-macchiato/theme.yaml"),
+    include_str!("../themes/catppuccin-frappe/theme.yaml"),
+    include_str!("../themes/catppuccin-latte/theme.yaml"),
+    include_str!("../themes/rose-pine/theme.yaml"),
+    include_str!("../themes/rose-pine-moon/theme.yaml"),
+    include_str!("../themes/rose-pine-dawn/theme.yaml"),
+    include_str!("../themes/kanagawa-wave/theme.yaml"),
+    include_str!("../themes/kanagawa-dragon/theme.yaml"),
+    include_str!("../themes/kanagawa-lotus/theme.yaml"),
+    include_str!("../themes/everforest-dark/theme.yaml"),
+    include_str!("../themes/gruvbox-material-dark/theme.yaml"),
 ];
 
 /// A `theme.name` that matches no built-in.
@@ -91,6 +103,36 @@ pub fn by_name(name: &str) -> Result<Theme, UnknownTheme> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// SPEC: every theme file under `themes/` is registered, and every registered theme has one —
+    /// a generated theme that nobody listed would build, ship nothing, and say nothing.
+    #[test]
+    fn the_registry_lists_exactly_the_theme_files_on_disk() {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/themes");
+        let mut on_disk: Vec<String> = std::fs::read_dir(&dir)
+            .unwrap()
+            .filter_map(|e| {
+                let path = e.unwrap().path();
+                let file = if path.is_dir() {
+                    path.join("theme.yaml")
+                } else {
+                    path
+                };
+                (file.extension()? == "yaml"
+                    && file.file_name()? != "themebuild.yaml"
+                    && file.exists())
+                .then(|| {
+                    Theme::from_yaml(&std::fs::read_to_string(&file).unwrap())
+                        .unwrap()
+                        .name
+                })
+            })
+            .collect();
+        on_disk.sort();
+        let mut listed = names();
+        listed.sort();
+        assert_eq!(listed, on_disk);
+    }
 
     #[test]
     fn a_built_in_is_found_by_the_name_written_inside_it() {

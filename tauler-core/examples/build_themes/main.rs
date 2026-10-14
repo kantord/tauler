@@ -1,6 +1,8 @@
 //! Regenerates the built-in themes listed in `src/themes/themebuild.yaml`.
 //!
-//!     cargo run -p tauler-core --example build_themes
+//!     cargo run -p tauler-core --example build_themes [-- NAME...]
+//!
+//! With names, only those workloads run — for iterating on one scheme's `queries:`.
 //!
 //! For each workload: check the scheme out at its pinned commit into a temp dir, load it in a
 //! headless `nvim --clean`, ask that Neovim the questions in `generate/queries.yaml` (one per
@@ -213,8 +215,13 @@ fn main() {
             .unwrap_or_else(|e| panic!("{}: {e}", w.name));
     }
 
+    let only: Vec<String> = std::env::args().skip(1).collect();
     let mut failed = false;
-    for w in &conf.themes {
+    for w in conf
+        .themes
+        .iter()
+        .filter(|w| only.is_empty() || only.contains(&w.name))
+    {
         let repo_dir = checkout(&w.repo, &w.rev);
         let (mode, colours) = match extract(&themes_dir, &table, w, &repo_dir) {
             Ok(ok) => ok,

@@ -40,10 +40,9 @@ pub fn resolve_tw(classes: &str, theme: &Theme) -> String {
             let (important, inner) = strip_important(inner);
             let (inner, opacity) = strip_opacity(inner);
             let resolved = resolve_inner(inner, colors, &theme.radius, &theme.fonts);
-            let resolved = if let Some(op) = opacity {
-                format!("{}{}", resolved, op)
-            } else {
-                resolved
+            let resolved = match opacity {
+                Some(op) => with_opacity(resolved, op),
+                None => resolved,
             };
             let resolved = if important {
                 format!("!{}", resolved)
@@ -54,6 +53,31 @@ pub fn resolve_tw(classes: &str, theme: &Theme) -> String {
         })
         .collect::<Vec<_>>()
         .join(" ")
+}
+
+/// `utility-[#rrggbb]` with `/<percent>` applied, as the 8-digit hex `utility-[#rrggbbaa]`.
+///
+/// SPEC: a hex theme colour with an opacity renders at that opacity. takumi does not read
+/// `bg-[#rrggbb]/50` — text came out black and a background vanished — but does read the 8-digit
+/// form, so that is what a token with an opacity becomes. Any other value (an `oklch()`, say)
+/// keeps the suffix as written.
+fn with_opacity(resolved: String, opacity: &str) -> String {
+    let hex_alpha = resolved
+        .strip_suffix(']')
+        .and_then(|s| s.rsplit_once("-[#"))
+        .filter(|(_, rgb)| rgb.len() == 6 && rgb.chars().all(|c| c.is_ascii_hexdigit()))
+        .zip(
+            opacity
+                .strip_prefix('/')
+                .and_then(|p| p.parse::<u32>().ok()),
+        );
+    match hex_alpha {
+        Some(((prefix, rgb), percent)) => {
+            let alpha = (percent.min(100) * 255 + 50) / 100;
+            format!("{prefix}-[#{rgb}{alpha:02x}]")
+        }
+        None => format!("{resolved}{opacity}"),
+    }
 }
 
 fn strip_important(inner: &str) -> (bool, &str) {
@@ -173,6 +197,21 @@ fonts:
 "#
         ))
         .unwrap()
+    }
+
+    /// Claim: a hex token with an opacity becomes an 8-digit hex, the form takumi renders.
+    #[rstest]
+    #[case("text-foreground/50", "text-[#c0caf580]")]
+    #[case("bg-foreground/10", "bg-[#c0caf51a]")]
+    #[case("border-foreground/100", "border-[#c0caf5ff]")]
+    #[case("bg-foreground/0", "bg-[#c0caf500]")]
+    fn a_hex_token_with_an_opacity_becomes_eight_digit_hex(
+        #[case] class: &str,
+        #[case] expected: &str,
+    ) {
+        let theme =
+            Theme::from_yaml("name: t\nmode: dark\ncolors:\n  foreground: \"#c0caf5\"\n").unwrap();
+        assert_eq!(resolve_tw(class, &theme), expected);
     }
 
     #[rstest]
