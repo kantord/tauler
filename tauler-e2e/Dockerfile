@@ -104,11 +104,14 @@ RUN git clone --quiet https://gitlab.com/dwt1/shell-color-scripts /tmp/scs \
     && cp /tmp/scs/colorscript.sh /usr/local/bin/colorscript \
     && rm -rf /tmp/scs
 
-# The components package the themed fixtures import (`@gh/kantord/dotfiles-tauler`), placed where
-# tauler looks for a pinned package so nothing is fetched at run time. A fixture's
-# `tauler-pkg.lock` names this commit. TEMPORARY form: a copy of the local checkout, staged by
-# `just e2e-package`; it becomes a `git clone` at a pinned commit once that is pushed.
-COPY tauler-e2e/pkg/ /root/.cache/tauler/pkg/
+# The components package the themed fixtures import (`@gh/kantord/dotfiles-tauler`), cloned at a
+# pinned commit into the place tauler looks for a pinned package, so nothing is fetched at run time.
+# Each fixture's `tauler-pkg.lock` names the same commit; change both together.
+RUN git clone --quiet https://github.com/kantord/dotfiles-tauler /tmp/dt \
+    && git -C /tmp/dt checkout --quiet 939853a2a5f9526b61c8f4d5e769ebadbc7f1334 \
+    && mkdir -p /root/.cache/tauler/pkg/gh/kantord/dotfiles-tauler/939853a2a5f9526b61c8f4d5e769ebadbc7f1334 \
+    && cp -rf /tmp/dt/. /root/.cache/tauler/pkg/gh/kantord/dotfiles-tauler/939853a2a5f9526b61c8f4d5e769ebadbc7f1334/ \
+    && rm -rf /tmp/dt
 
 COPY --from=builder /artifacts/tauler /artifacts/tauler-i3 /artifacts/a11y-probe /usr/local/bin/
 
