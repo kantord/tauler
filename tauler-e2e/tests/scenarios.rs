@@ -112,8 +112,9 @@ fn workspaces_frames_the_area_beside_the_sidebar() -> Result<()> {
 }
 
 /// A kitty colours file for `theme`: its background, foreground and the 16 `ansi-*`
-/// tokens as `color0`..`color15`. This is the one place a terminal is told what the theme is —
-/// there is no layout-side API for it yet, so the test does it from the Rust `Theme` directly.
+/// tokens as `color0`..`color15`. The terminal starts before the bar does, so it cannot wait for
+/// a Unit to write this from `ctx.theme` the way a real layout would; the test writes it from the
+/// Rust `Theme` directly.
 fn kitty_colors(theme: &tauler_core::theme::Theme) -> String {
     let colors = &theme.colors;
     let get = |key: &str| {
@@ -144,6 +145,145 @@ fn kitty_colors(theme: &tauler_core::theme::Theme) -> String {
     out
 }
 
+/// libadwaita's named colours for `theme`, as the `gtk.css` a GTK4 application reads from
+/// `$XDG_CONFIG_HOME/gtk-4.0/`.
+///
+/// The names are libadwaita's public API; which token fills which is this project's own choice,
+/// following how a UI surface is named: the window and its content are `background` and `card`, the
+/// header bar and sidebar are `sidebar`, dialogs and popovers are `popover`, the accent is `primary`.
+fn gtk_css(theme: &tauler_core::theme::Theme) -> String {
+    let get = |key: &str| theme.colors[key].clone();
+    let veil = "rgba(0, 0, 0, 0.25)".to_string();
+    let pairs: Vec<(&str, String)> = vec![
+        ("window_bg_color", get("background")),
+        ("window_fg_color", get("foreground")),
+        ("view_bg_color", get("card")),
+        ("view_fg_color", get("card-foreground")),
+        ("headerbar_bg_color", get("sidebar")),
+        ("headerbar_fg_color", get("sidebar-foreground")),
+        ("headerbar_border_color", get("border")),
+        ("headerbar_backdrop_color", get("background")),
+        ("headerbar_shade_color", veil.clone()),
+        ("card_bg_color", get("card")),
+        ("card_fg_color", get("card-foreground")),
+        ("card_shade_color", veil.clone()),
+        ("dialog_bg_color", get("popover")),
+        ("dialog_fg_color", get("popover-foreground")),
+        ("popover_bg_color", get("popover")),
+        ("popover_fg_color", get("popover-foreground")),
+        ("popover_shade_color", veil.clone()),
+        ("sidebar_bg_color", get("sidebar")),
+        ("sidebar_fg_color", get("sidebar-foreground")),
+        ("sidebar_backdrop_color", get("sidebar")),
+        ("sidebar_shade_color", veil.clone()),
+        ("accent_bg_color", get("primary")),
+        ("accent_fg_color", get("primary-foreground")),
+        ("accent_color", get("primary")),
+        ("destructive_bg_color", get("destructive")),
+        ("destructive_fg_color", get("destructive-foreground")),
+        ("destructive_color", get("destructive")),
+        ("success_bg_color", get("ansi-green")),
+        ("success_fg_color", get("background")),
+        ("success_color", get("ansi-green")),
+        ("warning_bg_color", get("ansi-yellow")),
+        ("warning_fg_color", get("background")),
+        ("warning_color", get("ansi-yellow")),
+        ("error_bg_color", get("destructive")),
+        ("error_fg_color", get("destructive-foreground")),
+        ("error_color", get("destructive")),
+        ("shade_color", veil),
+        ("scrollbar_outline_color", get("border")),
+    ];
+    pairs
+        .iter()
+        .map(|(name, value)| format!("@define-color {name} {value};\n"))
+        .collect()
+}
+
+/// An i3 colours file for `theme`: the window manager's own borders and title bars, drawn from the
+/// same tokens a UI would use for the matching surface.
+///
+/// The focused window is `primary` with its `primary-foreground` title, an unfocused one `card`
+/// with `muted-foreground`, an urgent one `destructive`. i3 lists a border, a title background, a
+/// title text, an indicator and a child border, in that order.
+fn i3_colors(theme: &tauler_core::theme::Theme) -> String {
+    let get = |key: &str| {
+        theme
+            .colors
+            .get(key)
+            .unwrap_or_else(|| panic!("theme `{}` has no `{key}`", theme.name))
+            .clone()
+    };
+    let class = |name: &str, border: &str, background: &str, text: &str, indicator: &str| {
+        format!(
+            "client.{name} {} {} {} {} {}\n",
+            get(border),
+            get(background),
+            get(text),
+            get(indicator),
+            get(border)
+        )
+    };
+    let mut out = String::new();
+    out.push_str(&class(
+        "focused",
+        "primary",
+        "primary",
+        "primary-foreground",
+        "accent",
+    ));
+    out.push_str(&class(
+        "focused_inactive",
+        "border",
+        "secondary",
+        "secondary-foreground",
+        "border",
+    ));
+    out.push_str(&class(
+        "unfocused",
+        "border",
+        "card",
+        "muted-foreground",
+        "border",
+    ));
+    out.push_str(&class(
+        "urgent",
+        "destructive",
+        "destructive",
+        "destructive-foreground",
+        "destructive",
+    ));
+    out.push_str(&class(
+        "placeholder",
+        "border",
+        "card",
+        "muted-foreground",
+        "border",
+    ));
+    out.push_str(&format!("client.background {}\n", get("background")));
+    out
+}
+
+/// How many pixels of `png` inside `x0..x1`, `y0..y1` are exactly `rgb`.
+fn pixels_of(
+    png: &std::path::Path,
+    x: std::ops::Range<u32>,
+    y: std::ops::Range<u32>,
+    rgb: [u8; 3],
+) -> usize {
+    let img = image::open(png).expect("decode screenshot").to_rgba8();
+    y.flat_map(|y| x.clone().map(move |x| (x, y)))
+        .filter(|&(x, y)| img.get_pixel_checked(x, y).is_some_and(|p| p.0[..3] == rgb))
+        .count()
+}
+
+/// `#rrggbb` as bytes.
+fn rgb_of(theme: &tauler_core::theme::Theme, token: &str) -> [u8; 3] {
+    let hex = &theme.colors[token];
+    let byte = |i: usize| u8::from_str_radix(&hex[1 + 2 * i..3 + 2 * i], 16).expect("hex colour");
+    [byte(0), byte(1), byte(2)]
+}
+
 /// What a built-in theme is expected to draw, written by hand from its theme file.
 struct Palette {
     background: [u8; 3],
@@ -153,8 +293,8 @@ struct Palette {
 
 /// A built-in theme, selected by `theme.name` alone — no theme file in the fixture.
 ///
-/// The desktop is a left rail, two free-floating plates (a notification and a launcher) and two
-/// kitty terminals, each drawn from the tokens a UI would use for that surface. Pixels where
+/// The desktop is a left rail, two free-floating plates (a notification and a launcher), two
+/// kitty terminals and a GTK4 file manager (Nautilus), each drawn from the tokens a UI would use for that surface. Pixels where
 /// nothing else is drawn are therefore exact tokens: the rail's bottom edge is the theme's
 /// `sidebar`, the launcher's bottom-right padding its `popover`, and an empty stretch of a
 /// terminal its `background` — which kitty only has because the test wrote it from this theme.
@@ -181,6 +321,20 @@ fn builtin_theme_scenario(
         tauler_e2e::scenario_out_dir(scenario)?.join("kitty-colors.conf"),
         kitty_colors(&theme),
     )?;
+    std::fs::write(
+        tauler_e2e::scenario_out_dir(scenario)?.join("i3-colors.conf"),
+        i3_colors(&theme),
+    )?;
+    let gtk = tauler_e2e::scenario_out_dir(scenario)?.join("gtk");
+    std::fs::create_dir_all(gtk.join("gtk-4.0"))?;
+    std::fs::write(gtk.join("gtk-4.0/gtk.css"), gtk_css(&theme))?;
+    std::fs::write(
+        gtk.join("color-scheme"),
+        match theme.mode {
+            tauler_core::theme::ThemeMode::Dark => "prefer-dark",
+            tauler_core::theme::ThemeMode::Light => "prefer-light",
+        },
+    )?;
 
     let k = K as i32;
     let (_desktop, screenshot) = run_on(
@@ -199,7 +353,7 @@ fn builtin_theme_scenario(
                 rect(1480 * k, 40 * k, 400 * K, 132 * K),
                 rect(620 * k, 300 * k, 680 * K, 360 * K),
             ],
-            clients: 2,
+            clients: 3,
         },
     )?;
     let [r, g, b, _] = pixel_at(&screenshot, 136 * K, 1070 * K)?;
@@ -214,6 +368,24 @@ fn builtin_theme_scenario(
         [r, g, b],
         expected.popover,
         "the launcher's own pixel is not the theme's `popover`"
+    );
+    // i3's own chrome: the two terminals' title bars sit along the top of the area right of the
+    // rail, clear of the notification. One window is focused (title bar in `primary`), the other
+    // not (`card`) — both only because the test wrote i3's colours from this theme.
+    let bars = (272 * K)..(1400 * K);
+    let top = 0..(40 * K);
+    assert!(
+        pixels_of(
+            &screenshot,
+            bars.clone(),
+            top.clone(),
+            rgb_of(&theme, "primary")
+        ) > 500,
+        "no title bar in the theme's `primary` — i3 did not get the colours for the focused window"
+    );
+    assert!(
+        pixels_of(&screenshot, bars, top, rgb_of(&theme, "card")) > 500,
+        "no title bar in the theme's `card` — i3 did not get the colours for an unfocused window"
     );
     // An empty stretch of the left terminal, below its output and clear of the launcher.
     let [r, g, b, _] = pixel_at(&screenshot, 500 * K, 1000 * K)?;

@@ -3,7 +3,11 @@
 # on every run: a synthetic git repository with fixed authors and dates, and a directory of
 # files with fixed modification times. Nothing here reads the host or the network.
 #
-#   e2e-demo-session /out/<scenario>/kitty-colors.conf
+#   e2e-demo-session /out/<scenario>/kitty-colors.conf [/out/<scenario>/gtk]
+#
+# With a second argument, a GTK4 / libadwaita application (Nautilus) is opened below the right-hand
+# terminal. The argument is a directory holding `gtk-4.0/gtk.css` and `color-scheme`
+# (`prefer-dark` or `prefer-light`), both written by the test from the same theme.
 #
 # The colours file is the only thing that varies between runs, and it is written by the test
 # from the same built-in theme the bar is using — so a terminal that does not match the bar is a
@@ -13,7 +17,8 @@
 # dates, all pinned below, so a screenshot differs from the last one only if the theme did.
 set -eu
 
-colors="${1:?usage: e2e-demo-session <kitty colours .conf>}"
+colors="${1:?usage: e2e-demo-session <kitty colours .conf> [<gtk dir>]}"
+gtk="${2:-}"
 
 export GIT_AUTHOR_NAME="Ada Example" GIT_AUTHOR_EMAIL="ada@example.com"
 export GIT_COMMITTER_NAME="Ada Example" GIT_COMMITTER_EMAIL="ada@example.com"
@@ -116,3 +121,23 @@ for title in demo-a demo-b; do
         sleep 0.1
     done
 done
+
+if [ -n "$gtk" ]; then
+    # libadwaita reads named colours from $XDG_CONFIG_HOME/gtk-4.0/gtk.css. There is no settings
+    # daemon here, so the light/dark preference comes from the environment instead. Cairo, because
+    # there is no GPU under Xvfb and GSK's default renderer probes for one at length.
+    export XDG_CONFIG_HOME="$gtk" GDK_BACKEND=x11 GSK_RENDERER=cairo NO_AT_BRIDGE=1
+    export ADW_DEBUG_COLOR_SCHEME="$(cat "$gtk/color-scheme")"
+    # Below the terminal that is focused, not beside it.
+    i3-msg "[title=demo-b] focus" >/dev/null 2>&1
+    i3-msg "split v" >/dev/null 2>&1
+    dbus-launch --exit-with-session nautilus --new-window /root/tauler-demo >/tmp/nautilus.log 2>&1 &
+    i=0
+    until i3-msg -t get_tree 2>/dev/null | grep -qi '"class":"org.gnome.nautilus"'; do
+        i=$((i + 1))
+        [ "$i" -lt 300 ] || { echo "e2e: nautilus never mapped" >&2; cat /tmp/nautilus.log >&2; exit 1; }
+        sleep 0.1
+    done
+    # The terminal keeps the focus, so the focused/unfocused title bars read the same as before.
+    i3-msg "[title=demo-b] focus" >/dev/null 2>&1
+fi

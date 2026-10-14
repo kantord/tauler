@@ -82,6 +82,17 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         dbus-x11 \
     && rm -rf /var/lib/apt/lists/*
 
+# Nautilus, to show a GTK4 / libadwaita application drawn in a theme's colours — the one kind of
+# window that is neither a terminal nor tauler's own. Its own layer, so adding or changing a GTK
+# app never invalidates the large one above. `adwaita-icon-theme` is the icons it draws with;
+# there is no GNOME session here, so no settings daemon either, and the colour scheme is told to
+# libadwaita by `ADW_DEBUG_COLOR_SCHEME` (see `fixtures/builtin-theme-*/startup`).
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        nautilus \
+        adwaita-icon-theme \
+        gvfs \
+    && rm -rf /var/lib/apt/lists/*
+
 # shell-color-scripts (MIT) — a terminal showing the 16 ANSI colours as art, which is what a
 # theme's `ansi-*` tokens are for. Pinned to a commit and copied rather than `make install`ed,
 # because the whole install is two `cp`s and `make` is not otherwise in this image. Used by

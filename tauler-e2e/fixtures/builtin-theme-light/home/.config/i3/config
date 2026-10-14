@@ -1,0 +1,14 @@
+# i3 config file (v4)
+#
+# The shared e2e desktop, with the two things a screenshot of a themed desktop is about: window
+# title bars (so the window manager's own chrome is on screen) and its colours, which the test
+# writes from the built-in theme under test — see `i3_colors` in tests/scenarios.rs. Nothing in
+# this file names a colour; the shared config's palette is overridden by the include below
+# because i3 keeps the last definition of a directive.
+include /usr/local/share/e2e/i3.config
+
+default_border normal 2
+new_window normal 2
+title_align left
+
+include /out/$SCENARIO/i3-colors.conf
