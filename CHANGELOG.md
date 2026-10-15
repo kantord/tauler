@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.2](https://github.com/kantord/tauler/compare/tauler-v0.6.1...tauler-v0.6.2) - 2026-10-15
+
+### Added
+
+- add some built-in themes ([#628](https://github.com/kantord/tauler/pull/628))
+
+### Fixed
+
+- *(deps)* update takumi crates ([#634](https://github.com/kantord/tauler/pull/634))
+- *(deps)* update patch updates ([#630](https://github.com/kantord/tauler/pull/630))
+- *(deps)* update patch updates ([#616](https://github.com/kantord/tauler/pull/616))
+
 ## [0.6.1](https://github.com/kantord/tauler/compare/tauler-v0.6.0...tauler-v0.6.1) - 2026-10-03
 
 ### Fixed
