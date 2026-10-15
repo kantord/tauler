@@ -27,10 +27,10 @@ use std::sync::Mutex;
 use takumi::prelude::{Node, Viewport};
 use takumi_core::context::RenderContext as TakumiRenderContext;
 use takumi_core::geometry::transformed_rect_extents;
-use takumi_core::geometry::{NodeId, Point, Size};
-use takumi_core::layout::tree::{LayoutResults, LayoutTree, RenderNode};
-use takumi_core::scene::{build_stacking_contexts, NodePaint, PaintItemKind, StackingContextNode};
-use takumi_core::style::{Affine, ComputedStyle, SizingContext};
+use takumi_core::geometry::Point;
+use takumi_core::layout::tree::{LayoutResults, RenderNode};
+use takumi_core::scene::{NodePaint, PaintItemKind, Scene, StackingContextNode};
+use takumi_core::style::{ComputedStyle, SizingContext};
 
 use crate::layout::html::{build_tree, Binding, Bindings};
 
@@ -145,23 +145,17 @@ fn with_scene<R>(
             .build();
 
         let root = RenderNode::from_node(&context, node);
-        let mut tree = LayoutTree::from_render_node(&root);
-        tree.compute_layout(context.sizing.viewport.into());
-        let results = tree.into_results();
-
-        let contexts = build_stacking_contexts(
-            &root,
-            &results,
-            NodeId::ROOT,
-            Affine::IDENTITY,
-            Size::new(Some(width as f32), Some(height as f32)),
+        let scene = Scene::lay_out(
+            root,
+            Viewport::new((Some(width), Some(height))).with_device_pixel_ratio(dpr),
+            false,
         )
-        .map_err(|e| tracing::error!(error = %e, "stacking context build failed"))
+        .map_err(|e| tracing::error!(error = %e, "scene build failed"))
         .ok()?;
 
         let mut painted = Vec::new();
-        collect_paints(&contexts, 0, &mut painted);
-        Some(f(&painted, &results))
+        collect_paints(&scene.contexts, 0, &mut painted);
+        Some(f(&painted, &scene.results))
     })
 }
 
@@ -236,7 +230,7 @@ fn collect_paints<'a>(
     for bucket in context.in_paint_order() {
         for item in bucket {
             match &item.kind {
-                PaintItemKind::Node(paint) => out.push(paint),
+                PaintItemKind::Node(paint) | PaintItemKind::Floats(paint) => out.push(paint),
                 PaintItemKind::Context(child) => collect_paints(contexts, *child, out),
             }
         }
