@@ -1376,7 +1376,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d045de693cb712d0b22c6a64be5b953f67b3ce00ab5ad3dd5d8b441886ab8e1a"
 dependencies = [
  "quote",
- "syn 2.0.119",
+ "syn 3.0.7",
 ]
 
 [[package]]
@@ -2291,12 +2291,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e4eba85ea1d0a966a983acd07deee566e67395d2d96b6fb39e62b5a833f1eb0b"
 
 [[package]]
-name = "grid"
-version = "1.0.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b40ca9252762c466af32d0b1002e91e4e1bc5398f77455e55474deb466355ff5"
-
-[[package]]
 name = "h2"
 version = "0.4.19"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3044,6 +3038,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "jpeg-encoder"
+version = "0.7.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a0370574b86f7eca156b9f298392b5e69a23f8c86f3f865add60bbc2e79467a6"
+
+[[package]]
 name = "js-sys"
 version = "0.3.106"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3233,6 +3233,15 @@ dependencies = [
  "cc",
  "glob",
  "pkg-config",
+]
+
+[[package]]
+name = "libz-rs-sys"
+version = "0.6.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "434324ee61a8e4a05dd3fdf03d51c073ea7fdaf5a35b2ca33c4ca9f3f37def4a"
+dependencies = [
+ "zlib-rs",
 ]
 
 [[package]]
@@ -4959,6 +4968,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "quick-xml"
+version = "0.42.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "41b1177fdf999d2321d3fb46ff47159d9c1fb9ad66a4879f8c50a0b504615e9b"
+dependencies = [
+ "memchr",
+]
+
+[[package]]
 name = "quick_cache"
 version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6225,32 +6243,32 @@ dependencies = [
 
 [[package]]
 name = "taffy"
-version = "0.11.0"
+version = "0.14.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dfde4e2f8595f222ceaae1fb16b4963952e9b33e358869dc4cd6316b0e0790cd"
+checksum = "639627c87f43b9181c811f40a6296409e093a17bc761214cba3c15df74f86b99"
 dependencies = [
  "arrayvec",
- "grid",
  "serde",
  "slotmap",
+ "smallvec",
 ]
 
 [[package]]
 name = "takumi"
-version = "2.14.0"
+version = "2.15.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b88290d52082747d3d2eff0e9b0adc6675f519eb46a4dae595d68ca6c7f61c04"
+checksum = "00cf7055f715a63b253c9d192fcfd714ecce70b2a7a7d4f25199826c869b7716"
 dependencies = [
- "takumi-core",
+ "takumi-core 0.27.0",
  "takumi-raster",
  "takumi-svg",
 ]
 
 [[package]]
 name = "takumi-core"
-version = "0.25.0"
+version = "0.27.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "766e308c98fe882c1ad04766563d5a819c718cea84dff9666632aba773a1ffd8"
+checksum = "17658735729eb68ad31d0bda893f6361ebc2942ce89ecddb3066ef9b2f9a2e63"
 dependencies = [
  "bitflags 2.13.2",
  "bytemuck",
@@ -6273,6 +6291,7 @@ dependencies = [
  "precomputed-hash",
  "quick_cache",
  "roxmltree 0.21.1",
+ "rustc-hash",
  "selectors",
  "serde",
  "serde_bytes",
@@ -6283,6 +6302,7 @@ dependencies = [
  "strict-num",
  "svgtypes",
  "taffy",
+ "thin-vec",
  "thiserror 2.0.21",
  "tiny-skia 0.12.0",
  "tiny-skia-path 0.12.0",
@@ -6293,36 +6313,87 @@ dependencies = [
 ]
 
 [[package]]
-name = "takumi-raster"
-version = "0.5.1"
+name = "takumi-core"
+version = "0.28.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "200399eae5f6df4d63888aeeef316341f88f0ae4653c83869c3d004ad2d6d38f"
+checksum = "f1a85d2022f9d7bd0feb648664687a88d6b7b93f4c6375b527500ad29785abde"
+dependencies = [
+ "bitflags 2.13.2",
+ "bytemuck",
+ "color",
+ "cssparser",
+ "data-url",
+ "gif",
+ "harfrust",
+ "icu_properties",
+ "image",
+ "image-webp",
+ "imagesize",
+ "kurbo",
+ "libwebp-sys",
+ "log",
+ "parley",
+ "pastey 0.2.3",
+ "phf 0.13.1",
+ "png",
+ "precomputed-hash",
+ "quick_cache",
+ "rayon",
+ "roxmltree 0.21.1",
+ "rustc-hash",
+ "selectors",
+ "serde",
+ "serde_bytes",
+ "simplecss",
+ "siphasher",
+ "skrifa",
+ "smallvec",
+ "strict-num",
+ "svgtypes",
+ "taffy",
+ "thin-vec",
+ "thiserror 2.0.21",
+ "tiny-skia 0.12.0",
+ "tiny-skia-path 0.12.0",
+ "typed-builder",
+ "unicode-bidi",
+ "xxhash-rust",
+]
+
+[[package]]
+name = "takumi-raster"
+version = "0.5.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "234099af1d7ae058fe56ff8db9bf9854ac8e2d785347a6df6b40b90fea3d3c33"
 dependencies = [
  "bytemuck",
  "color",
  "gif",
  "image",
  "image-webp",
+ "jpeg-encoder",
  "libwebp-sys",
+ "libz-rs-sys",
  "png",
  "rayon",
  "serde",
  "skrifa",
  "smallvec",
- "takumi-core",
+ "takumi-core 0.28.0",
  "tiny-skia 0.12.0",
  "typed-builder",
  "xxhash-rust",
+ "zlib-rs",
 ]
 
 [[package]]
 name = "takumi-svg"
-version = "0.3.22"
+version = "0.3.25"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8f484cef1ba9aad3326da5e4bdcf408b41fa5544fa6da2810a5ad1a8f9a38eae"
+checksum = "3a4b615ff1f60c74956a14a34d71c145ac52759b263dbf90c4006cdb908326eb"
 dependencies = [
- "quick-xml",
- "takumi-core",
+ "quick-xml 0.42.0",
+ "takumi-core 0.28.0",
  "tiny-skia 0.12.0",
  "typed-builder",
 ]
@@ -6354,7 +6425,7 @@ dependencies = [
  "smithay-client-toolkit 0.21.1",
  "softbuffer",
  "takumi",
- "takumi-core",
+ "takumi-core 0.27.0",
  "tauler-configgen",
  "tauler-core",
  "tauler-ui-macro",
@@ -6524,7 +6595,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32497e9a4c7b38532efcdebeef879707aa9f794296a4f0244f6f69e9bc8574bd"
 dependencies = [
  "fastrand",
- "getrandom 0.3.4",
+ "getrandom 0.4.3",
  "once_cell",
  "rustix 1.1.5",
  "windows-sys 0.61.2",
@@ -6571,6 +6642,12 @@ dependencies = [
  "smawk",
  "unicode-width",
 ]
+
+[[package]]
+name = "thin-vec"
+version = "0.2.21"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d6a4b9ba8738cb4a4f399d37e266becfd475e75eb73425b87a05a2f2039ba63e"
 
 [[package]]
 name = "thiserror"
@@ -7522,7 +7599,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "338e30461b3a2b67d70eb30a6d89f8e0c93a833e07d2ae89085cd070c4a00ac0"
 dependencies = [
  "proc-macro2",
- "quick-xml",
+ "quick-xml 0.41.0",
  "quote",
 ]
 
