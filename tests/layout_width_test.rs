@@ -26,9 +26,9 @@ fn measure(tw: &str, width: u32, dpr: f32) -> f32 {
 }
 
 #[test]
-fn flex_col_without_w_full_shrinks_to_content() {
+fn flex_col_without_w_full_fills_viewport_like_a_block() {
     let w = measure("flex flex-col h-full", 146, 1.46);
-    assert_eq!(w, 0.0);
+    assert_eq!(w, 146.0);
 }
 
 #[test]
