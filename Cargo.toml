@@ -92,7 +92,7 @@ optative-script = "=0.0.13"
 notify = "=8.2.0"
 cached = { version = "=4.0.2", default-features = false }
 tempfile = "=3.27.0"
-minijinja = "=2.24.0"
+minijinja = "=3.0.0"
 
 # Kept off other platforms: Wayland's build scripts need pkg-config and
 # libxkbcommon, and x11rb's `allow-unsafe-code` links libxcb.
