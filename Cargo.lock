@@ -6374,7 +6374,7 @@ dependencies = [
 
 [[package]]
 name = "tauler"
-version = "0.6.1"
+version = "0.6.2"
 dependencies = [
  "accesskit",
  "accesskit_unix",
@@ -6415,7 +6415,7 @@ dependencies = [
 
 [[package]]
 name = "tauler-accumulate"
-version = "0.6.1"
+version = "0.6.2"
 dependencies = [
  "clap",
  "serde_json",
@@ -6423,7 +6423,7 @@ dependencies = [
 
 [[package]]
 name = "tauler-aerospace"
-version = "0.6.1"
+version = "0.6.2"
 dependencies = [
  "serde_json",
  "tracing",
@@ -6432,7 +6432,7 @@ dependencies = [
 
 [[package]]
 name = "tauler-configgen"
-version = "0.6.1"
+version = "0.6.2"
 dependencies = [
  "jsonschema",
  "minijinja",
@@ -6445,7 +6445,7 @@ dependencies = [
 
 [[package]]
 name = "tauler-core"
-version = "0.3.6"
+version = "0.3.7"
 dependencies = [
  "color",
  "optative",
@@ -6465,7 +6465,7 @@ dependencies = [
 
 [[package]]
 name = "tauler-docgen"
-version = "0.6.1"
+version = "0.6.2"
 dependencies = [
  "clap",
  "insta",
@@ -6476,7 +6476,7 @@ dependencies = [
 
 [[package]]
 name = "tauler-e2e"
-version = "0.6.1"
+version = "0.6.2"
 dependencies = [
  "anyhow",
  "image",
@@ -6487,7 +6487,7 @@ dependencies = [
 
 [[package]]
 name = "tauler-i3"
-version = "0.6.1"
+version = "0.6.2"
 dependencies = [
  "serde_json",
  "swayipc",
@@ -6497,7 +6497,7 @@ dependencies = [
 
 [[package]]
 name = "tauler-notify"
-version = "0.6.1"
+version = "0.6.2"
 dependencies = [
  "serde",
  "serde_json",
@@ -6507,7 +6507,7 @@ dependencies = [
 
 [[package]]
 name = "tauler-screenshot"
-version = "0.6.1"
+version = "0.6.2"
 dependencies = [
  "clap",
  "serde_json",
@@ -6516,7 +6516,7 @@ dependencies = [
 
 [[package]]
 name = "tauler-ui-macro"
-version = "0.1.15"
+version = "0.1.16"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -6526,7 +6526,7 @@ dependencies = [
 
 [[package]]
 name = "tauler-web"
-version = "0.6.1"
+version = "0.6.2"
 dependencies = [
  "tauler-core",
  "wasm-bindgen",
@@ -6534,7 +6534,7 @@ dependencies = [
 
 [[package]]
 name = "tauler-web-e2e"
-version = "0.6.1"
+version = "0.6.2"
 dependencies = [
  "anyhow",
  "headless_chrome",
@@ -6547,7 +6547,7 @@ dependencies = [
 
 [[package]]
 name = "taulerbox"
-version = "0.6.1"
+version = "0.6.2"
 dependencies = [
  "anyhow",
  "clap",
