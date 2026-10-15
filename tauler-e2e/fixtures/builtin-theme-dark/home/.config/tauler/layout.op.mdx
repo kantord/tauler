@@ -12,8 +12,9 @@ theme:
 //                  selected row
 //   notification — `popover*` again, with `destructive` for the failure
 //   charts       — `chart-1` .. `chart-5` for the CPU history bars
-//   terminals    — two kitty windows (see `e2e-demo-session`) whose colours the test writes from
-//                  this theme's `background`, `foreground` and `ansi-*` tokens, not from this file
+//   terminals    — two kitty windows (see `e2e-demo-session`) and a GTK4 file manager, whose colours
+//                  are files this layout's own Units write from the theme (`KittyTheme`, `GtkTheme`),
+//                  as is i3's window chrome (`I3Theme`)
 // so a token that is missing, unreadable, or indistinguishable from its neighbour shows up
 // as a real defect on a real surface, not as a swatch someone has to remember to look at.
 //
@@ -24,6 +25,7 @@ theme:
 //
 // The two floats have square outer corners on purpose: this desktop has no compositor, so a
 // rounded window would show the X root (black) in its corners instead of the surface behind.
+import { KittyTheme, I3Theme, GtkTheme } from "@gh/kantord/dotfiles-tauler";
 import { Badge } from "@ui/badge";
 import { Progress } from "@ui/progress";
 
@@ -154,6 +156,12 @@ export default function render() {
       <panel id="launcher" x={620} y={300} width={680} height={360} above={true}>
         <Launcher />
       </panel>
+      {/* The theme leaving this layout as files other programs read: the terminals, i3's own
+          borders and title bars, and GTK4 applications. Each is a Unit from the components
+          package, rendering from `ctx.theme`; nothing in the fixture writes a colour by hand. */}
+      <KittyTheme />
+      <I3Theme />
+      <GtkTheme />
     </root>
   );
 }

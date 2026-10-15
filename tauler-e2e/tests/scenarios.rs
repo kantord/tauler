@@ -111,37 +111,24 @@ fn workspaces_frames_the_area_beside_the_sidebar() -> Result<()> {
     Ok(())
 }
 
-/// A kitty colours file for `theme`: its background, foreground and the 16 `ansi-*`
-/// tokens as `color0`..`color15`. This is the one place a terminal is told what the theme is —
-/// there is no layout-side API for it yet, so the test does it from the Rust `Theme` directly.
-fn kitty_colors(theme: &tauler_core::theme::Theme) -> String {
-    let colors = &theme.colors;
-    let get = |key: &str| {
-        colors
-            .get(key)
-            .unwrap_or_else(|| panic!("theme `{}` has no `{key}`", theme.name))
-            .clone()
-    };
-    let mut out = format!(
-        "background {}\nforeground {}\ncursor {}\nselection_background {}\nselection_foreground {}\n",
-        get("background"),
-        get("foreground"),
-        get("foreground"),
-        get("accent"),
-        get("accent-foreground"),
-    );
-    let names = [
-        "black", "red", "green", "yellow", "blue", "magenta", "cyan", "white",
-    ];
-    for (i, name) in names.iter().enumerate() {
-        out.push_str(&format!("color{i} {}\n", get(&format!("ansi-{name}"))));
-        out.push_str(&format!(
-            "color{} {}\n",
-            i + 8,
-            get(&format!("ansi-bright-{name}"))
-        ));
-    }
-    out
+/// How many pixels of `png` inside `x0..x1`, `y0..y1` are exactly `rgb`.
+fn pixels_of(
+    png: &std::path::Path,
+    x: std::ops::Range<u32>,
+    y: std::ops::Range<u32>,
+    rgb: [u8; 3],
+) -> usize {
+    let img = image::open(png).expect("decode screenshot").to_rgba8();
+    y.flat_map(|y| x.clone().map(move |x| (x, y)))
+        .filter(|&(x, y)| img.get_pixel_checked(x, y).is_some_and(|p| p.0[..3] == rgb))
+        .count()
+}
+
+/// `#rrggbb` as bytes.
+fn rgb_of(theme: &tauler_core::theme::Theme, token: &str) -> [u8; 3] {
+    let hex = &theme.colors[token];
+    let byte = |i: usize| u8::from_str_radix(&hex[1 + 2 * i..3 + 2 * i], 16).expect("hex colour");
+    [byte(0), byte(1), byte(2)]
 }
 
 /// What a built-in theme is expected to draw, written by hand from its theme file.
@@ -153,11 +140,11 @@ struct Palette {
 
 /// A built-in theme, selected by `theme.name` alone — no theme file in the fixture.
 ///
-/// The desktop is a left rail, two free-floating plates (a notification and a launcher) and two
-/// kitty terminals, each drawn from the tokens a UI would use for that surface. Pixels where
+/// The desktop is a left rail, two free-floating plates (a notification and a launcher), two
+/// kitty terminals and a GTK4 file manager (Nautilus), each drawn from the tokens a UI would use for that surface. Pixels where
 /// nothing else is drawn are therefore exact tokens: the rail's bottom edge is the theme's
 /// `sidebar`, the launcher's bottom-right padding its `popover`, and an empty stretch of a
-/// terminal its `background` — which kitty only has because the test wrote it from this theme.
+/// terminal its `background` — which kitty only has because tauler wrote it from this theme (`KittyTheme`).
 /// That proves the name resolved to the built-in, the mode picked the right palette, and that
 /// each surface reached for its own token.
 fn builtin_theme_scenario(
@@ -177,11 +164,6 @@ fn builtin_theme_scenario(
         dpi: 96 * K,
     };
     let theme = tauler_core::theme::builtin::by_name(theme_name).expect("built-in theme");
-    std::fs::write(
-        tauler_e2e::scenario_out_dir(scenario)?.join("kitty-colors.conf"),
-        kitty_colors(&theme),
-    )?;
-
     let k = K as i32;
     let (_desktop, screenshot) = run_on(
         screen,
@@ -199,7 +181,7 @@ fn builtin_theme_scenario(
                 rect(1480 * k, 40 * k, 400 * K, 132 * K),
                 rect(620 * k, 300 * k, 680 * K, 360 * K),
             ],
-            clients: 2,
+            clients: 3,
         },
     )?;
     let [r, g, b, _] = pixel_at(&screenshot, 136 * K, 1070 * K)?;
@@ -214,6 +196,24 @@ fn builtin_theme_scenario(
         [r, g, b],
         expected.popover,
         "the launcher's own pixel is not the theme's `popover`"
+    );
+    // i3's own chrome: the two terminals' title bars sit along the top of the area right of the
+    // rail, clear of the notification. One window is focused (title bar in `primary`), the other
+    // not (`card`) — both only because tauler wrote i3's colours from this theme (`I3Theme`).
+    let bars = (272 * K)..(1400 * K);
+    let top = 0..(40 * K);
+    assert!(
+        pixels_of(
+            &screenshot,
+            bars.clone(),
+            top.clone(),
+            rgb_of(&theme, "primary")
+        ) > 500,
+        "no title bar in the theme's `primary` — i3 did not get the colours for the focused window"
+    );
+    assert!(
+        pixels_of(&screenshot, bars, top, rgb_of(&theme, "card")) > 500,
+        "no title bar in the theme's `card` — i3 did not get the colours for an unfocused window"
     );
     // An empty stretch of the left terminal, below its output and clear of the launcher.
     let [r, g, b, _] = pixel_at(&screenshot, 500 * K, 1000 * K)?;

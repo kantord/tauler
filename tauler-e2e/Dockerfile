@@ -82,6 +82,17 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         dbus-x11 \
     && rm -rf /var/lib/apt/lists/*
 
+# Nautilus, to show a GTK4 / libadwaita application drawn in a theme's colours — the one kind of
+# window that is neither a terminal nor tauler's own. Its own layer, so adding or changing a GTK
+# app never invalidates the large one above. `adwaita-icon-theme` is the icons it draws with;
+# there is no GNOME session here, so no settings daemon either, and the colour scheme is told to
+# libadwaita by `ADW_DEBUG_COLOR_SCHEME` (see `fixtures/builtin-theme-*/startup`).
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        nautilus \
+        adwaita-icon-theme \
+        gvfs \
+    && rm -rf /var/lib/apt/lists/*
+
 # shell-color-scripts (MIT) — a terminal showing the 16 ANSI colours as art, which is what a
 # theme's `ansi-*` tokens are for. Pinned to a commit and copied rather than `make install`ed,
 # because the whole install is two `cp`s and `make` is not otherwise in this image. Used by
@@ -92,6 +103,15 @@ RUN git clone --quiet https://gitlab.com/dwt1/shell-color-scripts /tmp/scs \
     && cp -rf /tmp/scs/colorscripts/* /opt/shell-color-scripts/colorscripts \
     && cp /tmp/scs/colorscript.sh /usr/local/bin/colorscript \
     && rm -rf /tmp/scs
+
+# The components package the themed fixtures import (`@gh/kantord/dotfiles-tauler`), cloned at a
+# pinned commit into the place tauler looks for a pinned package, so nothing is fetched at run time.
+# Each fixture's `tauler-pkg.lock` names the same commit; change both together.
+RUN git clone --quiet https://github.com/kantord/dotfiles-tauler /tmp/dt \
+    && git -C /tmp/dt checkout --quiet 600e73fa0bc85718e79f84b1497c09c79c2b13f1 \
+    && mkdir -p /root/.cache/tauler/pkg/gh/kantord/dotfiles-tauler/600e73fa0bc85718e79f84b1497c09c79c2b13f1 \
+    && cp -rf /tmp/dt/. /root/.cache/tauler/pkg/gh/kantord/dotfiles-tauler/600e73fa0bc85718e79f84b1497c09c79c2b13f1/ \
+    && rm -rf /tmp/dt
 
 COPY --from=builder /artifacts/tauler /artifacts/tauler-i3 /artifacts/a11y-probe /usr/local/bin/
 
