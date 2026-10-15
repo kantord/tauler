@@ -3,12 +3,6 @@
 # crashes release-plz during index polling. The release workflow publishes.
 publish = false
 
-# TEMPORARY: re-enable (delete this line) once the first release after the takumi
-# update has been tagged. cargo-semver-checks builds the previous release tag with a
-# fresh resolve that ignores Cargo.lock, and the pre-update tags no longer compile
-# (exact `takumi` pin vs. floating transitive crates). A newer tag fixes the baseline.
-semver_check = false
-
 # Breaks the version bump loop (release-plz#1181), where the "chore: release"
 # commit's own Cargo.toml changes read as unreleased work.
 release_commits = "^(feat|fix|refactor|perf|build)"
