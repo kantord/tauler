@@ -108,9 +108,9 @@ RUN git clone --quiet https://gitlab.com/dwt1/shell-color-scripts /tmp/scs \
 # pinned commit into the place tauler looks for a pinned package, so nothing is fetched at run time.
 # Each fixture's `tauler-pkg.lock` names the same commit; change both together.
 RUN git clone --quiet https://github.com/kantord/dotfiles-tauler /tmp/dt \
-    && git -C /tmp/dt checkout --quiet 939853a2a5f9526b61c8f4d5e769ebadbc7f1334 \
-    && mkdir -p /root/.cache/tauler/pkg/gh/kantord/dotfiles-tauler/939853a2a5f9526b61c8f4d5e769ebadbc7f1334 \
-    && cp -rf /tmp/dt/. /root/.cache/tauler/pkg/gh/kantord/dotfiles-tauler/939853a2a5f9526b61c8f4d5e769ebadbc7f1334/ \
+    && git -C /tmp/dt checkout --quiet 600e73fa0bc85718e79f84b1497c09c79c2b13f1 \
+    && mkdir -p /root/.cache/tauler/pkg/gh/kantord/dotfiles-tauler/600e73fa0bc85718e79f84b1497c09c79c2b13f1 \
+    && cp -rf /tmp/dt/. /root/.cache/tauler/pkg/gh/kantord/dotfiles-tauler/600e73fa0bc85718e79f84b1497c09c79c2b13f1/ \
     && rm -rf /tmp/dt
 
 COPY --from=builder /artifacts/tauler /artifacts/tauler-i3 /artifacts/a11y-probe /usr/local/bin/
