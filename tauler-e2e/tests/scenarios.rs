@@ -349,19 +349,30 @@ fn monolith_floats_a_launcher_and_a_slip_without_reserving_for_them() -> Result<
         },
     )?;
 
-    // The rail is a ruled plate: a 1px gold rule every 6px over #1B1924. Two
-    // rows 3px apart inside the rail's empty lower margin must therefore differ.
-    // A rail that fell back to a flat fill — `repeating-linear-gradient`
-    // unparsed, or dropped — gives two equal samples and passes everything else.
-    let [ar, ag, ab, _] = pixel_at(&screenshot, 6, 900)?;
-    let [br, bg, bb, _] = pixel_at(&screenshot, 6, 903)?;
-    let spread = (ar as i32 - br as i32).abs()
-        + (ag as i32 - bg as i32).abs()
-        + (ab as i32 - bb as i32).abs();
+    // The rail is a ruled plate: a 1px gold rule every 6px over #1B1924. Sampling a
+    // full period of rows inside the rail's empty lower margin must therefore find
+    // more than one colour. A rail that fell back to a flat fill —
+    // `repeating-linear-gradient` unparsed, or dropped — gives one colour throughout
+    // and passes everything else.
+    //
+    // A window, not two fixed rows: where the rules land depends on where the
+    // gradient is anchored (a `0deg` gradient starts at the bottom edge), so a pair
+    // of rows that straddled a rule under one takumi can both miss it under another.
+    // The window is 12 rows because the e2e desktop renders at twice the CSS size.
+    let [fr, fg, fb, _] = pixel_at(&screenshot, 6, 900)?;
+    let mut spread = 0;
+    for y in 901..912 {
+        let [r, g, b, _] = pixel_at(&screenshot, 6, y)?;
+        spread = spread.max(
+            (fr as i32 - r as i32).abs()
+                + (fg as i32 - g as i32).abs()
+                + (fb as i32 - b as i32).abs(),
+        );
+    }
     assert!(
         spread > 4,
-        "the rail is the same colour at y=900 and y=903 ({ar},{ag},{ab} vs \
-         {br},{bg},{bb}) — the ruled plate rendered as a flat fill"
+        "the rail is the same colour ({fr},{fg},{fb}) over y=900..912 — \
+         the ruled plate rendered as a flat fill"
     );
 
     Ok(())
