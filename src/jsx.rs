@@ -146,7 +146,7 @@ fn render_template_js_fn<'js>(
     env.add_template("_", &source)
         .map_err(|e| rquickjs::Exception::throw_message(&ctx, &format!("renderTemplate: {e}")))?;
     env.get_template("_")
-        .and_then(|tmpl| tmpl.render(data))
+        .and_then(|tmpl| tmpl.render(minijinja::value::Serde(data)))
         .map_err(|e| rquickjs::Exception::throw_message(&ctx, &format!("renderTemplate: {e}")))
 }
 

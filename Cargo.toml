@@ -64,10 +64,10 @@ rquickjs = { version = "=0.14.0", features = ["loader"] }
 rquickjs-serde = "=0.8.0"
 # `svg-backend` is `tauler-screenshot`'s output path (`render_svg`); the bar itself
 # rasterizes through the default raster backend.
-takumi = { version = "=2.16.2", features = ["svg-backend"] }
+takumi = { version = "=2.16.3", features = ["svg-backend"] }
 # For `ImageBuffer`, the only way to build an `ImageSource` from raw pixels: the
 # `takumi` facade re-exports it only behind its semver-exempt `unstable` feature.
-takumi-core = { version = "=0.29.1", default-features = false }
+takumi-core = { version = "=0.30.0", default-features = false }
 x11rb = { version = "=0.14.0", features = ["randr"] }
 serde_json = "=1.0.154"
 serde = { version = "=1.0.229", features = ["derive"] }
@@ -92,7 +92,7 @@ optative-script = "=0.0.13"
 notify = "=8.2.0"
 cached = { version = "=4.0.2", default-features = false }
 tempfile = "=3.27.0"
-minijinja = "=2.24.0"
+minijinja = { version = "=3.0.0", features = ["serde"] }
 
 # Kept off other platforms: Wayland's build scripts need pkg-config and
 # libxkbcommon, and x11rb's `allow-unsafe-code` links libxcb.
