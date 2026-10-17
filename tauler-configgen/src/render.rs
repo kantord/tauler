@@ -15,7 +15,7 @@
 //! render even though its VALUES are perfectly valid JS strings — the schema's pattern is
 //! the escaping mechanism for this surface, not a separate one.
 
-use minijinja::Environment;
+use minijinja::{value::Serde, Environment};
 
 #[derive(Debug, thiserror::Error)]
 #[error("template did not render: {0}")]
@@ -24,7 +24,7 @@ pub struct RenderError(#[from] minijinja::Error);
 pub fn render_template(source: &str, data: &serde_json::Value) -> Result<String, RenderError> {
     let mut env = Environment::new();
     env.add_template("_", source)?;
-    let rendered = env.get_template("_")?.render(data)?;
+    let rendered = env.get_template("_")?.render(Serde(data))?;
     Ok(rendered)
 }
 
