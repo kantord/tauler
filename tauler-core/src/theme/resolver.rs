@@ -73,10 +73,50 @@ fn with_opacity(resolved: String, opacity: &str) -> String {
         );
     match hex_alpha {
         Some(((prefix, rgb), percent)) => {
-            let alpha = (percent.min(100) * 255 + 50) / 100;
-            format!("{prefix}-[#{rgb}{alpha:02x}]")
+            let hex = hex_with_alpha(rgb, f64::from(percent) / 100.0);
+            format!("{prefix}-[{hex}]")
         }
         None => format!("{resolved}{opacity}"),
+    }
+}
+
+/// `#rrggbb` at `alpha` (clamped to `0..=1`), as `#rrggbbaa`. Shared by the class `/NN` suffix
+/// and [`theme_color`], so both give the same colour for the same alpha.
+fn hex_with_alpha(rgb: &str, alpha: f64) -> String {
+    let byte = (alpha.clamp(0.0, 1.0) * 255.0).round() as u8;
+    format!("#{rgb}{byte:02x}")
+}
+
+/// `themeColor(token, alpha)`: the colour `token` names in `colors`, as a CSS colour string.
+///
+/// SPEC: `themeColor("primary", 0.13)` is the colour `bg-primary/13` paints. A `#rrggbb` value
+/// goes through the same [`hex_with_alpha`] as the class. Any other value (`oklch()`,
+/// `#rrggbbaa`) becomes the 8-digit sRGB hex of itself with its alpha multiplied by `alpha` —
+/// what takumi does with a `/NN` suffix it is left to apply.
+///
+/// SPEC: a name `colors` does not define comes back as written, as an unknown name in a class
+/// passes through as an ordinary class. So `themeColor("red", 0.5)` is CSS `red` at half alpha,
+/// and a name that is not a CSS colour either comes back unchanged.
+pub fn theme_color(colors: &HashMap<String, String>, token: &str, alpha: Option<f64>) -> String {
+    let value = colors.get(token).map_or(token, String::as_str);
+    let Some(alpha) = alpha else {
+        return value.to_string();
+    };
+    if let Some(rgb) = value
+        .strip_prefix('#')
+        .filter(|rgb| rgb.len() == 6 && rgb.chars().all(|c| c.is_ascii_hexdigit()))
+    {
+        return hex_with_alpha(rgb, alpha);
+    }
+    match color::parse_color(value) {
+        Ok(parsed) => {
+            let rgba = parsed
+                .multiply_alpha(alpha.clamp(0.0, 1.0) as f32)
+                .to_alpha_color::<color::Srgb>()
+                .to_rgba8();
+            format!("#{:02x}{:02x}{:02x}{:02x}", rgba.r, rgba.g, rgba.b, rgba.a)
+        }
+        Err(_) => value.to_string(),
     }
 }
 
@@ -316,5 +356,40 @@ fonts:
     fn resolve_tw_light_modifier_dark_mode_drops_token_from_multi_class_string() {
         let theme = test_theme(ThemeMode::Dark);
         assert_eq!(resolve_tw("flex light:bg-primary", &theme), "flex");
+    }
+
+    fn colors() -> HashMap<String, String> {
+        [("primary", "#7aa2f7"), ("ring", "oklch(0.922 0 0)")]
+            .into_iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect()
+    }
+
+    #[rstest]
+    #[case::no_alpha_is_the_value_as_written("primary", None, "#7aa2f7")]
+    #[case::alpha_zero("primary", Some(0.0), "#7aa2f700")]
+    #[case::alpha_one("primary", Some(1.0), "#7aa2f7ff")]
+    #[case::alpha_above_one_is_clamped("primary", Some(3.0), "#7aa2f7ff")]
+    #[case::alpha_below_zero_is_clamped("primary", Some(-1.0), "#7aa2f700")]
+    #[case::non_hex_no_alpha("ring", None, "oklch(0.922 0 0)")]
+    #[case::non_hex_with_alpha_is_srgb_hex("ring", Some(0.5), "#e5e5e580")]
+    #[case::unknown_name_comes_back_as_written("nope", Some(0.5), "nope")]
+    #[case::unknown_css_name_gets_alpha("red", Some(0.5), "#ff000080")]
+    fn theme_color_cases(#[case] token: &str, #[case] alpha: Option<f64>, #[case] expected: &str) {
+        assert_eq!(theme_color(&colors(), token, alpha), expected);
+    }
+
+    /// Claim: `themeColor(token, NN / 100)` and `bg-token/NN` give the same colour.
+    #[test]
+    fn theme_color_matches_the_class_opacity_suffix() {
+        let theme =
+            Theme::from_yaml("name: t\nmode: dark\ncolors:\n  primary: \"#7aa2f7\"\n").unwrap();
+        for percent in 0..=100 {
+            let value = theme_color(&theme.colors, "primary", Some(f64::from(percent) / 100.0));
+            assert_eq!(
+                resolve_tw(&format!("bg-primary/{percent}"), &theme),
+                format!("bg-[{value}]")
+            );
+        }
     }
 }

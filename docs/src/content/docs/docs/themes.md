@@ -160,6 +160,23 @@ const accent = ctx.theme.colors["primary"];      // "#7aa2f7"
 const red = ctx.theme.colors["ansi-red"];
 ```
 
+For a colour at an alpha, use `themeColor(name, alpha)` instead of adding hex digits by hand.
+It returns a CSS colour string, and `alpha` goes from `0` to `1` (values outside are clamped).
+`themeColor("primary", 0.13)` is the colour `bg-primary/13` paints, whatever form the theme
+writes `primary` in. With no `alpha`, it returns the colour as the theme writes it.
+
+```jsx
+<div
+  style={{
+    backgroundImage: `linear-gradient(to right, ${themeColor("primary", 0.4)}, ${themeColor("primary", 0)})`,
+    borderTop: `1px solid ${themeColor("border")}`,
+  }}
+/>
+```
+
+A name the theme doesn't define comes back as written, like a class: `themeColor("red", 0.5)` is
+CSS `red` at half alpha, and a name that isn't a CSS colour either is returned unchanged.
+
 It is the theme in use, so editing `theme` rewrites everything built from it. A
 [Unit](/docs/units/) that writes another program's config from `ctx.theme` makes that
 program follow the theme with no sync script.
