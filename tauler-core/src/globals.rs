@@ -30,7 +30,11 @@ pub const JSX_GLOBALS_JS: &str = r#"
     // A theme colour as a value, at an optional alpha — the colour `bg-<token>/NN` paints.
     // The colour logic is Rust's (`theme::resolver::theme_color`), shared with the class path.
     globalThis.themeColor = (token, alpha) =>
-        __tauler_theme_color(globalThis.ctx?.theme?.colors ?? {}, String(token), alpha);
+        __tauler_theme_color(
+            globalThis.ctx?.theme?.colors ?? {},
+            String(token),
+            alpha === undefined ? undefined : Number(alpha),
+        );
     globalThis.useJSONStream = (bin, script) => {
         const str = useStringStream(bin, script);
         if (!str) return null;

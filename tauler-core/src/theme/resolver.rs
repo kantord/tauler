@@ -55,69 +55,72 @@ pub fn resolve_tw(classes: &str, theme: &Theme) -> String {
         .join(" ")
 }
 
-/// `utility-[#rrggbb]` with `/<percent>` applied, as the 8-digit hex `utility-[#rrggbbaa]`.
+/// `utility-[<colour>]` with `/<percent>` applied, as `utility-[#rrggbbaa]`.
 ///
-/// SPEC: a hex theme colour with an opacity renders at that opacity. takumi does not read
-/// `bg-[#rrggbb]/50` — text came out black and a background vanished — but does read the 8-digit
-/// form, so that is what a token with an opacity becomes. Any other value (an `oklch()`, say)
-/// keeps the suffix as written.
+/// SPEC: a theme colour with an opacity renders at that opacity, whatever form the theme writes
+/// it in. takumi reads none of `bg-[#rrggbb]/50`, `bg-[#rgb]/50`, `bg-[#rrggbbaa]/50` or
+/// `bg-[oklch(…)]/50` — each paints nothing (`tests/theme_color_parity_test.rs`) — but does read
+/// an 8-digit hex, so that is what a colour with an opacity becomes, through the same
+/// [`color_with_alpha`] as `themeColor`. A value that is not a colour keeps the suffix as written.
 fn with_opacity(resolved: String, opacity: &str) -> String {
-    let hex_alpha = resolved
+    let with_alpha = resolved
         .strip_suffix(']')
-        .and_then(|s| s.rsplit_once("-[#"))
-        .filter(|(_, rgb)| rgb.len() == 6 && rgb.chars().all(|c| c.is_ascii_hexdigit()))
+        .and_then(|s| s.rsplit_once("-["))
         .zip(
             opacity
                 .strip_prefix('/')
                 .and_then(|p| p.parse::<u32>().ok()),
-        );
-    match hex_alpha {
-        Some(((prefix, rgb), percent)) => {
-            let hex = hex_with_alpha(rgb, f64::from(percent) / 100.0);
-            format!("{prefix}-[{hex}]")
-        }
-        None => format!("{resolved}{opacity}"),
-    }
+        )
+        .and_then(|((prefix, value), percent)| {
+            let colour = color_with_alpha(&value.replace('_', " "), f64::from(percent) / 100.0)?;
+            Some(format!("{prefix}-[{colour}]"))
+        });
+    with_alpha.unwrap_or_else(|| format!("{resolved}{opacity}"))
 }
 
-/// `#rrggbb` at `alpha` (clamped to `0..=1`), as `#rrggbbaa`. Shared by the class `/NN` suffix
-/// and [`theme_color`], so both give the same colour for the same alpha.
-fn hex_with_alpha(rgb: &str, alpha: f64) -> String {
-    let byte = (alpha.clamp(0.0, 1.0) * 255.0).round() as u8;
-    format!("#{rgb}{byte:02x}")
+/// The `rrggbb` of a `#rrggbb` value, or `None` for any other form.
+fn six_digit_hex(value: &str) -> Option<&str> {
+    value
+        .strip_prefix('#')
+        .filter(|rgb| rgb.len() == 6 && rgb.chars().all(|c| c.is_ascii_hexdigit()))
+}
+
+/// The CSS colour `value` at `alpha` (clamped to `0..=1`), as `#rrggbbaa`; `None` when `value`
+/// is not a colour. Shared by the class `/NN` suffix and [`theme_color`], so both give the same
+/// colour for the same alpha.
+///
+/// `#rrggbb` keeps its digits exactly. Any other form (`oklch()`, `#rgb`, `#rrggbbaa`, a CSS
+/// name) is converted to sRGB with its own alpha multiplied by `alpha`.
+fn color_with_alpha(value: &str, alpha: f64) -> Option<String> {
+    let alpha = alpha.clamp(0.0, 1.0);
+    if let Some(rgb) = six_digit_hex(value) {
+        let byte = (alpha * 255.0).round() as u8;
+        return Some(format!("#{rgb}{byte:02x}"));
+    }
+    let rgba = color::parse_color(value)
+        .ok()?
+        .multiply_alpha(alpha as f32)
+        .to_alpha_color::<color::Srgb>()
+        .to_rgba8();
+    Some(format!(
+        "#{:02x}{:02x}{:02x}{:02x}",
+        rgba.r, rgba.g, rgba.b, rgba.a
+    ))
 }
 
 /// `themeColor(token, alpha)`: the colour `token` names in `colors`, as a CSS colour string.
 ///
-/// SPEC: `themeColor("primary", 0.13)` is the colour `bg-primary/13` paints. A `#rrggbb` value
-/// goes through the same [`hex_with_alpha`] as the class. Any other value (`oklch()`,
-/// `#rrggbbaa`) becomes the 8-digit sRGB hex of itself with its alpha multiplied by `alpha` —
-/// what takumi does with a `/NN` suffix it is left to apply.
+/// SPEC: `themeColor("primary", 0.13)` is the colour `bg-primary/13` paints: both go through
+/// [`color_with_alpha`].
 ///
 /// SPEC: a name `colors` does not define comes back as written, as an unknown name in a class
 /// passes through as an ordinary class. So `themeColor("red", 0.5)` is CSS `red` at half alpha,
 /// and a name that is not a CSS colour either comes back unchanged.
 pub fn theme_color(colors: &HashMap<String, String>, token: &str, alpha: Option<f64>) -> String {
     let value = colors.get(token).map_or(token, String::as_str);
-    let Some(alpha) = alpha else {
-        return value.to_string();
-    };
-    if let Some(rgb) = value
-        .strip_prefix('#')
-        .filter(|rgb| rgb.len() == 6 && rgb.chars().all(|c| c.is_ascii_hexdigit()))
-    {
-        return hex_with_alpha(rgb, alpha);
-    }
-    match color::parse_color(value) {
-        Ok(parsed) => {
-            let rgba = parsed
-                .multiply_alpha(alpha.clamp(0.0, 1.0) as f32)
-                .to_alpha_color::<color::Srgb>()
-                .to_rgba8();
-            format!("#{:02x}{:02x}{:02x}{:02x}", rgba.r, rgba.g, rgba.b, rgba.a)
-        }
-        Err(_) => value.to_string(),
-    }
+    alpha
+        .and_then(|alpha| color_with_alpha(value, alpha))
+        .unwrap_or_else(|| value.to_string())
 }
 
 fn strip_important(inner: &str) -> (bool, &str) {
@@ -315,7 +318,7 @@ fonts:
         ThemeMode::Dark,
         "foobar:bg-[oklch(0.922_0_0)]"
     )]
-    #[case::bg_primary_opacity_50("bg-primary/50", ThemeMode::Dark, "bg-[oklch(0.922_0_0)]/50")]
+    #[case::bg_primary_opacity_50("bg-primary/50", ThemeMode::Dark, "bg-[#e5e5e580]")]
     #[case::font_heading_resolves_to_theme_value("font-heading", ThemeMode::Dark, "font-[Lora]")]
     #[case::font_unknown_key_passes_through("font-unknown", ThemeMode::Dark, "font-unknown")]
     #[case::font_sans_not_defined_in_theme_passes_through_unchanged(
@@ -369,6 +372,8 @@ fonts:
     #[case::no_alpha_is_the_value_as_written("primary", None, "#7aa2f7")]
     #[case::alpha_zero("primary", Some(0.0), "#7aa2f700")]
     #[case::alpha_one("primary", Some(1.0), "#7aa2f7ff")]
+    #[case::alpha_rounds_like_the_class_suffix("primary", Some(0.13), "#7aa2f721")]
+    #[case::alpha_half_rounds_up("primary", Some(0.5), "#7aa2f780")]
     #[case::alpha_above_one_is_clamped("primary", Some(3.0), "#7aa2f7ff")]
     #[case::alpha_below_zero_is_clamped("primary", Some(-1.0), "#7aa2f700")]
     #[case::non_hex_no_alpha("ring", None, "oklch(0.922 0 0)")]
@@ -379,7 +384,10 @@ fonts:
         assert_eq!(theme_color(&colors(), token, alpha), expected);
     }
 
-    /// Claim: `themeColor(token, NN / 100)` and `bg-token/NN` give the same colour.
+    /// Claim: `themeColor(token, NN / 100)` and `bg-token/NN` give the same colour. Both go
+    /// through `color_with_alpha`, so this pins the wiring; the fixed values in
+    /// `theme_color_cases` and `a_hex_token_with_an_opacity_becomes_eight_digit_hex` pin the
+    /// rounding.
     #[test]
     fn theme_color_matches_the_class_opacity_suffix() {
         let theme =
