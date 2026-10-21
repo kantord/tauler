@@ -22,8 +22,8 @@
 //!
 //! Everything a layout file can reach is registered here — in `JSX_GLOBALS_JS` and in the
 //! setup below: `useStringStream`, `useJSONStream`, `useEvents`, `Module`, `I3Layout`,
-//! `Panel`, `globals` and `ctx`. rquickjs grants nothing by default, so that list is
-//! exhaustive by construction rather than by audit (ADR 0008).
+//! `Panel`, `themeColor`, `globals` and `ctx`. rquickjs grants nothing by default, so that
+//! list is exhaustive by construction rather than by audit (ADR 0008).
 
 use std::collections::HashMap;
 
