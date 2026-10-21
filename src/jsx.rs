@@ -22,8 +22,8 @@
 //!
 //! Everything a layout file can reach is registered here — in `JSX_GLOBALS_JS` and in the
 //! setup below: `useStringStream`, `useJSONStream`, `useEvents`, `Module`, `I3Layout`,
-//! `Panel`, `globals` and `ctx`. rquickjs grants nothing by default, so that list is
-//! exhaustive by construction rather than by audit (ADR 0008).
+//! `Panel`, `themeColor`, `globals` and `ctx`. rquickjs grants nothing by default, so that
+//! list is exhaustive by construction rather than by audit (ADR 0008).
 
 use std::collections::HashMap;
 
@@ -166,6 +166,17 @@ fn render_template_js_fn<'js>(
 /// removed and rebuilt from scratch when one arrives.
 fn warn_js_fn(message: String) {
     tracing::warn!("{message}");
+}
+
+/// `__tauler_theme_color`, behind `themeColor` (`JSX_GLOBALS_JS`). The colours come from JS
+/// (`ctx.theme.colors`) rather than being captured here, so it reads the theme exactly as
+/// `ctx.theme` does.
+fn theme_color_js_fn(
+    colors: std::collections::HashMap<String, String>,
+    token: String,
+    alpha: rquickjs::function::Opt<Option<f64>>,
+) -> String {
+    tauler_core::theme::resolver::theme_color(&colors, &token, alpha.0.flatten())
 }
 
 /// Dispatches a lifecycle hook, picking the batch spelling or the per-Item sugar
@@ -799,6 +810,10 @@ impl JsxEvaluator {
                     "warn",
                     rquickjs::Function::new(qjs_ctx.clone(), warn_js_fn)?,
                 )?;
+                qjs_ctx.globals().set(
+                    "__tauler_theme_color",
+                    rquickjs::Function::new(qjs_ctx.clone(), theme_color_js_fn)?,
+                )?;
                 crate::ui::registry::register_ui_components(&qjs_ctx)?;
                 if !ctx.is_null() {
                     let js_ctx = rquickjs_serde::to_value(qjs_ctx.clone(), &ctx)
@@ -1143,6 +1158,27 @@ mod tests {
             "only the div survives: {result}"
         );
         assert_eq!(result["children"][0]["type"], "div");
+    }
+
+    /// `themeColor` reads `ctx.theme.colors` and applies the alpha the class `/NN` suffix would.
+    #[test]
+    fn theme_color_reads_the_active_theme() {
+        let ctx = serde_json::json!({ "theme": { "colors": { "primary": "#7aa2f7" } } });
+        let result = JsxEvaluator::new(
+            r#"export default function render() {
+                return <root>{[themeColor("primary"), themeColor("primary", 0.13), themeColor("nope"), themeColor("primary", "0.5"), themeColor("primary", null)].join(" ")}</root>;
+            }"#,
+            ctx,
+            None,
+        )
+        .unwrap()
+        .eval(&std::collections::HashMap::new())
+        .unwrap()
+        .layout;
+        assert_eq!(
+            result["children"][0],
+            "#7aa2f7 #7aa2f721 nope #7aa2f780 #7aa2f7"
+        );
     }
 
     /// The other half of ADR 0034: evaluating a layout file must not be able to

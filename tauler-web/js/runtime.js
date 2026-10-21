@@ -73,6 +73,7 @@ export function boot(wasmUrl) {
 
     globalThis.useStringStream = wasm.taulerUseStringStream
     globalThis.registerModule = (bin, props) => wasm.taulerRegisterModule(bin, props)
+    globalThis.__tauler_theme_color = wasm.taulerThemeColor
     globalThis.__esto_h = estoH
     globalThis.Fragment = { [ESTO_FRAGMENT]: true }
 
@@ -120,12 +121,23 @@ export class Mount {
    * deployment swaps this line for a keyed diff and nothing else moves.
    */
   tick() {
-    const tree = wasm.taulerResolveTheme(this.#render(), this.#theme)
+    const tree = wasm.taulerResolveTheme(this.#evaluate(), this.#theme)
     const out = wasm.taulerRender(tree)
     if (out.kind !== 'dom') {
       throw new Error(`tauler: unknown render output kind ${JSON.stringify(out.kind)}`)
     }
     this.#element.innerHTML = out.dom
+  }
+
+  /**
+   * Run the layout file with this Mount's theme as `ctx.theme`.
+   *
+   * Every Mount shares one realm, so `ctx` is set just before each evaluation rather than
+   * once: evaluation is synchronous, so no other Mount can run in between.
+   */
+  #evaluate() {
+    globalThis.ctx = { ...globalThis.ctx, theme: wasm.taulerThemeCtx(this.#theme) }
+    return this.#render()
   }
 
   /** The element a render path names, or null. */
@@ -196,7 +208,7 @@ export class Mount {
   /** Read rather than remembered: every tick rebuilds the tree, so a cached handler would
    * belong to one that no longer exists. */
   #handlerFor(path, prop) {
-    const tree = wasm.taulerResolveTheme(this.#render(), this.#theme)
+    const tree = wasm.taulerResolveTheme(this.#evaluate(), this.#theme)
     return nodeAtPath(tree, path)?.[prop] ?? null
   }
 }

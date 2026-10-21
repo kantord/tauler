@@ -50,17 +50,36 @@ pub fn use_string_stream(bin: String, script: Option<String>) -> String {
 #[wasm_bindgen(js_name = taulerRegisterModule)]
 pub fn register_module(_bin: String, _props: JsValue) {}
 
+/// `globalThis.__tauler_theme_color`, behind the shared `themeColor` global — the same Rust
+/// QuickJS calls. The colours are the Mount's `ctx.theme` ([`theme_ctx`]).
+#[wasm_bindgen(js_name = taulerThemeColor)]
+pub fn theme_color(colors: JsValue, token: String, alpha: Option<f64>) -> Result<String, JsValue> {
+    let colors: HashMap<String, String> = serde_wasm_bindgen::from_value(colors)?;
+    Ok(crate::theme::resolver::theme_color(&colors, &token, alpha))
+}
+
 /// Rewrite a tree's theme tokens against the shipped default theme for one mode, as the desktop
 /// does before rendering.
 #[wasm_bindgen(js_name = taulerResolveTheme)]
 pub fn resolve_theme(tree: JsValue, mode: &str) -> Result<JsValue, JsValue> {
     let mut tree: Value = serde_wasm_bindgen::from_value(tree)?;
-    let theme = match mode {
+    crate::theme::resolver::resolve_theme_tokens(&mut tree, &default_theme(mode));
+    to_js(&tree)
+}
+
+/// `ctx.theme` for a Mount drawn in `mode`: the same default theme [`resolve_theme`] resolves
+/// its classes against, so `themeColor` and `bg-primary` paint the same palette.
+#[wasm_bindgen(js_name = taulerThemeCtx)]
+pub fn theme_ctx(mode: &str) -> Result<JsValue, JsValue> {
+    to_js(&default_theme(mode).ctx_json())
+}
+
+/// The shipped default theme for `mode`; anything but `"light"` is dark.
+fn default_theme(mode: &str) -> crate::theme::Theme {
+    match mode {
         "light" => crate::theme::builtin::default_for(crate::theme::ThemeMode::Light),
         _ => crate::theme::builtin::default_for(crate::theme::ThemeMode::Dark),
-    };
-    crate::theme::resolver::resolve_theme_tokens(&mut tree, &theme);
-    to_js(&tree)
+    }
 }
 
 /// A layout tree in, an [`crate::dom::Output`] envelope out.

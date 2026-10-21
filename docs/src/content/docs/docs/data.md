@@ -286,6 +286,7 @@ Injected by Rust before each evaluation. Read-only.
 | `ctx.screen_height` | monitor height in logical pixels |
 | `ctx.outputs` | array of `{ name, screen_width, screen_height }` for every connected output |
 | `ctx.dpi` | display DPI |
+| `ctx.theme` | the active theme: `{ name, mode, colors }` — see [Colours as values](/docs/themes/#colours-as-values), and `themeColor` for a colour at an alpha |
 
 ## `globals`
 
