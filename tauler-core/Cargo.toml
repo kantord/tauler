@@ -54,7 +54,7 @@ serde-wasm-bindgen = "=0.6.5"
 
 [dev-dependencies]
 proptest = "=1.12.0"
-rstest = "=0.27.0"
+rstest = "=0.28.0"
 
 [features]
 default = []
