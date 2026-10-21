@@ -57,8 +57,8 @@ pub fn resolve_tw(classes: &str, theme: &Theme) -> String {
 
 /// `utility-[<colour>]` with `/<percent>` applied, as `utility-[#rrggbbaa]`.
 ///
-/// SPEC: a theme colour with an opacity renders at that opacity, whatever form the theme writes
-/// it in. takumi reads none of `bg-[#rrggbb]/50`, `bg-[#rgb]/50`, `bg-[#rrggbbaa]/50` or
+/// SPEC: a colour with an opacity renders at that opacity, whatever form it is written in —
+/// a theme token once resolved, or one written in the class (`bg-[red]/50`). takumi reads none of `bg-[#rrggbb]/50`, `bg-[#rgb]/50`, `bg-[#rrggbbaa]/50` or
 /// `bg-[oklch(…)]/50` — each paints nothing (`tests/theme_color_parity_test.rs`) — but does read
 /// an 8-digit hex, so that is what a colour with an opacity becomes, through the same
 /// [`color_with_alpha`] as `themeColor`. A value that is not a colour keeps the suffix as written.

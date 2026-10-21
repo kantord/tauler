@@ -33,7 +33,7 @@ pub const JSX_GLOBALS_JS: &str = r#"
         __tauler_theme_color(
             globalThis.ctx?.theme?.colors ?? {},
             String(token),
-            alpha === undefined ? undefined : Number(alpha),
+            alpha == null ? undefined : Number(alpha),
         );
     globalThis.useJSONStream = (bin, script) => {
         const str = useStringStream(bin, script);

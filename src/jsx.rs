@@ -1166,7 +1166,7 @@ mod tests {
         let ctx = serde_json::json!({ "theme": { "colors": { "primary": "#7aa2f7" } } });
         let result = JsxEvaluator::new(
             r#"export default function render() {
-                return <root>{[themeColor("primary"), themeColor("primary", 0.13), themeColor("nope"), themeColor("primary", "0.5")].join(" ")}</root>;
+                return <root>{[themeColor("primary"), themeColor("primary", 0.13), themeColor("nope"), themeColor("primary", "0.5"), themeColor("primary", null)].join(" ")}</root>;
             }"#,
             ctx,
             None,
@@ -1175,7 +1175,10 @@ mod tests {
         .eval(&std::collections::HashMap::new())
         .unwrap()
         .layout;
-        assert_eq!(result["children"][0], "#7aa2f7 #7aa2f721 nope #7aa2f780");
+        assert_eq!(
+            result["children"][0],
+            "#7aa2f7 #7aa2f721 nope #7aa2f780 #7aa2f7"
+        );
     }
 
     /// The other half of ADR 0034: evaluating a layout file must not be able to

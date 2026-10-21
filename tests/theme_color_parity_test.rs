@@ -32,5 +32,6 @@ fn theme_color_paints_what_the_class_suffix_paints(#[case] value: &str) {
         let value = theme_color(&theme.colors, "c", Some(f64::from(percent) / 100.0));
         let style = paint(&theme, &format!("w-full h-full bg-[{value}]"));
         assert_eq!(class, style, "{value} at /{percent}");
+        assert!(style[3] > 0, "{value} at /{percent} paints nothing");
     }
 }
