@@ -6393,6 +6393,8 @@ dependencies = [
  "softbuffer",
  "takumi",
  "takumi-core",
+ "takumi-raster",
+ "takumi-svg",
  "tauler-configgen",
  "tauler-core",
  "tauler-ui-macro",

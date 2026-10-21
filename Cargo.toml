@@ -68,6 +68,12 @@ takumi = { version = "=2.16.3", features = ["svg-backend"] }
 # For `ImageBuffer`, the only way to build an `ImageSource` from raw pixels: the
 # `takumi` facade re-exports it only behind its semver-exempt `unstable` feature.
 takumi-core = { version = "=0.30.0", default-features = false }
+# Not used directly: these pin `takumi`'s own backends. Their later patch releases
+# moved to a newer `takumi-core`, so a lockfile-less resolve (`cargo install`,
+# release-plz's semver check) gets two `takumi-core` copies and fails to compile.
+# Drop both when `takumi` is bumped.
+takumi-raster = { version = "=0.5.7", default-features = false }
+takumi-svg = { version = "=0.3.29", default-features = false }
 x11rb = { version = "=0.14.0", features = ["randr"] }
 serde_json = "=1.0.154"
 serde = { version = "=1.0.229", features = ["derive"] }
