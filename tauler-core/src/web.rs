@@ -50,6 +50,14 @@ pub fn use_string_stream(bin: String, script: Option<String>) -> String {
 #[wasm_bindgen(js_name = taulerRegisterModule)]
 pub fn register_module(_bin: String, _props: JsValue) {}
 
+/// `globalThis.__tauler_theme_color`, behind the shared `themeColor` global — the same Rust
+/// QuickJS calls. A page has no `ctx.theme`, so `colors` is empty there unless the page sets it.
+#[wasm_bindgen(js_name = taulerThemeColor)]
+pub fn theme_color(colors: JsValue, token: String, alpha: Option<f64>) -> Result<String, JsValue> {
+    let colors: HashMap<String, String> = serde_wasm_bindgen::from_value(colors)?;
+    Ok(crate::theme::resolver::theme_color(&colors, &token, alpha))
+}
+
 /// Rewrite a tree's theme tokens against the shipped default theme for one mode, as the desktop
 /// does before rendering.
 #[wasm_bindgen(js_name = taulerResolveTheme)]

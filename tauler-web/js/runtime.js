@@ -73,6 +73,7 @@ export function boot(wasmUrl) {
 
     globalThis.useStringStream = wasm.taulerUseStringStream
     globalThis.registerModule = (bin, props) => wasm.taulerRegisterModule(bin, props)
+    globalThis.__tauler_theme_color = wasm.taulerThemeColor
     globalThis.__esto_h = estoH
     globalThis.Fragment = { [ESTO_FRAGMENT]: true }
 
