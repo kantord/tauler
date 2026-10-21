@@ -38,7 +38,7 @@ RUN gcc -O2 -o /artifacts/a11y-probe tauler-e2e/a11y-probe.c \
         $(pkg-config --cflags atspi-2) \
         $(pkg-config --libs atspi-2 gobject-2.0)
 
-FROM debian:bookworm-slim@sha256:7c7b2c966bc9ee8cedfeef67e0e279108992c77681fa595db4a9d65c06ccc587
+FROM debian:bookworm-slim@sha256:7ff6ba31527b9e336162fa061746c366c4b2032f4d2cff2078bea43f78efe3f8
 
 # dunst, rofi and kitty are here so that a rice can ship a real
 # `~/.config/dunst/dunstrc`, a real `.rasi` and a real `kitty.conf`, and so that
