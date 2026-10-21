@@ -649,24 +649,13 @@ fn theme_after_reload(
     }
 }
 
-/// `base` (the layout's `ctx`) with the active theme under `theme`: `{ name, mode, colors }`.
-///
-/// SPEC: a layout can read the colours it is drawn with. A Unit that writes another program's
-/// colour file (a terminal, a launcher) renders it from `ctx.theme.colors`, so that program
-/// follows `theme` instead of keeping a palette of its own.
+/// `base` (the layout's `ctx`) with the active theme under `theme` ([`Theme::ctx_json`]).
 ///
 /// The evaluators take it at construction, so every theme change has to rebuild them; a theme
 /// change always arrives as a layout reload (`handle_layout_reload`), which does.
 fn jsx_ctx_with_theme(base: &serde_json::Value, theme: &Theme) -> serde_json::Value {
     let mut ctx = base.clone();
-    ctx["theme"] = serde_json::json!({
-        "name": theme.name,
-        "mode": match theme.mode {
-            ThemeMode::Dark => "dark",
-            ThemeMode::Light => "light",
-        },
-        "colors": theme.colors,
-    });
+    ctx["theme"] = theme.ctx_json();
     ctx
 }
 

@@ -164,6 +164,24 @@ impl Theme {
         serde_yaml::from_str(yaml)
     }
 
+    /// What a layout file reads as `ctx.theme`: `{ name, mode, colors }`.
+    ///
+    /// SPEC: a layout can read the colours it is drawn with. A Unit that writes another
+    /// program's colour file (a terminal, a launcher) renders it from `ctx.theme.colors`, so
+    /// that program follows `theme` instead of keeping a palette of its own; `themeColor` reads
+    /// it too. One shape for every host that evaluates a layout file — the bar, the screenshot
+    /// tool and the browser — so a layout reads the same `ctx.theme` in each.
+    pub fn ctx_json(&self) -> serde_json::Value {
+        serde_json::json!({
+            "name": self.name,
+            "mode": match self.mode {
+                ThemeMode::Dark => "dark",
+                ThemeMode::Light => "light",
+            },
+            "colors": self.colors,
+        })
+    }
+
     /// Every core and ANSI token this theme leaves undefined.
     ///
     /// SPEC: empty means the theme is complete. Order is stable (the order of the token
@@ -284,6 +302,17 @@ mod tests {
         let msg = t.validated().unwrap_err().to_string();
         assert!(msg.contains("missing: foreground"), "{msg}");
         assert!(msg.contains("background = banana"), "{msg}");
+    }
+
+    /// Claim: `ctx.theme` is the theme's name, its mode as a string, and its colours.
+    #[test]
+    fn ctx_json_is_name_mode_and_colors() {
+        let theme =
+            Theme::from_yaml("name: t\nmode: light\ncolors:\n  primary: \"#112233\"\n").unwrap();
+        assert_eq!(
+            theme.ctx_json(),
+            serde_json::json!({ "name": "t", "mode": "light", "colors": { "primary": "#112233" } })
+        );
     }
 
     #[test]

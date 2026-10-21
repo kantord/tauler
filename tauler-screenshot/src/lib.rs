@@ -153,7 +153,10 @@ pub fn render(jsx_source: &str, options: &Options) -> Result<Screenshot, Error> 
         .clone()
         .unwrap_or_else(|| tauler::theme::builtin::default_for(options.theme));
 
-    let eval_output = JsxEvaluator::new(jsx_source, serde_json::Value::Null, None)
+    // `ctx.theme` is the theme the classes below are resolved against, so `themeColor` and
+    // `bg-primary` paint the same palette.
+    let ctx = serde_json::json!({ "theme": theme.ctx_json() });
+    let eval_output = JsxEvaluator::new(jsx_source, ctx, None)
         .map_err(|e| Error(e.to_string()))?
         .eval(&HashMap::new())
         .map_err(|e| Error(e.to_string()))?;
