@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.3](https://github.com/kantord/tauler/compare/tauler-v0.6.2...tauler-v0.6.3) - 2026-10-21
+
+### Added
+
+- add themeColor(token, alpha) global for theme colours as values ([#650](https://github.com/kantord/tauler/pull/650))
+
+### Fixed
+
+- *(deps)* update patch updates ([#644](https://github.com/kantord/tauler/pull/644))
+- *(deps)* bump rustls-webpki and webpki-roots for RUSTSEC-2026-0381/0382 ([#654](https://github.com/kantord/tauler/pull/654))
+- *(deps)* update rust crate jsonschema to v0.59.0 ([#648](https://github.com/kantord/tauler/pull/648))
+- update a few dependencies ([#642](https://github.com/kantord/tauler/pull/642))
+
+### Other
+
+- skip semver check until 0.6.3 is tagged ([#655](https://github.com/kantord/tauler/pull/655))
+- *(deps)* update rust crate rstest to v0.28.0 ([#653](https://github.com/kantord/tauler/pull/653))
+
 ## [0.6.2](https://github.com/kantord/tauler/compare/tauler-v0.6.1...tauler-v0.6.2) - 2026-10-15
 
 ### Added

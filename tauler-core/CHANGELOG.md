@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.8](https://github.com/kantord/tauler/compare/tauler-core-v0.3.7...tauler-core-v0.3.8) - 2026-10-21
+
+### Added
+
+- add themeColor(token, alpha) global for theme colours as values ([#650](https://github.com/kantord/tauler/pull/650))
+
+### Other
+
+- *(deps)* update rust crate rstest to v0.28.0 ([#653](https://github.com/kantord/tauler/pull/653))
+
 ## [0.3.7](https://github.com/kantord/tauler/compare/tauler-core-v0.3.6...tauler-core-v0.3.7) - 2026-10-15
 
 ### Added
