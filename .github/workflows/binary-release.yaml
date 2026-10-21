@@ -16,7 +16,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
         with:
-          toolchain: "1.99.0"
+          toolchain: "1.99.1"
       - name: Resolve crate and binary from release tag
         id: resolve
         run: |
@@ -66,7 +66,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
         with:
-          toolchain: "1.99.0"
+          toolchain: "1.99.1"
           targets: ${{ matrix.target }}
       - name: Install build dependencies
         run: |
