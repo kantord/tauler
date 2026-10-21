@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.3](https://github.com/kantord/tauler/compare/taulerbox-v0.6.2...taulerbox-v0.6.3) - 2026-10-21
+
+### Fixed
+
+- *(deps)* update rust crate tokio to v1.53.3 ([#640](https://github.com/kantord/tauler/pull/640))
+
+### Other
+
+- *(deps)* update rust crate rstest to v0.28.0 ([#653](https://github.com/kantord/tauler/pull/653))
+- *(deps)* update debian:trixie docker digest to 4c25275 ([#652](https://github.com/kantord/tauler/pull/652))
+
 ## [0.6.2](https://github.com/kantord/tauler/compare/taulerbox-v0.6.1...taulerbox-v0.6.2) - 2026-10-15
 
 ### Fixed
