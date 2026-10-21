@@ -3,6 +3,12 @@
 # crashes release-plz during index polling. The release workflow publishes.
 publish = false
 
+# TEMPORARY: re-enable (delete this line) once 0.6.3 has been tagged. The published
+# 0.6.2 doesn't pin `takumi-svg`/`takumi-raster`, so the fresh resolve
+# cargo-semver-checks does for the baseline pulls two `takumi-core` copies and fails
+# to compile. 0.6.3 carries the pins and is a buildable baseline.
+semver_check = false
+
 # Breaks the version bump loop (release-plz#1181), where the "chore: release"
 # commit's own Cargo.toml changes read as unreleased work.
 release_commits = "^(feat|fix|refactor|perf|build)"
