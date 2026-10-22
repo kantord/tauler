@@ -203,3 +203,68 @@ fn a_wallpaper_change_re_renders_a_panel_whose_content_is_unchanged() {
         "the panel must show the new wallpaper even though its content is identical"
     );
 }
+
+/// Render `content` over `p`'s slice of the wallpaper and return pixel `(1, 1)` as RGB.
+fn render_corner(p: &SurfaceSpec, content: &serde_json::Value) -> (u8, u8, u8) {
+    let backdrop = crop_for(p, (PANEL, PANEL));
+    assert!(backdrop.is_some(), "the panel must get a backdrop");
+    let bgrx = render_frame_keyed(content, PANEL, PANEL, 1.0, backdrop.as_ref());
+    let i = ((PANEL + 1) * 4) as usize;
+    (bgrx[i + 2], bgrx[i + 1], bgrx[i])
+}
+
+/// Pins the paint order everything below relies on (CSS 2.1 Appendix E): an absolutely
+/// positioned box paints *after* an in-flow sibling at `z-index: auto`, even though it
+/// comes first in the tree. takumi-core 0.25 painted both in tree order; 0.29 follows
+/// the spec. If a takumi bump changes this again, this fails before the frame breaks.
+#[test]
+fn an_absolute_backdrop_paints_over_a_later_in_flow_sibling() {
+    init_global_ctx(FontConfig::default());
+    publish("paint-order", green_wallpaper_bgrx());
+
+    let content = serde_json::json!({
+        "type": "div",
+        "style": { "position": "relative", "width": "100%", "height": "100%" },
+        "children": [
+            backdrop_content()["children"][0].clone(),
+            {
+                "type": "div",
+                "style": { "width": "100%", "height": "100%", "backgroundColor": "#ff0000" }
+            }
+        ]
+    });
+    assert_eq!(
+        render_corner(&panel("po", "paint-order", 0), &content),
+        GREEN,
+        "the absolute backdrop paints last and covers the in-flow div"
+    );
+}
+
+/// The bug: `<Workspaces>` frames were invisible, painted over by the `root-bg`
+/// backdrop the generated frame panel adds behind them.
+#[test]
+fn a_workspaces_frame_paints_over_its_own_backdrop() {
+    init_global_ctx(FontConfig::default());
+    publish("frame", green_wallpaper_bgrx());
+
+    let wrapper = serde_json::json!({
+        "type": "div",
+        "style": {
+            "width": "100%", "height": "100%", "padding": 5,
+            "backgroundColor": "#ff0000"
+        },
+        "children": [{
+            "type": "div",
+            "style": { "width": "100%", "height": "100%" },
+            "data-tauler-workspaces-content": true
+        }]
+    });
+    let layout = tauler::workspaces::lay_out("ws", &wrapper, PANEL, PANEL);
+    let content = &layout.panels[0]["children"][0];
+
+    assert_eq!(
+        render_corner(&panel("fr", "frame", 0), content),
+        RED,
+        "the wrapper's 5px band must show its own colour, not the wallpaper"
+    );
+}
