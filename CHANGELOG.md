@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- `<Workspaces>` frames are visible again. From the takumi bump in [#634](https://github.com/kantord/tauler/pull/634) until this fix, the generated frame panel's `tauler:root-bg` backdrop painted over the wrapper, so no card, border or shadow showed. Workaround on affected versions: add `relative` to the outer element of the `<Workspaces>` wrapper.
+
 ## [0.6.3](https://github.com/kantord/tauler/compare/tauler-v0.6.2...tauler-v0.6.3) - 2026-10-21
 
 ### Added

@@ -12,6 +12,9 @@
 //! paints a visible seam at every internal boundary between separately-rasterized
 //! panels, and `edge_strips()` plus the content rect always exactly reconstruct the
 //! full area with no gaps or overlaps, so there is nothing left to slice apart.
+//! Inside that panel the wrapper sits in a `position: relative` box above an absolute
+//! `tauler:root-bg` image; without that box the backdrop would paint over the wrapper
+//! (see `panel_json`).
 //!
 //! `<Contents/>` is a real, painted `<div>`, not literally invisible — the issue that
 //! asked for this pictured "an invisible dummy component," but nothing here needs the
@@ -167,6 +170,11 @@ pub struct WorkspacesLayout {
 /// [`ROOT_BG_KEY`] is added automatically, sized to this panel's own full `width` ×
 /// `height`. Every hand-written `<Panel>` that wants to look transparent adds this
 /// image itself; a generated frame panel gets it for free.
+///
+/// `wrapper` sits inside a `position: relative` box, not directly after the image: an
+/// absolutely positioned box paints after every in-flow sibling (CSS 2.1 Appendix E),
+/// so a bare in-flow wrapper would be covered by its own backdrop. This is the same
+/// shape the layout-file docs prescribe for content over `root-bg`.
 fn panel_json(id: &str, width: u32, height: u32, wrapper: &Value) -> Value {
     serde_json::json!({
         "type": "panel",
@@ -185,7 +193,11 @@ fn panel_json(id: &str, width: u32, height: u32, wrapper: &Value) -> Value {
                     "src": ROOT_BG_KEY,
                     "style": { "position": "absolute", "top": 0, "left": 0, "width": "100%", "height": "100%" },
                 },
-                wrapper.clone(),
+                {
+                    "type": "div",
+                    "style": { "position": "relative", "width": "100%", "height": "100%" },
+                    "children": [wrapper.clone()],
+                },
             ],
         }],
     })

@@ -1,10 +1,18 @@
 // Scenario: a sidebar, then `<Workspaces>` framing the rest of the screen with a
 // 12px border on every side. The border's color is only known from the wrapper's
 // own CSS — nothing here restates it as a size, which is the whole point.
+//
+// The wallpaper is there so the frame panel's `tauler:root-bg` backdrop has
+// something opaque to paint. Without it, a backdrop stacked over the frame (as
+// after the takumi bump in #634) draws nothing and the frame still looks right.
+// Both colours are literal hex so the test can name them without a theme.
 
 export default function render() {
   return (
     <root>
+      <wallpaper id="desktop">
+        <div class="w-full h-full" style={{ backgroundColor: "#00ff00" }} />
+      </wallpaper>
       <I3Layout module="/usr/local/bin/tauler-i3">
         <Panel id="sidebar" anchor="left" size={272}>
           <div class="flex flex-col h-full w-full gap-4 px-4 py-4 bg-background">
@@ -13,7 +21,7 @@ export default function render() {
         </Panel>
         <Workspaces>
           {(Contents) => (
-            <div class="w-full h-full p-3 bg-accent">
+            <div class="w-full h-full p-3" style={{ backgroundColor: "#ff00ff" }}>
               <Contents class="w-full h-full rounded-lg bg-background" />
             </div>
           )}

@@ -94,7 +94,7 @@ fn three_edge_stack_reserves_each_edge_in_order() -> Result<()> {
 #[test]
 #[ignore = "needs Docker and `just e2e-image`"]
 fn workspaces_frames_the_area_beside_the_sidebar() -> Result<()> {
-    run(
+    let (_desktop, screenshot) = run(
         "workspaces-frame",
         "workspaces-frames-the-area-beside-the-sidebar",
         Expected {
@@ -108,6 +108,18 @@ fn workspaces_frames_the_area_beside_the_sidebar() -> Result<()> {
             clients: 2,
         },
     )?;
+
+    // The middle of the 12px band on the left and bottom edges, clear of the
+    // windows. The frame is #ff00ff and the wallpaper under it #00ff00, so green
+    // here means the panel's own `tauler:root-bg` backdrop painted over the frame.
+    for (x, y) in [(272 + 6, 540), (1100, 1080 - 6)] {
+        let [r, g, b, _] = pixel_at(&screenshot, x, y)?;
+        assert_eq!(
+            [r, g, b],
+            [0xff, 0x00, 0xff],
+            "the frame band at ({x}, {y}) is not the wrapper's colour"
+        );
+    }
     Ok(())
 }
 
