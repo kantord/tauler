@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.4](https://github.com/kantord/tauler/compare/tauler-v0.6.3...tauler-v0.6.4) - 2026-10-22
+
+### Fixed
+
+- *(deps)* update takumi crates ([#632](https://github.com/kantord/tauler/pull/632))
+- paint <Workspaces> frame above its root-bg backdrop ([#661](https://github.com/kantord/tauler/pull/661))
+
+### Other
+
+- re-enable cargo-semver-checks in release-plz ([#657](https://github.com/kantord/tauler/pull/657))
+
 ### Fixed
 
 - `<Workspaces>` frames are visible again. From the takumi bump in [#634](https://github.com/kantord/tauler/pull/634) until this fix, the generated frame panel's `tauler:root-bg` backdrop painted over the wrapper, so no card, border or shadow showed. Workaround on affected versions: add `relative` to the outer element of the `<Workspaces>` wrapper.
