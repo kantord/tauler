@@ -37,7 +37,7 @@ fn evaluator() -> JsxEvaluator {
     let ctx = serde_json::json!({
         "output": "DP-1", "dpi": 140.0, "screen_width": 2560, "screen_height": 1440
     });
-    JsxEvaluator::new(&source, ctx, Some(dir.as_path())).expect("fixture compiles")
+    JsxEvaluator::new(&source, ctx, Some(&dir.join("layout.jsx"))).expect("fixture compiles")
 }
 
 /// Ten stream snapshots, differing the way a dragged control differs: one value

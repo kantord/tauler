@@ -302,7 +302,7 @@ impl Reconciler {
     pub fn spawn(
         source: String,
         ctx: Value,
-        base_dir: Option<PathBuf>,
+        layout_path: Option<PathBuf>,
         stream_values: SharedStreamValues,
         globals: crate::jsx::SharedGlobals,
         pkg_ctx: Option<crate::pkg::PackageContext>,
@@ -325,12 +325,12 @@ impl Reconciler {
                     Some(pkg_ctx) => JsxEvaluator::new_reconciler_with_packages(
                         &source,
                         ctx,
-                        base_dir.as_deref(),
+                        layout_path.as_deref(),
                         globals,
                         pkg_ctx,
                     ),
                     None => {
-                        JsxEvaluator::new_reconciler(&source, ctx, base_dir.as_deref(), globals)
+                        JsxEvaluator::new_reconciler(&source, ctx, layout_path.as_deref(), globals)
                     }
                 };
                 let evaluator = match evaluator {
@@ -1990,7 +1990,7 @@ mod tests {
         let evaluator = JsxEvaluator::new_reconciler(
             &layout,
             serde_json::Value::Null,
-            Some(dir.path()),
+            Some(&dir.path().join("layout.jsx")),
             Default::default(),
         )
         .unwrap();
@@ -2021,7 +2021,7 @@ mod tests {
         let result = JsxEvaluator::new_reconciler(
             layout,
             serde_json::Value::Null,
-            Some(dir.path()),
+            Some(&dir.path().join("layout.jsx")),
             Default::default(),
         );
 

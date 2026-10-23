@@ -1004,15 +1004,19 @@ impl App {
         let Some(loaded) = load_layout_or_exit(self.layout_source.as_ref()) else {
             return;
         };
+        // `load_layout_or_exit` returned `Some`, so there is a source.
+        let layout_path = self.layout_source.as_ref().unwrap().path().to_path_buf();
         let source = loaded.js_source;
         let t = std::time::Instant::now();
-        let base_dir = self.config_dir.clone();
         let ctx = jsx_ctx_with_theme(&self.jsx_ctx, &self.theme);
         let evaluator = match self.package_context() {
-            Some(pkg_ctx) => {
-                tauler::jsx::JsxEvaluator::new_with_packages(&source, ctx, Some(&base_dir), pkg_ctx)
-            }
-            None => tauler::jsx::JsxEvaluator::new(&source, ctx, Some(&base_dir)),
+            Some(pkg_ctx) => tauler::jsx::JsxEvaluator::new_with_packages(
+                &source,
+                ctx,
+                Some(&layout_path),
+                pkg_ctx,
+            ),
+            None => tauler::jsx::JsxEvaluator::new(&source, ctx, Some(&layout_path)),
         };
         let evaluator = match evaluator {
             Ok(e) => e,
@@ -1029,7 +1033,7 @@ impl App {
                 self.apply_eval_result_dispatch(&out, None);
                 self.jsx_evaluator = Some(evaluator);
                 self.reconcile_import_watches(loaded);
-                self.spawn_reconciler(&source, &base_dir, &self.theme.clone());
+                self.spawn_reconciler(&source, &layout_path, &self.theme.clone());
             }
             Err(e) => tracing::error!(error = %e, "JSX eval error"),
         }
@@ -1043,7 +1047,7 @@ impl App {
     /// between two Ticks. The cost of being wrong is one module evaluation per
     /// load, which ADR 0034 already accounts for; the cost of guessing wrong the
     /// other way would be a Unit that silently never reconciles.
-    fn spawn_reconciler(&mut self, source: &str, base_dir: &std::path::Path, theme: &Theme) {
+    fn spawn_reconciler(&mut self, source: &str, layout_path: &std::path::Path, theme: &Theme) {
         let Some(globals) = self.jsx_evaluator.as_ref().map(|e| e.globals_handle()) else {
             return;
         };
@@ -1051,7 +1055,7 @@ impl App {
         self.reconciler = Some(tauler::units::Reconciler::spawn(
             source.to_string(),
             jsx_ctx_with_theme(&self.jsx_ctx, theme),
-            Some(base_dir.to_path_buf()),
+            Some(layout_path.to_path_buf()),
             std::sync::Arc::clone(&self.stream_values),
             globals,
             self.package_context(),
@@ -1094,7 +1098,7 @@ impl App {
         // before attempting this — the previous shape — meant any failure here blanked
         // the whole bar's reconciliation, not just the one thing that changed, until the
         // next successful reload (found by review, tracing this exact function).
-        let base_dir = self.config_dir.clone();
+        let layout_path = source.path().to_path_buf();
         let theme_source = theme_source_from(&loaded.config);
         // The theme the layout is evaluated against is the one it will be drawn with.
         let theme = theme_after_reload(&self.theme, theme_source.load(), theme_source.mode);
@@ -1103,10 +1107,10 @@ impl App {
             Some(pkg_ctx) => tauler::jsx::JsxEvaluator::new_with_packages(
                 &loaded.js_source,
                 ctx,
-                Some(&base_dir),
+                Some(&layout_path),
                 pkg_ctx,
             ),
-            None => tauler::jsx::JsxEvaluator::new(&loaded.js_source, ctx, Some(&base_dir)),
+            None => tauler::jsx::JsxEvaluator::new(&loaded.js_source, ctx, Some(&layout_path)),
         };
         let evaluator = match evaluator {
             Ok(evaluator) => evaluator,
@@ -1141,7 +1145,7 @@ impl App {
         self.apply_eval_result_dispatch(&out, None);
         self.jsx_evaluator = Some(evaluator);
         self.reconcile_import_watches(loaded_paths);
-        self.spawn_reconciler(&loaded.js_source, &base_dir, &self.theme.clone());
+        self.spawn_reconciler(&loaded.js_source, &layout_path, &self.theme.clone());
         self.reconcile_theme_file_watch(theme_source.file);
         tracing::info!("layout reloaded");
         true

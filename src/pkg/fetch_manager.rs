@@ -295,30 +295,7 @@ mod tests {
 
     /// A local, network-free stand-in for a real `@gh/owner/repo`.
     fn fixture_repo(dir: &std::path::Path) -> (PathBuf, String) {
-        let repo = dir.join("fixture-repo");
-        std::fs::create_dir_all(&repo).expect("create fixture repo dir");
-        let run = |args: &[&str]| {
-            let status = std::process::Command::new("git")
-                .args(args)
-                .current_dir(&repo)
-                .status()
-                .expect("run git");
-            assert!(status.success());
-        };
-        run(&["init", "--quiet"]);
-        run(&["config", "user.email", "test@example.com"]);
-        run(&["config", "user.name", "Test"]);
-        std::fs::write(repo.join("index.jsx"), "export default () => null;")
-            .expect("write index.jsx");
-        run(&["add", "."]);
-        run(&["commit", "--quiet", "-m", "initial"]);
-        let output = std::process::Command::new("git")
-            .args(["rev-parse", "HEAD"])
-            .current_dir(&repo)
-            .output()
-            .expect("git rev-parse");
-        let sha = String::from_utf8_lossy(&output.stdout).trim().to_string();
-        (repo, sha)
+        crate::pkg::git::fixture_repo(dir, &[("index.jsx", "export default () => null;", false)])
     }
 
     #[test]

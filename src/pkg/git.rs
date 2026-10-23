@@ -240,36 +240,45 @@ pub fn fetch_head_and_place(
     Ok((sha, final_path, outcome))
 }
 
+/// Commits `files` (path, contents, executable) to a local, network-free "remote"
+/// repo, a stand-in for a real `@gh/owner/repo`. Returns the repo's path and the sha
+/// of its one commit. Shared with the evaluator's Package tests.
+#[cfg(test)]
+pub(crate) fn fixture_repo(dir: &Path, files: &[(&str, &str, bool)]) -> (PathBuf, String) {
+    use std::os::unix::fs::PermissionsExt;
+
+    let repo = dir.join("remote-repo");
+    std::fs::create_dir_all(&repo).expect("create fixture repo dir");
+    run_git(&["init", "--quiet"], Some(&repo)).expect("git init");
+    run_git(&["config", "user.email", "test@example.com"], Some(&repo)).expect("git config email");
+    run_git(&["config", "user.name", "Test"], Some(&repo)).expect("git config name");
+    for (path, contents, executable) in files {
+        let path = repo.join(path);
+        std::fs::create_dir_all(path.parent().unwrap()).expect("create fixture dir");
+        std::fs::write(&path, contents).expect("write fixture file");
+        if *executable {
+            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755))
+                .expect("chmod fixture file");
+        }
+    }
+    run_git(&["add", "."], Some(&repo)).expect("git add");
+    run_git(&["commit", "--quiet", "-m", "initial"], Some(&repo)).expect("git commit");
+    (repo.clone(), head_sha(&repo).expect("git rev-parse"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    /// A local, network-free stand-in for a real `@gh/owner/repo`: `git init`, one
-    /// commit. Returns the repo path and the sha of that commit.
-    fn fixture_repo(dir: &Path) -> (PathBuf, String) {
-        let repo = dir.join("fixture-repo");
-        std::fs::create_dir_all(&repo).expect("create fixture repo dir");
-        run_git(&["init", "--quiet"], Some(&repo)).expect("git init");
-        run_git(&["config", "user.email", "test@example.com"], Some(&repo))
-            .expect("git config email");
-        run_git(&["config", "user.name", "Test"], Some(&repo)).expect("git config name");
-        std::fs::write(repo.join("index.jsx"), "export default () => null;")
-            .expect("write index.jsx");
-        run_git(&["add", "."], Some(&repo)).expect("git add");
-        run_git(&["commit", "--quiet", "-m", "initial"], Some(&repo)).expect("git commit");
-        let output = Command::new("git")
-            .args(["rev-parse", "HEAD"])
-            .current_dir(&repo)
-            .output()
-            .expect("git rev-parse");
-        let sha = String::from_utf8_lossy(&output.stdout).trim().to_string();
-        (repo, sha)
+    /// The smallest Package: one `index.jsx`.
+    fn index_only_repo(dir: &Path) -> (PathBuf, String) {
+        fixture_repo(dir, &[("index.jsx", "export default () => null;", false)])
     }
 
     #[test]
     fn clone_into_checks_out_the_repos_files() {
         let dir = tempfile::tempdir().expect("tempdir");
-        let (repo, _sha) = fixture_repo(dir.path());
+        let (repo, _sha) = index_only_repo(dir.path());
         let dest = dir.path().join("clone-dest");
 
         clone_into(&repo.to_string_lossy(), &dest).expect("clone should succeed");
@@ -280,7 +289,7 @@ mod tests {
     #[test]
     fn checkout_moves_the_working_tree_to_the_given_sha() {
         let dir = tempfile::tempdir().expect("tempdir");
-        let (repo, first_sha) = fixture_repo(dir.path());
+        let (repo, first_sha) = index_only_repo(dir.path());
         std::fs::write(repo.join("index.jsx"), "export default () => 'second';")
             .expect("overwrite index.jsx");
         run_git(&["add", "."], Some(&repo)).expect("git add second");
@@ -328,7 +337,7 @@ mod tests {
     #[test]
     fn fetch_and_place_produces_a_checkout_at_the_pinned_sha() {
         let dir = tempfile::tempdir().expect("tempdir");
-        let (repo, sha) = fixture_repo(dir.path());
+        let (repo, sha) = index_only_repo(dir.path());
         let cache_root = dir.path().join("cache");
         let final_path = cache_root.join("gh").join("foo").join("bar").join(&sha);
 
@@ -342,7 +351,7 @@ mod tests {
     #[test]
     fn fetch_and_place_is_a_no_op_when_the_final_path_is_already_warm() {
         let dir = tempfile::tempdir().expect("tempdir");
-        let (repo, sha) = fixture_repo(dir.path());
+        let (repo, sha) = index_only_repo(dir.path());
         let cache_root = dir.path().join("cache");
         let final_path = cache_root.join("gh").join("foo").join("bar").join(&sha);
         std::fs::create_dir_all(&final_path).expect("pre-warm final path");
@@ -363,7 +372,7 @@ mod tests {
     #[test]
     fn fetch_default_branch_and_place_does_not_attempt_a_checkout() {
         let dir = tempfile::tempdir().expect("tempdir");
-        let (repo, sha) = fixture_repo(dir.path());
+        let (repo, sha) = index_only_repo(dir.path());
         let cache_root = dir.path().join("cache");
         let final_path = cache_root
             .join("gh")
@@ -389,7 +398,7 @@ mod tests {
     #[test]
     fn fetch_default_branch_and_place_is_a_no_op_when_the_final_path_is_already_warm() {
         let dir = tempfile::tempdir().expect("tempdir");
-        let (repo, _sha) = fixture_repo(dir.path());
+        let (repo, _sha) = index_only_repo(dir.path());
         let cache_root = dir.path().join("cache");
         let final_path = cache_root
             .join("gh")
@@ -410,7 +419,7 @@ mod tests {
     #[test]
     fn checkout_of_an_unknown_ref_fails_loudly() {
         let dir = tempfile::tempdir().expect("tempdir");
-        let (repo, _sha) = fixture_repo(dir.path());
+        let (repo, _sha) = index_only_repo(dir.path());
         let dest = dir.path().join("clone-dest");
         clone_into(&repo.to_string_lossy(), &dest).expect("clone should succeed");
 
@@ -422,7 +431,7 @@ mod tests {
     #[test]
     fn fetch_head_and_place_pins_whatever_commit_head_currently_is() {
         let dir = tempfile::tempdir().expect("tempdir");
-        let (repo, expected_sha) = fixture_repo(dir.path());
+        let (repo, expected_sha) = index_only_repo(dir.path());
         let cache_root = dir.path().join("cache");
 
         let (sha, final_path, outcome) =
@@ -441,7 +450,7 @@ mod tests {
     #[test]
     fn fetch_head_and_place_is_a_no_op_when_that_commit_is_already_cached() {
         let dir = tempfile::tempdir().expect("tempdir");
-        let (repo, sha) = fixture_repo(dir.path());
+        let (repo, sha) = index_only_repo(dir.path());
         let cache_root = dir.path().join("cache");
         let final_path = cache_root.join("gh").join("foo").join("bar").join(&sha);
         std::fs::create_dir_all(&final_path).expect("pre-warm final path");
@@ -495,5 +504,26 @@ mod tests {
             .expect("should succeed");
 
         assert_eq!(removed, 0);
+    }
+
+    /// A Package's `bin/*` scripts are spawned directly (`<Module bin=…>`), so a
+    /// placed checkout must keep the executable bit git recorded.
+    #[test]
+    fn fetch_and_place_keeps_the_executable_bit() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = tempfile::tempdir().expect("tempdir");
+        let (repo, sha) = fixture_repo(dir.path(), &[("bin/x", "#!/bin/sh\necho hi\n", true)]);
+
+        let cache_root = dir.path().join("cache");
+        let final_path = cache_root.join("placed");
+        fetch_and_place(&repo.to_string_lossy(), &sha, &cache_root, &final_path)
+            .expect("fetch should succeed");
+
+        let mode = std::fs::metadata(final_path.join("bin/x"))
+            .expect("placed bin/x")
+            .permissions()
+            .mode();
+        assert_ne!(mode & 0o111, 0, "bin/x lost its executable bit: {mode:o}");
     }
 }

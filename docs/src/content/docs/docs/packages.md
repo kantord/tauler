@@ -56,3 +56,43 @@ same access to `sh` and everything else a layout file can reach. Importing one i
 the same kind of decision as pasting its code into your own layout, or installing
 any other package that runs code you haven't read. Only pull in a Package whose
 source you trust.
+
+## Shipping a program with a Package
+
+A Package can carry the program its component runs. Put it in the repository next to
+the component and name it through `import.meta.dirname`, the directory of the file
+that reads it:
+
+```
+tauler-volume/
+├── index.jsx
+├── data/Volume.jsx
+└── bin/tauler-volume
+```
+
+```jsx
+// data/Volume.jsx
+export const DEFAULT_BIN = `${import.meta.dirname}/../bin/tauler-volume`;
+
+export function Volume({ bin = DEFAULT_BIN }) {
+  const volume = useJSONStream(bin);
+  return <span>{volume?.percent ?? "…"}%</span>;
+}
+```
+
+`import.meta.dirname` points into the checkout of the pinned commit, so the program
+always matches the component that runs it. Nobody has to copy anything out of tauler's
+cache. `tauler pkg update` does not touch a running bar: the new commit, and the
+program from it, start on the next reload, such as saving the layout file.
+
+Commit the program with its executable bit set (`chmod +x bin/tauler-volume`, then
+`git add`). Packages are fetched with `git`, which keeps that bit.
+
+`import.meta.dirname` is `undefined` where there is no file on disk, such as a browser
+preview. Give it a fallback if your component must render there too:
+
+```jsx
+export const DEFAULT_BIN = import.meta.dirname
+  ? `${import.meta.dirname}/../bin/tauler-volume`
+  : "~/.local/bin/tauler-volume";
+```
