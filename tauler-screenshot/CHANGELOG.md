@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.5](https://github.com/kantord/tauler/compare/tauler-screenshot-v0.6.4...tauler-screenshot-v0.6.5) - 2026-10-23
+
+### Other
+
+- update Cargo.lock dependencies
+
 ## [0.6.4](https://github.com/kantord/tauler/compare/tauler-screenshot-v0.6.3...tauler-screenshot-v0.6.4) - 2026-10-22
 
 ### Other
