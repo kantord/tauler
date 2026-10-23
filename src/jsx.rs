@@ -24,6 +24,11 @@
 //! setup below: `useStringStream`, `useJSONStream`, `useEvents`, `Module`, `I3Layout`,
 //! `Panel`, `themeColor`, `globals` and `ctx`. rquickjs grants nothing by default, so that
 //! list is exhaustive by construction rather than by audit (ADR 0008).
+//!
+//! Each module also gets its own `import.meta.dirname`, `.filename` and `.url`: the
+//! layout file when it is declared, every import in `SchemaAwareLoader`. They are set
+//! from the canonical path, so a layout and its imports agree through a symlink, and a
+//! Package's point into its pinned checkout. With no layout path they stay `undefined`.
 
 use std::collections::HashMap;
 
@@ -450,6 +455,8 @@ fn set_import_meta<'js>(
     module: &rquickjs::Module<'js, rquickjs::module::Declared>,
     path: &Path,
 ) -> rquickjs::Result<()> {
+    // Imports arrive already canonical from the resolver; the layout file does not.
+    let path = &path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
     let meta = module.meta()?;
     if let Some(dir) = path.parent() {
         meta.set("dirname", dir.to_string_lossy().into_owned())?;
@@ -1719,11 +1726,13 @@ export default function render() { return <span class="text-white">{String(Foo()
         let _ = std::fs::remove_dir_all(&tmp_dir);
     }
 
-    /// Creates a local, network-free "remote" repo with `index.jsx` exporting
-    /// `Widget`, so `@gh/fixture/repo` resolves against it exactly the way a real
-    /// GitHub-hosted Package would — without any network access. Returns the
-    /// repo's path and the sha of its one commit.
-    fn git_package_fixture_repo(dir: &Path) -> (PathBuf, String) {
+    /// Commits `files` (path, contents, executable) to a local, network-free
+    /// "remote" repo, so `@gh/fixture/repo` resolves against it exactly the way a
+    /// real GitHub-hosted Package would. Returns the repo's path and the sha of its
+    /// one commit.
+    fn fixture_repo(dir: &Path, files: &[(&str, &str, bool)]) -> (PathBuf, String) {
+        use std::os::unix::fs::PermissionsExt;
+
         let repo = dir.join("remote-repo");
         std::fs::create_dir_all(&repo).expect("create fixture repo dir");
         let run = |args: &[&str]| {
@@ -1737,11 +1746,15 @@ export default function render() { return <span class="text-white">{String(Foo()
         run(&["init", "--quiet"]);
         run(&["config", "user.email", "test@example.com"]);
         run(&["config", "user.name", "Test"]);
-        std::fs::write(
-            repo.join("index.jsx"),
-            "export default function Widget() { return 42; }",
-        )
-        .expect("write index.jsx");
+        for (path, contents, executable) in files {
+            let path = repo.join(path);
+            std::fs::create_dir_all(path.parent().unwrap()).expect("create fixture dir");
+            std::fs::write(&path, contents).expect("write fixture file");
+            if *executable {
+                std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755))
+                    .expect("chmod fixture file");
+            }
+        }
         run(&["add", "."]);
         run(&["commit", "--quiet", "-m", "initial"]);
         let output = std::process::Command::new("git")
@@ -1752,6 +1765,13 @@ export default function render() { return <span class="text-white">{String(Foo()
         let sha = String::from_utf8_lossy(&output.stdout).trim().to_string();
         (repo, sha)
     }
+
+    /// A Package whose `index.jsx` default-exports `Widget`, returning 42.
+    const WIDGET_PACKAGE: &[(&str, &str, bool)] = &[(
+        "index.jsx",
+        "export default function Widget() { return 42; }",
+        false,
+    )];
 
     /// The full path, end to end, for an already-pinned-and-cached Package: the
     /// Lockfile names a commit, that commit's checkout is already on disk (placed
@@ -1764,38 +1784,8 @@ export default function render() { return <span class="text-white">{String(Foo()
     /// linking, exercised for real, not mocked at any layer.
     #[test]
     fn jsx_evaluator_resolves_a_warm_git_package_end_to_end() {
-        let dir = std::env::temp_dir().join(format!("tauler_git_pkg_warm_{}", std::process::id()));
-        std::fs::create_dir_all(&dir).expect("create dir");
-        let (remote, sha) = git_package_fixture_repo(&dir);
-
-        let layout_dir = dir.join("layout");
-        std::fs::create_dir_all(&layout_dir).expect("create layout dir");
-        let lockfile_path = layout_dir.join("tauler-pkg.lock");
-        let cache_root = dir.join("cache");
-
-        let final_path = crate::pkg::cache::pinned_cache_path(&cache_root, "fixture", "repo", &sha);
-        crate::pkg::git::fetch_and_place(&remote.to_string_lossy(), &sha, &cache_root, &final_path)
-            .expect("pre-warming the cache should succeed");
-
-        let mut lockfile = crate::pkg::lockfile::Lockfile::default();
-        lockfile.set(
-            "fixture",
-            "repo",
-            crate::pkg::lockfile::PackageEntry {
-                commit: sha.clone(),
-                development: false,
-            },
-        );
-        lockfile
-            .save_to_path(&lockfile_path)
-            .expect("saving the lockfile should succeed");
-
-        let (reload_tx, _reload_rx) = std::sync::mpsc::channel();
-        let pkg_ctx = crate::pkg::PackageContext {
-            fetch_manager: Arc::new(crate::pkg::fetch_manager::FetchManager::new(reload_tx)),
-            lockfile_path,
-            cache_root,
-        };
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let (layout_dir, pkg_ctx, _) = warm_package(tmp.path(), WIDGET_PACKAGE);
 
         let layout_source = r#"import Widget from "@gh/fixture/repo";
 export default function render() { return <span class="text-white">{String(Widget())}</span>; }"#;
@@ -1816,7 +1806,6 @@ export default function render() { return <span class="text-white">{String(Widge
             "expected the text child '42' from the imported Package's Widget(), got: {:?}",
             result
         );
-        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// A Package whose `index.jsx` itself imports a sibling file
@@ -1830,71 +1819,23 @@ export default function render() { return <span class="text-white">{String(Widge
     /// checkout's own root.
     #[test]
     fn jsx_evaluator_resolves_a_multi_file_git_package_end_to_end() {
-        let dir =
-            std::env::temp_dir().join(format!("tauler_git_pkg_multi_file_{}", std::process::id()));
-        std::fs::create_dir_all(&dir).expect("create dir");
-
-        let remote = dir.join("remote-repo");
-        std::fs::create_dir_all(&remote).expect("create fixture repo dir");
-        let run = |args: &[&str]| {
-            let status = std::process::Command::new("git")
-                .args(args)
-                .current_dir(&remote)
-                .status()
-                .expect("run git");
-            assert!(status.success());
-        };
-        run(&["init", "--quiet"]);
-        run(&["config", "user.email", "test@example.com"]);
-        run(&["config", "user.name", "Test"]);
-        std::fs::write(
-            remote.join("helper.jsx"),
-            "export function helperValue() { return 99; }",
-        )
-        .expect("write helper.jsx");
-        std::fs::write(
-            remote.join("index.jsx"),
-            "import { helperValue } from './helper.jsx';\n\
-             export default function Widget() { return helperValue(); }",
-        )
-        .expect("write index.jsx");
-        run(&["add", "."]);
-        run(&["commit", "--quiet", "-m", "initial"]);
-        let output = std::process::Command::new("git")
-            .args(["rev-parse", "HEAD"])
-            .current_dir(&remote)
-            .output()
-            .expect("git rev-parse");
-        let sha = String::from_utf8_lossy(&output.stdout).trim().to_string();
-
-        let layout_dir = dir.join("layout");
-        std::fs::create_dir_all(&layout_dir).expect("create layout dir");
-        let lockfile_path = layout_dir.join("tauler-pkg.lock");
-        let cache_root = dir.join("cache");
-
-        let final_path = crate::pkg::cache::pinned_cache_path(&cache_root, "fixture", "repo", &sha);
-        crate::pkg::git::fetch_and_place(&remote.to_string_lossy(), &sha, &cache_root, &final_path)
-            .expect("pre-warming the cache should succeed");
-
-        let mut lockfile = crate::pkg::lockfile::Lockfile::default();
-        lockfile.set(
-            "fixture",
-            "repo",
-            crate::pkg::lockfile::PackageEntry {
-                commit: sha,
-                development: false,
-            },
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let (layout_dir, pkg_ctx, _) = warm_package(
+            tmp.path(),
+            &[
+                (
+                    "helper.jsx",
+                    "export function helperValue() { return 99; }",
+                    false,
+                ),
+                (
+                    "index.jsx",
+                    "import { helperValue } from './helper.jsx';\n\
+                     export default function Widget() { return helperValue(); }",
+                    false,
+                ),
+            ],
         );
-        lockfile
-            .save_to_path(&lockfile_path)
-            .expect("saving the lockfile should succeed");
-
-        let (reload_tx, _reload_rx) = std::sync::mpsc::channel();
-        let pkg_ctx = crate::pkg::PackageContext {
-            fetch_manager: Arc::new(crate::pkg::fetch_manager::FetchManager::new(reload_tx)),
-            lockfile_path,
-            cache_root,
-        };
 
         let layout_source = r#"import Widget from "@gh/fixture/repo";
 export default function render() { return <span class="text-white">{String(Widget())}</span>; }"#;
@@ -1917,7 +1858,6 @@ export default function render() { return <span class="text-white">{String(Widge
             "expected the text child '99' from helper.jsx via index.jsx, got: {:?}",
             result
         );
-        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// A Package with no Lockfile entry and nothing cached yet (the ordinary
@@ -1983,7 +1923,7 @@ export default function render() { return <root>{String(Widget())}</root>; }"#,
         let dir =
             std::env::temp_dir().join(format!("tauler_git_pkg_dev_mode_{}", std::process::id()));
         std::fs::create_dir_all(&dir).expect("create dir");
-        let (remote, sha) = git_package_fixture_repo(&dir);
+        let (remote, sha) = fixture_repo(&dir, WIDGET_PACKAGE);
 
         let layout_dir = dir.join("layout");
         std::fs::create_dir_all(&layout_dir).expect("create layout dir");
@@ -2394,6 +2334,26 @@ export default function render() { return <div><span>{String(meta.dirname)}</spa
         assert_eq!(text_child(&tree, 2), format!("file://{filename}"));
     }
 
+    /// A layout reached through a symlinked directory (a common dotfiles setup) reports
+    /// the same resolved directory its imports do, since the resolver resolves theirs.
+    #[test]
+    fn the_layout_file_and_its_imports_agree_through_a_symlink() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let real = tmp.path().join("real");
+        std::fs::create_dir_all(&real).expect("create real dir");
+        std::fs::write(real.join("Foo.jsx"), EXPORT_META).expect("write Foo.jsx");
+        let link = tmp.path().join("link");
+        std::os::unix::fs::symlink(&real, &link).expect("symlink");
+
+        let tree = eval_layout_file(
+            &link,
+            r#"import { meta } from './Foo.jsx';
+export default function render() { return <div><span>{String(import.meta.dirname)}</span><span>{String(meta.dirname)}</span></div>; }"#,
+        );
+
+        assert_eq!(text_child(&tree, 0), text_child(&tree, 1));
+    }
+
     #[test]
     fn import_meta_url_is_percent_encoded() {
         let tmp = tempfile::tempdir().expect("tempdir");
@@ -2412,7 +2372,7 @@ export default function render() { return <div><span>{String(meta.dirname)}</spa
     #[test]
     fn import_meta_is_undefined_without_a_layout_path() {
         let tree = JsxEvaluator::new(
-            r#"export default function render() { return <div><span>{String(import.meta.dirname)}</span></div>; }"#,
+            r#"export default function render() { return <div><span>{String(import.meta.dirname)}</span><span>{String(import.meta.filename)}</span><span>{String(import.meta.url)}</span></div>; }"#,
             serde_json::Value::Null,
             None,
         )
@@ -2420,7 +2380,9 @@ export default function render() { return <div><span>{String(meta.dirname)}</spa
         .eval(&std::collections::HashMap::new())
         .unwrap()
         .layout;
-        assert_eq!(text_child(&tree, 0), "undefined");
+        for i in 0..3 {
+            assert_eq!(text_child(&tree, i), "undefined");
+        }
     }
 
     /// Commits `files` (path, contents, executable) to a fresh local repo, warms the
@@ -2430,38 +2392,7 @@ export default function render() { return <div><span>{String(meta.dirname)}</spa
         dir: &Path,
         files: &[(&str, &str, bool)],
     ) -> (PathBuf, crate::pkg::PackageContext, PathBuf) {
-        use std::os::unix::fs::PermissionsExt;
-
-        let remote = dir.join("remote-repo");
-        std::fs::create_dir_all(&remote).expect("create fixture repo dir");
-        let run = |args: &[&str]| {
-            let status = std::process::Command::new("git")
-                .args(args)
-                .current_dir(&remote)
-                .status()
-                .expect("run git");
-            assert!(status.success());
-        };
-        run(&["init", "--quiet"]);
-        run(&["config", "user.email", "test@example.com"]);
-        run(&["config", "user.name", "Test"]);
-        for (path, contents, executable) in files {
-            let path = remote.join(path);
-            std::fs::create_dir_all(path.parent().unwrap()).expect("create fixture dir");
-            std::fs::write(&path, contents).expect("write fixture file");
-            if *executable {
-                std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755))
-                    .expect("chmod fixture file");
-            }
-        }
-        run(&["add", "."]);
-        run(&["commit", "--quiet", "-m", "initial"]);
-        let output = std::process::Command::new("git")
-            .args(["rev-parse", "HEAD"])
-            .current_dir(&remote)
-            .output()
-            .expect("git rev-parse");
-        let sha = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        let (remote, sha) = fixture_repo(dir, files);
 
         let layout_dir = dir.join("layout");
         std::fs::create_dir_all(&layout_dir).expect("create layout dir");

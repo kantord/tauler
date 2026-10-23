@@ -29,11 +29,12 @@ pub fn eval_jsx_with_streams(
         .expect("eval failed")
 }
 
-pub fn eval_jsx_from_dir(source: &str, base_dir: &Path) -> EvalOutput {
+/// Evaluates `source` as `<layout_dir>/layout.jsx`, so relative imports resolve from `layout_dir`.
+pub fn eval_jsx_from_dir(source: &str, layout_dir: &Path) -> EvalOutput {
     JsxEvaluator::new(
         source,
         serde_json::Value::Null,
-        Some(&base_dir.join("layout.jsx")),
+        Some(&layout_dir.join("layout.jsx")),
     )
     .expect("JsxEvaluator::new failed")
     .eval(&HashMap::new())

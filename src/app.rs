@@ -1004,9 +1004,8 @@ impl App {
         let Some(loaded) = load_layout_or_exit(self.layout_source.as_ref()) else {
             return;
         };
-        let Some(layout_path) = self.layout_source.as_ref().map(|s| s.path().to_path_buf()) else {
-            return;
-        };
+        // `load_layout_or_exit` returned `Some`, so there is a source.
+        let layout_path = self.layout_source.as_ref().unwrap().path().to_path_buf();
         let source = loaded.js_source;
         let t = std::time::Instant::now();
         let ctx = jsx_ctx_with_theme(&self.jsx_ctx, &self.theme);

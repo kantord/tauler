@@ -1292,9 +1292,8 @@ fn main() -> anyhow::Result<()> {
         "screen_width": INITIAL_WINDOW_WIDTH,
         "screen_height": INITIAL_WINDOW_HEIGHT,
     });
-    let base_dir = args.layout.parent().unwrap();
     let evaluator =
-        tauler::jsx::JsxEvaluator::new(&loaded.js_source, ctx_json.clone(), Some(base_dir))?;
+        tauler::jsx::JsxEvaluator::new(&loaded.js_source, ctx_json.clone(), Some(&args.layout))?;
 
     // The reconciler runtime: its own thread, its own QuickJS runtime, sweeping
     // forever for as long as this binding lives. `stream_values` starts empty —
@@ -1304,7 +1303,7 @@ fn main() -> anyhow::Result<()> {
     let _reconciler = tauler::units::Reconciler::spawn(
         loaded.js_source.clone(),
         ctx_json,
-        Some(base_dir.to_path_buf()),
+        Some(args.layout.clone()),
         stream_values,
         evaluator.globals_handle(),
         None,

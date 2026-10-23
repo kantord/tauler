@@ -88,9 +88,8 @@ commit.
 Commit the program with its executable bit set (`chmod +x bin/tauler-volume`, then
 `git add`). tauler fetches Packages with `git`, which keeps that bit.
 
-`import.meta.dirname` is `undefined` where there is no file on disk: in a browser
-preview, and in a screenshot rendered from a source string. Give it a fallback if your
-component must render there too:
+`import.meta.dirname` is `undefined` where there is no file on disk, such as a browser
+preview. Give it a fallback if your component must render there too:
 
 ```jsx
 export const DEFAULT_BIN = import.meta.dirname

@@ -32,8 +32,8 @@ register: JSX handles `<Card />` as a function call already.
 Every file tauler loads, the layout file and everything it imports, can read where it
 lives: `import.meta.dirname` (its directory), `import.meta.filename` (its absolute path)
 and `import.meta.url` (the same path as a `file://` URL). They are plain strings and
-open nothing. They are `undefined` where there is no file on disk, such as a browser
-preview. [Packages](/docs/packages/#shipping-a-program-with-a-package) use them to run a
+open nothing. In a browser preview there is no file on disk: `dirname` and `filename` are
+`undefined`, and `url` is the address the browser loaded the file from. [Packages](/docs/packages/#shipping-a-program-with-a-package) use them to run a
 program they ship.
 
 Theme and font choice live in a YAML frontmatter block at the top of the file:
