@@ -89,14 +89,13 @@ async fn main() {
     };
 
     let conn = zbus::connection::Builder::session()
-        .expect("session bus unavailable")
         .name("org.freedesktop.Notifications")
-        .expect("could not claim org.freedesktop.Notifications — is another daemon running?")
         .serve_at("/org/freedesktop/Notifications", server)
-        .expect("serve_at failed")
         .build()
         .await
-        .expect("D-Bus connection failed");
+        .expect(
+            "D-Bus connection failed (session bus unavailable, or another daemon owns org.freedesktop.Notifications)",
+        );
 
     // Emit empty list immediately so tauler has an initial value.
     emit(&[]);
