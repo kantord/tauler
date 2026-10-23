@@ -3,7 +3,7 @@ use std::sync::atomic::{AtomicU32, Ordering};
 
 use tokio::sync::mpsc;
 use zbus::interface;
-use zbus::zvariant::OwnedValue;
+use zbus::OwnedVariant;
 
 use crate::model::{CloseReason, Event, Notification};
 
@@ -27,7 +27,7 @@ impl NotifyServer {
         summary: &str,
         body: &str,
         _actions: Vec<String>,
-        hints: HashMap<String, OwnedValue>,
+        hints: HashMap<String, OwnedVariant>,
         expire_timeout: i32,
         #[zbus(header)] header: zbus::message::Header<'_>,
         #[zbus(connection)] connection: &zbus::Connection,
@@ -95,7 +95,7 @@ impl NotifyServer {
 /// stacking. Two spellings are in the wild and mean the same thing:
 /// `x-canonical-private-synchronous` (Ubuntu/GNOME) and `x-dunst-stack-tag`.
 /// A wrongly-typed hint reads as untagged rather than failing the call.
-fn stack_tag(hints: &HashMap<String, OwnedValue>) -> Option<String> {
+fn stack_tag(hints: &HashMap<String, OwnedVariant>) -> Option<String> {
     ["x-canonical-private-synchronous", "x-dunst-stack-tag"]
         .iter()
         .filter_map(|key| hints.get(*key))
@@ -166,12 +166,12 @@ mod tests {
         assert_eq!(parse_enwiro_env(environ), None);
     }
 
-    fn hints(pairs: &[(&str, zbus::zvariant::Value<'static>)]) -> HashMap<String, OwnedValue> {
+    fn hints(pairs: &[(&str, zbus::zvariant::Value<'static>)]) -> HashMap<String, OwnedVariant> {
         pairs
             .iter()
             .map(|(k, v)| {
-                let owned = OwnedValue::try_from(v.try_clone().expect("hint value must clone"))
-                    .expect("hint value must convert to OwnedValue");
+                let owned = OwnedVariant::try_from(v.try_clone().expect("hint value must clone"))
+                    .expect("hint value must convert to OwnedVariant");
                 (k.to_string(), owned)
             })
             .collect()
