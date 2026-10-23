@@ -342,7 +342,7 @@ impl Drop for JsxEvaluator {
 }
 
 /// No-op resolver/loader pair used in place of a filesystem resolver when
-/// `JsxEvaluator::new` is called with `base_dir: None`. `build_runtime` always
+/// `JsxEvaluator::new` is called with `layout_path: None`. `build_runtime` always
 /// composes its builtin resolver/loader with a second one, so this pair stands in
 /// for "no filesystem access at all" — matching the pre-`build_runtime` behavior,
 /// where the `None` branch registered only `builtin_resolver`/`builtin_loader` and
@@ -423,7 +423,9 @@ impl Loader for SchemaAwareLoader {
         attrs: Option<rquickjs::loader::ImportAttributes<'js>>,
     ) -> rquickjs::Result<rquickjs::Module<'js, rquickjs::module::Declared>> {
         if !name.ends_with(SCHEMA_FILE_SUFFIX) {
-            return self.inner.load(ctx, name, attrs);
+            let module = self.inner.load(ctx, name, attrs)?;
+            set_import_meta(&module, Path::new(name))?;
+            return Ok(module);
         }
         let source =
             std::fs::read_to_string(name).map_err(|_| rquickjs::Error::new_loading(name))?;
@@ -433,8 +435,30 @@ impl Loader for SchemaAwareLoader {
         })?;
         let generated = tauler_configgen::generate(&schema);
         self.loaded_paths.lock().unwrap().push(PathBuf::from(name));
-        rquickjs::Module::declare(ctx.clone(), name, generated)
+        let module = rquickjs::Module::declare(ctx.clone(), name, generated)?;
+        set_import_meta(&module, Path::new(name))?;
+        Ok(module)
     }
+}
+
+/// Gives a module its own `import.meta.dirname`, `.filename` and `.url`, the way Node,
+/// Deno and Bun do, so a Package can name a program it ships next to its source.
+///
+/// Per module, not a global: a global cannot tell which file is asking. Only strings —
+/// nothing here reads the filesystem or lets the render runtime touch it (ADR 0034).
+fn set_import_meta<'js>(
+    module: &rquickjs::Module<'js, rquickjs::module::Declared>,
+    path: &Path,
+) -> rquickjs::Result<()> {
+    let meta = module.meta()?;
+    if let Some(dir) = path.parent() {
+        meta.set("dirname", dir.to_string_lossy().into_owned())?;
+    }
+    meta.set("filename", path.to_string_lossy().into_owned())?;
+    if let Ok(url) = url::Url::from_file_path(path) {
+        meta.set("url", url.to_string())?;
+    }
+    Ok(())
 }
 
 /// Intercepts `@gh/owner/repo` Package specifiers, delegating everything else to
@@ -608,12 +632,16 @@ enum Effects {
 
 impl JsxEvaluator {
     /// The render runtime: evaluated every Tick, and unable to touch the world.
+    ///
+    /// `layout_path` is the layout file itself: relative imports resolve from its
+    /// directory, and it is what the layout's `import.meta` reports. `None` means no
+    /// filesystem at all — no imports, and an `import.meta` with nothing on it.
     pub fn new(
         source: &str,
         ctx: serde_json::Value,
-        base_dir: Option<&Path>,
+        layout_path: Option<&Path>,
     ) -> Result<Self, JsError> {
-        Self::with_effects(source, ctx, base_dir, Effects::Denied, None)
+        Self::with_effects(source, ctx, layout_path, Effects::Denied, None)
     }
 
     /// The render runtime, with `@gh/owner/repo` Package imports resolved through
@@ -624,10 +652,10 @@ impl JsxEvaluator {
     pub fn new_with_packages(
         source: &str,
         ctx: serde_json::Value,
-        base_dir: Option<&Path>,
+        layout_path: Option<&Path>,
         pkg_ctx: crate::pkg::PackageContext,
     ) -> Result<Self, JsError> {
-        Self::with_effects(source, ctx, base_dir, Effects::Denied, Some(pkg_ctx))
+        Self::with_effects(source, ctx, layout_path, Effects::Denied, Some(pkg_ctx))
     }
 
     /// The `globals` this evaluator reads and writes.
@@ -647,10 +675,10 @@ impl JsxEvaluator {
     pub fn new_reconciler(
         source: &str,
         ctx: serde_json::Value,
-        base_dir: Option<&Path>,
+        layout_path: Option<&Path>,
         globals: SharedGlobals,
     ) -> Result<Self, JsError> {
-        let mut evaluator = Self::with_effects(source, ctx, base_dir, Effects::Allowed, None)?;
+        let mut evaluator = Self::with_effects(source, ctx, layout_path, Effects::Allowed, None)?;
         evaluator.global_state = globals;
         Ok(evaluator)
     }
@@ -660,12 +688,12 @@ impl JsxEvaluator {
     pub fn new_reconciler_with_packages(
         source: &str,
         ctx: serde_json::Value,
-        base_dir: Option<&Path>,
+        layout_path: Option<&Path>,
         globals: SharedGlobals,
         pkg_ctx: crate::pkg::PackageContext,
     ) -> Result<Self, JsError> {
         let mut evaluator =
-            Self::with_effects(source, ctx, base_dir, Effects::Allowed, Some(pkg_ctx))?;
+            Self::with_effects(source, ctx, layout_path, Effects::Allowed, Some(pkg_ctx))?;
         evaluator.global_state = globals;
         Ok(evaluator)
     }
@@ -673,13 +701,16 @@ impl JsxEvaluator {
     fn with_effects(
         source: &str,
         ctx: serde_json::Value,
-        base_dir: Option<&Path>,
+        layout_path: Option<&Path>,
         effects: Effects,
         pkg_ctx: Option<crate::pkg::PackageContext>,
     ) -> Result<Self, JsError> {
         let loaded_paths: Arc<Mutex<Vec<PathBuf>>> = Arc::new(Mutex::new(Vec::new()));
 
-        let (runtime, context) = if let Some(dir) = base_dir {
+        let (runtime, context) = if let Some(path) = layout_path {
+            // Relative imports resolve from, and stay confined to, the layout file's
+            // own directory.
+            let dir = path.parent().unwrap_or(path);
             optative_script::build_runtime(
                 crate::ui::registry::UI_COMPONENTS,
                 GitPackageResolver::new(dir.to_path_buf(), pkg_ctx),
@@ -839,6 +870,9 @@ impl JsxEvaluator {
 
                 let js_source = optative_script::jsx::transform_source(source, "layout.jsx");
                 let module = rquickjs::Module::declare(qjs_ctx.clone(), "layout.jsx", js_source)?;
+                if let Some(path) = layout_path {
+                    set_import_meta(&module, path)?;
+                }
                 let (module, promise) = module.eval()?;
                 promise.finish::<()>()?;
                 let render_fn: Function = module.get("default")?;
@@ -1670,7 +1704,7 @@ export default function render() { return <span class="text-white">{String(Foo()
         let result = JsxEvaluator::new(
             layout_source,
             serde_json::Value::Null,
-            Some(tmp_dir.as_path()),
+            Some(&tmp_dir.join("layout.jsx")),
         )
         .unwrap()
         .eval(&streams)
@@ -1769,7 +1803,7 @@ export default function render() { return <span class="text-white">{String(Widge
         let result = JsxEvaluator::new_with_packages(
             layout_source,
             serde_json::Value::Null,
-            Some(&layout_dir),
+            Some(&layout_dir.join("layout.jsx")),
             pkg_ctx,
         )
         .unwrap_or_else(|e| panic!("expected the warm Package to resolve, got: {e}"))
@@ -1868,7 +1902,7 @@ export default function render() { return <span class="text-white">{String(Widge
         let result = JsxEvaluator::new_with_packages(
             layout_source,
             serde_json::Value::Null,
-            Some(&layout_dir),
+            Some(&layout_dir.join("layout.jsx")),
             pkg_ctx,
         )
         .unwrap_or_else(|e| {
@@ -1913,7 +1947,7 @@ export default function render() { return <span class="text-white">{String(Widge
         let result = JsxEvaluator::new_with_packages(
             layout_source,
             serde_json::Value::Null,
-            Some(&dir),
+            Some(&dir.join("layout.jsx")),
             pkg_ctx,
         );
 
@@ -1992,7 +2026,7 @@ export default function render() { return <span class="text-white">{String(Widge
         let result = JsxEvaluator::new_with_packages(
             layout_source,
             serde_json::Value::Null,
-            Some(&layout_dir),
+            Some(&layout_dir.join("layout.jsx")),
             pkg_ctx,
         )
         .unwrap_or_else(|e| panic!("expected the Development-mode Package to resolve, got: {e}"))
@@ -2025,7 +2059,7 @@ export default function render() { return <span class="text-white">{String(Comp(
         let evaluator = JsxEvaluator::new(
             layout_source,
             serde_json::Value::Null,
-            Some(tmp_dir.as_path()),
+            Some(&tmp_dir.join("layout.jsx")),
         )
         .expect("JsxEvaluator::new failed");
 
@@ -2303,5 +2337,258 @@ return <div class="flex">
             err.to_string().contains("noSuchThing"),
             "the error must name the undefined identifier, got: {err}"
         );
+    }
+
+    /// Writes `source` as `<dir>/layout.op.mdx` and evaluates it with that file as
+    /// the layout path, returning the rendered tree.
+    fn eval_layout_file(dir: &Path, source: &str) -> serde_json::Value {
+        let layout_path = dir.join("layout.op.mdx");
+        std::fs::write(&layout_path, source).expect("write layout file");
+        JsxEvaluator::new(source, serde_json::Value::Null, Some(&layout_path))
+            .unwrap_or_else(|e| panic!("expected the layout to evaluate, got: {e}"))
+            .eval(&std::collections::HashMap::new())
+            .unwrap()
+            .layout
+    }
+
+    /// A layout that renders an imported `meta` object's three fields as text children.
+    const RENDER_IMPORTED_META: &str = r#"import { meta } from './Foo.jsx';
+export default function render() { return <div><span>{String(meta.dirname)}</span><span>{String(meta.filename)}</span><span>{String(meta.url)}</span></div>; }"#;
+
+    const EXPORT_META: &str = "export const meta = { dirname: import.meta.dirname, filename: import.meta.filename, url: import.meta.url };";
+
+    fn text_child(tree: &serde_json::Value, i: usize) -> String {
+        tree["children"][i]["children"][0]
+            .as_str()
+            .unwrap_or_else(|| panic!("no text child {i} in {tree:?}"))
+            .to_string()
+    }
+
+    #[test]
+    fn a_relative_import_sees_its_own_import_meta() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        std::fs::write(tmp.path().join("Foo.jsx"), EXPORT_META).expect("write Foo.jsx");
+
+        let tree = eval_layout_file(tmp.path(), RENDER_IMPORTED_META);
+
+        let dir = tmp.path().canonicalize().unwrap();
+        let filename = dir.join("Foo.jsx").to_string_lossy().to_string();
+        assert_eq!(text_child(&tree, 0), dir.to_string_lossy());
+        assert_eq!(text_child(&tree, 1), filename);
+        assert_eq!(text_child(&tree, 2), format!("file://{filename}"));
+    }
+
+    #[test]
+    fn the_layout_file_sees_its_own_import_meta() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+
+        let tree = eval_layout_file(
+            tmp.path(),
+            r#"export default function render() { return <div><span>{String(import.meta.dirname)}</span><span>{String(import.meta.filename)}</span><span>{String(import.meta.url)}</span></div>; }"#,
+        );
+
+        let dir = tmp.path().canonicalize().unwrap();
+        let filename = dir.join("layout.op.mdx").to_string_lossy().to_string();
+        assert_eq!(text_child(&tree, 0), dir.to_string_lossy());
+        assert_eq!(text_child(&tree, 1), filename);
+        assert_eq!(text_child(&tree, 2), format!("file://{filename}"));
+    }
+
+    #[test]
+    fn import_meta_url_is_percent_encoded() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let spaced = tmp.path().join("with space");
+        std::fs::create_dir_all(&spaced).expect("create spaced dir");
+        std::fs::write(spaced.join("Foo.jsx"), EXPORT_META).expect("write Foo.jsx");
+
+        let tree = eval_layout_file(&spaced, RENDER_IMPORTED_META);
+
+        assert!(text_child(&tree, 0).ends_with("/with space"), "{tree:?}");
+        let url = text_child(&tree, 2);
+        assert!(url.starts_with("file:///"), "{url}");
+        assert!(url.contains("/with%20space/Foo.jsx"), "{url}");
+    }
+
+    #[test]
+    fn import_meta_is_undefined_without_a_layout_path() {
+        let tree = JsxEvaluator::new(
+            r#"export default function render() { return <div><span>{String(import.meta.dirname)}</span></div>; }"#,
+            serde_json::Value::Null,
+            None,
+        )
+        .unwrap()
+        .eval(&std::collections::HashMap::new())
+        .unwrap()
+        .layout;
+        assert_eq!(text_child(&tree, 0), "undefined");
+    }
+
+    /// Commits `files` (path, contents, executable) to a fresh local repo, warms the
+    /// cache with that commit and writes a Lockfile pinning it as `@gh/fixture/repo`.
+    /// Returns the layout directory, the Package context and the checkout path.
+    fn warm_package(
+        dir: &Path,
+        files: &[(&str, &str, bool)],
+    ) -> (PathBuf, crate::pkg::PackageContext, PathBuf) {
+        use std::os::unix::fs::PermissionsExt;
+
+        let remote = dir.join("remote-repo");
+        std::fs::create_dir_all(&remote).expect("create fixture repo dir");
+        let run = |args: &[&str]| {
+            let status = std::process::Command::new("git")
+                .args(args)
+                .current_dir(&remote)
+                .status()
+                .expect("run git");
+            assert!(status.success());
+        };
+        run(&["init", "--quiet"]);
+        run(&["config", "user.email", "test@example.com"]);
+        run(&["config", "user.name", "Test"]);
+        for (path, contents, executable) in files {
+            let path = remote.join(path);
+            std::fs::create_dir_all(path.parent().unwrap()).expect("create fixture dir");
+            std::fs::write(&path, contents).expect("write fixture file");
+            if *executable {
+                std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755))
+                    .expect("chmod fixture file");
+            }
+        }
+        run(&["add", "."]);
+        run(&["commit", "--quiet", "-m", "initial"]);
+        let output = std::process::Command::new("git")
+            .args(["rev-parse", "HEAD"])
+            .current_dir(&remote)
+            .output()
+            .expect("git rev-parse");
+        let sha = String::from_utf8_lossy(&output.stdout).trim().to_string();
+
+        let layout_dir = dir.join("layout");
+        std::fs::create_dir_all(&layout_dir).expect("create layout dir");
+        let lockfile_path = layout_dir.join("tauler-pkg.lock");
+        let cache_root = dir.join("cache");
+        let final_path = crate::pkg::cache::pinned_cache_path(&cache_root, "fixture", "repo", &sha);
+        crate::pkg::git::fetch_and_place(&remote.to_string_lossy(), &sha, &cache_root, &final_path)
+            .expect("pre-warming the cache should succeed");
+        let mut lockfile = crate::pkg::lockfile::Lockfile::default();
+        lockfile.set(
+            "fixture",
+            "repo",
+            crate::pkg::lockfile::PackageEntry {
+                commit: sha,
+                development: false,
+            },
+        );
+        lockfile
+            .save_to_path(&lockfile_path)
+            .expect("saving the lockfile should succeed");
+        let (reload_tx, _reload_rx) = std::sync::mpsc::channel();
+        let pkg_ctx = crate::pkg::PackageContext {
+            fetch_manager: Arc::new(crate::pkg::fetch_manager::FetchManager::new(reload_tx)),
+            lockfile_path,
+            cache_root,
+        };
+        (layout_dir, pkg_ctx, final_path)
+    }
+
+    /// `import.meta.dirname` inside a Package points into the pinned checkout, so a
+    /// Package can name a program it ships (`${import.meta.dirname}/../bin/x`).
+    #[test]
+    fn a_package_module_sees_its_checkout_in_import_meta() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let (layout_dir, pkg_ctx, final_path) = warm_package(
+            tmp.path(),
+            &[
+                (
+                    "data/Volume.jsx",
+                    "export const volumeDir = import.meta.dirname;",
+                    false,
+                ),
+                (
+                    "index.jsx",
+                    "export { volumeDir } from './data/Volume.jsx';\n\
+                     export const indexDir = import.meta.dirname;",
+                    false,
+                ),
+            ],
+        );
+
+        let layout_source = r#"import { indexDir, volumeDir } from "@gh/fixture/repo";
+export default function render() { return <div><span>{String(indexDir)}</span><span>{String(volumeDir)}</span></div>; }"#;
+        let layout_path = layout_dir.join("layout.op.mdx");
+        std::fs::write(&layout_path, layout_source).expect("write layout file");
+
+        let tree = JsxEvaluator::new_with_packages(
+            layout_source,
+            serde_json::Value::Null,
+            Some(&layout_path),
+            pkg_ctx,
+        )
+        .unwrap_or_else(|e| panic!("expected the warm Package to resolve, got: {e}"))
+        .eval(&std::collections::HashMap::new())
+        .unwrap()
+        .layout;
+
+        let checkout = final_path.canonicalize().unwrap();
+        assert_eq!(text_child(&tree, 0), checkout.to_string_lossy());
+        assert_eq!(
+            text_child(&tree, 1),
+            checkout.join("data").to_string_lossy()
+        );
+    }
+
+    /// The point of the feature: a Package's component names the program the same
+    /// Package ships, and that path spawns it straight from the pinned checkout.
+    #[test]
+    fn a_package_component_spawns_the_program_it_ships() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let (layout_dir, pkg_ctx, _) = warm_package(
+            tmp.path(),
+            &[
+                (
+                    "bin/tauler-volume",
+                    "#!/bin/sh\necho '{\"percent\":42}'\n",
+                    true,
+                ),
+                (
+                    "data/Volume.jsx",
+                    "export function Volume() {\n\
+                       const v = useJSONStream(`${import.meta.dirname}/../bin/tauler-volume`);\n\
+                       return <span>{String(v?.percent)}</span>;\n\
+                     }",
+                    false,
+                ),
+                (
+                    "index.jsx",
+                    "export { Volume } from './data/Volume.jsx';",
+                    false,
+                ),
+            ],
+        );
+
+        let layout_source = r#"import { Volume } from "@gh/fixture/repo";
+export default function render() { return <Volume />; }"#;
+        let layout_path = layout_dir.join("layout.op.mdx");
+        std::fs::write(&layout_path, layout_source).expect("write layout file");
+
+        let output = JsxEvaluator::new_with_packages(
+            layout_source,
+            serde_json::Value::Null,
+            Some(&layout_path),
+            pkg_ctx,
+        )
+        .unwrap_or_else(|e| panic!("expected the warm Package to resolve, got: {e}"))
+        .eval(&std::collections::HashMap::new())
+        .unwrap();
+
+        let [(bin, None)] = output.stream_calls.as_slice() else {
+            panic!("expected one stream call, got: {:?}", output.stream_calls);
+        };
+        let module = crate::data::spawn_module(bin, None);
+        let line = module
+            .rx
+            .recv_timeout(std::time::Duration::from_secs(5))
+            .expect("the Package's program should print a line");
+        assert_eq!(line, r#"{"percent":42}"#);
     }
 }

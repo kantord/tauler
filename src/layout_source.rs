@@ -52,11 +52,16 @@ impl LayoutSource {
     /// Lockfile belongs (`docs/adr/0041`'s "the Lockfile sits next to the layout
     /// file, wherever that is," not a hardcoded config-dir constant).
     pub fn dir(&self) -> &std::path::Path {
-        let path = match self {
+        let path = self.path();
+        path.parent().unwrap_or(path)
+    }
+
+    /// The file holding the layout's JSX — what that file's `import.meta` reports.
+    pub fn path(&self) -> &std::path::Path {
+        match self {
             Self::Mdx(path) => path,
             Self::Legacy { layout, .. } => layout,
-        };
-        path.parent().unwrap_or(path)
+        }
     }
 }
 

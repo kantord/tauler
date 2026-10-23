@@ -6403,6 +6403,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "tracing-test",
+ "url",
  "wayland-client",
  "winit",
  "x11rb 0.14.0",

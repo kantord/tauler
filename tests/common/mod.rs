@@ -30,8 +30,12 @@ pub fn eval_jsx_with_streams(
 }
 
 pub fn eval_jsx_from_dir(source: &str, base_dir: &Path) -> EvalOutput {
-    JsxEvaluator::new(source, serde_json::Value::Null, Some(base_dir))
-        .expect("JsxEvaluator::new failed")
-        .eval(&HashMap::new())
-        .expect("eval failed")
+    JsxEvaluator::new(
+        source,
+        serde_json::Value::Null,
+        Some(&base_dir.join("layout.jsx")),
+    )
+    .expect("JsxEvaluator::new failed")
+    .eval(&HashMap::new())
+    .expect("eval failed")
 }

@@ -29,6 +29,13 @@ stream values are cleared, so a reload is a cold start, not a refresh.
 Components are plain JS functions that take props and return a tree. There is nothing to
 register: JSX handles `<Card />` as a function call already.
 
+Every file tauler loads, the layout file and everything it imports, can read where it
+lives: `import.meta.dirname` (its directory), `import.meta.filename` (its absolute path)
+and `import.meta.url` (the same path as a `file://` URL). They are plain strings and
+open nothing. They are `undefined` where there is no file on disk, such as a browser
+preview. [Packages](/docs/packages/#shipping-a-program-with-a-package) use them to run a
+program they ship.
+
 Theme and font choice live in a YAML frontmatter block at the top of the file:
 
 ```jsx

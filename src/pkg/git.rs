@@ -496,4 +496,38 @@ mod tests {
 
         assert_eq!(removed, 0);
     }
+
+    /// A Package's `bin/*` scripts are spawned directly (`<Module bin=…>`), so a
+    /// placed checkout must keep the executable bit git recorded.
+    #[test]
+    fn fetch_and_place_keeps_the_executable_bit() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = tempfile::tempdir().expect("tempdir");
+        let (repo, _) = fixture_repo(dir.path());
+        std::fs::create_dir_all(repo.join("bin")).expect("create bin");
+        let script = repo.join("bin/x");
+        std::fs::write(&script, "#!/bin/sh\necho hi\n").expect("write bin/x");
+        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755))
+            .expect("chmod bin/x");
+        run_git(&["add", "."], Some(&repo)).expect("git add");
+        run_git(&["commit", "--quiet", "-m", "bin"], Some(&repo)).expect("git commit");
+        let output = Command::new("git")
+            .args(["rev-parse", "HEAD"])
+            .current_dir(&repo)
+            .output()
+            .expect("git rev-parse");
+        let sha = String::from_utf8_lossy(&output.stdout).trim().to_string();
+
+        let cache_root = dir.path().join("cache");
+        let final_path = cache_root.join("placed");
+        fetch_and_place(&repo.to_string_lossy(), &sha, &cache_root, &final_path)
+            .expect("fetch should succeed");
+
+        let mode = std::fs::metadata(final_path.join("bin/x"))
+            .expect("placed bin/x")
+            .permissions()
+            .mode();
+        assert_ne!(mode & 0o111, 0, "bin/x lost its executable bit: {mode:o}");
+    }
 }
