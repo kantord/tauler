@@ -82,11 +82,11 @@ export function Volume({ bin = DEFAULT_BIN }) {
 
 `import.meta.dirname` points into the checkout of the pinned commit, so the program
 always matches the component that runs it. Nobody has to copy anything out of tauler's
-cache. After `tauler pkg update` the path changes, and the program restarts on the new
-commit.
+cache. `tauler pkg update` does not touch a running bar: the new commit, and the
+program from it, start on the next reload, such as saving the layout file.
 
 Commit the program with its executable bit set (`chmod +x bin/tauler-volume`, then
-`git add`). tauler fetches Packages with `git`, which keeps that bit.
+`git add`). Packages are fetched with `git`, which keeps that bit.
 
 `import.meta.dirname` is `undefined` where there is no file on disk, such as a browser
 preview. Give it a fallback if your component must render there too:

@@ -1726,44 +1726,15 @@ export default function render() { return <span class="text-white">{String(Foo()
         let _ = std::fs::remove_dir_all(&tmp_dir);
     }
 
-    /// Commits `files` (path, contents, executable) to a local, network-free
-    /// "remote" repo, so `@gh/fixture/repo` resolves against it exactly the way a
-    /// real GitHub-hosted Package would. Returns the repo's path and the sha of its
-    /// one commit.
-    fn fixture_repo(dir: &Path, files: &[(&str, &str, bool)]) -> (PathBuf, String) {
-        use std::os::unix::fs::PermissionsExt;
-
-        let repo = dir.join("remote-repo");
-        std::fs::create_dir_all(&repo).expect("create fixture repo dir");
-        let run = |args: &[&str]| {
-            let status = std::process::Command::new("git")
-                .args(args)
-                .current_dir(&repo)
-                .status()
-                .expect("run git");
-            assert!(status.success());
-        };
-        run(&["init", "--quiet"]);
-        run(&["config", "user.email", "test@example.com"]);
-        run(&["config", "user.name", "Test"]);
-        for (path, contents, executable) in files {
-            let path = repo.join(path);
-            std::fs::create_dir_all(path.parent().unwrap()).expect("create fixture dir");
-            std::fs::write(&path, contents).expect("write fixture file");
-            if *executable {
-                std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755))
-                    .expect("chmod fixture file");
-            }
+    /// A Package context over `lockfile_path` and `cache_root`, with a fetch manager
+    /// whose reload signals nobody reads.
+    fn package_context(lockfile_path: PathBuf, cache_root: PathBuf) -> crate::pkg::PackageContext {
+        let (reload_tx, _reload_rx) = std::sync::mpsc::channel();
+        crate::pkg::PackageContext {
+            fetch_manager: Arc::new(crate::pkg::fetch_manager::FetchManager::new(reload_tx)),
+            lockfile_path,
+            cache_root,
         }
-        run(&["add", "."]);
-        run(&["commit", "--quiet", "-m", "initial"]);
-        let output = std::process::Command::new("git")
-            .args(["rev-parse", "HEAD"])
-            .current_dir(&repo)
-            .output()
-            .expect("git rev-parse");
-        let sha = String::from_utf8_lossy(&output.stdout).trim().to_string();
-        (repo, sha)
     }
 
     /// A Package whose `index.jsx` default-exports `Widget`, returning 42.
@@ -1874,12 +1845,7 @@ export default function render() { return <span class="text-white">{String(Widge
         let lockfile_path = dir.join("tauler-pkg.lock");
         let cache_root = dir.join("cache");
 
-        let (reload_tx, _reload_rx) = std::sync::mpsc::channel();
-        let pkg_ctx = crate::pkg::PackageContext {
-            fetch_manager: Arc::new(crate::pkg::fetch_manager::FetchManager::new(reload_tx)),
-            lockfile_path,
-            cache_root,
-        };
+        let pkg_ctx = package_context(lockfile_path, cache_root);
 
         let layout_source = r#"import Widget from "@gh/fixture/repo";
 export default function render() { return <span class="text-white">{String(Widget())}</span>; }"#;
@@ -1923,7 +1889,7 @@ export default function render() { return <root>{String(Widget())}</root>; }"#,
         let dir =
             std::env::temp_dir().join(format!("tauler_git_pkg_dev_mode_{}", std::process::id()));
         std::fs::create_dir_all(&dir).expect("create dir");
-        let (remote, sha) = fixture_repo(&dir, WIDGET_PACKAGE);
+        let (remote, sha) = crate::pkg::git::fixture_repo(&dir, WIDGET_PACKAGE);
 
         let layout_dir = dir.join("layout");
         std::fs::create_dir_all(&layout_dir).expect("create layout dir");
@@ -1953,12 +1919,7 @@ export default function render() { return <root>{String(Widget())}</root>; }"#,
         crate::pkg::git::fetch_and_place(&remote.to_string_lossy(), &sha, &cache_root, &final_path)
             .expect("pre-warming the cache should succeed");
 
-        let (reload_tx, _reload_rx) = std::sync::mpsc::channel();
-        let pkg_ctx = crate::pkg::PackageContext {
-            fetch_manager: Arc::new(crate::pkg::fetch_manager::FetchManager::new(reload_tx)),
-            lockfile_path,
-            cache_root,
-        };
+        let pkg_ctx = package_context(lockfile_path, cache_root);
 
         let layout_source = r#"import Widget from "@gh/fixture/repo";
 export default function render() { return <span class="text-white">{String(Widget())}</span>; }"#;
@@ -2318,6 +2279,28 @@ export default function render() { return <div><span>{String(meta.dirname)}</spa
         assert_eq!(text_child(&tree, 2), format!("file://{filename}"));
     }
 
+    /// An import of an import reports its own directory, not its importer's.
+    #[test]
+    fn a_nested_import_sees_its_own_import_meta() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        std::fs::create_dir_all(tmp.path().join("a/b")).expect("create a/b");
+        std::fs::write(tmp.path().join("a/b/B.jsx"), EXPORT_META).expect("write B.jsx");
+        std::fs::write(
+            tmp.path().join("a/A.jsx"),
+            "export { meta } from './b/B.jsx';",
+        )
+        .expect("write A.jsx");
+
+        let tree = eval_layout_file(
+            tmp.path(),
+            &RENDER_IMPORTED_META.replace("./Foo.jsx", "./a/A.jsx"),
+        );
+
+        let dir = tmp.path().canonicalize().unwrap().join("a/b");
+        assert_eq!(text_child(&tree, 0), dir.to_string_lossy());
+        assert_eq!(text_child(&tree, 1), dir.join("B.jsx").to_string_lossy());
+    }
+
     #[test]
     fn the_layout_file_sees_its_own_import_meta() {
         let tmp = tempfile::tempdir().expect("tempdir");
@@ -2392,7 +2375,7 @@ export default function render() { return <div><span>{String(import.meta.dirname
         dir: &Path,
         files: &[(&str, &str, bool)],
     ) -> (PathBuf, crate::pkg::PackageContext, PathBuf) {
-        let (remote, sha) = fixture_repo(dir, files);
+        let (remote, sha) = crate::pkg::git::fixture_repo(dir, files);
 
         let layout_dir = dir.join("layout");
         std::fs::create_dir_all(&layout_dir).expect("create layout dir");
@@ -2413,12 +2396,7 @@ export default function render() { return <div><span>{String(import.meta.dirname
         lockfile
             .save_to_path(&lockfile_path)
             .expect("saving the lockfile should succeed");
-        let (reload_tx, _reload_rx) = std::sync::mpsc::channel();
-        let pkg_ctx = crate::pkg::PackageContext {
-            fetch_manager: Arc::new(crate::pkg::fetch_manager::FetchManager::new(reload_tx)),
-            lockfile_path,
-            cache_root,
-        };
+        let pkg_ctx = package_context(lockfile_path, cache_root);
         (layout_dir, pkg_ctx, final_path)
     }
 
