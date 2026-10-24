@@ -1,18 +1,15 @@
 // Tracer layout: the sidebar weather card with a City scene behind it, in a
 // panel the width of the real sidebar (272 px). `examples/weather_map_tracer.rs`
-// evaluates and rasterizes it; `__CITY__` is replaced with a file in `.data/`.
+// evaluates and rasterizes it; `__CITY__` is replaced with a file in `.data/`,
+// `__LOOK__` with a key of LOOKS.
 //
 // The weather reading is a constant: the tracer measures drawing, and a stream
 // would only add a subprocess to wait for.
 //
-// ASK (Q6): where the card ships — the dotfiles-tauler Package, or tauler's
-// own examples. Recommend: the Package (below).
-// PROVISIONAL (Q6): this lives in tauler's examples/ while the design is open.
-// Recommended home is the dotfiles-tauler Package, next to <Weather> and
-// <WeatherSummary>, where it would replace `city` below with geometry the
-// fetcher subprocess hands over (see CityScene.jsx, "Fetching").
+// DECISION (Q6, answered): the home is the dotfiles-tauler Package, in pieces;
+// this file is the tracer's stand-in for the card there.
 import city from "./.data/__CITY__.js";
-import CityScene from "./CityScene.jsx";
+import CityScene, { LOOKS } from "./CityScene.jsx";
 
 const CARD_W = 248;
 const CARD_H = 96;
@@ -21,7 +18,7 @@ const reading = { cond: "Partly cloudy", temp: "+17°C", feels: "+16°C", humidi
 function WeatherCard({ w }) {
   return (
     <div style={{ position: "relative", width: CARD_W, height: CARD_H }} class="rounded-lg overflow-hidden">
-      <CityScene city={city} width={CARD_W} height={CARD_H} />
+      <CityScene city={city} width={CARD_W} height={CARD_H} look={LOOKS.__LOOK__} />
       {/* Veil: keeps the text readable on any city. Fades the top-left corner,
           where the temperature sits, and leaves the skyline on the right. */}
       <div

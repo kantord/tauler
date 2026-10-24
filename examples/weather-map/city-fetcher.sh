@@ -4,8 +4,7 @@
 #
 #   const raw = useStringStream("/usr/bin/bash", cityFetcher(location));
 #
-# PROVISIONAL (Q1–Q7): the City scene this feeds is still being designed; see
-# CityScene.jsx for the paths (P1-P5) these SPECs serve.
+# See CityScene.jsx for the paths (P1–P5) these SPECs serve.
 #
 # DECISION: coordinates come from the same `location` string <Weather> already
 # uses, asked of wttr.in again as `?format=j1`: its `nearest_area[0]` carries
@@ -36,16 +35,16 @@
 # IP geolocation that wobbles between requests does not refetch (whether it
 # wobbles at all was not measured; the threshold costs nothing if it does not).
 #
-# RISK: Overpass's public instance has a fair-use policy (limits not checked
-# here); a Package shared by many users still makes one request per user per
-# location, cached forever. Kill: Overpass blocking a shared User-Agent or
-# returning 429 for first-time fetches → per-user User-Agent, or a mirror.
-# Cost: small (read their usage policy; watch for 429 in the fetcher's log).
+# DECISION: the public Overpass instance is enough. Its stated guideline is
+# about 10 000 requests and 1 GB per day per user, enforced per IP with HTTP 429
+# (rate) and 504 (load); the first requests from each user get priority over
+# heavy users (dev.overpass-api.de/overpass-doc/en/preface/commons.html, read
+# 2026-10-24). The fetcher makes one ~1 MB request per location and caches it
+# forever. SPEC (P2): treat 429 and 504 as failures and back off (above).
+# Rejected: a mirror or our own instance — nothing in the numbers asks for one.
 #
-# ASK (Q7): OpenStreetMap data is ODbL; publicly shown maps credit
-# "© OpenStreetMap contributors". A scene on your own screen is not a public
-# display, but a Package others install puts it on theirs.
-# Recommend: credit OSM in the Package's README and in this file, not on the card.
+# DECISION (Q7, answered): the City scene is an example, not a shipped widget,
+# so the ODbL credit is a line in the files: map data © OpenStreetMap contributors.
 #
 # Pseudocode:
 #   coords = wttr.in/<location>?format=j1 | jq nearest_area[0] lat,lon

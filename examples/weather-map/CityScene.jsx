@@ -1,13 +1,19 @@
 // CityScene: a few city blocks around a point, drawn as a tilted 3D view with
 // building heights exaggerated, meant to sit behind a card's text.
 //
+// DECISION (Q7, answered): this is an example that exercises <D3View>, not a
+// shipped widget; it may never merge into tauler. OSM's ODbL credit lives here,
+// in the file: map data © OpenStreetMap contributors.
+// DECISION (Q6, answered): if it ships, it ships in the dotfiles-tauler Package
+// in pieces — the fetcher, the scene, the card — next to <Weather>.
+//
 // TERM: City scene — the drawing this file makes: ground, water, parks,
 // roads and extruded buildings around one point, seen from above at an angle.
 // It sits behind a card's text; nothing on the card is read from it.
 // Avoid: backdrop (CONTEXT.md reserves it as an _Avoid_ for Wallpaper and
 // tauler:root-bg), map (suggests panning, zoom, interactivity), terrain (no
 // elevation model is involved), background (already a theme token).
-// PROVISIONAL (Q4): the name.
+// DECISION (Q4, answered): the name.
 //
 // Paths, and what each needs:
 //   P1 happy — the weather card shows the scene for the weather's own location.
@@ -18,10 +24,8 @@
 //   P3 location moves — new coordinates → new geometry → new scene; the old one
 //      stays up until the new one is ready.
 //   P4 theme switch — same geometry, new colours; no refetch.
-//   P5 the browser renderer (ADR 0026) — out of the tracer.
-// ASK (Q5): P5 in scope? The browser has no `tauler:picture/` binding; it would
-// need the SVG itself, served as a data URI, which costs nothing there.
-// Recommend: defer — no Dom surface shows the sidebar today.
+//   P5 the browser renderer (ADR 0026) — not in the first step, in the first
+//      merge (Q5, answered; see src/d3_view.rs).
 //
 // SPEC (P2): with no City geometry yet, CityScene renders nothing and the card
 // keeps its normal background.
@@ -33,13 +37,16 @@
 // lon/lat pairs, heights in metres. Produced by `fetch-city.sh` for the tracer.
 // Avoid: map data, tiles (there are none — it is vector geometry from OSM).
 //
-// ASK (Q1): what "exaggerated 3D projection" means — (a) a perspective camera
-// pitched over the city with building heights ×3, (b) isometric, no
-// perspective, (c) terrain relief from an elevation model, heights ×10.
-// Recommend: (a); it is what the tracer draws.
-// PROVISIONAL (Q1): "exaggerated 3D projection" is read as a perspective camera
-// pitched down over the city, with building heights multiplied by EXAGGERATION.
-// The alternatives in Q1 (isometric, terrain relief) change only `project()`.
+// DECISION (Q1, answered in part): the goal is a feeling of space, not a
+// faithful projection — at 500 m the earth's real curvature drops the ground by
+// 2 cm, so anything that reads as "3D" here is a deliberate exaggeration. The
+// base is a perspective camera pitched over the city, heights ×EXAGGERATION,
+// far geometry fading into the background colour (atmospheric perspective).
+// DECISION (Q1, answered): the shipped look is `planet` — fake curvature that
+// brings a horizon and sky into the card. Rendered beside `shadows` (barely
+// visible on dark themes) and `miniature` (planet + shadows + tilt-shift), it was
+// the only cue that added something at 248×96. The others stay in LOOKS for the
+// tracer (TRACER_LOOK=<name>).
 //
 // Pipeline, all of it once per (geometry, size, theme) — see `memo` below:
 //   1. lon/lat → metres on a ground plane: d3.geoMercator scaled to 1 unit = 1 m
@@ -48,7 +55,7 @@
 //   4. everything → one SVG string, colours from the theme, fog by depth
 import * as d3 from "./.data/d3.js";
 
-// PROVISIONAL (Q1): the look. Every number here is taste, not measurement.
+// The look's numbers are taste, tuned by eye on the four sampled cities.
 const EXAGGERATION = 3; // building height multiplier
 const PITCH_DEG = 50; // camera angle below horizontal; 90 = straight down
 const DISTANCE_M = 650; // camera distance from the centre point
@@ -72,14 +79,34 @@ function groundPlane(center) {
   };
 }
 
+// The depth cues a look can switch on, beyond perspective and EXAGGERATION.
+// `planet` ships (Q1); the rest are kept for the tracer (`TRACER_LOOK=<name>`).
+//   curvature — fake planet radius in metres: the ground falls away with
+//               distance like a tiny planet, so a horizon and sky appear
+//               (0 = flat; the real earth's 6371 km would drop 2 cm at 500 m)
+//   shadows   — buildings cast shadows on the ground from a low sun
+//   tiltShift — blur the far band, as a miniature photographed with a tilted lens
+export const LOOKS = {
+  flat: { curvature: 0, shadows: false, tiltShift: false },
+  planet: { curvature: 1100, shadows: false, tiltShift: false },
+  shadows: { curvature: 0, shadows: true, tiltShift: false },
+  miniature: { curvature: 1100, shadows: true, tiltShift: true },
+};
+
 // Step 2. Camera behind the centre point (to the south), looking north and down.
-function camera(width, height) {
+function camera(width, height, look = LOOKS.planet) {
   const pitch = (PITCH_DEG * Math.PI) / 180;
   const sin = Math.sin(pitch);
   const cos = Math.cos(pitch);
   const scale = (FOCAL * width) / 2;
   // Returns [screenX, screenY, depth], or null behind the near plane.
-  return (x, f, z) => {
+  // Curvature: drop every point by d²/2R, d its ground distance from the camera,
+  // less the centre's own drop so the centre point stays where it was.
+  const camF = -DISTANCE_M * cos;
+  const drop = (x, f) =>
+    look.curvature ? (x * x + (f - camF) ** 2 - camF * camF) / (2 * look.curvature) : 0;
+  return (x, f, z0) => {
+    const z = z0 - drop(x, f);
     const depth = f * cos - z * sin + DISTANCE_M;
     if (depth < NEAR_M) return null;
     const up = f * sin + z * cos;
@@ -148,15 +175,17 @@ function palette(themeColors) {
     roof: mix(bg, fg, 0.3),
     wallLit: mix(bg, fg, 0.2),
     wallDark: mix(bg, fg, 0.09),
+    skyTop: bg,
+    skyHorizon: mix(bg, colors["ansi-blue"] ?? fg, 0.3),
     // Far geometry fades into the background: the depth cue that sells the 3D.
     fog: (color, depth) =>
       mix(color, bg, Math.min(1, Math.max(0, (depth - 350) / 900))),
   };
 }
 
-export function citySceneSvg(city, width, height, colors) {
+export function citySceneSvg(city, width, height, colors, look = LOOKS.planet) {
   const toGround = groundPlane(city.center);
-  const cam = camera(width, height);
+  const cam = camera(width, height, look);
   const pal = palette(colors);
   const flat = (ring) => ring.map((p) => toGround(p));
   const parts = [];
@@ -170,6 +199,13 @@ export function citySceneSvg(city, width, height, colors) {
       parts.push({ depth, ground: true, svg: kind === "line" ? `<path d="${d}" fill="none" stroke="${pal.fog(color.stroke, depth)}" stroke-width="${color.width}" stroke-linecap="round"/>` : `<path d="${d}" fill="${pal.fog(color, depth)}"/>` });
     }
   };
+  // With curvature the ground is a disc that ends at a horizon, sky above it.
+  if (look.curvature) {
+    const disc = d3.range(0, 2 * Math.PI, Math.PI / 48)
+      .map((a) => cam(950 * Math.cos(a), 950 * Math.sin(a), 0))
+      .filter(Boolean);
+    parts.push({ depth: Infinity, ground: true, svg: `<path d="${polygon(disc)}" fill="${pal.ground}"/>` });
+  }
   flatShapes(city.parks, pal.park, "area");
   flatShapes(city.water, pal.water, "area");
   flatShapes(city.roads.filter((r) => !r.major).map((r) => r.line), { stroke: pal.road, width: 1 }, "line");
@@ -199,6 +235,22 @@ export function citySceneSvg(city, width, height, colors) {
       });
     }
     walls.sort((a, b) => b.depth - a.depth);
+    if (look.shadows) {
+      // Low sun from the west-southwest: the shadow of a point at height z lands
+      // SHADOW × z metres east-northeast of its foot.
+      const SHADOW = 0.9;
+      const cast = ground.map(([x, f]) => cam(x + 0.6 * SHADOW * top, f + 0.8 * SHADOW * top, 0));
+      if (!cast.some((p) => !p)) {
+        const quads = [];
+        for (let i = 0; i < ground.length - 1; i++)
+          quads.push(polygon([base[i], base[i + 1], cast[i + 1], cast[i]]));
+        parts.push({
+          depth: d3.max(cast, (p) => p[2]),
+          ground: true,
+          svg: `<path d="${quads.join("") + polygon(cast)}" fill="#000" fill-opacity="0.28"/>`,
+        });
+      }
+    }
     const depth = d3.max(base, (p) => p[2]);
     const roofDepth = d3.mean(roof, (p) => p[2]);
     parts.push({
@@ -219,10 +271,32 @@ export function citySceneSvg(city, width, height, colors) {
   // A steeper pitch or a larger card reopens this.
   parts.sort((a, b) => (a.ground === b.ground ? b.depth - a.depth : a.ground ? -1 : 1));
 
+  // Tilt-shift: the far band of each layer goes in a blurred group. Ground and
+  // buildings stay in separate groups so the painter's order survives.
+  const FAR = 950;
+  const body = look.tiltShift
+    ? [true, false]
+        .map((g) => {
+          const layer = parts.filter((p) => !!p.ground === g);
+          const far = layer.filter((p) => p.depth > FAR && p.depth !== Infinity);
+          const near = layer.filter((p) => !(p.depth > FAR && p.depth !== Infinity));
+          const disc = near.filter((p) => p.depth === Infinity);
+          return (
+            disc.map((p) => p.svg).join("") +
+            `<g filter="url(#ts)">${far.map((p) => p.svg).join("")}</g>` +
+            near.filter((p) => p.depth !== Infinity).map((p) => p.svg).join("")
+          );
+        })
+        .join("")
+    : parts.map((p) => p.svg).join("");
+  const sky = look.curvature
+    ? `<linearGradient id="sky" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${pal.skyTop}"/><stop offset="1" stop-color="${pal.skyHorizon}"/></linearGradient>`
+    : "";
   return (
     `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">` +
-    `<rect width="${width}" height="${height}" fill="${pal.ground}"/>` +
-    parts.map((p) => p.svg).join("") +
+    `<defs>${sky}<filter id="ts" x="-5%" y="-5%" width="110%" height="110%"><feGaussianBlur stdDeviation="0.9"/></filter></defs>` +
+    `<rect width="${width}" height="${height}" fill="${look.curvature ? "url(#sky)" : pal.ground}"/>` +
+    body +
     `</svg>`
   );
 }
@@ -253,45 +327,38 @@ export function citySceneSvg(city, width, height, colors) {
 // DECISION: the scene reaches the renderer as a short key naming pixels tauler
 // drew once — a Picture, src/render/picture.rs. Per tick that is 0.05–0.17 ms,
 // stream handoff of the geometry included (layout-stream.jsx).
-// PROVISIONAL (Q3): `picture(key, size, build)` is the recommended shape.
 //
-// DECISION: the build runs once per scene key, inside `build` — tauler calls it
-// only for a key it does not hold. The module is evaluated once per load and
-// `render()` on every tick (`JsxEvaluator::eval`, src/jsx.rs), so module state
-// would survive between renders too, but a key held on the Rust side also
-// survives the raster.
+// DECISION (Q2/Q3, answered): the scene is a <D3View> (src/d3_view.rs), drawn
+// in the draw runtime off the render loop. The 35–670 ms build no longer
+// freezes anything; until it finishes the card shows the previous scene or
+// none (P2/P3 for free). Rejected: building inside the render call.
 //
-// ASK (Q2): the build blocks the render loop once per scene key: 58–605 ms in
-// the sampled cities at 500 m radius (worst: dense old town). That happens at
-// load, on a theme switch and when the location moves — never during a drag.
-// Recommend: accept it, and cap it with a radius of 350 m (half the area of 500 m).
-//
-// PROVISIONAL (Q3): until Picture exists, the tracer keeps the data URI so it
-// renders at all; the numbers above are why it cannot ship that way.
+// The tracer cannot exercise <D3View> yet, so it keeps the data URI to render
+// at all; the numbers above are why that cannot ship.
 const memo = new Map();
 
-export function citySceneUri(city, width, height, colors) {
-  const key = `${city.center}|${width}x${height}|${colors.background}|${colors.foreground}`;
+export function citySceneUri(city, width, height, colors, look = LOOKS.planet) {
+  const key = `${city.center}|${width}x${height}|${colors.background}|${colors.foreground}|${JSON.stringify(look)}`;
   let uri = memo.get(key);
   if (!uri) {
-    uri = "data:image/svg+xml;utf8," + encodeURIComponent(citySceneSvg(city, width, height, colors));
+    uri = "data:image/svg+xml;utf8," + encodeURIComponent(citySceneSvg(city, width, height, colors, look));
     memo.set(key, uri);
   }
   return uri;
 }
 
-// SPEC (P1, needs Picture):
-//   export default function CityScene({ city, width, height }) {
+// SPEC (P1, needs <D3View>):
+//   export default function CityScene({ city, width, height, look }) {
 //     if (!city) return null;                                    // P2
-//     const key = sceneKey(city.center, width, height, ctx.theme.colors);
-//     return <img src={picture(key, { width, height },
-//                              () => citySceneSvg(city, width, height, ctx.theme.colors))}
-//                 style={{ position: "absolute", top: 0, left: 0, width, height }} />;
+//     return <D3View key={sceneKey(city.center, width, height, ctx.theme.name, look)}
+//                    width={width} height={height}
+//                    draw={(svg) => drawCityScene(svg, city, ctx.theme.colors, look)} />;
 //   }
-export default function CityScene({ city, width, height }) {
+// where drawCityScene appends the parts below with d3 instead of joining strings.
+export default function CityScene({ city, width, height, look }) {
   return (
     <img
-      src={citySceneUri(city, width, height, ctx.theme.colors)}
+      src={citySceneUri(city, width, height, ctx.theme.colors, look)}
       style={{ position: "absolute", top: 0, left: 0, width, height }}
     />
   );

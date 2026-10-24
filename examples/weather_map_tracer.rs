@@ -83,6 +83,8 @@ fn main() {
             .to_vec()
     };
     let template = std::fs::read_to_string(dir.join("layout.jsx")).unwrap();
+    let look = std::env::var("TRACER_LOOK").unwrap_or_else(|_| "planet".into());
+    let template = template.replace("__LOOK__", &look);
 
     tauler::init_global_ctx(tauler::config::FontConfig::default());
     let theme = builtin::default_for(ThemeMode::Dark);
