@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.5](https://github.com/kantord/tauler/compare/tauler-v0.6.4...tauler-v0.6.5) - 2026-10-23
+
+### Added
+
+- add pkgdir support ([#666](https://github.com/kantord/tauler/pull/666))
+
+### Fixed
+
+- *(deps)* update rust crate zbus to v6 ([#668](https://github.com/kantord/tauler/pull/668))
+- *(deps)* update takumi crates ([#665](https://github.com/kantord/tauler/pull/665))
+
 ## [0.6.4](https://github.com/kantord/tauler/compare/tauler-v0.6.3...tauler-v0.6.4) - 2026-10-22
 
 ### Fixed
