@@ -93,33 +93,49 @@ fn main() {
         "theme": theme.ctx_json(),
     });
 
-    // `TRACER_THEMES=1`: the look across every built-in theme, first city only, no
-    // timings. Legibility has to hold for the population, not the default.
-    if std::env::var_os("TRACER_THEMES").is_some() {
-        let source = template.replace("__CITY__", &cities[0]);
-        for name in builtin::names() {
-            let theme = builtin::by_name(&name).unwrap();
-            let ctx = serde_json::json!({
-                "output": "DP-1", "dpi": 140.0, "screen_width": 2560, "screen_height": 1440,
-                "theme": theme.ctx_json(),
-            });
-            let ev = JsxEvaluator::new(&source, ctx, Some(dir.as_path())).expect("compiles");
-            let mut layout = ev.eval(&HashMap::new()).expect("eval").layout;
-            resolve_theme_tokens(&mut layout, &theme);
-            let panel = parse_root_node(&layout)
-                .unwrap()
-                .into_iter()
-                .next()
-                .unwrap();
-            let w = (panel.width as f32 * panel.dpr).round() as u32;
-            let h = (panel.height as f32 * panel.dpr).round() as u32;
-            let frame = tauler::render_frame_rgba(&panel.content, w, h, panel.dpr, None);
-            let img = image::RgbaImage::from_raw(w, h, frame.to_vec()).unwrap();
-            let crop_h = ((96.0 + 24.0) * panel.dpr).round() as u32;
-            image::imageops::crop_imm(&img, 0, 0, w, crop_h)
-                .to_image()
-                .save(out_dir.join(format!("theme-{name}.png")))
-                .unwrap();
+    // `TRACER_THEMES=<a,b,...|all>`: every city given × every theme named, no
+    // timings. Writes `<city>--<theme>.png` (the card) and `<city>--<theme>-
+    // scene.png` (the drawing alone, 2× device pixels). The look has to hold for
+    // the population of places and themes, not one of each.
+    if let Ok(list) = std::env::var("TRACER_THEMES") {
+        let themes = if list == "all" {
+            builtin::names()
+        } else {
+            list.split(',').map(String::from).collect()
+        };
+        for city in &cities {
+            let source = template.replace("__CITY__", city);
+            for name in &themes {
+                let theme = builtin::by_name(name).unwrap();
+                let ctx = serde_json::json!({
+                    "output": "DP-1", "dpi": 140.0, "screen_width": 2560, "screen_height": 1440,
+                    "theme": theme.ctx_json(),
+                });
+                let ev = JsxEvaluator::new(&source, ctx, Some(dir.as_path())).expect("compiles");
+                let mut layout = ev.eval(&HashMap::new()).expect("eval").layout;
+                resolve_theme_tokens(&mut layout, &theme);
+                let panel = parse_root_node(&layout).unwrap().into_iter().next().unwrap();
+                let w = (panel.width as f32 * panel.dpr).round() as u32;
+                let h = (panel.height as f32 * panel.dpr).round() as u32;
+                let frame = tauler::render_frame_rgba(&panel.content, w, h, panel.dpr, None);
+                let img = image::RgbaImage::from_raw(w, h, frame.to_vec()).unwrap();
+                let crop_h = ((96.0 + 24.0) * panel.dpr).round() as u32;
+                image::imageops::crop_imm(&img, 0, 0, w, crop_h)
+                    .to_image()
+                    .save(out_dir.join(format!("{city}--{name}.png")))
+                    .unwrap();
+
+                let uri = find_data_uri(&panel.content).expect("scene data uri");
+                let scale = panel.dpr * 2.0;
+                let (cw, ch) = ((248.0 * scale).round() as u32, (96.0 * scale).round() as u32);
+                let card = serde_json::json!({"type": "img", "src": uri,
+                    "style": {"width": 248, "height": 96}});
+                let rgba = tauler::render_frame_rgba(&card, cw, ch, scale, None);
+                image::RgbaImage::from_raw(cw, ch, rgba.to_vec())
+                    .unwrap()
+                    .save(out_dir.join(format!("{city}--{name}-scene.png")))
+                    .unwrap();
+            }
         }
         return;
     }

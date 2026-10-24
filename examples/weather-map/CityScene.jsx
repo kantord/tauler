@@ -45,20 +45,26 @@
 // DECISION (Q1, answered): the shipped look is `planet` — fake curvature that
 // brings a horizon and sky into the card. Rendered beside `shadows` (barely
 // visible on dark themes) and `miniature` (planet + shadows + tilt-shift), it was
-// the only cue that added something at 248×96. The others stay in LOOKS for the
-// tracer (TRACER_LOOK=<name>).
+// the only cue that added something at 248×96. Shadows and tilt-shift were
+// removed with the shaded renderer; `flat` stays for comparison
+// (TRACER_LOOK=flat).
 //
 // Pipeline, all of it once per (geometry, size, theme) — see `memo` below:
 //   1. lon/lat → metres on a ground plane: d3.geoMercator scaled to 1 unit = 1 m
 //   2. metres → camera space: pitch, distance, perspective divide (`project`)
 //   3. buildings → wall quads + roof, painter's algorithm (far first)
-//   4. everything → one SVG string, colours from the theme, fog by depth
+//   4. everything → one SVG string in the illustration style, theme colours
 import * as d3 from "./.data/d3.js";
 
 // The look's numbers are taste, tuned by eye on the four sampled cities.
-const EXAGGERATION = 3; // building height multiplier
+// Heights are exaggerated on a log curve, not by a constant: a 10 m house
+// draws ×2.5, a 30 m block ×2, a 150 m tower ×1. A constant ×3 let Manhattan's
+// towers fill the card while a village still looked flat.
+const EXAGGERATION = 3; // trees, and the scale of the curve below
+const HEIGHT_KNEE_M = 25;
+const drawnHeight = (h) => EXAGGERATION * HEIGHT_KNEE_M * Math.log1p(h / HEIGHT_KNEE_M);
 const PITCH_DEG = 50; // camera angle below horizontal; 90 = straight down
-const DISTANCE_M = 650; // camera distance from the centre point
+const DISTANCE_M = 650; // camera distance for a full city block; see `frame`
 const FOCAL = 1.5; // larger = flatter; smaller = stronger perspective
 const NEAR_M = 30; // geometry closer to the camera than this is dropped
 
@@ -79,22 +85,17 @@ function groundPlane(center) {
   };
 }
 
-// The depth cues a look can switch on, beyond perspective and EXAGGERATION.
-// `planet` ships (Q1); the rest are kept for the tracer (`TRACER_LOOK=<name>`).
+// The look: `planet` ships (Q1); `flat` is kept for comparison.
 //   curvature — fake planet radius in metres: the ground falls away with
 //               distance like a tiny planet, so a horizon and sky appear
 //               (0 = flat; the real earth's 6371 km would drop 2 cm at 500 m)
-//   shadows   — buildings cast shadows on the ground from a low sun
-//   tiltShift — blur the far band, as a miniature photographed with a tilted lens
 export const LOOKS = {
-  flat: { curvature: 0, shadows: false, tiltShift: false },
-  planet: { curvature: 1100, shadows: false, tiltShift: false },
-  shadows: { curvature: 0, shadows: true, tiltShift: false },
-  miniature: { curvature: 1100, shadows: true, tiltShift: true },
+  flat: { curvature: 0 },
+  planet: { curvature: 1100 },
 };
 
 // Step 2. Camera behind the centre point (to the south), looking north and down.
-function camera(width, height, look = LOOKS.planet) {
+function camera(width, height, look = LOOKS.planet, distance = DISTANCE_M) {
   const pitch = (PITCH_DEG * Math.PI) / 180;
   const sin = Math.sin(pitch);
   const cos = Math.cos(pitch);
@@ -102,12 +103,15 @@ function camera(width, height, look = LOOKS.planet) {
   // Returns [screenX, screenY, depth], or null behind the near plane.
   // Curvature: drop every point by d²/2R, d its ground distance from the camera,
   // less the centre's own drop so the centre point stays where it was.
-  const camF = -DISTANCE_M * cos;
+  const camF = -distance * cos;
+  // Curvature scales with the camera distance, so a close village bends as much
+  // as a far city does.
+  const radius = (look.curvature * distance) / DISTANCE_M;
   const drop = (x, f) =>
-    look.curvature ? (x * x + (f - camF) ** 2 - camF * camF) / (2 * look.curvature) : 0;
+    look.curvature ? (x * x + (f - camF) ** 2 - camF * camF) / (2 * radius) : 0;
   return (x, f, z0) => {
     const z = z0 - drop(x, f);
-    const depth = f * cos - z * sin + DISTANCE_M;
+    const depth = f * cos - z * sin + distance;
     if (depth < NEAR_M) return null;
     const up = f * sin + z * cos;
     return [
@@ -159,144 +163,186 @@ function toRgb(color) {
   return `rgb(${r},${g},${bl})`;
 }
 
-// THEME-GAP: the scene needs a ramp (ground → roof), fog and water colours;
-// the theme has none of these, so they are mixed from the tokens it does have.
-function palette(themeColors) {
-  const colors = Object.fromEntries(Object.entries(themeColors).map(([k, v]) => [k, toRgb(v)]));
+// The illustration style: flat fills, two wall tones, ink outlines — a vector
+// drawing, not a shaded render. Every colour is a theme token or a mix of two,
+// so the scene follows the user's theme, light or dark.
+//
+// DECISION: the scene is drawn at full contrast and knows nothing about the text
+// that will sit on it. Legibility belongs to the layers above the `<img>` in the
+// card (a veil, CSS `filter`), which takumi supports: brightness, contrast,
+// saturate, grayscale, opacity, blur. Rejected: fog and dimming baked into the
+// SVG (the first version) — every card that wanted a different balance would
+// have needed a different drawing.
+//
+// THEME-GAP: the theme has no map colours; they are mixed from the tokens it has.
+function palette(themeColors, mode) {
+  const c = Object.fromEntries(Object.entries(themeColors).map(([k, v]) => [k, toRgb(v)]));
   const mix = (a, b, t) => d3.interpolateRgb(a, b)(t);
-  const bg = colors.background;
-  const fg = colors.foreground;
+  const bg = c.background;
+  const fg = c.foreground;
+  const dark = mode !== "light";
+  // Roofs: mostly neutral, one in four in an accent hue, so the theme shows
+  // without every block shouting. Every accent at once was a fruit salad.
+  const neutral = [mix(bg, fg, dark ? 0.42 : 0.28), mix(bg, fg, dark ? 0.52 : 0.38), mix(bg, fg, dark ? 0.34 : 0.2)];
+  const accents = [c.primary, c["ansi-cyan"], c["ansi-yellow"], c["ansi-red"]]
+    .filter(Boolean)
+    .map((h) => mix(bg, h, dark ? 0.55 : 0.45));
+  const hues = [...neutral, ...neutral, ...neutral, ...accents];
   return {
-    ground: mix(bg, fg, 0.04),
-    road: mix(bg, fg, 0.18),
-    major: mix(bg, colors.primary ?? fg, 0.35),
-    water: mix(bg, colors["ansi-blue"] ?? fg, 0.35),
-    park: mix(bg, colors["ansi-green"] ?? fg, 0.18),
-    roof: mix(bg, fg, 0.3),
-    wallLit: mix(bg, fg, 0.2),
-    wallDark: mix(bg, fg, 0.09),
-    skyTop: bg,
-    skyHorizon: mix(bg, colors["ansi-blue"] ?? fg, 0.3),
-    // Far geometry fades into the background: the depth cue that sells the 3D.
-    fog: (color, depth) =>
-      mix(color, bg, Math.min(1, Math.max(0, (depth - 350) / 900))),
+    sky: mix(bg, c["ansi-blue"] ?? fg, dark ? 0.22 : 0.18),
+    ground: mix(bg, fg, dark ? 0.12 : 0.1),
+    road: mix(bg, fg, dark ? 0.3 : 0.02),
+    major: mix(bg, c["ansi-yellow"] ?? c.primary ?? fg, dark ? 0.7 : 0.55),
+    water: mix(bg, c["ansi-blue"] ?? fg, dark ? 0.55 : 0.45),
+    park: mix(bg, c["ansi-green"] ?? fg, dark ? 0.4 : 0.35),
+    tree: mix(bg, c["ansi-green"] ?? fg, dark ? 0.7 : 0.6),
+    ink: dark ? mix(bg, "rgb(0,0,0)", 0.55) : mix(fg, bg, 0.2),
+    roofs: hues,
+    lit: (roof) => mix(roof, bg, 0.22),
+    shade: (roof) => mix(roof, dark ? "rgb(0,0,0)" : fg, dark ? 0.45 : 0.3),
   };
 }
 
-export function citySceneSvg(city, width, height, colors, look = LOOKS.planet) {
-  const toGround = groundPlane(city.center);
-  const cam = camera(width, height, look);
-  const pal = palette(colors);
-  const flat = (ring) => ring.map((p) => toGround(p));
-  const parts = [];
+// Framing: the camera looks at where the buildings are, not at the requested
+// point, and moves in when they are compact. A geocoded village centre often
+// lands beside the village (Saint-Clar, Montemagno Monferrato), and a fixed
+// 650 m camera left a village a smudge on empty ground.
+// Centre: the median building centroid. Distance: 2.4 × the radius holding
+// 75% of the buildings around it, clamped to 220–650 m. With fewer than 15
+// buildings there is nothing to frame and the requested point stays.
+function frame(city) {
+  const base = groundPlane(city.center);
+  const centroids = city.buildings.map((b) => d3.polygonCentroid(b.ring.map(base)));
+  if (centroids.length < 15) return { toGround: base, distance: DISTANCE_M };
+  const cx = d3.median(centroids, (c) => c[0]);
+  const cf = d3.median(centroids, (c) => c[1]);
+  const spread = d3.quantile(centroids.map((c) => Math.hypot(c[0] - cx, c[1] - cf)).sort(d3.ascending), 0.75);
+  const distance = Math.max(220, Math.min(DISTANCE_M, 2.4 * spread));
+  return { toGround: (p) => { const [x, f] = base(p); return [x - cx, f - cf]; }, distance };
+}
 
-  const flatShapes = (rings, color, kind) => {
-    for (const ring of rings) {
-      const pts = flat(ring).map(([x, f]) => cam(x, f, 0));
-      if (pts.some((p) => !p) || offscreen(pts, width, height)) continue;
-      const depth = d3.mean(pts, (p) => p[2]);
-      const d = kind === "line" ? "M" + pts.map((p) => fmt(p[0]) + "," + fmt(p[1])).join("L") : polygon(pts);
-      parts.push({ depth, ground: true, svg: kind === "line" ? `<path d="${d}" fill="none" stroke="${pal.fog(color.stroke, depth)}" stroke-width="${color.width}" stroke-linecap="round"/>` : `<path d="${d}" fill="${pal.fog(color, depth)}"/>` });
-    }
+// A stable small integer from a footprint, so a building keeps its colour.
+function hashRing(ring) {
+  const [lon, lat] = ring[0];
+  return Math.abs(Math.round(lon * 1e6) * 31 + Math.round(lat * 1e6)) >>> 0;
+}
+
+export function citySceneSvg(city, width, height, colors, look = LOOKS.planet, mode = "dark") {
+  const { toGround, distance } = frame(city);
+  const cam = camera(width, height, look, distance);
+  const pxPerM = (FOCAL * width) / 2; // ÷ depth gives pixels per metre there
+  const pal = palette(colors, mode);
+  const flat = (ring) => ring.map((p) => toGround(p));
+  const ground = []; // drawn first, in order: areas, road casings, road fills
+  const solids = []; // buildings and trees, painter-sorted far to near
+
+  const project = (pts, z = 0) => pts.map(([x, f]) => cam(x, f, z));
+  const visible = (pts) => !pts.some((p) => !p) && !offscreen(pts, width, height);
+  const line = (pts) => "M" + pts.map((p) => fmt(p[0]) + "," + fmt(p[1])).join("L");
+  // Ink thins and fades with distance, the way a pen drawing leaves the
+  // background lighter. Constant ink turned dense far blocks (London, Soho)
+  // into a tangle of lines.
+  const inkAt = (depth, w = 0.5) => {
+    const k = Math.min(1, (0.65 * distance) / depth);
+    return `stroke="${pal.ink}" stroke-width="${fmt(Math.max(0.15, w * k) * 100 / 100)}" stroke-opacity="${(0.3 + 0.7 * k).toFixed(2)}" stroke-linejoin="round"`;
   };
-  // With curvature the ground is a disc that ends at a horizon, sky above it.
+  const area = (pts) => Math.abs(d3.polygonArea(pts.map((p) => [p[0], p[1]])));
+
   if (look.curvature) {
     const disc = d3.range(0, 2 * Math.PI, Math.PI / 48)
-      .map((a) => cam(950 * Math.cos(a), 950 * Math.sin(a), 0))
+      .map((a) => cam(1.46 * distance * Math.cos(a), 1.46 * distance * Math.sin(a), 0))
       .filter(Boolean);
-    parts.push({ depth: Infinity, ground: true, svg: `<path d="${polygon(disc)}" fill="${pal.ground}"/>` });
+    ground.push(`<path d="${polygon(disc)}" fill="${pal.ground}" stroke="${pal.ink}" stroke-width="0.8"/>`);
   }
-  flatShapes(city.parks, pal.park, "area");
-  flatShapes(city.water, pal.water, "area");
-  flatShapes(city.roads.filter((r) => !r.major).map((r) => r.line), { stroke: pal.road, width: 1 }, "line");
-  flatShapes(city.roads.filter((r) => r.major).map((r) => r.line), { stroke: pal.major, width: 1.6 }, "line");
+  for (const [rings, fill] of [[city.parks, pal.park], [city.water, pal.water]]) {
+    for (const ring of rings) {
+      const pts = project(flat(ring));
+      if (visible(pts)) ground.push(`<path d="${polygon(pts)}" fill="${fill}" stroke="${pal.ink}" stroke-width="0.4" stroke-linejoin="round"/>`);
+    }
+  }
+  // Roads: an ink casing under a lighter fill, the classic cartographic stroke.
+  // Widths are metres at the road's mean depth, so near streets are wider.
+  const roads = [];
+  for (const r of city.roads) {
+    const pts = project(flat(r.line));
+    if (!visible(pts)) continue;
+    const w = ((r.major ? 14 : 8) * pxPerM) / d3.mean(pts, (p) => p[2]);
+    roads.push({ d: line(pts), w: Math.max(0.6, w), major: r.major });
+  }
+  roads.sort((a, b) => a.major - b.major);
+  for (const r of roads) ground.push(`<path d="${r.d}" fill="none" stroke="${pal.ink}" stroke-width="${fmt(r.w + 1)}" stroke-linecap="round" stroke-linejoin="round"/>`);
+  for (const r of roads) ground.push(`<path d="${r.d}" fill="none" stroke="${r.major ? pal.major : pal.road}" stroke-width="${fmt(r.w)}" stroke-linecap="round" stroke-linejoin="round"/>`);
 
-  // Step 3. One building = its walls (far first) then its roof, emitted as one
-  // unit so the painter's sort below works per building, not per face.
+  // Trees: a few circles scattered in each park, sized in metres like the roads.
+  for (const ring of city.parks) {
+    const poly = flat(ring);
+    const [[x0, f0], [x1, f1]] = [d3.extent(poly, (p) => p[0]), d3.extent(poly, (p) => p[1])].map((e, i, a) => (i === 0 ? [a[0][0], a[1][0]] : [a[0][1], a[1][1]]));
+    const rand = d3.randomLcg(hashRing(ring) / 2 ** 32);
+    const n = Math.min(40, Math.round(((x1 - x0) * (f1 - f0)) / 250));
+    for (let i = 0; i < n; i++) {
+      const p = [x0 + rand() * (x1 - x0), f0 + rand() * (f1 - f0)];
+      if (!d3.polygonContains(poly, p)) continue;
+      const top = cam(p[0], p[1], 9 * EXAGGERATION * 0.5);
+      const base = cam(p[0], p[1], 0);
+      if (!top || !base || offscreen([top], width, height)) continue;
+      const r = (5 * pxPerM) / top[2];
+      solids.push({ depth: base[2], svg: `<circle cx="${fmt(top[0])}" cy="${fmt(top[1])}" r="${fmt(r)}" fill="${pal.tree}" ${inkAt(top[2], 0.4)}/>` });
+    }
+  }
+
+  // Buildings: walls in two flat tones by which way they face, then the roof,
+  // all outlined in ink.
   for (const b of city.buildings) {
-    const ground = flat(b.ring);
-    const top = b.h * EXAGGERATION;
-    const base = ground.map(([x, f]) => cam(x, f, 0));
-    const roof = ground.map(([x, f]) => cam(x, f, top));
+    const gr = flat(b.ring);
+    const top = drawnHeight(b.h);
+    const base = project(gr);
+    const roof = project(gr, top);
     if (base.some((p) => !p) || roof.some((p) => !p)) continue;
     if (offscreen(roof, width, height) && offscreen(base, width, height)) continue;
+    // Below ~2 px² a building is texture, not a shape: dropping it keeps far
+    // blocks calm and the SVG smaller.
+    const hull0 = d3.polygonHull([...base, ...roof].map((p) => [p[0], p[1]]));
+    if (!hull0 || area(hull0) < 2) continue;
+    const roofColor = pal.roofs[hashRing(b.ring) % pal.roofs.length];
     const walls = [];
-    for (let i = 0; i < ground.length - 1; i++) {
-      // Light from the west-southwest: a wall's shade is its normal against it.
-      const [x0, f0] = ground[i];
-      const [x1, f1] = ground[i + 1];
-      const len = Math.hypot(x1 - x0, f1 - f0) || 1;
-      const lit = Math.max(0, ((f1 - f0) * -0.8 + (x1 - x0) * -0.6) / len);
-      const depth = (base[i][2] + base[i + 1][2]) / 2;
+    for (let i = 0; i < gr.length - 1; i++) {
+      const [x0, f0] = gr[i];
+      const [x1, f1] = gr[i + 1];
+      // Light from the west-southwest; a wall either faces it or does not.
+      const facing = (f1 - f0) * -0.8 + (x1 - x0) * -0.6 > 0;
       walls.push({
-        depth,
+        depth: (base[i][2] + base[i + 1][2]) / 2,
         d: polygon([base[i], base[i + 1], roof[i + 1], roof[i]]),
-        color: pal.fog(d3.interpolateRgb(pal.wallDark, pal.wallLit)(lit), depth),
+        fill: facing ? pal.lit(roofColor) : pal.shade(roofColor),
       });
     }
     walls.sort((a, b) => b.depth - a.depth);
-    if (look.shadows) {
-      // Low sun from the west-southwest: the shadow of a point at height z lands
-      // SHADOW × z metres east-northeast of its foot.
-      const SHADOW = 0.9;
-      const cast = ground.map(([x, f]) => cam(x + 0.6 * SHADOW * top, f + 0.8 * SHADOW * top, 0));
-      if (!cast.some((p) => !p)) {
-        const quads = [];
-        for (let i = 0; i < ground.length - 1; i++)
-          quads.push(polygon([base[i], base[i + 1], cast[i + 1], cast[i]]));
-        parts.push({
-          depth: d3.max(cast, (p) => p[2]),
-          ground: true,
-          svg: `<path d="${quads.join("") + polygon(cast)}" fill="#000" fill-opacity="0.28"/>`,
-        });
-      }
-    }
-    const depth = d3.max(base, (p) => p[2]);
-    const roofDepth = d3.mean(roof, (p) => p[2]);
-    parts.push({
-      depth,
+    // Ink on the roof and the silhouette only: outlining every wall striped
+    // round towers with dozens of vertical lines. Walls get a hairline in their
+    // own colour so neighbouring faces don't show a seam.
+    const ink = inkAt(d3.mean(base, (p) => p[2]));
+    const hull = hull0;
+    solids.push({
+      depth: d3.max(base, (p) => p[2]),
       svg:
-        walls.map((w) => `<path d="${w.d}" fill="${w.color}"/>`).join("") +
-        `<path d="${polygon(roof)}" fill="${pal.fog(pal.roof, roofDepth)}"/>`,
+        walls.map((w) => `<path d="${w.d}" fill="${w.fill}" stroke="${w.fill}" stroke-width="0.3"/>`).join("") +
+        `<path d="${polygon(roof)}" fill="${roofColor}" ${ink}/>` +
+        (hull ? `<path d="${polygon(hull)}" fill="none" ${ink}/>` : ""),
     });
   }
 
-  // Step 3, painter's algorithm: everything on the ground first, then buildings
-  // far to near. A building's sort key is its farthest base corner, which gets
-  // long footprints wrong at some angles.
   // DECISION: sort per building, by farthest base corner. Checked at 2× card
   // size on the four sampled cities (Manhattan towers, Eixample blocks, Gothic
   // alleys, Budapest centre) at PITCH_DEG 50: no visible overlap errors. Rejected:
   // sorting per wall — more work, and no visible error for it to fix at 248×96.
   // A steeper pitch or a larger card reopens this.
-  parts.sort((a, b) => (a.ground === b.ground ? b.depth - a.depth : a.ground ? -1 : 1));
+  solids.sort((a, b) => b.depth - a.depth);
 
-  // Tilt-shift: the far band of each layer goes in a blurred group. Ground and
-  // buildings stay in separate groups so the painter's order survives.
-  const FAR = 950;
-  const body = look.tiltShift
-    ? [true, false]
-        .map((g) => {
-          const layer = parts.filter((p) => !!p.ground === g);
-          const far = layer.filter((p) => p.depth > FAR && p.depth !== Infinity);
-          const near = layer.filter((p) => !(p.depth > FAR && p.depth !== Infinity));
-          const disc = near.filter((p) => p.depth === Infinity);
-          return (
-            disc.map((p) => p.svg).join("") +
-            `<g filter="url(#ts)">${far.map((p) => p.svg).join("")}</g>` +
-            near.filter((p) => p.depth !== Infinity).map((p) => p.svg).join("")
-          );
-        })
-        .join("")
-    : parts.map((p) => p.svg).join("");
-  const sky = look.curvature
-    ? `<linearGradient id="sky" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${pal.skyTop}"/><stop offset="1" stop-color="${pal.skyHorizon}"/></linearGradient>`
-    : "";
   return (
     `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">` +
-    `<defs>${sky}<filter id="ts" x="-5%" y="-5%" width="110%" height="110%"><feGaussianBlur stdDeviation="0.9"/></filter></defs>` +
-    `<rect width="${width}" height="${height}" fill="${look.curvature ? "url(#sky)" : pal.ground}"/>` +
-    body +
+    `<rect width="${width}" height="${height}" fill="${look.curvature ? pal.sky : pal.ground}"/>` +
+    ground.join("") +
+    solids.map((p) => p.svg).join("") +
     `</svg>`
   );
 }
@@ -315,6 +361,12 @@ export function citySceneSvg(city, width, height, colors, look = LOOKS.planet) {
 //
 // Four runs moved every number by up to 2× with machine load (gothic build:
 // 407–670 ms); none of the decisions below sits near a threshold that moves.
+//
+// Those numbers are the first, shaded renderer. The illustration style draws
+// more per building (road casings, wall hairlines, a silhouette): measured
+// 2026-10-24, build 84 ms (Alcover) to 792 ms (London, Soho), SVG 0.4–4.2 MB,
+// per-tick eval as a data URI 2.6–31 ms. Every decision below holds, by a
+// wider margin: the data URI is worse, and the build is off the loop anyway.
 //
 // DECISION: the scene must not travel as a data URI. It costs twice on every
 // tick: the string goes through `json_stringify` and serde on its way out of
@@ -337,11 +389,11 @@ export function citySceneSvg(city, width, height, colors, look = LOOKS.planet) {
 // at all; the numbers above are why that cannot ship.
 const memo = new Map();
 
-export function citySceneUri(city, width, height, colors, look = LOOKS.planet) {
-  const key = `${city.center}|${width}x${height}|${colors.background}|${colors.foreground}|${JSON.stringify(look)}`;
+export function citySceneUri(city, width, height, colors, look = LOOKS.planet, mode = "dark") {
+  const key = `${city.center}|${width}x${height}|${colors.background}|${colors.foreground}|${JSON.stringify(look)}|${mode}`;
   let uri = memo.get(key);
   if (!uri) {
-    uri = "data:image/svg+xml;utf8," + encodeURIComponent(citySceneSvg(city, width, height, colors, look));
+    uri = "data:image/svg+xml;utf8," + encodeURIComponent(citySceneSvg(city, width, height, colors, look, mode));
     memo.set(key, uri);
   }
   return uri;
@@ -358,7 +410,7 @@ export function citySceneUri(city, width, height, colors, look = LOOKS.planet) {
 export default function CityScene({ city, width, height, look }) {
   return (
     <img
-      src={citySceneUri(city, width, height, ctx.theme.colors, look)}
+      src={citySceneUri(city, width, height, ctx.theme.colors, look, ctx.theme.mode)}
       style={{ position: "absolute", top: 0, left: 0, width, height }}
     />
   );

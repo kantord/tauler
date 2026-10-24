@@ -18,12 +18,18 @@ const reading = { cond: "Partly cloudy", temp: "+17°C", feels: "+16°C", humidi
 function WeatherCard({ w }) {
   return (
     <div style={{ position: "relative", width: CARD_W, height: CARD_H }} class="rounded-lg overflow-hidden">
-      <CityScene city={city} width={CARD_W} height={CARD_H} look={LOOKS.__LOOK__} />
-      {/* Veil: keeps the text readable on any city. Fades the top-left corner,
-          where the temperature sits, and leaves the skyline on the right. */}
+      {/* The scene is drawn at full contrast; everything that makes text
+          readable on it is a layer here, so another card can balance it
+          differently without touching the drawing. */}
+      <div style={{ position: "absolute", top: 0, left: 0, width: CARD_W, height: CARD_H,
+                    filter: "saturate(0.85) brightness(0.9)" }}>
+        <CityScene city={city} width={CARD_W} height={CARD_H} look={LOOKS.__LOOK__} />
+      </div>
+      {/* Veil: fades the left side, where the text sits, and leaves the
+          skyline on the right at full strength. */}
       <div
         style={{ position: "absolute", top: 0, left: 0, width: CARD_W, height: CARD_H }}
-        class="bg-gradient-to-r from-background/80 via-background/30 to-transparent"
+        class="bg-gradient-to-r from-background/85 via-background/40 to-transparent"
       />
       <div style={{ position: "relative" }} class="flex flex-col gap-[2px] p-[10px]">
         <span class="text-[22px] text-foreground font-bold">{w.temp}</span>
