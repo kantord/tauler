@@ -57,6 +57,21 @@
 //! the per-tick cost Pictures exist to avoid. A live chart pays with a key such
 //! as `cpu/${lastSampleTime}`. Rejected: an automatic key from serialized props.
 //! SPEC: `draw` that throws leaves the last Picture in place and logs once per key.
+//! SPEC: the draw runtime defines `setTimeout`, `setInterval`,
+//! `requestAnimationFrame` and their `clear*`/`cancel*` as timers that never
+//! fire. d3-timer schedules a frame the moment anything starts one —
+//! `d3.forceSimulation()` does on construction, before `.stop()` — and QuickJS
+//! has none, so the first network-graph example threw "setTimeout is not
+//! defined" (examples/d3-charts, 2026-10-24). A Picture is drawn once: a
+//! simulation is run to rest with `.tick()`, a transition never plays.
+//!
+//! DECISION: what a `draw` costs is the author's business, because it is off
+//! the loop. Measured in tauler's QuickJS (examples/d3-charts): a two-series
+//! line chart with axes 4.3 ms, a bar chart 1.8 ms, a 60-node force-directed
+//! graph ~390 ms for 135 ticks (Node: 23 ms; QuickJS runs d3-force ~12× slower).
+//! In the render call that graph alone would be a Lagged tick; in the draw
+//! runtime it is a picture that shows up 0.4 s later.
+//!
 //! SPEC: in a page (ADR 0026/0027) `draw` runs in the page's realm against a real
 //! `<svg>` element inside the node, synchronously. Same author code, no Picture.
 //!

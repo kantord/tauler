@@ -114,7 +114,11 @@ fn main() {
                 let ev = JsxEvaluator::new(&source, ctx, Some(dir.as_path())).expect("compiles");
                 let mut layout = ev.eval(&HashMap::new()).expect("eval").layout;
                 resolve_theme_tokens(&mut layout, &theme);
-                let panel = parse_root_node(&layout).unwrap().into_iter().next().unwrap();
+                let panel = parse_root_node(&layout)
+                    .unwrap()
+                    .into_iter()
+                    .next()
+                    .unwrap();
                 let w = (panel.width as f32 * panel.dpr).round() as u32;
                 let h = (panel.height as f32 * panel.dpr).round() as u32;
                 let frame = tauler::render_frame_rgba(&panel.content, w, h, panel.dpr, None);
@@ -127,7 +131,10 @@ fn main() {
 
                 let uri = find_data_uri(&panel.content).expect("scene data uri");
                 let scale = panel.dpr * 2.0;
-                let (cw, ch) = ((248.0 * scale).round() as u32, (96.0 * scale).round() as u32);
+                let (cw, ch) = (
+                    (248.0 * scale).round() as u32,
+                    (96.0 * scale).round() as u32,
+                );
                 let card = serde_json::json!({"type": "img", "src": uri,
                     "style": {"width": 248, "height": 96}});
                 let rgba = tauler::render_frame_rgba(&card, cw, ch, scale, None);
