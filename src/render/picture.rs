@@ -25,7 +25,7 @@
 //! the SVG at the D3View's size × dpr, through `render_frame_rgba` — and bound
 //! per render exactly like `tauler:root-bg` (`frame_options`, mod.rs). The tracer
 //! did exactly this for its bitmap variant; the result matched the data-URI
-//! render (compared by eye on the suburb and gothic samples).
+//! render (compared by eye on two of the sampled places).
 //! Rejected: a resvg dependency of our own — takumi already carries one.
 //!
 //! DECISION: the SVG comes from the draw runtime (src/d3_view.rs), never from the

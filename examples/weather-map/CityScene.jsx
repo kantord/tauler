@@ -240,8 +240,8 @@ export function citySceneSvg(city, width, height, colors, look = LOOKS.planet, m
   const visible = (pts) => !pts.some((p) => !p) && !offscreen(pts, width, height);
   const line = (pts) => "M" + pts.map((p) => fmt(p[0]) + "," + fmt(p[1])).join("L");
   // Ink thins and fades with distance, the way a pen drawing leaves the
-  // background lighter. Constant ink turned dense far blocks (London, Soho)
-  // into a tangle of lines.
+  // background lighter. Constant ink turned the far blocks of the densest
+  // samples into a tangle of lines.
   const inkAt = (depth, w = 0.5) => {
     const k = Math.min(1, (0.65 * distance) / depth);
     return `stroke="${pal.ink}" stroke-width="${fmt(Math.max(0.15, w * k) * 100 / 100)}" stroke-opacity="${(0.3 + 0.7 * k).toFixed(2)}" stroke-linejoin="round"`;
@@ -332,8 +332,8 @@ export function citySceneSvg(city, width, height, colors, look = LOOKS.planet, m
   }
 
   // DECISION: sort per building, by farthest base corner. Checked at 2× card
-  // size on the four sampled cities (Manhattan towers, Eixample blocks, Gothic
-  // alleys, Budapest centre) at PITCH_DEG 50: no visible overlap errors. Rejected:
+  // size on every sampled place (towers, grid blocks, old-town alleys, a
+  // suburb, villages) at PITCH_DEG 50: no visible overlap errors. Rejected:
   // sorting per wall — more work, and no visible error for it to fix at 248×96.
   // A steeper pitch or a larger card reopens this.
   solids.sort((a, b) => b.depth - a.depth);
@@ -350,7 +350,10 @@ export function citySceneSvg(city, width, height, colors, look = LOOKS.planet, m
 // Measured with `cargo run --release --example weather_map_tracer`, 2026-10-23,
 // card 248×96 in a 272 px sidebar at 140 dpi, default-dark, 20 runs each:
 //
-//                      suburb  manhattan  eixample  gothic
+// Four sampled centres, named by what they stress (the samples themselves
+// were since replaced; the numbers are the measurements as taken):
+//
+//                    low-rise    towers  grid blocks  old town
 //   SVG size            220 KB    692 KB   1119 KB  2515 KB
 //   build (once)         58 ms    198 ms    368 ms   605 ms
 //   eval, data URI     1.5 ms    3.6 ms    7.9 ms   19 ms    ← every tick
@@ -359,13 +362,14 @@ export function citySceneSvg(city, width, height, colors, look = LOOKS.planet, m
 //   raster, bitmap     0.7 ms    0.4 ms    0.6 ms   0.4 ms   ← every repaint
 //   raster, no scene   0.6 ms    0.4 ms    0.4 ms   0.5 ms
 //
-// Four runs moved every number by up to 2× with machine load (gothic build:
+// Four runs moved every number by up to 2× with machine load (old-town build:
 // 407–670 ms); none of the decisions below sits near a threshold that moves.
 //
 // Those numbers are the first, shaded renderer. The illustration style draws
 // more per building (road casings, wall hairlines, a silhouette): measured
-// 2026-10-24, build 84 ms (Alcover) to 792 ms (London, Soho), SVG 0.4–4.2 MB,
-// per-tick eval as a data URI 2.6–31 ms. Every decision below holds, by a
+// 2026-10-24 on 14 places, build 6 ms (Long Compton, 34 buildings) to
+// 1222 ms (Venice, 979 buildings in tight alleys), SVG 63 KB–2.6 MB, per-tick
+// eval as a data URI 0.3–70 ms. Every decision below holds, by a
 // wider margin: the data URI is worse, and the build is off the loop anyway.
 //
 // DECISION: the scene must not travel as a data URI. It costs twice on every

@@ -9,13 +9,17 @@
 #
 # DECISION: geometry comes from the Overpass API, fetched once per location and
 # cached on disk. Measured on 2026-10-23, radius 500 m: 38–42 s per request,
-# 0.4–1.8 MB of JSON, 437–1882 ways (Barcelona Gothic quarter is the worst case
+# 0.4–1.8 MB of JSON, 437–1882 ways (a dense old town was the worst case
 # sampled). Rejected: fetching on every bar start — 40 s with no scene, and
 # Overpass rate-limits per IP.
 #
 # DECISION: a building's height is `height`, else `building:levels` × 3 m, else
-# 3 levels. Measured coverage of either tag: Manhattan 83%, Eixample 55%,
-# Gothic 95%, central Budapest 26% — the fallback carries a quarter of some cities.
+# 3 levels. Measured share of buildings with either tag, 2026-10-24: Manhattan
+# 84%, Shinjuku 51%, Melbourne 48%, Venice 38%, Mexico City 14%, Levittown 0%,
+# villages 0–19% — the fallback draws most of every suburb and village.
+# Arguments go to node after `--`: a southern latitude (-37.8) is otherwise
+# read as a node option, which is how Melbourne first failed.
+#
 # The main OSM API (`/api/0.6/map`) is the fallback when Overpass cannot be
 # reached: same data, raw XML, a bounding box instead of a radius, at most
 # 50 000 nodes — enough for a 500 m box outside the densest old towns. Only for
@@ -30,7 +34,7 @@ trap 'rm -f "$raw" "$raw.js"' EXIT
 ua="tauler-weather-map-tracer"
 q="[out:json][timeout:60];(way[building](around:$r,$lat,$lon);way[highway~\"^(motorway|trunk|primary|secondary|tertiary|residential|unclassified|pedestrian|living_street)$\"](around:$r,$lat,$lon);way[natural=water](around:$r,$lat,$lon);way[leisure=park](around:$r,$lat,$lon););out geom tags qt;"
 if ! { curl -sf --max-time 90 -A "$ua" --data-urlencode "data=$q" https://overpass-api.de/api/interpreter > "$raw" && head -c1 "$raw" | grep -q '{'; }; then
-  bbox=$(node -e 'const [la,lo,r]=process.argv.slice(1).map(Number);const dla=r/111320,dlo=r/(111320*Math.cos(la*Math.PI/180));console.log([lo-dlo,la-dla,lo+dlo,la+dla].map(n=>n.toFixed(6)).join(","))' "$lat" "$lon" "$r")
+  bbox=$(node -e 'const [la,lo,r]=process.argv.slice(1).map(Number);const dla=r/111320,dlo=r/(111320*Math.cos(la*Math.PI/180));console.log([lo-dlo,la-dla,lo+dlo,la+dla].map(n=>n.toFixed(6)).join(","))' -- "$lat" "$lon" "$r")
   curl -sf --max-time 90 -A "$ua" "https://api.openstreetmap.org/api/0.6/map?bbox=$bbox" > "$raw"
 fi
 node -e '
@@ -67,7 +71,9 @@ node -e '
     else if (t.leisure === "park") out.parks.push(pts(e.geometry));
   }
   if (!out.buildings.length && !out.roads.length) { console.error("no geometry"); process.exit(1); }
+  const tagged = elements.filter(e => e.tags?.building && (e.tags.height || e.tags["building:levels"])).length;
+  console.error(`buildings ${out.buildings.length}, with height tags ${tagged} (${Math.round(100 * tagged / Math.max(1, out.buildings.length))}%), ways ${elements.length}`);
   process.stdout.write("export default " + JSON.stringify(out) + ";\n");
-' "$raw" "$lat" "$lon" > "$raw.js"
+' -- "$raw" "$lat" "$lon" > "$raw.js"
 mv "$raw.js" "$here/.data/$name.js"
 echo "wrote $here/.data/$name.js ($(stat -c%s "$here/.data/$name.js") bytes)"

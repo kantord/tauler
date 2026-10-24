@@ -78,7 +78,7 @@ fn main() {
     let cities: Vec<String> = if args.len() > 1 {
         args[1..].to_vec()
     } else {
-        ["suburb", "manhattan", "eixample", "gothic"]
+        ["levittown", "manhattan", "melbourne", "venice"]
             .map(String::from)
             .to_vec()
     };
