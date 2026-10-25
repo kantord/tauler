@@ -17,4 +17,4 @@ testcontainers = { version = "=0.28.0", features = ["blocking"] }
 
 [dev-dependencies]
 # The scenarios build a terminal's colours from the same built-in theme the bar is told to use.
-tauler-core = { path = "../tauler-core", version = "0.3.8" }
+tauler-core = { path = "../tauler-core", version = "0.3.9" }
