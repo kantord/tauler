@@ -3,6 +3,7 @@ pub mod a11y;
 
 pub mod backdrop;
 pub mod config;
+pub mod d3_figure;
 pub mod data;
 pub mod display_manager;
 pub mod hit_test;

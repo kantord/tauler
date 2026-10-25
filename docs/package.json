@@ -6,10 +6,11 @@
   "scripts": {
     "dev": "astro dev",
     "start": "astro dev",
-    "build": "pnpm run build:css && astro build",
+    "build": "pnpm run build:css && pnpm run build:d3 && astro build",
     "preview": "astro preview",
     "astro": "astro",
     "build:css": "tailwindcss -i .tauler/tailwind.css -o public/tauler/tauler.css && node scripts/check-classes.mjs",
+    "build:d3": "cp node_modules/d3/dist/d3.min.js public/tauler/d3.min.js",
     "test": "playwright test",
     "test:docker": "bash scripts/update-snapshots.sh",
     "test:update": "bash scripts/update-snapshots.sh --update",
@@ -25,6 +26,7 @@
     "@tailwindcss/vite": "^4.3.3",
     "astro": "^7.0.0",
     "astro-mermaid": "^2.0.4",
+    "d3": "7.9.0",
     "mermaid": "^12.0.0",
     "sharp": "^0.35.0",
     "shiki": "^4.0.2"

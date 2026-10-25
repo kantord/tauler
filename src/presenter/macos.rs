@@ -65,6 +65,7 @@ pub(crate) struct MacBoot {
     pub(crate) interesting: InterestingPaths,
     pub(crate) fetch_manager: Arc<tauler::pkg::fetch_manager::FetchManager>,
     pub(crate) pkg_cache_root: std::path::PathBuf,
+    pub(crate) d3_fetcher: Arc<tauler::d3_figure::fetch::Fetcher>,
 }
 
 struct MacPanel {
@@ -433,8 +434,10 @@ fn spawn_worker(boot: MacBoot, mac: MacInit) -> thread::JoinHandle<()> {
         interesting,
         fetch_manager,
         pkg_cache_root,
+        d3_fetcher,
     } = boot;
 
+    let notifier = data_loop.notifier();
     thread::spawn(move || {
         let mut app = App::new_macos(
             mac,
@@ -447,8 +450,10 @@ fn spawn_worker(boot: MacBoot, mac: MacInit) -> thread::JoinHandle<()> {
             last_tick,
             watcher,
             interesting,
+            notifier,
             fetch_manager,
             pkg_cache_root,
+            d3_fetcher,
         );
         // Whatever this returns, the subprocesses must be torn down before main
         // re-execs: `exec` keeps the PID and runs no destructors, so anything

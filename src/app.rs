@@ -350,6 +350,81 @@ pub(crate) struct MacInit {
     pub(crate) output_name: String,
 }
 
+/// The loop's side of the draw runtime (`tauler::d3_figure`): which D3Figures
+/// to ask for, and the drawings coming back.
+struct Figures {
+    /// Respawned with the reconciler on every load; `None` until the first.
+    runtime: Option<tauler::d3_figure::draw::DrawRuntime>,
+    /// The current runtime's generation, increased on every spawn: drawings
+    /// from an earlier runtime are ignored on arrival.
+    generation: u64,
+    /// Handed to each new runtime; kept so `drawn_rx` outlives every runtime.
+    drawn_tx: mpsc::Sender<tauler::d3_figure::draw::Drawn>,
+    drawn_rx: mpsc::Receiver<tauler::d3_figure::draw::Drawn>,
+    /// Told about each new runtime ([`Requests::after_reload`]): it draws with
+    /// the layout it loaded, so every key is asked for again, while each figure
+    /// keeps showing what it showed until its new drawing arrives.
+    ///
+    /// [`Requests::after_reload`]: tauler::d3_figure::requests::Requests::after_reload
+    requests: tauler::d3_figure::requests::Requests,
+    /// What a runtime pings after sending a drawing, so the loop wakes for it.
+    notifier: mpsc::SyncSender<()>,
+}
+
+impl Figures {
+    fn new(notifier: mpsc::SyncSender<()>) -> Self {
+        let (drawn_tx, drawn_rx) = mpsc::channel();
+        Self {
+            runtime: None,
+            generation: 0,
+            drawn_tx,
+            drawn_rx,
+            requests: Default::default(),
+            notifier,
+        }
+    }
+
+    /// Ask the runtime for every figure in `calls` not asked for yet, and show
+    /// each changed figure's previous Picture until its own arrives.
+    ///
+    /// Plans nothing while there is no runtime: [`App::spawn_draw_runtime`]
+    /// plans the latest eval itself, once [`Self::requests`] knows about the
+    /// new runtime.
+    fn request(&mut self, calls: &[tauler::jsx::FigureCall]) {
+        let Some(runtime) = &self.runtime else { return };
+        let plan = self.requests.plan(calls);
+        for (key, from) in &plan.fallbacks {
+            tauler::render::picture::set_fallback(key, from);
+        }
+        // Only with something to draw, so an unchanged Tick never wakes the
+        // runtime; the named keys ride along and bound what it keeps pending.
+        if !plan.draw.is_empty() {
+            runtime.request(self.requests.named(), plan.draw);
+        }
+    }
+
+    /// Store every drawing the current runtime sent as its key's Picture;
+    /// whether any arrived. Drawings from a runtime dropped by a reload are
+    /// ignored ([`tauler::d3_figure::draw::current_only`]).
+    fn store_drawn(&self) -> bool {
+        let mut any = false;
+        let arrived =
+            tauler::d3_figure::draw::current_only(self.generation, self.drawn_rx.try_iter());
+        for drawn in arrived {
+            tauler::render::picture::set_picture(&drawn.key, drawn.svg);
+            any = true;
+        }
+        if any {
+            // Each arrival supersedes the key its figure showed before; without
+            // this the old SVG and its bitmap live until the next reload.
+            // `retain` keeps the fallbacks the named keys still show.
+            let named = self.requests.named();
+            tauler::render::picture::retain_pictures(|k| named.contains(k));
+        }
+        any
+    }
+}
+
 pub(crate) struct App {
     theme: Theme,
     /// The directory a layout is resolved from — `~/.config/tauler` in practice. Kept
@@ -393,6 +468,9 @@ pub(crate) struct App {
     /// `~/.cache/tauler/pkg` in practice. Fixed for the process's lifetime, like
     /// `config_dir`.
     pkg_cache_root: std::path::PathBuf,
+    /// Fetcher for the `"d3"` import; shared like `fetch_manager` so its
+    /// in-flight flag dedupes downloads across reloads.
+    d3_fetcher: Arc<tauler::d3_figure::fetch::Fetcher>,
     stop: Arc<AtomicBool>,
     last_tick: Arc<std::sync::atomic::AtomicU64>,
     outputs: SurfaceOutputs,
@@ -412,6 +490,10 @@ pub(crate) struct App {
     /// and drained here on the tick thread so they reach `resolve`/`send` (ADR 0038).
     #[cfg(target_os = "linux")]
     a11y_rx: mpsc::Receiver<(String, Vec<usize>)>,
+    figures: Figures,
+    /// The latest eval, as it came out of the evaluator: what a drawing that
+    /// arrives is reconciled against, without evaluating again.
+    last_eval: Option<tauler::jsx::EvalOutput>,
 }
 
 /// Start the render worker and return the two channels a reconciled surface
@@ -676,6 +758,7 @@ impl App {
         notifier: mpsc::SyncSender<()>,
         fetch_manager: Arc<tauler::pkg::fetch_manager::FetchManager>,
         pkg_cache_root: std::path::PathBuf,
+        d3_fetcher: Arc<tauler::d3_figure::fetch::Fetcher>,
     ) -> Self {
         let X11Init { panel_ctx, jsx_ctx } = x11;
         let dpr = panel_ctx.dpr;
@@ -696,6 +779,7 @@ impl App {
             .unwrap_or_default();
         let theme_source = theme_source_from(&config);
         let theme = load_theme_or_exit(&theme_source);
+        let figures = Figures::new(notifier.clone());
         #[cfg(target_os = "linux")]
         let (a11y, a11y_rx) = tauler::a11y::A11y::new(notifier);
         let mut state = Self {
@@ -723,6 +807,7 @@ impl App {
             reload_rx: rx.reload_rx,
             fetch_manager,
             pkg_cache_root,
+            d3_fetcher,
             stop,
             last_tick,
             outputs: spawn_render_worker(command_tx),
@@ -735,6 +820,8 @@ impl App {
             a11y,
             #[cfg(target_os = "linux")]
             a11y_rx,
+            figures,
+            last_eval: None,
         };
         state.initial_load();
         state.reconcile_theme_file_watch(theme_source.file);
@@ -757,6 +844,7 @@ impl App {
         notifier: mpsc::SyncSender<()>,
         fetch_manager: Arc<tauler::pkg::fetch_manager::FetchManager>,
         pkg_cache_root: std::path::PathBuf,
+        d3_fetcher: Arc<tauler::d3_figure::fetch::Fetcher>,
     ) -> Self {
         let (screen_width, screen_height) = server.primary_output_size().unwrap_or((1920, 1080));
         let initial_dpr = server.primary_output_scale();
@@ -778,6 +866,7 @@ impl App {
             .unwrap_or_default();
         let theme_source = theme_source_from(&config);
         let theme = load_theme_or_exit(&theme_source);
+        let figures = Figures::new(notifier.clone());
         let (a11y, a11y_rx) = tauler::a11y::A11y::new(notifier);
         let mut state = Self {
             theme,
@@ -804,6 +893,7 @@ impl App {
             reload_rx: rx.reload_rx,
             fetch_manager,
             pkg_cache_root,
+            d3_fetcher,
             stop,
             last_tick,
             outputs: spawn_render_worker(command_tx),
@@ -814,6 +904,8 @@ impl App {
             presenter_thread: Some(presenter_thread),
             a11y,
             a11y_rx,
+            figures,
+            last_eval: None,
         };
         state.initial_load();
         state.reconcile_theme_file_watch(theme_source.file);
@@ -835,8 +927,10 @@ impl App {
         last_tick: Arc<std::sync::atomic::AtomicU64>,
         watcher: SharedWatcher,
         interesting: InterestingPaths,
+        notifier: mpsc::SyncSender<()>,
         fetch_manager: Arc<tauler::pkg::fetch_manager::FetchManager>,
         pkg_cache_root: std::path::PathBuf,
+        d3_fetcher: Arc<tauler::d3_figure::fetch::Fetcher>,
     ) -> Self {
         let MacInit {
             command_tx,
@@ -896,6 +990,7 @@ impl App {
             reload_rx: rx.reload_rx,
             fetch_manager,
             pkg_cache_root,
+            d3_fetcher,
             stop,
             last_tick,
             outputs: spawn_render_worker(command_tx),
@@ -904,6 +999,8 @@ impl App {
             capture: None,
             outbox: Outbox::new(),
             presenter_thread: None,
+            figures: Figures::new(notifier),
+            last_eval: None,
         };
         state.initial_load();
         state.reconcile_theme_file_watch(theme_source.file);
@@ -917,6 +1014,15 @@ impl App {
         out: &tauler::jsx::EvalOutput,
         trace: Option<Trace>,
     ) -> bool {
+        self.last_eval = Some(out.clone());
+        self.figures.request(&out.figure_calls);
+        self.reconcile_eval(out, trace)
+    }
+
+    /// The reconcile half of [`Self::apply_eval_result_dispatch`]: also what a
+    /// drawing arriving re-runs on [`Self::last_eval`], so a surface whose
+    /// Picture changed repaints without a new eval.
+    fn reconcile_eval(&mut self, out: &tauler::jsx::EvalOutput, trace: Option<Trace>) -> bool {
         let mut layout = out.layout.clone();
         resolve_theme_tokens(&mut layout, &self.theme);
         // An `<img src="…">` naming a file has to be read off disk and put in
@@ -932,6 +1038,7 @@ impl App {
             layout,
             stream_calls: out.stream_calls.clone(),
             module_calls: out.module_calls.clone(),
+            figure_calls: out.figure_calls.clone(),
         };
         let (dpr, dpi, sw, sh) = (
             self.dpr,
@@ -997,6 +1104,7 @@ impl App {
             fetch_manager: Arc::clone(&self.fetch_manager),
             lockfile_path,
             cache_root: self.pkg_cache_root.clone(),
+            d3: Arc::clone(&self.d3_fetcher),
         })
     }
 
@@ -1034,6 +1142,7 @@ impl App {
                 self.jsx_evaluator = Some(evaluator);
                 self.reconcile_import_watches(loaded);
                 self.spawn_reconciler(&source, &layout_path, &self.theme.clone());
+                self.spawn_draw_runtime(&source, &layout_path, &self.theme.clone());
             }
             Err(e) => tracing::error!(error = %e, "JSX eval error"),
         }
@@ -1060,6 +1169,37 @@ impl App {
             globals,
             self.package_context(),
         ));
+    }
+
+    /// Hand the layout file to a fresh draw runtime (`tauler::d3_figure::draw`),
+    /// stopping the one it replaces first, and ask it for the latest eval's
+    /// figures.
+    ///
+    /// Spawned on every load, like the reconciler, with or without a Package
+    /// context and whether or not the layout has a D3Figure: the runtime builds
+    /// its evaluator on its first request and loads d3 on its first draw, so an
+    /// idle one costs a parked thread.
+    fn spawn_draw_runtime(&mut self, source: &str, layout_path: &std::path::Path, theme: &Theme) {
+        let Some(globals) = self.jsx_evaluator.as_ref().map(|e| e.globals_handle()) else {
+            return;
+        };
+        self.figures.runtime = None;
+        self.figures.generation += 1;
+        self.figures.runtime = Some(tauler::d3_figure::draw::DrawRuntime::spawn(
+            source.to_string(),
+            jsx_ctx_with_theme(&self.jsx_ctx, theme),
+            Some(layout_path.to_path_buf()),
+            Arc::clone(&self.stream_values),
+            globals,
+            self.package_context(),
+            self.figures.drawn_tx.clone(),
+            self.figures.notifier.clone(),
+            self.figures.generation,
+        ));
+        self.figures.requests.after_reload();
+        if let Some(out) = &self.last_eval {
+            self.figures.request(&out.figure_calls);
+        }
     }
 
     fn handle_layout_reload(&mut self) -> bool {
@@ -1142,10 +1282,16 @@ impl App {
 
         self.handle.set_desired(vec![]);
         self.stream_values.write().unwrap().clear();
+        // The old layout's runtime must not be asked for the new layout's
+        // figures; the new one is, once spawned below.
+        self.figures.runtime = None;
         self.apply_eval_result_dispatch(&out, None);
         self.jsx_evaluator = Some(evaluator);
         self.reconcile_import_watches(loaded_paths);
         self.spawn_reconciler(&loaded.js_source, &layout_path, &self.theme.clone());
+        // Every figure keeps its Picture until the new runtime's drawing
+        // replaces it; `store_drawn` drops the old layout's Pictures then.
+        self.spawn_draw_runtime(&loaded.js_source, &layout_path, &self.theme.clone());
         self.reconcile_theme_file_watch(theme_source.file);
         tracing::info!("layout reloaded");
         true
@@ -1535,6 +1681,16 @@ impl App {
             }
         }
 
+        // A drawing changes no eval output, only the Picture its key names, so
+        // reconcile the latest output again: surfaces whose Picture stamp moved
+        // repaint, the rest stay as they are.
+        if self.figures.store_drawn() {
+            if let Some(out) = self.last_eval.take() {
+                self.reconcile_eval(&out, None);
+                self.last_eval = Some(out);
+            }
+        }
+
         #[cfg(target_os = "linux")]
         {
             self.update_a11y();
@@ -1612,6 +1768,7 @@ mod tests {
             layout,
             stream_calls: vec![],
             module_calls: vec![],
+            figure_calls: vec![],
         }
     }
 

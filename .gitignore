@@ -11,3 +11,7 @@
 # git to be compared against (ADR 0026).
 /docs/public/tauler/
 /docs/.tauler/
+
+# Example data: OSM extracts, cargo metadata. Each example's setup.sh regenerates
+# its own. (d3 is not here: tauler downloads it into ~/.cache/tauler/d3.)
+/examples/*/.data/

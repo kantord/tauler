@@ -341,6 +341,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         reload_tx.clone(),
     ));
     let pkg_cache_root = std::path::PathBuf::from(&home).join(".cache/tauler/pkg");
+    // Same channel as the fetch manager: a finished d3 download retries the
+    // layout like a finished Package fetch does.
+    let d3_fetcher = Arc::new(tauler::d3_figure::fetch::Fetcher::from_env(
+        &std::path::PathBuf::from(&home).join(".cache/tauler"),
+        reload_tx.clone(),
+    ));
     let (_watcher, interesting) = setup_file_watchers(
         &config_dir,
         &exe_path,
@@ -378,6 +384,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         interesting: interesting.clone(),
         fetch_manager: Arc::clone(&fetch_manager),
         pkg_cache_root: pkg_cache_root.clone(),
+        d3_fetcher: Arc::clone(&d3_fetcher),
     })?;
 
     #[cfg(not(target_os = "macos"))]
@@ -398,6 +405,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             notifier.clone(),
             Arc::clone(&fetch_manager),
             pkg_cache_root.clone(),
+            Arc::clone(&d3_fetcher),
         );
         data_loop.run(
             Arc::clone(&stop),
@@ -423,6 +431,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             notifier.clone(),
             Arc::clone(&fetch_manager),
             pkg_cache_root.clone(),
+            Arc::clone(&d3_fetcher),
         );
         data_loop.run(
             Arc::clone(&stop),

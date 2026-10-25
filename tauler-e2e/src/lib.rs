@@ -262,6 +262,17 @@ impl Desktop {
         )
     }
 
+    /// One frame, now, without waiting for the screen to settle.
+    ///
+    /// For watching something that is *supposed* to keep changing — a figure
+    /// redrawn every few seconds never gives [`Desktop::capture_stable`] the
+    /// picture a test is waiting for, only whichever one it happened to settle on.
+    pub fn capture_now(&self) -> Result<PathBuf> {
+        let name = "now.png";
+        self.exec(&["scrot", "-o", &format!("/out/{}/{}", self.scenario, name)])?;
+        Ok(self.out_dir.join(&self.scenario).join(name))
+    }
+
     fn capture_frame(&self, dir: &Path, slot: usize) -> Result<PathBuf> {
         let name = format!("frame-{slot}.png");
         self.exec(&["scrot", "-o", &format!("/out/{}/{}", self.scenario, name)])?;

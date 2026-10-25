@@ -320,6 +320,24 @@ pub const JSX_GLOBALS_JS: &str = r#"
             updateOne: write,
         });
     };
+    // Declaration only: the image names a Picture the draw runtime makes later
+    // (see `src/d3_figure`), so `draw` never runs here — it is handed to
+    // `registerFigure`, which the render runtime ignores and the draw runtime
+    // keeps. `key` is how tauler tells that nothing changed and skips the
+    // redraw, so it is required; so are a numeric width and height, the size
+    // it is drawn at.
+    globalThis.D3Figure = ({ key, width, height, draw }) => {
+        if (key === undefined || key === null || key === "") {
+            throw new Error("<D3Figure> needs a key: it is how tauler tells that nothing changed and skips the redraw");
+        }
+        const isSize = (n) => typeof n === "number" && Number.isFinite(n) && n > 0;
+        if (!isSize(width) || !isSize(height)) {
+            throw new Error("<D3Figure> needs a numeric width and height (numbers greater than 0, not strings): it is the size the figure is drawn at");
+        }
+        const k = String(key);
+        registerFigure(k, width, height, draw);
+        return { type: "img", src: "tauler:picture/" + k, style: { width, height } };
+    };
     globalThis.Module = ({ bin, children, ...rest }) => {
         const child = Array.isArray(children) ? children[0] : children;
         if (typeof child === 'function') return child(useJSONStream(bin), useEvents(bin, rest));

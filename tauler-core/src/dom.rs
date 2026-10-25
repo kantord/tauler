@@ -64,6 +64,11 @@ const NUMERIC_ATTRIBUTES: [&str; 2] = ["width", "height"];
 /// `<img>` is written without its `src` rather than left to resolve to a broken image.
 const TAULER_SCHEME: &str = "tauler:";
 
+/// A D3Figure's Picture. A page does not get the desktop's pixels: the glue (`runtime.js`)
+/// swaps each such `<img>` for an `<svg>` drawn by the figure's own `draw` in the page's
+/// realm, and it finds them by this attribute, keyed like the desktop's Picture.
+const PICTURE_PREFIX: &str = "tauler:picture/";
+
 #[derive(Debug, thiserror::Error, PartialEq)]
 pub enum DomError {
     #[error("layout nesting exceeded {0} levels")]
@@ -250,6 +255,11 @@ fn write_attributes(value: &Value, path: &[usize], out: &mut String) {
     for name in ATTRIBUTES {
         if let Some(v) = value.get(name).and_then(Value::as_str) {
             if name == "src" && v.starts_with(TAULER_SCHEME) {
+                if let Some(key) = v.strip_prefix(PICTURE_PREFIX) {
+                    out.push_str(" data-tauler-picture=\"");
+                    escape_attribute(key, out);
+                    out.push('"');
+                }
                 continue;
             }
             out.push(' ');
@@ -452,6 +462,27 @@ mod tests {
     fn the_backdrop_resource_is_not_written_as_a_src() {
         let html = render(json!([{ "type": "img", "src": "tauler:root-bg" }]));
         assert!(!html.contains("src="), "got {html}");
+    }
+
+    /// A page runs a D3Figure's `draw` itself, against a real `<svg>` the glue puts where
+    /// the image was — so the image names its Picture instead of pointing at a resource.
+    #[test]
+    fn an_image_naming_a_picture_is_marked_with_its_key() {
+        let html = render(json!([{ "type": "img", "src": "tauler:picture/cpu/1" }]));
+        assert!(
+            html.contains(r#"data-tauler-picture="cpu/1""#),
+            "got {html}"
+        );
+        assert!(!html.contains("src="), "got {html}");
+    }
+
+    #[test]
+    fn a_picture_key_is_attribute_escaped() {
+        let html = render(json!([{ "type": "img", "src": "tauler:picture/a\"b<c" }]));
+        assert!(
+            html.contains(r#"data-tauler-picture="a&quot;b&lt;c""#),
+            "got {html}"
+        );
     }
 
     #[test]
