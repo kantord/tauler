@@ -3,8 +3,8 @@
 //!
 //! "The same figure" across Ticks is its position among the eval's
 //! `figure_calls`, in document order. That order is stable while the layout's
-//! structure is, and it needs nothing from the render runtime beyond the calls it
-//! already reports. When the structure changes, a figure may show a neighbour's
+//! structure is, and it needs nothing from the render runtime beyond the figures
+//! its eval reads from the tree. When the structure changes, a figure may show a neighbour's
 //! Picture until its own arrives — briefly wrong, never blank.
 //!
 //! A key is requested once while it stays in consecutive plans: a key names one
@@ -13,9 +13,12 @@
 //! was dropped meanwhile (the loop keeps only the Pictures of [`Requests::named`]
 //! keys and the fallbacks they show). So all this remembers is the latest plan's
 //! keys — bounded by the figures, not by every key ever seen. Fallback keys need
-//! no entry: they are only shown, never requested. A drawing still in flight when
-//! its key leaves the plan is stored when it arrives and dropped straight after —
-//! one wasted drawing.
+//! no entry: they are only shown, never requested.
+//!
+//! [`Requests::named`] also travels with each batch of draw requests, so the Draw
+//! runtime drops a request still pending for a key that left the plan
+//! (`DrawRuntime::request`). One already being drawn is stored when it arrives
+//! and dropped straight after — one wasted drawing.
 //!
 //! A figure whose key changed shows its previous key's Picture until its own
 //! arrives ([`Plan::fallbacks`]).
@@ -90,7 +93,8 @@ impl Requests {
         self.redraw_all = true;
     }
 
-    /// The keys of the latest plan's figures.
+    /// The keys of the latest plan's figures: the Pictures the loop keeps, and
+    /// what the Draw runtime keeps pending requests for.
     pub fn named(&self) -> HashSet<String> {
         self.previous.iter().cloned().collect()
     }

@@ -152,3 +152,94 @@ test('a D3Figure whose draw throws is tried once, not on every tick', async ({
 
   expect(count).toBe(1)
 })
+
+test('a D3Figure built once, outside the render function, is drawn', async ({
+  page,
+}) => {
+  await page.goto('/docs/component-reference/')
+
+  const drawn = await page.evaluate(async () => {
+    // @ts-expect-error — /tauler/*.js is a build product astro check never sees
+    const { boot, Mount } = await import('/tauler/runtime.js')
+    await boot('/tauler/tauler_web_bg.wasm')
+
+    const el = document.createElement('div')
+    document.body.append(el)
+    const D3Figure = (globalThis as any).D3Figure
+
+    // As a layout file's module scope does: the element exists before the first tick.
+    const chart = D3Figure({
+      key: 'module-scope',
+      width: 40,
+      height: 20,
+      draw: (svg: any) => svg.append('circle').attr('r', 3),
+    })
+    const mount = new Mount(el, () => ({ type: 'dom', children: [chart] }))
+    mount.tick()
+    mount.tick()
+
+    const deadline = Date.now() + 5_000
+    while (!el.querySelector('svg circle[r="3"]')) {
+      if (Date.now() > deadline) return false
+      await new Promise((resolve) => setTimeout(resolve, 50))
+    }
+    return true
+  })
+
+  expect(drawn).toBe(true)
+})
+
+test('figures still on screen are not evicted from the cache and drawn again', async ({
+  page,
+}) => {
+  await page.goto('/docs/component-reference/')
+
+  const result = await page.evaluate(async () => {
+    // @ts-expect-error — /tauler/*.js is a build product astro check never sees
+    const { boot, Mount } = await import('/tauler/runtime.js')
+    await boot('/tauler/tauler_web_bg.wasm')
+
+    const el = document.createElement('div')
+    document.body.append(el)
+    const D3Figure = (globalThis as any).D3Figure
+
+    // More figures than the cache holds of keys no longer on screen.
+    const figures = 70
+    let count = 0
+    const mount = new Mount(el, () => ({
+      type: 'dom',
+      children: Array.from({ length: figures }, (_, i) =>
+        D3Figure({
+          key: `many/${i}`,
+          width: 4,
+          height: 4,
+          draw: (svg: any) => {
+            count++
+            svg.append('circle').attr('r', 1)
+          },
+        }),
+      ),
+    }))
+
+    const allDrawn = async () => {
+      const deadline = Date.now() + 5_000
+      while (el.querySelectorAll('svg circle').length < figures) {
+        if (Date.now() > deadline) return false
+        await new Promise((resolve) => setTimeout(resolve, 50))
+      }
+      return true
+    }
+
+    mount.tick()
+    if (!(await allDrawn()))
+      return { error: 'the first drawings never all arrived' }
+    const afterFirst = count
+
+    mount.tick()
+    const stillAll = await allDrawn()
+    await new Promise((resolve) => setTimeout(resolve, 200))
+    return { afterFirst, stillAll, afterSecond: count }
+  })
+
+  expect(result).toEqual({ afterFirst: 70, stillAll: true, afterSecond: 70 })
+})

@@ -56,18 +56,24 @@ function reportError(where, error) {
 let booted = null
 
 /**
- * The D3Figures the evaluation in progress declared, by key. On a desktop `registerFigure`
- * is a draw request for the draw runtime; a page runs `draw` itself, so it only needs the
- * function until the tick that declared it has placed its markup.
+ * Each D3Figure's latest registration, by key. A page runs `draw` itself, so this is where a
+ * tick finds the function for a placeholder that has no drawing yet.
+ *
+ * Not cleared per tick: an element can be built before the tick that shows it — at a layout
+ * file's module scope, once — so its registration must outlive that tick. Instead each tick
+ * drops the keys its Mount no longer shows (`#placePictures`), which bounds this by the
+ * figures on screen.
  *
  * Module scope rather than per Mount because the global `registerFigure` cannot tell which
- * Mount is evaluating. That is safe for the reason `#evaluate` gives: evaluation is
- * synchronous, so `tick()` clears it, evaluates and reads it with no other Mount in between.
+ * Mount is evaluating. A Mount places its figures in the tick that evaluated them, so another
+ * Mount's later pruning only costs a figure that leaves the screen, falls out of the cache
+ * and comes back without being built again.
  */
 const figures = new Map()
 
-/** How many drawings each Mount keeps. A key is a figure's whole identity, so an evicted one
- * is only drawn again — the bound is memory, not correctness. */
+/** How many drawings of keys no longer on screen each Mount keeps. A key is a figure's whole
+ * identity, so an evicted one is only drawn again — the bound is memory, not correctness.
+ * Keys on screen are never evicted: they would be drawn again on the very next tick. */
 const PICTURE_CACHE_SIZE = 64
 
 let d3Loaded = null
@@ -131,6 +137,8 @@ export class Mount {
   /** Finished `<svg>` markup by figure key, least recently used first. Per Mount: two
    * layouts on one page may well use the same key for different figures. */
   #pictures = new Map()
+  /** The figure keys the latest tick placed: never evicted from `#pictures`. */
+  #onScreen = new Set()
   /** Keys whose drawing is waiting on d3, so ticks in the meantime do not draw them again. */
   #drawing = new Set()
   /** Keys whose `draw` threw. Not retried: a tick can come many times a second, and the
@@ -159,7 +167,6 @@ export class Mount {
    * deployment swaps this line for a keyed diff and nothing else moves.
    */
   tick() {
-    figures.clear()
     const tree = wasm.taulerResolveTheme(this.#evaluate(), this.#theme)
     const out = wasm.taulerRender(tree)
     if (out.kind !== 'dom') {
@@ -175,10 +182,14 @@ export class Mount {
    *
    * A key that does not change is never drawn twice — that is what `key` promises an author
    * — so a rebuild re-inserts the cached markup rather than running `draw` again.
+   *
+   * Then forgets the registrations of keys this Mount no longer shows (see `figures`).
    */
   #placePictures() {
+    const onScreen = new Set()
     for (const el of this.#element.querySelectorAll('[data-tauler-picture]')) {
       const key = el.getAttribute('data-tauler-picture')
+      onScreen.add(key)
       const markup = this.#pictures.get(key)
       if (markup !== undefined) {
         // Re-inserted as most recently used.
@@ -189,6 +200,23 @@ export class Mount {
       }
       const figure = figures.get(key)
       if (figure && !this.#drawing.has(key) && !this.#failed.has(key)) this.#draw(key, figure)
+    }
+    this.#onScreen = onScreen
+    for (const key of figures.keys()) if (!onScreen.has(key)) figures.delete(key)
+    this.#evictOffScreen()
+  }
+
+  /** Drop the least recently used drawings beyond `PICTURE_CACHE_SIZE` of the keys not on
+   * screen. */
+  #evictOffScreen() {
+    let excess = -PICTURE_CACHE_SIZE
+    for (const key of this.#pictures.keys()) if (!this.#onScreen.has(key)) excess++
+    for (const key of this.#pictures.keys()) {
+      if (excess <= 0) break
+      if (!this.#onScreen.has(key)) {
+        this.#pictures.delete(key)
+        excess--
+      }
     }
   }
 
@@ -213,9 +241,7 @@ export class Mount {
       const markup = svg.outerHTML
 
       this.#pictures.set(key, markup)
-      if (this.#pictures.size > PICTURE_CACHE_SIZE) {
-        this.#pictures.delete(this.#pictures.keys().next().value)
-      }
+      this.#evictOffScreen()
       // Looked up now, not when the draw was requested: every tick since replaced the
       // subtree, so the element that asked may be gone and others with the key may exist.
       const selector = `[data-tauler-picture="${CSS.escape(key)}"]`

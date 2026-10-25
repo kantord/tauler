@@ -24,8 +24,11 @@
 //! keeps its requests, and the next round waits [`NOT_READY_POLL`] however many
 //! requests arrive meanwhile: each attempt to load the libraries leaves a module
 //! behind in QuickJS, so they are tried once per round, not once per request.
-//! At most [`MAX_PENDING`] requests are kept, the newest: a figure of live data
-//! asks for a new key every Tick, and only its newest key is still on screen.
+//! What is kept pending is bounded by what is on screen, not by a count: each
+//! [`DrawRuntime::request`] carries the keys the loop's latest plan names, and a
+//! pending request for any other key is dropped — a figure of live data asks for
+//! a new key every Tick, and only its newest key is still on screen. Every
+//! request still named is kept, however many figures there are.
 //!
 //! The thread draws every request it keeps and remembers no drawn keys:
 //! [`crate::d3_figure::requests::Requests`] in the loop is the one authority on
@@ -38,6 +41,7 @@
 use crate::jsx::{JsxEvaluator, SharedGlobals};
 use crate::pkg::PackageContext;
 use crate::units::SharedStreamValues;
+use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{mpsc, Arc};
@@ -52,9 +56,6 @@ pub const TIME_LIMIT: Duration = Duration::from_secs(5);
 /// How long a round that drew nothing (d3 not downloaded yet, a broken layout)
 /// holds back the next one, however many requests arrive meanwhile.
 pub const NOT_READY_POLL: Duration = Duration::from_millis(500);
-
-/// The most requests kept pending; beyond it the oldest is dropped.
-pub const MAX_PENDING: usize = 64;
 
 /// Draw the D3Figure with this `key` at this size.
 #[derive(Debug, Clone, PartialEq)]
@@ -93,11 +94,18 @@ pub enum DrawError {
     TimedOut,
 }
 
+/// One [`DrawRuntime::request`]: the drawings asked for, and every key on
+/// screen at the time.
+struct Batch {
+    named: HashSet<String>,
+    draw: Vec<DrawRequest>,
+}
+
 /// The draw runtime's thread. Dropping this stops the thread.
 pub struct DrawRuntime {
     /// `None` only during `drop`: closing the channel is what wakes an idle
     /// thread at once.
-    requests: Option<mpsc::Sender<DrawRequest>>,
+    requests: Option<mpsc::Sender<Batch>>,
     stop: Arc<AtomicBool>,
 }
 
@@ -121,7 +129,7 @@ impl DrawRuntime {
         notify: mpsc::SyncSender<()>,
         generation: u64,
     ) -> Self {
-        let (requests, request_rx) = mpsc::channel::<DrawRequest>();
+        let (requests, request_rx) = mpsc::channel::<Batch>();
         let stop = Arc::new(AtomicBool::new(false));
         let stop_thread = Arc::clone(&stop);
         std::thread::Builder::new()
@@ -153,17 +161,20 @@ impl DrawRuntime {
         }
     }
 
-    /// Ask for a drawing. Never blocks.
-    pub fn request(&self, request: DrawRequest) {
+    /// Ask for the drawings in `draw`. `named` is every key on screen now (the
+    /// loop's [`crate::d3_figure::requests::Requests::named`], which includes
+    /// `draw`'s keys): a pending request for any other key is superseded and
+    /// dropped. Never blocks.
+    pub fn request(&self, named: HashSet<String>, draw: Vec<DrawRequest>) {
         if let Some(requests) = &self.requests {
-            let _ = requests.send(request);
+            let _ = requests.send(Batch { named, draw });
         }
     }
 }
 
 /// What the thread waits for before its next round.
 enum Wake {
-    Request(DrawRequest),
+    Request(Batch),
     RoundDue,
     Closed,
 }
@@ -171,7 +182,7 @@ enum Wake {
 /// Blocks while nothing is pending, so an idle thread never wakes; while a
 /// round is held back until `retry_at`, waits for a request or that moment.
 fn wait(
-    requests: &mpsc::Receiver<DrawRequest>,
+    requests: &mpsc::Receiver<Batch>,
     pending: &[DrawRequest],
     retry_at: Option<Instant>,
 ) -> Wake {
@@ -182,26 +193,26 @@ fn wait(
         return Wake::RoundDue;
     };
     match requests.recv_timeout(at.saturating_duration_since(Instant::now())) {
-        Ok(request) => Wake::Request(request),
+        Ok(batch) => Wake::Request(batch),
         Err(mpsc::RecvTimeoutError::Timeout) => Wake::RoundDue,
         Err(mpsc::RecvTimeoutError::Disconnected) => Wake::Closed,
     }
 }
 
-/// Adds `request` as the newest pending one, replacing a pending request for
-/// the same key and dropping the oldest beyond [`MAX_PENDING`].
-fn keep(pending: &mut Vec<DrawRequest>, request: DrawRequest) {
-    pending.retain(|p| p.key != request.key);
-    pending.push(request);
-    if pending.len() > MAX_PENDING {
-        pending.remove(0);
+/// Drops the pending requests whose key `batch` no longer names, then adds
+/// its requests as the newest, each replacing a pending one for the same key.
+fn keep(pending: &mut Vec<DrawRequest>, batch: Batch) {
+    pending.retain(|p| batch.named.contains(&p.key));
+    for request in batch.draw {
+        pending.retain(|p| p.key != request.key);
+        pending.push(request);
     }
 }
 
 /// The thread's loop: collect requests, and draw whatever is pending.
 fn run(
     build: impl Fn() -> Result<JsxEvaluator, crate::jsx::JsError>,
-    requests: &mpsc::Receiver<DrawRequest>,
+    requests: &mpsc::Receiver<Batch>,
     stop: &AtomicBool,
     stream_values: &SharedStreamValues,
     drawn: &mpsc::Sender<Drawn>,
@@ -218,16 +229,16 @@ fn run(
     while !stop.load(Ordering::Relaxed) {
         match wait(requests, &pending, retry_at) {
             Wake::Closed => return,
-            Wake::Request(request) => {
-                keep(&mut pending, request);
+            Wake::Request(batch) => {
+                keep(&mut pending, batch);
                 if retry_at.is_some_and(|at| Instant::now() < at) {
                     continue;
                 }
             }
             Wake::RoundDue => {}
         }
-        while let Ok(request) = requests.try_recv() {
-            keep(&mut pending, request);
+        while let Ok(batch) = requests.try_recv() {
+            keep(&mut pending, batch);
         }
         if pending.is_empty() {
             continue;
@@ -406,7 +417,7 @@ return <div><D3Figure key="k" width={10} height={20}
         write_fake_files(&d3_dir);
         let running = spawn_over(dir.path(), &d3_dir);
 
-        running.runtime.request(circle_request());
+        ask(&running.runtime, vec![circle_request()]);
 
         let drawn = running
             .drawn
@@ -434,7 +445,7 @@ return <div><D3Figure key="k" width={10} height={20}
         std::fs::create_dir_all(&d3_dir).expect("create empty d3 dir");
         let running = spawn_over(dir.path(), &d3_dir);
 
-        running.runtime.request(circle_request());
+        ask(&running.runtime, vec![circle_request()]);
         assert!(
             running
                 .drawn
@@ -460,7 +471,7 @@ return <div><D3Figure key="k" width={10} height={20}
         std::fs::create_dir_all(&d3_dir).expect("create empty d3 dir");
         // Cold, so the thread is busy keeping and retrying the request.
         let running = spawn_over(dir.path(), &d3_dir);
-        running.runtime.request(circle_request());
+        ask(&running.runtime, vec![circle_request()]);
         std::thread::sleep(Duration::from_millis(100));
 
         let (dropped_tx, dropped_rx) = mpsc::channel();
@@ -504,6 +515,17 @@ return <div>{{Array.from({{ length: {n} }}, (_, i) =>
         )
     }
 
+    /// Asks for `draw`, naming exactly its keys as the ones on screen.
+    fn ask(runtime: &DrawRuntime, draw: Vec<DrawRequest>) {
+        let named = draw.iter().map(|r| r.key.clone()).collect();
+        runtime.request(named, draw);
+    }
+
+    /// Asks for figures `k{i}` for every `i` in `range`, all of them on screen.
+    fn ask_keyed(runtime: &DrawRuntime, range: std::ops::Range<usize>) {
+        ask(runtime, range.map(keyed_request).collect());
+    }
+
     fn keyed_request(i: usize) -> DrawRequest {
         DrawRequest {
             key: format!("k{i}"),
@@ -520,9 +542,7 @@ return <div>{{Array.from({{ length: {n} }}, (_, i) =>
         let d3_dir = dir.join("d3");
         write_fake_files(&d3_dir);
         let running = spawn_layout(&looping_layout(SLOW_FIGURES), dir, &d3_dir);
-        for i in 0..SLOW_FIGURES {
-            running.runtime.request(keyed_request(i));
-        }
+        ask_keyed(&running.runtime, 0..SLOW_FIGURES);
         std::thread::sleep(Duration::from_millis(300));
         running
     }
@@ -583,44 +603,87 @@ return <div>{{Array.from({{ length: {n} }}, (_, i) =>
             GENERATION,
         );
 
-        // 200 requests over ~1.2 s: about three polls' worth.
-        for i in 0..200 {
-            runtime.request(keyed_request(i));
+        // 200 requests over ~1.2 s on Linux: about three polls' worth. Sleeps are
+        // coarser elsewhere (macOS ran this loop for much longer), so the bound
+        // below comes from the time it actually took.
+        let requests = 200;
+        let started = Instant::now();
+        for i in 0..requests {
+            ask(&runtime, vec![keyed_request(i)]);
             std::thread::sleep(Duration::from_millis(6));
         }
 
-        // Each attempt to load d3 asks the Fetcher once.
+        // Each attempt to load d3 asks the Fetcher once: the bootstrap's first
+        // import fails to resolve, which ends the attempt. Read before the clock,
+        // so no attempt is counted that the elapsed time does not cover.
         let attempts = fetcher.sources_calls();
-        assert!(attempts <= 4, "{attempts} attempts to load d3 in ~1.2 s");
+        let elapsed = started.elapsed();
+        // One attempt right away, then at most one per poll; +1 of slack for a
+        // poll that lands just as the clock is read.
+        let polls = elapsed.as_millis().div_ceil(NOT_READY_POLL.as_millis()) as usize;
+        assert!(
+            attempts <= polls + 2,
+            "{attempts} attempts to load d3 in {elapsed:?}: more than one per {NOT_READY_POLL:?} poll"
+        );
+        // What the bug looked like: one attempt per request.
+        assert!(
+            attempts * 10 < requests,
+            "{attempts} attempts for {requests} requests"
+        );
     }
 
     #[test]
-    fn only_the_newest_pending_requests_are_kept() {
+    fn pending_requests_for_keys_no_longer_named_are_dropped() {
         let figures = 200;
         let dir = tempfile::tempdir().expect("tempdir");
         let d3_dir = dir.path().join("d3");
         std::fs::create_dir_all(&d3_dir).expect("create empty d3 dir");
         let running = spawn_layout(&circles_layout(figures), dir.path(), &d3_dir);
-        for i in 0..figures {
-            running.runtime.request(keyed_request(i));
-        }
+        // Every figure's key changed: the first hundred keys left the screen.
+        ask_keyed(&running.runtime, 0..100);
+        ask_keyed(&running.runtime, 100..figures);
 
         write_fake_files(&d3_dir);
 
+        let still_named: Vec<String> = (100..figures).map(|i| format!("k{i}")).collect();
+        assert_eq!(
+            drain_keys(&running.drawn),
+            still_named,
+            "superseded keys are dropped; every key still named is drawn, however many"
+        );
+    }
+
+    /// Every drawing that arrives until the channel stays quiet for a second.
+    fn drain_keys(drawn: &mpsc::Receiver<Drawn>) -> Vec<String> {
         let mut keys = vec![
-            running
-                .drawn
+            drawn
                 .recv_timeout(DEADLINE)
                 .expect("the kept requests should be drawn once the files appear")
                 .key,
         ];
-        while let Ok(drawn) = running.drawn.recv_timeout(Duration::from_secs(1)) {
-            keys.push(drawn.key);
+        while let Ok(d) = drawn.recv_timeout(Duration::from_secs(1)) {
+            keys.push(d.key);
         }
-        let newest: Vec<String> = (figures - MAX_PENDING..figures)
-            .map(|i| format!("k{i}"))
-            .collect();
-        assert_eq!(keys, newest);
+        keys
+    }
+
+    #[test]
+    fn a_hundred_figures_named_at_once_are_all_drawn_once_the_files_appear() {
+        let figures = 100;
+        let dir = tempfile::tempdir().expect("tempdir");
+        let d3_dir = dir.path().join("d3");
+        std::fs::create_dir_all(&d3_dir).expect("create empty d3 dir");
+        let running = spawn_layout(&circles_layout(figures), dir.path(), &d3_dir);
+        ask_keyed(&running.runtime, 0..figures);
+
+        write_fake_files(&d3_dir);
+
+        let all: Vec<String> = (0..figures).map(|i| format!("k{i}")).collect();
+        assert_eq!(
+            drain_keys(&running.drawn),
+            all,
+            "every figure is still on screen, so none may be dropped"
+        );
     }
 
     fn drawn(generation: u64, key: &str) -> Drawn {
@@ -668,26 +731,15 @@ return <div>{{Array.from({{ length: {MANY} }}, (_, i) =>
         let d3_dir = dir.path().join("d3");
         write_fake_files(&d3_dir);
         let running = spawn_layout(&layout, dir.path(), &d3_dir);
-        let request = |i: usize| DrawRequest {
-            key: format!("k{i}"),
-            width: 10.0,
-            height: 20.0,
-        };
-
-        // In chunks the pending queue keeps whole.
-        for chunk in (0..MANY).collect::<Vec<_>>().chunks(MAX_PENDING) {
-            for &i in chunk {
-                running.runtime.request(request(i));
-            }
-            for _ in chunk {
-                running
-                    .drawn
-                    .recv_timeout(DEADLINE)
-                    .expect("precondition: every distinct key is drawn once");
-            }
+        ask_keyed(&running.runtime, 0..MANY);
+        for _ in 0..MANY {
+            running
+                .drawn
+                .recv_timeout(DEADLINE)
+                .expect("precondition: every distinct key is drawn once");
         }
 
-        running.runtime.request(request(0));
+        ask_keyed(&running.runtime, 0..1);
         let again = running.drawn.recv_timeout(DEADLINE).expect(
             "the thread keeps no memory of drawn keys, so asking for one again \
              draws it again",

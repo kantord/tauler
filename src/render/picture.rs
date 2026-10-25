@@ -182,13 +182,13 @@ pub fn retain_pictures(keep: impl Fn(&str) -> bool) {
 
 /// One `<img>` naming a Picture: the key, and its style size in CSS px when it
 /// has one.
-struct Named<'a> {
-    key: &'a str,
-    size: Option<(f64, f64)>,
+pub(crate) struct Named<'a> {
+    pub(crate) key: &'a str,
+    pub(crate) size: Option<(f64, f64)>,
 }
 
 /// Every `<img>` in `content` whose src names a Picture, in tree order.
-fn named_pictures(content: &serde_json::Value) -> Vec<Named<'_>> {
+pub(crate) fn named_pictures(content: &serde_json::Value) -> Vec<Named<'_>> {
     fn walk<'a>(value: &'a serde_json::Value, out: &mut Vec<Named<'a>>) {
         match value {
             serde_json::Value::Object(map) => {

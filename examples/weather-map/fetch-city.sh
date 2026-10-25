@@ -7,18 +7,17 @@
 # described in CityScene.jsx; this script exists so the tracer has real
 # geometry from several kinds of city to measure against.
 #
-# DECISION: geometry comes from the Overpass API, fetched once per location and
-# cached on disk. Measured on 2026-10-23, radius 500 m: 38–42 s per request,
-# 0.4–1.8 MB of JSON, 437–1882 ways (a dense old town was the worst case
-# sampled). Rejected: fetching on every bar start — 40 s with no scene, and
-# Overpass rate-limits per IP.
+# Geometry comes from the Overpass API, fetched once per location and cached on
+# disk: at radius 500 m a request takes ~40 s and returns 0.4–1.8 MB of JSON,
+# and Overpass rate-limits per IP, so fetching on every bar start is not an
+# option.
 #
-# DECISION: a building's height is `height`, else `building:levels` × 3 m, else
-# 3 levels. Measured share of buildings with either tag, 2026-10-24: Manhattan
-# 84%, Shinjuku 51%, Melbourne 48%, Venice 38%, Mexico City 14%, Levittown 0%,
-# villages 0–19% — the fallback draws most of every suburb and village.
-# Arguments go to node after `--`: a southern latitude (-37.8) is otherwise
-# read as a node option, which is how Melbourne first failed.
+# A building's height is `height`, else `building:levels` × 3 m, else 3 levels.
+# Few buildings outside city centres carry either tag (Manhattan 84%, Venice
+# 38%, suburbs and villages 0–19%), so the fallback draws most of every suburb.
+#
+# Arguments go to node after `--`: a southern latitude (-37.8) would otherwise
+# be read as a node option.
 #
 # The main OSM API (`/api/0.6/map`) is the fallback when Overpass cannot be
 # reached: same data, raw XML, a bounding box instead of a radius, at most

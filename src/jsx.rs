@@ -48,18 +48,40 @@ pub struct EvalOutput {
     pub layout: serde_json::Value,
     pub stream_calls: Vec<(String, Option<String>)>,
     pub module_calls: Vec<(String, serde_json::Value)>,
-    /// One per `<D3Figure>` rendered this eval, in document order: the draw
-    /// requests the loop hands to the draw runtime (see `crate::d3_figure`).
+    /// One per `<D3Figure>` in this eval's tree, in document order
+    /// ([`figures_in`]): the draw requests the loop hands to the draw runtime
+    /// (see `crate::d3_figure`).
     pub figure_calls: Vec<FigureCall>,
 }
 
-/// A `<D3Figure>` seen during an eval: the Picture it names and the size to draw
-/// it at. Its `draw` function stays behind in the render runtime.
+/// A `<D3Figure>` in an evaluated tree: the Picture it names and the size to
+/// draw it at. Its `draw` function stays behind in the runtime that built it.
 #[derive(Debug, Clone, PartialEq)]
 pub struct FigureCall {
     pub key: String,
     pub width: f64,
     pub height: f64,
+}
+
+/// The `<D3Figure>`s an evaluated tree shows, in document order: every `img`
+/// whose `src` names a Picture and whose style gives a numeric size, which is
+/// what the `D3Figure` global returns (`tauler-core/src/globals.rs`).
+///
+/// Read from the tree rather than recorded as `D3Figure` is called, because an
+/// element can be built before the render that returns it — at module scope,
+/// once, before the first eval.
+fn figures_in(layout: &serde_json::Value) -> Vec<FigureCall> {
+    crate::render::picture::named_pictures(layout)
+        .into_iter()
+        .filter_map(|named| {
+            let (width, height) = named.size?;
+            Some(FigureCall {
+                key: named.key.to_string(),
+                width,
+                height,
+            })
+        })
+        .collect()
 }
 
 use crate::d3_figure::draw::DrawError;
@@ -342,14 +364,13 @@ pub struct JsxEvaluator {
     stream_values: StreamValues,
     calls: StreamCalls,
     module_calls: Arc<Mutex<Vec<(String, serde_json::Value)>>>,
-    figure_calls: Arc<Mutex<Vec<FigureCall>>>,
     global_state: SharedGlobals,
     /// Always `Some` after construction; `None` only transiently during `drop`.
     render_fn: Option<Persistent<Function<'static>>>,
     loaded_paths: Arc<Mutex<Vec<PathBuf>>>,
     /// `Some` only for the draw runtime ([`JsxEvaluator::new_draw`]). It also
-    /// changes [`JsxEvaluator::eval`]: the figures from the previous eval are
-    /// forgotten first, and `globals` are read but never written back.
+    /// changes [`JsxEvaluator::eval`]: figures its tree does not show are
+    /// forgotten, and `globals` are read but never written back.
     draw: Option<DrawState>,
 }
 
@@ -765,8 +786,9 @@ enum Effects {
     Allowed,
 }
 
-/// Installed by [`JsxEvaluator::new_draw`] after the layout module has run but
-/// before its first render: the figures Map `registerFigure` fills, the never-
+/// Installed by [`JsxEvaluator::new_draw`] before the layout module runs, so a
+/// D3Figure built at module scope registers too: the figures Map
+/// `registerFigure` fills (latest registration per key), the never-
 /// firing timers (SPEC in `d3_figure/mod.rs`), and the function
 /// [`JsxEvaluator::draw_figure`] calls.
 ///
@@ -821,7 +843,7 @@ impl JsxEvaluator {
         ctx: serde_json::Value,
         layout_path: Option<&Path>,
     ) -> Result<Self, JsError> {
-        Self::with_effects(source, ctx, layout_path, Effects::Denied, None)
+        Self::with_effects(source, ctx, layout_path, Effects::Denied, None, false)
     }
 
     /// The render runtime, with `@gh/owner/repo` Package imports resolved through
@@ -835,7 +857,14 @@ impl JsxEvaluator {
         layout_path: Option<&Path>,
         pkg_ctx: crate::pkg::PackageContext,
     ) -> Result<Self, JsError> {
-        Self::with_effects(source, ctx, layout_path, Effects::Denied, Some(pkg_ctx))
+        Self::with_effects(
+            source,
+            ctx,
+            layout_path,
+            Effects::Denied,
+            Some(pkg_ctx),
+            false,
+        )
     }
 
     /// The `globals` this evaluator reads and writes.
@@ -858,7 +887,8 @@ impl JsxEvaluator {
         layout_path: Option<&Path>,
         globals: SharedGlobals,
     ) -> Result<Self, JsError> {
-        let mut evaluator = Self::with_effects(source, ctx, layout_path, Effects::Allowed, None)?;
+        let mut evaluator =
+            Self::with_effects(source, ctx, layout_path, Effects::Allowed, None, false)?;
         evaluator.global_state = globals;
         Ok(evaluator)
     }
@@ -872,8 +902,14 @@ impl JsxEvaluator {
         globals: SharedGlobals,
         pkg_ctx: crate::pkg::PackageContext,
     ) -> Result<Self, JsError> {
-        let mut evaluator =
-            Self::with_effects(source, ctx, layout_path, Effects::Allowed, Some(pkg_ctx))?;
+        let mut evaluator = Self::with_effects(
+            source,
+            ctx,
+            layout_path,
+            Effects::Allowed,
+            Some(pkg_ctx),
+            false,
+        )?;
         evaluator.global_state = globals;
         Ok(evaluator)
     }
@@ -888,9 +924,10 @@ impl JsxEvaluator {
     /// load and every draw is [`DrawError::NotReady`]. Production always passes
     /// one.
     ///
-    /// Its [`Self::eval`] differs in two ways. The figures of the previous eval
-    /// are forgotten first, so [`DrawError::UnknownKey`] means "not in the
-    /// latest eval". And `globals` are a copy that is never written back: the
+    /// Its [`Self::eval`] differs in two ways. A figure stays registered across
+    /// evals (one built at module scope registers only once, at load) until an
+    /// eval's tree no longer shows its key, so [`DrawError::UnknownKey`] means
+    /// "not in the latest eval". And `globals` are a copy that is never written back: the
     /// bar owns them. They are not made read-only (as [`Self::eval_units`]
     /// does), because a render that assigns to `globals` is legal on the bar,
     /// and throwing here would leave that layout's figures undrawable.
@@ -901,12 +938,10 @@ impl JsxEvaluator {
         globals: SharedGlobals,
         pkg_ctx: Option<crate::pkg::PackageContext>,
     ) -> Result<Self, JsError> {
-        let mut evaluator = Self::with_effects(source, ctx, layout_path, Effects::Denied, pkg_ctx)?;
+        let mut evaluator =
+            Self::with_effects(source, ctx, layout_path, Effects::Denied, pkg_ctx, true)?;
         evaluator.global_state = globals;
         evaluator.draw = Some(DrawState::default());
-        with_described(&evaluator.context, |qjs_ctx| {
-            qjs_ctx.eval::<(), _>(DRAW_RUNTIME_JS)
-        })?;
         Ok(evaluator)
     }
 
@@ -1007,6 +1042,7 @@ impl JsxEvaluator {
         layout_path: Option<&Path>,
         effects: Effects,
         pkg_ctx: Option<crate::pkg::PackageContext>,
+        draw: bool,
     ) -> Result<Self, JsError> {
         let loaded_paths: Arc<Mutex<Vec<PathBuf>>> = Arc::new(Mutex::new(Vec::new()));
 
@@ -1035,7 +1071,6 @@ impl JsxEvaluator {
         let calls: StreamCalls = Arc::new(Mutex::new(Vec::new()));
         let module_calls: Arc<Mutex<Vec<(String, serde_json::Value)>>> =
             Arc::new(Mutex::new(Vec::new()));
-        let figure_calls: Arc<Mutex<Vec<FigureCall>>> = Arc::new(Mutex::new(Vec::new()));
 
         let mut stored_render_fn: Option<Persistent<Function<'static>>> = None;
 
@@ -1043,7 +1078,6 @@ impl JsxEvaluator {
             let sv = Arc::clone(&stream_values);
             let calls_inner = Arc::clone(&calls);
             let module_calls_inner = Arc::clone(&module_calls);
-            let figure_calls_inner = Arc::clone(&figure_calls);
             with_described(&context, |qjs_ctx| {
                 qjs_ctx.eval::<(), _>(JSX_GLOBALS_JS)?;
                 optative_script::register_h(&qjs_ctx)?;
@@ -1130,23 +1164,6 @@ impl JsxEvaluator {
                         },
                     )?,
                 )?;
-                // Called by the shared `D3Figure` global: one draw request per figure.
-                // It also passes `draw` as a fourth argument, for the draw runtime's
-                // own `registerFigure`; rquickjs functions are not exhaustive, so
-                // this one ignores it.
-                qjs_ctx.globals().set(
-                    "registerFigure",
-                    rquickjs::Function::new(
-                        qjs_ctx.clone(),
-                        move |key: String, width: f64, height: f64| {
-                            figure_calls_inner.lock().unwrap().push(FigureCall {
-                                key,
-                                width,
-                                height,
-                            });
-                        },
-                    )?,
-                )?;
                 qjs_ctx.globals().set(
                     "__workspaces_layout",
                     rquickjs::Function::new(qjs_ctx.clone(), workspaces_layout_js_fn)?,
@@ -1192,6 +1209,15 @@ impl JsxEvaluator {
                 // reconciler runtime, and both are needed before the first Sweep.
                 qjs_ctx.eval::<(), _>(collect_units_source())?;
                 qjs_ctx.eval::<(), _>(dispatch_hook_source())?;
+                // Before the layout file runs too: a D3Figure built at module scope
+                // calls `registerFigure` while the module loads. Only the draw
+                // runtime keeps anything; elsewhere the figures are read back from
+                // the evaluated tree ([`figures_in`]), so `draw` stays behind.
+                qjs_ctx.eval::<(), _>(if draw {
+                    DRAW_RUNTIME_JS
+                } else {
+                    "globalThis.registerFigure = () => {};"
+                })?;
 
                 let js_source = optative_script::jsx::transform_source(source, "layout.jsx");
                 let module = rquickjs::Module::declare(qjs_ctx.clone(), "layout.jsx", js_source)?;
@@ -1200,6 +1226,14 @@ impl JsxEvaluator {
                 }
                 let (module, promise) = module.eval()?;
                 promise.finish::<()>()?;
+                if draw {
+                    // What the layout's module scope built, kept for good: such an
+                    // element registers once, so a figure that leaves the tree and
+                    // comes back is found here. Bounded by the module's code.
+                    qjs_ctx.eval::<(), _>(
+                        "globalThis.__tauler_module_figures = new Map(__tauler_figures);",
+                    )?;
+                }
                 let render_fn: Function = module.get("default")?;
                 stored_render_fn = Some(Persistent::save(&qjs_ctx, render_fn));
 
@@ -1214,7 +1248,6 @@ impl JsxEvaluator {
             stream_values,
             calls,
             module_calls,
-            figure_calls,
             global_state,
             render_fn: stored_render_fn,
             loaded_paths,
@@ -1294,7 +1327,6 @@ impl JsxEvaluator {
             .clone_from(new_stream_values);
         self.calls.lock().unwrap().clear();
         self.module_calls.lock().unwrap().clear();
-        self.figure_calls.lock().unwrap().clear();
         self.reset_handlers();
 
         with_described(&self.context, |qjs_ctx| {
@@ -1302,9 +1334,6 @@ impl JsxEvaluator {
                 rquickjs_serde::to_value(qjs_ctx.clone(), &*self.global_state.lock().unwrap())
                     .map_err(|_| rquickjs::Error::Unknown)?;
             qjs_ctx.globals().set("globals", globals_val)?;
-            if self.draw.is_some() {
-                qjs_ctx.eval::<(), _>("__tauler_figures.clear();")?;
-            }
 
             let render_fn = self.render_fn.as_ref().unwrap().clone().restore(&qjs_ctx)?;
             let value: rquickjs::Value = render_fn.call::<(), rquickjs::Value>(())?;
@@ -1327,11 +1356,29 @@ impl JsxEvaluator {
             let layout: serde_json::Value =
                 serde_json::from_str(&json_str).map_err(|_| rquickjs::Error::Unknown)?;
             let layout = crate::units::strip_items(flatten_passthrough(layout));
+            let figure_calls = figures_in(&layout);
+            if self.draw.is_some() {
+                // Registrations outlive the eval that made them (a module-scope
+                // figure registers once, at load), so the ones whose key this tree
+                // does not show are dropped here, and a module-scope figure back in
+                // the tree is restored: the Map stays bounded by the figures on
+                // screen, and an unknown key is one the latest eval does not render.
+                let keys: Vec<&str> = figure_calls.iter().map(|c| c.key.as_str()).collect();
+                let keys = serde_json::to_string(&keys).map_err(|_| rquickjs::Error::Unknown)?;
+                qjs_ctx.eval::<(), _>(format!(
+                    "{{ const keep = new Set({keys}); \
+                     for (const k of [...__tauler_figures.keys()]) \
+                     if (!keep.has(k)) __tauler_figures.delete(k); \
+                     for (const k of keep) \
+                     if (!__tauler_figures.has(k) && __tauler_module_figures.has(k)) \
+                     __tauler_figures.set(k, __tauler_module_figures.get(k)); }}"
+                ))?;
+            }
             Ok(EvalOutput {
                 layout,
                 stream_calls: self.calls.lock().unwrap().clone(),
                 module_calls: self.module_calls.lock().unwrap().clone(),
-                figure_calls: self.figure_calls.lock().unwrap().clone(),
+                figure_calls,
             })
         })
     }
@@ -1355,7 +1402,6 @@ impl JsxEvaluator {
             .clone_from(new_stream_values);
         self.calls.lock().unwrap().clear();
         self.module_calls.lock().unwrap().clear();
-        self.figure_calls.lock().unwrap().clear();
         self.reset_handlers();
 
         with_described(&self.context, |qjs_ctx| {
@@ -2006,6 +2052,54 @@ return <div>
                 height: 100.0
             }],
             "the second eval must hold only its own request"
+        );
+    }
+
+    /// A D3Figure element built once, when the module loads, and returned by
+    /// every render: its `registerFigure` call happens before any eval.
+    const MODULE_SCOPE_FIGURE: &str = r#"const chart = <D3Figure key="k" width={10} height={20}
+  draw={(svg) => svg.append("circle").attr("r", 3)} />;
+export default function render() {
+return <div>{chart}</div>;
+}"#;
+
+    #[test]
+    fn a_d3_figure_built_at_module_scope_is_requested_by_every_eval() {
+        let evaluator =
+            JsxEvaluator::new(MODULE_SCOPE_FIGURE, serde_json::Value::Null, None).unwrap();
+        let streams = std::collections::HashMap::new();
+        let expected = vec![FigureCall {
+            key: "k".into(),
+            width: 10.0,
+            height: 20.0,
+        }];
+        assert_eq!(
+            evaluator.eval(&streams).unwrap().figure_calls,
+            expected,
+            "the figure is in the tree, so the first eval must request it"
+        );
+        assert_eq!(
+            evaluator.eval(&streams).unwrap().figure_calls,
+            expected,
+            "and so must every later one"
+        );
+    }
+
+    #[test]
+    fn figure_calls_follow_document_order_in_the_tree() {
+        let calls = eval(
+            r#"const late = <D3Figure key="b" width={30} height={40} draw={() => {}} />;
+export default function render() {
+const early = <D3Figure key="a" width={10} height={20} draw={() => {}} />;
+return <div><div>{late}</div>{early}</div>;
+}"#,
+        )
+        .figure_calls;
+        let keys: Vec<&str> = calls.iter().map(|c| c.key.as_str()).collect();
+        assert_eq!(
+            keys,
+            ["b", "a"],
+            "document order, not the order the elements were built in"
         );
     }
 
@@ -3143,6 +3237,74 @@ return <div><D3Figure key="k" width={{10}} height={{20}} draw={{{draw}}} /></div
         assert!(svg.contains(r#"width="10""#), "got: {svg}");
         assert!(svg.contains(r#"height="20""#), "got: {svg}");
         assert!(svg.contains(r#"<circle r="3""#), "got: {svg}");
+    }
+
+    #[test]
+    fn the_draw_runtime_draws_a_d3_figure_built_at_module_scope() {
+        let (evaluator, _dir) = ready_draw_evaluator(MODULE_SCOPE_FIGURE);
+        // A second eval too: the registration from module load must survive it.
+        evaluator
+            .eval(&std::collections::HashMap::new())
+            .expect("the layout should evaluate again");
+
+        let svg = evaluator
+            .draw_figure("k", 10.0, 20.0, GENEROUS_LIMIT)
+            .expect("a figure built at module scope is in the tree, so it should draw");
+
+        assert!(svg.contains(r#"<circle r="3""#), "got: {svg}");
+    }
+
+    #[test]
+    fn a_module_scope_figure_that_leaves_the_tree_and_comes_back_draws_again() {
+        let (evaluator, _dir) = ready_draw_evaluator(
+            r#"const chart = <D3Figure key="k" width={10} height={20}
+  draw={(svg) => svg.append("circle").attr("r", 3)} />;
+let n = 0;
+export default function render() {
+n += 1;
+return <div>{n === 2 ? null : chart}</div>;
+}"#,
+        );
+        let streams = std::collections::HashMap::new();
+        evaluator.eval(&streams).expect("second eval: hidden");
+        assert!(
+            matches!(
+                evaluator.draw_figure("k", 10.0, 20.0, GENEROUS_LIMIT),
+                Err(DrawError::UnknownKey(_))
+            ),
+            "precondition: a hidden figure is not in the latest eval"
+        );
+        evaluator.eval(&streams).expect("third eval: shown again");
+
+        let svg = evaluator
+            .draw_figure("k", 10.0, 20.0, GENEROUS_LIMIT)
+            .expect("the element was built once, at load, and is back in the tree");
+
+        assert!(svg.contains(r#"<circle r="3""#), "got: {svg}");
+    }
+
+    #[test]
+    fn a_key_the_latest_eval_no_longer_renders_is_unknown_key() {
+        let (evaluator, _dir) = ready_draw_evaluator(
+            r#"let n = 0;
+export default function render() {
+n += 1;
+return <div><D3Figure key={"k" + n} width={10} height={20} draw={() => {}} /></div>;
+}"#,
+        );
+        evaluator
+            .eval(&std::collections::HashMap::new())
+            .expect("the layout should evaluate again");
+
+        let result = evaluator.draw_figure("k1", 10.0, 20.0, GENEROUS_LIMIT);
+
+        assert!(
+            matches!(&result, Err(DrawError::UnknownKey(_))),
+            "k1 left the tree, so it is not drawn; got: {result:?}"
+        );
+        assert!(evaluator
+            .draw_figure("k2", 10.0, 20.0, GENEROUS_LIMIT)
+            .is_ok());
     }
 
     #[test]

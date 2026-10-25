@@ -396,8 +396,10 @@ impl Figures {
         for (key, from) in &plan.fallbacks {
             tauler::render::picture::set_fallback(key, from);
         }
-        for request in plan.draw {
-            runtime.request(request);
+        // Only with something to draw, so an unchanged Tick never wakes the
+        // runtime; the named keys ride along and bound what it keeps pending.
+        if !plan.draw.is_empty() {
+            runtime.request(self.requests.named(), plan.draw);
         }
     }
 

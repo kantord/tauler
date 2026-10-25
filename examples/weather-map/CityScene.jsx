@@ -1,57 +1,23 @@
 // CityScene: a few city blocks around a point, drawn as a tilted 3D view with
-// building heights exaggerated, meant to sit behind a card's text.
-//
-// An example that exercises <D3Figure>, not a shipped widget.
+// building heights exaggerated, meant to sit behind a card's text. An example
+// of a larger <D3Figure>, not a shipped widget.
 // Map data © OpenStreetMap contributors (ODbL).
 //
-// TERM: City scene — the drawing this file makes: ground, water, parks,
-// roads and extruded buildings around one point, seen from above at an angle.
-// It sits behind a card's text; nothing on the card is read from it.
-// Avoid: backdrop (CONTEXT.md reserves it as an _Avoid_ for Wallpaper and
-// tauler:root-bg), map (suggests panning, zoom, interactivity), terrain (no
-// elevation model is involved), background (already a theme token).
-// DECISION (Q4, answered): the name.
+// City geometry, what a scene is drawn from: `{center: [lon, lat],
+// buildings: [{h, ring}], roads: [{major, line}], water: [ring], parks: [ring]}`
+// — lon/lat pairs, heights in metres, produced by `fetch-city.sh`.
 //
-// Paths, and what each needs:
-//   P1 happy — the card shows the scene for its location.
-//      Needs: coordinates, cached geometry, a scene built off the per-tick
-//      path, pixels drawn once.
-//   P2 no scene — first run (Overpass takes ~40 s), offline, Overpass refusing.
-//      The card renders without a scene, no gap, no error.
-//   P3 location moves — new coordinates → new geometry → new scene; the old one
-//      stays up until the new one is ready.
-//   P4 theme switch — same geometry, new colours; no refetch.
-//   P5 the browser renderer (ADR 0026) — not in the first step, in the first
-//      merge (Q5, answered; see src/d3_figure/mod.rs).
+// With no geometry yet, CityScene renders nothing and the card keeps its own
+// background. A scene's key covers everything the drawing reads — the geometry
+// itself (not just its centre), size, every theme colour, look and mode — so a
+// refetch or a theme switch draws a new scene while the old one stays on screen.
 //
-// SPEC (P2): with no City geometry yet, CityScene renders nothing and the card
-// keeps its normal background.
-// SPEC (P3/P4): a scene is keyed by (geometry, size, every theme colour, look,
-// mode); any other change reuses the existing one. "Geometry" is the geometry
-// itself, not its centre: a refetch at the same point is a new scene.
-//
-// DECISION (Q2/Q3, answered): the scene is a <D3Figure>, drawn in the draw
-// runtime off the render loop and shown as a Picture. Why not a data URI in
-// `<img src>`, and why not build it in the render call, is measured in
-// docs/adr/0044 — this file's first version did both. Until a drawing is ready
-// the card shows the previous scene or none (P2/P3 for free).
-//
-// TERM: City geometry — what a City scene is drawn from: `{center: [lon, lat],
-// buildings: [{h, ring}], roads: [{major, line}], water: [ring], parks: [ring]}`,
-// lon/lat pairs, heights in metres. Produced by `fetch-city.sh` for the tracer.
-// Avoid: map data, tiles (there are none — it is vector geometry from OSM).
-//
-// DECISION (Q1, answered in part): the goal is a feeling of space, not a
-// faithful projection — at 500 m the earth's real curvature drops the ground by
-// 2 cm, so anything that reads as "3D" here is a deliberate exaggeration. The
-// base is a perspective camera pitched over the city, heights ×EXAGGERATION,
-// far geometry fading into the background colour (atmospheric perspective).
-// DECISION (Q1, answered): the shipped look is `planet` — fake curvature that
-// brings a horizon and sky into the card. Rendered beside `shadows` (barely
-// visible on dark themes) and `miniature` (planet + shadows + tilt-shift), it was
-// the only cue that added something at 248×96. Shadows and tilt-shift were
-// removed with the shaded renderer; `flat` stays for comparison
-// (TRACER_LOOK=flat).
+// The look aims at a feeling of space rather than a faithful projection: at
+// 500 m the earth's real curvature would drop the ground by 2 cm, so all of the
+// "3D" here is deliberate exaggeration — a perspective camera pitched over the
+// city, heights exaggerated, far geometry fading into the background colour,
+// and in the `planet` look a fake curvature that brings a horizon and sky into
+// the card. `flat` is kept for comparison (TRACER_LOOK=flat).
 //
 // Pipeline, all of it once per key — in `draw`, which tauler runs once per key:
 //   1. lon/lat → metres on a ground plane: d3.geoMercator scaled to 1 unit = 1 m
@@ -92,7 +58,7 @@ function groundPlane(center) {
   };
 }
 
-// The look: `planet` ships (Q1); `flat` is kept for comparison.
+// The look: `planet` is the default; `flat` is kept for comparison.
 //   curvature — fake planet radius in metres: the ground falls away with
 //               distance like a tiny planet, so a horizon and sky appear
 //               (0 = flat; the real earth's 6371 km would drop 2 cm at 500 m)
@@ -142,11 +108,10 @@ function offscreen(points, width, height) {
   );
 }
 
-// DECISION: theme colours go through `toRgb` before d3 sees them. The built-in
-// themes write their tokens as `oklch(L C H)` (default dark: background
+// Theme colours go through `toRgb` before d3 sees them. The built-in themes
+// write their tokens as `oklch(L C H)` (default dark: background
 // `oklch(0.145 0 0)`), and d3-color 3 does not parse OKLCH: `d3.color` returns
-// null and every mix came out black — the first tracer run drew only the parks,
-// whose `ansi-green` happens to be hex. Rejected: asking themes for hex.
+// null, so every mix would come out black.
 function toRgb(color) {
   const m = /^oklch\(\s*([\d.]+)(%?)\s+([\d.]+)\s+([\d.]+)(?:deg)?\s*(?:\/\s*([\d.]+)(%?))?\s*\)$/i.exec(color ?? "");
   if (!m) return color;
@@ -175,12 +140,11 @@ function toRgb(color) {
 // drawing, not a shaded render. Every colour is a theme token or a mix of two,
 // so the scene follows the user's theme, light or dark.
 //
-// DECISION: the scene is drawn at full contrast and knows nothing about the text
-// that will sit on it. Legibility belongs to the layers above the `<img>` in the
-// card (a veil, CSS `filter`), which takumi supports: brightness, contrast,
-// saturate, grayscale, opacity, blur. Rejected: fog and dimming baked into the
-// SVG (the first version) — every card that wanted a different balance would
-// have needed a different drawing.
+// The scene is drawn at full contrast and knows nothing about the text that
+// will sit on it. Legibility belongs to the layers above it in the card (a
+// veil, CSS `filter` — takumi supports brightness, contrast, saturate,
+// grayscale, opacity, blur), so another card can balance it differently
+// without a different drawing.
 //
 // THEME-GAP: the theme has no map colours; they are mixed from the tokens it has.
 function palette(themeColors, mode) {
@@ -332,11 +296,10 @@ function sceneShapes(city, width, height, look) {
     });
   }
 
-  // DECISION: sort per building, by farthest base corner. Checked at 2× card
-  // size on every sampled place (towers, grid blocks, old-town alleys, a
-  // suburb, villages) at PITCH_DEG 50: no visible overlap errors. Rejected:
-  // sorting per wall — more work, and no visible error for it to fix at 248×96.
-  // A steeper pitch or a larger card reopens this.
+  // Sorted per building, by farthest base corner. At 2× card size on every
+  // sampled place (towers, grid blocks, old-town alleys, a suburb, villages)
+  // at PITCH_DEG 50 this shows no overlap errors; a steeper pitch or a larger
+  // card may need sorting per wall.
   solids.sort((a, b) => b.depth - a.depth);
 
   return { disc: disc && polygon(disc), areas, roads, solids };
@@ -418,7 +381,7 @@ function geometryKey(city) {
 }
 
 export default function CityScene({ city, width, height, look = LOOKS.planet }) {
-  if (!city) return null; // P2
+  if (!city) return null;
   const { colors, mode } = ctx.theme;
   return (
     <D3Figure

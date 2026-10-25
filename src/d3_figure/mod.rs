@@ -13,14 +13,18 @@
 //! 1. **Render runtime.** The `D3Figure` global (`tauler-core/src/globals.rs`)
 //!    throws without a key, hands `draw` to `registerFigure` — which the render
 //!    runtime ignores, so `draw` never runs on the loop — and returns
-//!    `<img src="tauler:picture/<key>">` at the given size. The eval reports one
-//!    [`crate::jsx::FigureCall`] per figure, in document order.
+//!    `<img src="tauler:picture/<key>">` at the given size. The eval reads one
+//!    [`crate::jsx::FigureCall`] per such `<img>` back from its tree, in document
+//!    order — from the tree, not from the calls, because an element built at
+//!    module scope calls `D3Figure` once, before any eval.
 //! 2. **Loop.** [`requests::Requests`] turns those calls into a plan: the keys not
-//!    asked for yet go to the Draw runtime, and a figure whose key changed shows
+//!    asked for yet go to the Draw runtime together with every key on screen
+//!    (which bounds what it keeps pending), and a figure whose key changed shows
 //!    its previous key's Picture meanwhile (`picture::set_fallback`).
 //! 3. **Draw runtime** ([`draw`]). Its own thread evaluates the same layout file
 //!    against the bar's Stream values and `globals`, finds the figure by key in
-//!    *its own* tree, runs `draw(svg, d3)` against an empty `<svg>` in a linkedom
+//!    *its own* tree (keeping each key's latest `registerFigure`, and those made
+//!    while the module loaded, for as long as the key is in that tree), runs `draw(svg, d3)` against an empty `<svg>` in a linkedom
 //!    document, and sends the markup back, pinging the loop's notifier.
 //! 4. **Loop.** Each arrival from the current Draw runtime is stored as its
 //!    key's Picture ([`crate::render::picture`]), and Pictures no figure names
@@ -41,6 +45,7 @@
 //!
 //! # Behaviour authors can rely on
 //!
+//! - A D3Figure can be built anywhere an element can, module scope included.
 //! - `draw` runs once per key while the key stays on screen; a figure that should
 //!   look different needs a new key. A key that leaves and comes back is drawn
 //!   again, and so is every figure after a layout reload, since its `draw` may

@@ -1,8 +1,8 @@
 # D3Figures draw in a third runtime and arrive as Pictures
 
-A **D3Figure**'s draw function never runs on the loop. The render runtime only records
-that a figure with a given key and size exists, and puts an `<img src="tauler:picture/<key>">`
-in the tree. A **Draw runtime** — a third QuickJS runtime on its own thread, built the way
+A **D3Figure**'s draw function never runs on the loop. The render runtime only puts an
+`<img src="tauler:picture/<key>">` at the figure's size in the tree, and the loop reads from
+the tree which figures exist. A **Draw runtime** — a third QuickJS runtime on its own thread, built the way
 the reconciler runtime is (ADR [0034](0034-hooks-run-in-a-second-runtime.md)) — loads the
 same layout file, finds the figure by key in *its own* tree, runs `draw` against an empty
 `<svg>`, and hands the markup back. The Render worker rasterizes it once into a **Picture**,
