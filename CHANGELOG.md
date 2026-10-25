@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.0](https://github.com/kantord/tauler/compare/tauler-v0.6.5...tauler-v0.7.0) - 2026-10-25
+
+### Added
+
+- add native d3 support ([#675](https://github.com/kantord/tauler/pull/675))
+
+### Fixed
+
+- *(deps)* update rust crate jsonschema to v0.60.0 ([#674](https://github.com/kantord/tauler/pull/674))
+- *(deps)* update rust crate tokio to v1.54.1 ([#672](https://github.com/kantord/tauler/pull/672))
+- *(deps)* update patch updates ([#673](https://github.com/kantord/tauler/pull/673))
+
 ## [0.6.5](https://github.com/kantord/tauler/compare/tauler-v0.6.4...tauler-v0.6.5) - 2026-10-23
 
 ### Added

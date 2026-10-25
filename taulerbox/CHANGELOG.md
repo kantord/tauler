@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.0](https://github.com/kantord/tauler/compare/taulerbox-v0.6.5...taulerbox-v0.7.0) - 2026-10-25
+
+### Fixed
+
+- *(deps)* update rust crate tokio to v1.54.1 ([#672](https://github.com/kantord/tauler/pull/672))
+
 ## [0.6.5](https://github.com/kantord/tauler/compare/taulerbox-v0.6.4...taulerbox-v0.6.5) - 2026-10-23
 
 ### Added
