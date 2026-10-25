@@ -13,6 +13,12 @@
 //! stale hit once the wallpaper moves underneath, and the rect keeps two
 //! same-size, same-content panels from colliding on one entry and being served
 //! each other's slice of wallpaper — see [`crate::backdrop`].
+//!
+//! Pictures widen it by a stamp of the Pictures the content names by a
+//! `tauler:picture/` src: the tree is the same before and after a Picture
+//! arrives, the pixels are not. The stamp covers only the content's own
+//! Pictures, so a frame that shows none never misses because some other
+//! Picture changed — see [`super::picture`].
 
 use std::sync::Arc;
 
@@ -34,6 +40,10 @@ struct FrameKey {
     /// `f32` is not `Hash`; its bits are.
     dpr_bits: u32,
     backdrop: Option<(u64, Rect)>,
+    /// 0 when the content names no Picture; otherwise a hash of the
+    /// `(key, entry generation)` of each Picture it names, read before the
+    /// frame is drawn — see [`super::picture::frame_stamp`].
+    pictures: u64,
 }
 
 impl FrameKey {
@@ -44,6 +54,7 @@ impl FrameKey {
             height: request.height,
             dpr_bits: request.dpr.to_bits(),
             backdrop: request.backdrop.as_ref().map(|b| (b.generation, b.rect)),
+            pictures: super::picture::frame_stamp(&request.content),
         }
     }
 }
@@ -199,6 +210,50 @@ mod tests {
         assert!(
             !Arc::ptr_eq(&before, &after),
             "a moved wallpaper must not be served the frame drawn over the old one"
+        );
+    }
+
+    fn naming_picture(key: &str) -> RenderRequest {
+        RenderRequest {
+            content: serde_json::json!({
+                "type": "img",
+                "src": format!("{}{key}", crate::render::picture::PICTURE_SRC_PREFIX),
+                "style": { "width": 10, "height": 10 }
+            }),
+            ..request(10, 10)
+        }
+    }
+
+    /// The tree names the Picture by key, and the key is the same before and
+    /// after the Picture arrives; only the generation says the pixels differ.
+    #[test]
+    fn a_newer_picture_generation_is_a_different_frame() {
+        let mut cache = cache();
+        let key = "cache-test/arrives";
+        let before = cache.frame(&naming_picture(key));
+        crate::render::picture::set_picture(
+            key,
+            r##"<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><rect width="10" height="10" fill="#0000ff"/></svg>"##.to_string(),
+        );
+        let after = cache.frame(&naming_picture(key));
+        assert!(
+            !Arc::ptr_eq(&before, &after),
+            "a frame drawn before the Picture arrived must not be served after"
+        );
+    }
+
+    #[test]
+    fn a_frame_that_shows_no_picture_survives_another_picture_changing() {
+        let mut cache = cache();
+        let before = cache.frame(&request(10, 10));
+        crate::render::picture::set_picture(
+            "cache-test/unrelated",
+            r##"<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"/>"##.to_string(),
+        );
+        let after = cache.frame(&request(10, 10));
+        assert!(
+            Arc::ptr_eq(&before, &after),
+            "a chart redrawing somewhere must not cost every other frame a repaint"
         );
     }
 

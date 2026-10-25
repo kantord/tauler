@@ -25,7 +25,7 @@ kinds:
 | kind | draws | takes | ships as |
 |---|---|---|---|
 | **Data** | nothing | a function as its child, and calls it with data | `<Module>` |
-| **Display** | its props, as pixels | props | `<Card>`, `<Badge>`, `<Progress>`, `<Table>`, `<Icon>` |
+| **Display** | its props, as pixels | props | `<Card>`, `<Badge>`, `<Progress>`, `<Table>`, `<Icon>`, `<D3Figure>` |
 | **Control** | a value, as pixels — and emits intents when you touch it | a `value` and an `on_change` | `<Slider>`, `<Knob>`, `<ScrollArea>` |
 
 Exactly one applies to a component. Where two seem to, the earlier row wins: a component
@@ -70,7 +70,7 @@ subprocess behind it.
 
 A Display component renders the props it is given and nothing else. Most of what ships is
 one: `<Card>` and its parts, `<Badge>`, `<Progress>`, `<Table>` and `<DataTable>`,
-`<Icon>`.
+`<Icon>`. To draw from data yourself, use a [`<D3Figure>`](#d3figure).
 
 A wrapper that only decorates its children, like `<Card>`, is a Display component too —
 wrapping is not a kind of its own. Underneath, every Display component is HTML elements,
@@ -194,6 +194,141 @@ keeps that number small.
 Drag is X11-only for now. On Wayland and macOS no movement is reported, so a slider still
 works as click-to-set — and a knob, which has nothing to read but the movement, does
 nothing at all there.
+
+## D3Figure
+
+`<D3Figure>` is a Display component you draw yourself, with [d3](https://d3js.org). Its
+`draw` function receives an empty `<svg>` of the figure's size and d3 itself, and writes
+d3 the way d3's own documentation does: `svg.append(...)`, data joins, scales, shapes,
+axes, force layouts.
+
+```jsx
+function LoadChart({ samples }) {
+  if (!samples.length) return null;
+  const width = 240, height = 80;
+  return (
+    <D3Figure
+      key={"load/" + samples.at(-1).t}
+      width={width}
+      height={height}
+      draw={(svg, d3) => {
+        const x = d3.scaleTime()
+          .domain(d3.extent(samples, d => new Date(d.t * 1000)))
+          .range([24, width - 8]);
+        const y = d3.scaleLinear()
+          .domain([0, d3.max(samples, d => d.v)]).nice()
+          .range([height - 18, 4]);
+        svg.append("path")
+          .datum(samples)
+          .attr("fill", "none")
+          .attr("stroke", "steelblue")
+          .attr("d", d3.line(d => x(new Date(d.t * 1000)), d => y(d.v)));
+        svg.append("g")
+          .attr("transform", `translate(0,${height - 18})`)
+          .attr("color", "gray")
+          .call(d3.axisBottom(x).ticks(3));
+      }}
+    />
+  );
+}
+```
+
+The samples come from a stream, the way any history does:
+
+```jsx
+const load = useJSONStream("/bin/sh", `
+  while :; do
+    printf '{"t":%s,"v":%s}\\n' "$(date +%s)" "$(cut -d' ' -f1 /proc/loadavg)"
+    sleep 5
+  done | tauler-accumulate -n 60
+`) ?? [];
+
+<LoadChart samples={load} />
+```
+
+`<D3Figure>` needs no import. It takes four props, all required:
+
+| prop | type | description |
+|---|---|---|
+| `key` | string or number | names this drawing; see below |
+| `width` | number | width in logical pixels |
+| `height` | number | height in logical pixels |
+| `draw` | `(svg, d3) => void` | draws into `svg` |
+
+`svg` is a d3 selection of an `<svg>` with that `width` and `height`, a `viewBox` of
+`0 0 width height` and `font-family: sans-serif`. `d3` is d3 7.9.0.
+
+`width` and `height` must be numbers greater than 0. A string such as `"248"` fails with an
+error that names them.
+
+### Change the key when the drawing should change
+
+A figure whose key does not change is not drawn again until the layout file is saved:
+tauler does not run `draw` to see whether its output changed. Give the figure a new key when what it shows changes,
+and the simplest way to get one is to derive it from the data, as `LoadChart` does from its
+newest sample. A figure with no `key` fails with an error that names it.
+
+### What a slow drawing looks like
+
+On the desktop, `draw` runs off the bar's own loop. A slow drawing shows up a little later;
+the bar does not freeze while it is drawn. Until a figure's drawing arrives, the figure
+shows its previous drawing, or nothing.
+
+A `draw` that runs longer than 5 seconds is stopped. A `draw` that throws leaves the
+previous drawing in place and logs a warning once.
+
+### Pass the data in
+
+`draw` has no network, no filesystem and no shell. `d3.json` and `d3.csv` cannot fetch
+anything. Read the data in the layout file — from a [stream](/docs/data/) — and pass it to
+the figure.
+
+Timers never fire, so nothing animates. Transitions do not play. Run a force simulation to
+rest with `.tick()` instead of letting it run:
+
+```jsx
+const simulation = d3.forceSimulation(nodes)
+  .force("link", d3.forceLink(links).id(d => d.id))
+  .force("charge", d3.forceManyBody())
+  .force("center", d3.forceCenter(width / 2, height / 2))
+  .stop();
+simulation.tick(300);
+```
+
+### Text cannot be measured
+
+On the desktop, `getBBox`, `getComputedTextLength` and `getBoundingClientRect` measure
+nothing. Place labels from your scales, not from the size of the text.
+
+### The first figure downloads d3
+
+The first figure on a machine downloads d3 and linkedom — the projects' own published
+files, checked against pinned hashes — into `~/.cache/tauler/d3`. Until the download lands,
+figures draw nothing. Every later run uses the cached copy.
+
+On a machine with no network, put the same two files in a directory and point
+`TAULER_D3_DIR` at it: `d3.min.js` from the `dist/` folder of npm's `d3@7.9.0` package, and
+linkedom 0.18.14's `worker.js`, saved as `linkedom.js`. They are checked against the same
+hashes, so any other version is refused.
+
+### d3 outside a figure
+
+A layout file can import d3 for its maths — scales, formats — outside any figure:
+
+```jsx
+import * as d3 from "d3";
+
+const percent = d3.format(".0%");
+```
+
+Named imports work too. The first such import triggers the same download, and the layout
+loads once it lands, like a [Package](/docs/packages/).
+
+### In a browser
+
+On this site's live examples, `draw` runs against the page's real DOM and the drawing stays
+in the page as an inline `<svg>`. Text measurement works there. `import "d3"` at the top of
+a layout file does not work in a browser yet.
 
 ## What has no kind
 

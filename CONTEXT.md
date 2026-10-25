@@ -76,6 +76,13 @@ The finished pixels of one Render target, at one physical size. What a Repaint p
 and what the cache keeps.
 _Avoid_: buffer, bitmap, image
 
+**Picture**:
+The pixels of one D3Figure's drawing on the desktop, named by that figure's key and kept
+so that every later Frame can show them without drawing again. A key names one Picture for
+good: a figure that should look different must say so with a new key.
+_Avoid_: image (any `<img>` source), bitmap, buffer (both name a Frame's pixels), drawing
+(the act), canvas
+
 **Render request**:
 What to draw, at what physical size, against which slice of Wallpaper. It carries
 everything the drawing needs, so the Render worker consults nothing else.
@@ -90,6 +97,13 @@ _Avoid_: message, command (a Surface command is the other channel)
 The one thread that draws. Nothing else rasterizes, which is what lets the frame cache be
 its private state rather than a global behind a lock.
 _Avoid_: render thread, rasterizer (that is takumi), render queue
+
+**Draw runtime**:
+The QuickJS runtime that runs D3Figures' draw functions, on a thread of its own. It loads
+the same layout file as the render runtime, only to find the figures it is asked for, and
+hands back markup — the Render worker is still the only thing that rasterizes. A slow draw
+delays its Picture, never a Tick.
+_Avoid_: draw thread, worker (the Render worker is the worker), sandbox
 
 **Presenter**:
 What turns Frames into pixels on a display server and pointer input into events for the
@@ -339,6 +353,15 @@ A component that renders data as pixels. A wrapper that only decorates what it i
 like `<Card>`, is a Display component too — wrapping is not a kind of its own.
 _Avoid_: view, presentational component, dumb component
 _Elsewhere_: mark (Vega-Lite), geom (ggplot)
+
+**D3Figure**:
+A Display component whose pixels come from the layout file's own d3 code: its draw
+function is handed an empty `<svg>` and d3, as on a web page. On the desktop what it draws
+becomes the figure's Picture; in a page it stays the inline `<svg>` it was drawn into. Its
+key is what tells tauler that nothing changed.
+_Avoid_: D3View ("view" is avoided above), chart (a map is a D3Figure too), canvas, plot
+_Elsewhere_: figure (Observable Plot), view (Vega), an `<svg>` ref handed to d3 in a
+`useEffect` (React)
 
 **Control component**:
 A Display component that also emits intents. It never holds a value: it renders the value

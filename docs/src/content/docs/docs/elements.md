@@ -67,7 +67,8 @@ contents — a `<style>` body would otherwise render as visible text.
 
 ### Not supported
 
-- **Inline `<svg>`** is a parse error. Put the SVG in a `data:` URI instead:
+- **Inline `<svg>`** is a parse error. To draw from data, use a
+  [`<D3Figure>`](/docs/components/#d3figure). A fixed SVG goes in a `data:` URI instead:
   `<img src="data:image/svg+xml,<svg …>" />`
 - **`display: table`** does not exist, so `<table>`, `<tr>` and `<td>` lay out as plain
   blocks. Use flex or grid for columns.

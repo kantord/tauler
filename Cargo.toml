@@ -103,6 +103,13 @@ notify = "=8.2.0"
 cached = { version = "=4.0.3", default-features = false }
 tempfile = "=3.27.0"
 minijinja = { version = "=3.0.2", features = ["serde"] }
+# Checks the pinned sha256 of the files a D3Figure downloads (d3_figure/assets.rs).
+sha2 = "=0.11.1"
+# Unpacks d3's npm tarball, the only place d3 publishes its built file.
+flate2 = "=1.1.10"
+tar = "=0.4.46"
+# Downloads d3 and linkedom on first use; blocking, HTTPS through rustls.
+ureq = "=3.4.2"
 
 # Kept off other platforms: Wayland's build scripts need pkg-config and
 # libxkbcommon, and x11rb's `allow-unsafe-code` links libxcb.

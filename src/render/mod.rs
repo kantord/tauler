@@ -26,6 +26,7 @@ use takumi::prelude::{
 use takumi::{render, render_svg};
 
 pub mod cache;
+pub mod picture;
 pub mod worker;
 
 use crate::backdrop::{Backdrop, ROOT_BG_KEY};
@@ -190,7 +191,7 @@ fn raster(
         .ok();
     let global = snapshot();
     let node = layout.unwrap_or_else(|| Node::container(vec![]));
-    let options = frame_options(&global, backdrop, node, width, height, dpr);
+    let options = frame_options(&global, content, backdrop, node, width, height, dpr);
     let t = std::time::Instant::now();
     let rgba = render(options).expect("render").into_raw();
     tracing::debug!(full_render_us = t.elapsed().as_micros(), "full render");
@@ -199,7 +200,9 @@ fn raster(
 
 /// The options every frame is rendered or measured with: the shared fonts and
 /// decoded images, at `width × height` physical pixels with `dpr` scaling CSS `px`,
-/// plus `backdrop` bound as `tauler:root-bg` for this render alone.
+/// plus `backdrop` bound as `tauler:root-bg` for this render alone, and every
+/// Picture `content` names bound under its `tauler:picture/<key>` src
+/// ([`picture`]).
 ///
 /// Cloning `images` is a per-entry `Arc` bump, not a pixel copy.
 ///
@@ -209,6 +212,7 @@ fn raster(
 /// no shared slot for the previous surface's crop to linger in.
 fn frame_options<'a>(
     ctx: &'a RenderContext,
+    content: &serde_json::Value,
     backdrop: Option<&Backdrop>,
     node: Node,
     width: u32,
@@ -219,6 +223,7 @@ fn frame_options<'a>(
     if let Some(b) = backdrop {
         images.insert(ROOT_BG_KEY.into(), b.image.clone());
     }
+    picture::bind(content, dpr, &mut images);
     RenderOptions::builder()
         .fonts(&ctx.fonts)
         .images(images)
@@ -494,9 +499,10 @@ fn preload_layout_images_impl(layout: &serde_json::Value, global: &mut RenderCon
         if src.starts_with("http://") || src.starts_with("https://") || src.starts_with("data:") {
             continue;
         }
-        // Resources tauler binds itself, not files to read — `tauler:root-bg` is
-        // bound per render by `frame_options`. The scheme is what makes it
-        // impossible for a file of that name to shadow one (ADR 0016).
+        // Resources tauler binds itself, not files to read — `tauler:root-bg` and
+        // `tauler:picture/<key>` are bound per render by `frame_options`. The
+        // scheme is what makes it impossible for a file of that name to shadow
+        // one (ADR 0016).
         if src.starts_with("tauler:") {
             continue;
         }

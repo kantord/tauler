@@ -43,12 +43,26 @@ type StreamValues = Arc<RwLock<HashMap<(String, Option<String>), String>>>;
 type StreamCalls = Arc<Mutex<Vec<(String, Option<String>)>>>;
 
 /// Return type of a successful JSX evaluation.
+#[derive(Clone)]
 pub struct EvalOutput {
     pub layout: serde_json::Value,
     pub stream_calls: Vec<(String, Option<String>)>,
     pub module_calls: Vec<(String, serde_json::Value)>,
+    /// One per `<D3Figure>` rendered this eval, in document order: the draw
+    /// requests the loop hands to the draw runtime (see `crate::d3_figure`).
+    pub figure_calls: Vec<FigureCall>,
 }
 
+/// A `<D3Figure>` seen during an eval: the Picture it names and the size to draw
+/// it at. Its `draw` function stays behind in the render runtime.
+#[derive(Debug, Clone, PartialEq)]
+pub struct FigureCall {
+    pub key: String,
+    pub width: f64,
+    pub height: f64,
+}
+
+use crate::d3_figure::draw::DrawError;
 use rquickjs::function::Function;
 use rquickjs::loader::{Loader, Resolver};
 use rquickjs::{CatchResultExt, CaughtError, Persistent};
@@ -324,14 +338,30 @@ pub type SharedGlobals = Arc<Mutex<serde_json::Map<String, serde_json::Value>>>;
 
 pub struct JsxEvaluator {
     context: rquickjs::Context,
-    _runtime: rquickjs::Runtime,
+    runtime: rquickjs::Runtime,
     stream_values: StreamValues,
     calls: StreamCalls,
     module_calls: Arc<Mutex<Vec<(String, serde_json::Value)>>>,
+    figure_calls: Arc<Mutex<Vec<FigureCall>>>,
     global_state: SharedGlobals,
     /// Always `Some` after construction; `None` only transiently during `drop`.
     render_fn: Option<Persistent<Function<'static>>>,
     loaded_paths: Arc<Mutex<Vec<PathBuf>>>,
+    /// `Some` only for the draw runtime ([`JsxEvaluator::new_draw`]). It also
+    /// changes [`JsxEvaluator::eval`]: the figures from the previous eval are
+    /// forgotten first, and `globals` are read but never written back.
+    draw: Option<DrawState>,
+}
+
+/// The draw runtime's own state. Atomics only so the evaluator stays `Sync`;
+/// a draw runtime is used by one thread.
+#[derive(Default)]
+struct DrawState {
+    /// d3 and linkedom are loaded into the context (see [`DRAW_BOOTSTRAP_JS`]).
+    loaded: std::sync::atomic::AtomicBool,
+    /// Bootstrap modules tried so far. Each attempt declares a fresh module name,
+    /// because QuickJS keeps a module that failed to link under its name.
+    attempts: std::sync::atomic::AtomicU32,
 }
 
 impl Drop for JsxEvaluator {
@@ -406,17 +436,69 @@ const SCHEMA_FILE_SUFFIX: &str = ".schema.yaml";
 /// specifier with an explicit extension (`'./x.schema.yaml'`, as opposed to an
 /// extension-less `'./x'` relying on fallback resolution) resolves directly
 /// against the real file, regardless of the resolver's configured extension list.
+///
+/// It also loads [`D3_MODULE_NAME`], the module `GitPackageResolver` resolves the
+/// `"d3"` specifier to: [`crate::d3_figure::import::es_module_source`] over the d3
+/// file `d3` supplies. `d3` is `None` exactly when `GitPackageResolver` has no
+/// `PackageContext`, so nothing resolves to that name then.
 struct SchemaAwareLoader {
     inner: optative_script::loader::ConfinedFsLoader,
     loaded_paths: Arc<Mutex<Vec<PathBuf>>>,
+    d3: Option<Arc<crate::d3_figure::fetch::Fetcher>>,
 }
 
+/// The reserved module name the `"d3"` specifier resolves to. Not a path, so it
+/// can never collide with a file the layout imports.
+const D3_MODULE_NAME: &str = "tauler:d3";
+
+/// The reserved module name (and specifier) for linkedom, imported only by the
+/// draw runtime's bootstrap ([`DRAW_BOOTSTRAP_JS`]). Resolved and loaded exactly
+/// like [`D3_MODULE_NAME`]; linkedom's file is already an ES module, so its
+/// source is used as-is.
+const LINKEDOM_MODULE_NAME: &str = "tauler:linkedom";
+
 impl SchemaAwareLoader {
-    fn new(loaded_paths: Arc<Mutex<Vec<PathBuf>>>) -> Self {
+    fn new(
+        loaded_paths: Arc<Mutex<Vec<PathBuf>>>,
+        d3: Option<Arc<crate::d3_figure::fetch::Fetcher>>,
+    ) -> Self {
         Self {
             inner: optative_script::loader::ConfinedFsLoader::new(Arc::clone(&loaded_paths)),
             loaded_paths,
+            d3,
         }
+    }
+
+    /// The `"d3"` module: the fetched UMD file wrapped as an ES module. Fails to
+    /// load if the files went missing between resolve and load. Declared from
+    /// generated source, the same way a `*.schema.yaml` import is.
+    fn load_d3<'js>(
+        &self,
+        ctx: &rquickjs::Ctx<'js>,
+    ) -> rquickjs::Result<rquickjs::Module<'js, rquickjs::module::Declared>> {
+        let sources = self
+            .d3
+            .as_ref()
+            .and_then(|fetcher| fetcher.sources())
+            .ok_or_else(|| rquickjs::Error::new_loading(D3_MODULE_NAME))?;
+        let source = crate::d3_figure::import::es_module_source(
+            &sources.d3,
+            &crate::d3_figure::import::d3_exports(),
+        );
+        rquickjs::Module::declare(ctx.clone(), D3_MODULE_NAME, source)
+    }
+
+    /// The [`LINKEDOM_MODULE_NAME`] module: the fetched linkedom file, as-is.
+    fn load_linkedom<'js>(
+        &self,
+        ctx: &rquickjs::Ctx<'js>,
+    ) -> rquickjs::Result<rquickjs::Module<'js, rquickjs::module::Declared>> {
+        let sources = self
+            .d3
+            .as_ref()
+            .and_then(|fetcher| fetcher.sources())
+            .ok_or_else(|| rquickjs::Error::new_loading(LINKEDOM_MODULE_NAME))?;
+        rquickjs::Module::declare(ctx.clone(), LINKEDOM_MODULE_NAME, sources.linkedom)
     }
 }
 
@@ -427,6 +509,12 @@ impl Loader for SchemaAwareLoader {
         name: &str,
         attrs: Option<rquickjs::loader::ImportAttributes<'js>>,
     ) -> rquickjs::Result<rquickjs::Module<'js, rquickjs::module::Declared>> {
+        if name == D3_MODULE_NAME {
+            return self.load_d3(ctx);
+        }
+        if name == LINKEDOM_MODULE_NAME {
+            return self.load_linkedom(ctx);
+        }
         if !name.ends_with(SCHEMA_FILE_SUFFIX) {
             let module = self.inner.load(ctx, name, attrs)?;
             set_import_meta(&module, Path::new(name))?;
@@ -476,6 +564,12 @@ fn set_import_meta<'js>(
 /// nothing recognizes the prefix), and `Some` only for the two production call
 /// sites that opt in via `new_with_packages`/`new_reconciler_with_packages`. See
 /// ADR 0041's "Discovery lives in the resolver, not a separate scan step".
+///
+/// With a `pkg_ctx` it also resolves the bare specifier `"d3"`
+/// ([`crate::d3_figure::import::SPECIFIER`]) to [`D3_MODULE_NAME`], which
+/// `SchemaAwareLoader` loads. d3 is not a Package, but it fails the same way: no
+/// files yet (`pkg_ctx.d3.sources()` is `None`) fails resolution this cycle, and
+/// the Fetcher's own background download wakes the reload that retries it.
 struct GitPackageResolver {
     inner: optative_script::loader::ConfinedFsResolver,
     pkg_ctx: Option<crate::pkg::PackageContext>,
@@ -577,6 +671,34 @@ impl GitPackageResolver {
     }
 }
 
+impl GitPackageResolver {
+    /// Resolves the `"d3"` specifier: [`D3_MODULE_NAME`] when the Fetcher has
+    /// both files, otherwise a resolution failure (which also starts its
+    /// download, unless offline). Cold fails exactly like a cold Package (ADR
+    /// 0041): the download's completion triggers the reload that retries it.
+    fn resolve_d3(
+        base: &str,
+        name: &str,
+        pkg_ctx: &crate::pkg::PackageContext,
+    ) -> rquickjs::Result<String> {
+        Self::resolve_fetched(base, name, D3_MODULE_NAME, pkg_ctx)
+    }
+
+    /// `module_name` when the Fetcher has both files, otherwise a resolution
+    /// failure — the same rule for d3 and for [`LINKEDOM_MODULE_NAME`].
+    fn resolve_fetched(
+        base: &str,
+        name: &str,
+        module_name: &str,
+        pkg_ctx: &crate::pkg::PackageContext,
+    ) -> rquickjs::Result<String> {
+        match pkg_ctx.d3.sources() {
+            Some(_) => Ok(module_name.to_string()),
+            None => Err(rquickjs::Error::new_resolving(base, name)),
+        }
+    }
+}
+
 /// If `base` — an already-resolved, canonicalized absolute path, since that's
 /// all a `Resolver` is ever handed as `base` — lives inside a Package's
 /// checkout under `cache_root`, returns that checkout's own root directory
@@ -614,6 +736,12 @@ impl Resolver for GitPackageResolver {
         attrs: Option<rquickjs::loader::ImportAttributes<'js>>,
     ) -> rquickjs::Result<String> {
         if let Some(pkg_ctx) = self.pkg_ctx.clone() {
+            if name == crate::d3_figure::import::SPECIFIER {
+                return Self::resolve_d3(base, name, &pkg_ctx);
+            }
+            if name == LINKEDOM_MODULE_NAME {
+                return Self::resolve_fetched(base, name, LINKEDOM_MODULE_NAME, &pkg_ctx);
+            }
             if let Some((owner, repo)) = crate::pkg::specifier::parse(name) {
                 return self.resolve_package(ctx, base, name, owner, repo, &pkg_ctx);
             }
@@ -636,6 +764,51 @@ enum Effects {
     Denied,
     Allowed,
 }
+
+/// Installed by [`JsxEvaluator::new_draw`] after the layout module has run but
+/// before its first render: the figures Map `registerFigure` fills, the never-
+/// firing timers (SPEC in `d3_figure/mod.rs`), and the function
+/// [`JsxEvaluator::draw_figure`] calls.
+///
+/// A draw that was interrupted leaves its half-built `<svg>` in the body, so
+/// every draw empties the body first.
+const DRAW_RUNTIME_JS: &str = r#"
+    globalThis.__tauler_figures = new Map();
+    globalThis.registerFigure = (key, width, height, draw) => {
+        __tauler_figures.set(key, { draw, width, height });
+    };
+    if (typeof globalThis.setTimeout === "undefined") globalThis.setTimeout = () => 0;
+    if (typeof globalThis.setInterval === "undefined") globalThis.setInterval = () => 0;
+    if (typeof globalThis.requestAnimationFrame === "undefined") globalThis.requestAnimationFrame = () => 0;
+    if (typeof globalThis.clearTimeout === "undefined") globalThis.clearTimeout = () => {};
+    if (typeof globalThis.clearInterval === "undefined") globalThis.clearInterval = () => {};
+    if (typeof globalThis.cancelAnimationFrame === "undefined") globalThis.cancelAnimationFrame = () => {};
+    globalThis.__tauler_draw_figure = (key, w, h) => {
+        const figure = __tauler_figures.get(key);
+        const d3 = globalThis.__tauler_d3;
+        const body = globalThis.__tauler_document.body;
+        for (const child of [...body.childNodes]) body.removeChild(child);
+        const svg = d3.select(body).append("svg")
+            .attr("xmlns", "http://www.w3.org/2000/svg")
+            .attr("width", w)
+            .attr("height", h)
+            .attr("viewBox", `0 0 ${w} ${h}`)
+            .attr("font-family", "sans-serif");
+        figure.draw(svg, d3);
+        const markup = svg.node().outerHTML;
+        svg.remove();
+        return markup;
+    };
+"#;
+
+/// Loads d3 and linkedom into the draw runtime, on its first draw. Evaluated as
+/// a module (under a fresh name per attempt) so it can `import` them.
+const DRAW_BOOTSTRAP_JS: &str = r#"
+    import * as d3 from "d3";
+    import { parseHTML } from "tauler:linkedom";
+    globalThis.__tauler_d3 = d3;
+    globalThis.__tauler_document = parseHTML("<!doctype html><html><head></head><body></body></html>").document;
+"#;
 
 impl JsxEvaluator {
     /// The render runtime: evaluated every Tick, and unable to touch the world.
@@ -705,6 +878,129 @@ impl JsxEvaluator {
         Ok(evaluator)
     }
 
+    /// The draw runtime (see `crate::d3_figure`): the same layout file, with no
+    /// shell or filesystem builtins, reading the bar's `globals`. Its
+    /// `registerFigure` keeps each D3Figure's `draw` by key for
+    /// [`Self::draw_figure`], and its timers never fire. `pkg_ctx` supplies the
+    /// d3 and linkedom files.
+    ///
+    /// Without a `layout_path` there is no package resolver at all, so d3 cannot
+    /// load and every draw is [`DrawError::NotReady`]. Production always passes
+    /// one.
+    ///
+    /// Its [`Self::eval`] differs in two ways. The figures of the previous eval
+    /// are forgotten first, so [`DrawError::UnknownKey`] means "not in the
+    /// latest eval". And `globals` are a copy that is never written back: the
+    /// bar owns them. They are not made read-only (as [`Self::eval_units`]
+    /// does), because a render that assigns to `globals` is legal on the bar,
+    /// and throwing here would leave that layout's figures undrawable.
+    pub fn new_draw(
+        source: &str,
+        ctx: serde_json::Value,
+        layout_path: Option<&Path>,
+        globals: SharedGlobals,
+        pkg_ctx: Option<crate::pkg::PackageContext>,
+    ) -> Result<Self, JsError> {
+        let mut evaluator = Self::with_effects(source, ctx, layout_path, Effects::Denied, pkg_ctx)?;
+        evaluator.global_state = globals;
+        evaluator.draw = Some(DrawState::default());
+        with_described(&evaluator.context, |qjs_ctx| {
+            qjs_ctx.eval::<(), _>(DRAW_RUNTIME_JS)
+        })?;
+        Ok(evaluator)
+    }
+
+    /// Loads d3 and linkedom into the draw runtime unless they are loaded
+    /// already. [`DrawError::NotReady`] while their files are not downloaded;
+    /// every failed attempt leaves a module behind in QuickJS, so a caller with
+    /// many figures to draw asks this once, not once per figure. Not a draw
+    /// runtime: [`DrawError::NotReady`].
+    pub fn ensure_drawing_ready(&self) -> Result<(), DrawError> {
+        use std::sync::atomic::Ordering;
+        let Some(state) = &self.draw else {
+            return Err(DrawError::NotReady);
+        };
+        if !state.loaded.load(Ordering::Relaxed) {
+            let attempt = state.attempts.fetch_add(1, Ordering::Relaxed);
+            self.load_draw_libraries(attempt)?;
+            state.loaded.store(true, Ordering::Relaxed);
+        }
+        Ok(())
+    }
+
+    /// Runs the `draw` of the D3Figure with `key` from the latest [`Self::eval`]
+    /// against a fresh `<svg width height>` and returns its markup. d3 and
+    /// linkedom are loaded on the first call ([`Self::ensure_drawing_ready`]).
+    /// A `draw` still running after `time_limit` is interrupted.
+    pub fn draw_figure(
+        &self,
+        key: &str,
+        width: f64,
+        height: f64,
+        time_limit: std::time::Duration,
+    ) -> Result<String, DrawError> {
+        if self.draw.is_none() {
+            return Err(DrawError::UnknownKey(key.to_string()));
+        }
+        self.ensure_drawing_ready()?;
+        let known = self.context.with(|ctx| {
+            ctx.eval::<bool, _>(format!(
+                "__tauler_figures.has({})",
+                serde_json::Value::String(key.to_string())
+            ))
+            .unwrap_or(false)
+        });
+        if !known {
+            return Err(DrawError::UnknownKey(key.to_string()));
+        }
+
+        // Outside `context.with`: setting the handler takes the runtime lock.
+        let deadline = std::time::Instant::now() + time_limit;
+        self.runtime
+            .set_interrupt_handler(Some(Box::new(move || std::time::Instant::now() > deadline)));
+        let result = self.context.with(|ctx| {
+            let draw: Function = ctx
+                .globals()
+                .get("__tauler_draw_figure")
+                .map_err(|e| CaughtError::from_error(&ctx, e).to_string())?;
+            draw.call::<_, String>((key, width, height))
+                .catch(&ctx)
+                .map_err(|e| e.to_string())
+        });
+        self.runtime.set_interrupt_handler(None);
+        result.map_err(|message| {
+            if std::time::Instant::now() > deadline {
+                DrawError::TimedOut
+            } else {
+                DrawError::Threw(message)
+            }
+        })
+    }
+
+    /// Evaluates [`DRAW_BOOTSTRAP_JS`] under a module name unique to `attempt`.
+    /// A module that cannot be resolved or loaded means the files are not here
+    /// yet: [`DrawError::NotReady`]. Anything else the bootstrap throws is
+    /// [`DrawError::Threw`].
+    fn load_draw_libraries(&self, attempt: u32) -> Result<(), DrawError> {
+        self.context.with(|ctx| {
+            let name = format!("tauler:draw-bootstrap-{attempt}");
+            rquickjs::Module::declare(ctx.clone(), name, DRAW_BOOTSTRAP_JS)
+                .and_then(|module| module.eval())
+                .and_then(|(_, promise)| promise.finish::<()>())
+                .catch(&ctx)
+                .map_err(|e| {
+                    let message = e.to_string();
+                    if message.contains("Error resolving module")
+                        || message.contains("Error loading module")
+                    {
+                        DrawError::NotReady
+                    } else {
+                        DrawError::Threw(message)
+                    }
+                })
+        })
+    }
+
     fn with_effects(
         source: &str,
         ctx: serde_json::Value,
@@ -720,8 +1016,11 @@ impl JsxEvaluator {
             let dir = path.parent().unwrap_or(path);
             optative_script::build_runtime(
                 crate::ui::registry::UI_COMPONENTS,
-                GitPackageResolver::new(dir.to_path_buf(), pkg_ctx),
-                SchemaAwareLoader::new(Arc::clone(&loaded_paths)),
+                GitPackageResolver::new(dir.to_path_buf(), pkg_ctx.clone()),
+                SchemaAwareLoader::new(
+                    Arc::clone(&loaded_paths),
+                    pkg_ctx.map(|pkg_ctx| pkg_ctx.d3),
+                ),
             )
         } else {
             optative_script::build_runtime(
@@ -736,6 +1035,7 @@ impl JsxEvaluator {
         let calls: StreamCalls = Arc::new(Mutex::new(Vec::new()));
         let module_calls: Arc<Mutex<Vec<(String, serde_json::Value)>>> =
             Arc::new(Mutex::new(Vec::new()));
+        let figure_calls: Arc<Mutex<Vec<FigureCall>>> = Arc::new(Mutex::new(Vec::new()));
 
         let mut stored_render_fn: Option<Persistent<Function<'static>>> = None;
 
@@ -743,6 +1043,7 @@ impl JsxEvaluator {
             let sv = Arc::clone(&stream_values);
             let calls_inner = Arc::clone(&calls);
             let module_calls_inner = Arc::clone(&module_calls);
+            let figure_calls_inner = Arc::clone(&figure_calls);
             with_described(&context, |qjs_ctx| {
                 qjs_ctx.eval::<(), _>(JSX_GLOBALS_JS)?;
                 optative_script::register_h(&qjs_ctx)?;
@@ -829,6 +1130,23 @@ impl JsxEvaluator {
                         },
                     )?,
                 )?;
+                // Called by the shared `D3Figure` global: one draw request per figure.
+                // It also passes `draw` as a fourth argument, for the draw runtime's
+                // own `registerFigure`; rquickjs functions are not exhaustive, so
+                // this one ignores it.
+                qjs_ctx.globals().set(
+                    "registerFigure",
+                    rquickjs::Function::new(
+                        qjs_ctx.clone(),
+                        move |key: String, width: f64, height: f64| {
+                            figure_calls_inner.lock().unwrap().push(FigureCall {
+                                key,
+                                width,
+                                height,
+                            });
+                        },
+                    )?,
+                )?;
                 qjs_ctx.globals().set(
                     "__workspaces_layout",
                     rquickjs::Function::new(qjs_ctx.clone(), workspaces_layout_js_fn)?,
@@ -892,13 +1210,15 @@ impl JsxEvaluator {
         let global_state = Arc::new(Mutex::new(serde_json::Map::new()));
         Ok(Self {
             context,
-            _runtime: runtime,
+            runtime,
             stream_values,
             calls,
             module_calls,
+            figure_calls,
             global_state,
             render_fn: stored_render_fn,
             loaded_paths,
+            draw: None,
         })
     }
 
@@ -974,6 +1294,7 @@ impl JsxEvaluator {
             .clone_from(new_stream_values);
         self.calls.lock().unwrap().clear();
         self.module_calls.lock().unwrap().clear();
+        self.figure_calls.lock().unwrap().clear();
         self.reset_handlers();
 
         with_described(&self.context, |qjs_ctx| {
@@ -981,16 +1302,22 @@ impl JsxEvaluator {
                 rquickjs_serde::to_value(qjs_ctx.clone(), &*self.global_state.lock().unwrap())
                     .map_err(|_| rquickjs::Error::Unknown)?;
             qjs_ctx.globals().set("globals", globals_val)?;
+            if self.draw.is_some() {
+                qjs_ctx.eval::<(), _>("__tauler_figures.clear();")?;
+            }
 
             let render_fn = self.render_fn.as_ref().unwrap().clone().restore(&qjs_ctx)?;
             let value: rquickjs::Value = render_fn.call::<(), rquickjs::Value>(())?;
 
-            let updated_globals: rquickjs::Value = qjs_ctx.globals().get("globals")?;
-            if let Ok(new_state) = rquickjs_serde::from_value::<
-                serde_json::Map<String, serde_json::Value>,
-            >(updated_globals)
-            {
-                *self.global_state.lock().unwrap() = new_state;
+            // The draw runtime reads `globals` and never writes them: the bar owns them.
+            if self.draw.is_none() {
+                let updated_globals: rquickjs::Value = qjs_ctx.globals().get("globals")?;
+                if let Ok(new_state) = rquickjs_serde::from_value::<
+                    serde_json::Map<String, serde_json::Value>,
+                >(updated_globals)
+                {
+                    *self.global_state.lock().unwrap() = new_state;
+                }
             }
 
             let json_str = qjs_ctx
@@ -1004,6 +1331,7 @@ impl JsxEvaluator {
                 layout,
                 stream_calls: self.calls.lock().unwrap().clone(),
                 module_calls: self.module_calls.lock().unwrap().clone(),
+                figure_calls: self.figure_calls.lock().unwrap().clone(),
             })
         })
     }
@@ -1027,6 +1355,7 @@ impl JsxEvaluator {
             .clone_from(new_stream_values);
         self.calls.lock().unwrap().clear();
         self.module_calls.lock().unwrap().clear();
+        self.figure_calls.lock().unwrap().clear();
         self.reset_handlers();
 
         with_described(&self.context, |qjs_ctx| {
@@ -1603,6 +1932,180 @@ return <span class="text-white">hi</span>;
             .any(|(bin, _)| bin == "/usr/bin/test-module"));
     }
 
+    const ONE_FIGURE: &str = r#"export default function render() {
+return <div><D3Figure key="cpu/1" width={248} height={100} draw={(svg, d3) => {}} /></div>;
+}"#;
+
+    #[test]
+    fn a_d3_figure_renders_as_an_image_naming_its_picture() {
+        let layout = eval(ONE_FIGURE).layout;
+        let img = &layout["children"][0];
+        assert_eq!(img["type"], "img", "got: {layout}");
+        // tauler-core's `D3Figure` writes this prefix by hand (it cannot depend
+        // on tauler): this is what holds it to the one the renderer binds.
+        assert_eq!(
+            img["src"],
+            format!("{}cpu/1", crate::render::picture::PICTURE_SRC_PREFIX),
+            "got: {layout}"
+        );
+        assert_eq!(img["style"]["width"], 248, "got: {layout}");
+        assert_eq!(img["style"]["height"], 100, "got: {layout}");
+    }
+
+    #[test]
+    fn a_d3_figure_records_a_draw_request_with_its_key_and_size() {
+        assert_eq!(
+            eval(ONE_FIGURE).figure_calls,
+            vec![FigureCall {
+                key: "cpu/1".into(),
+                width: 248.0,
+                height: 100.0
+            }]
+        );
+    }
+
+    #[test]
+    fn two_d3_figures_record_two_requests_in_document_order() {
+        let calls = eval(
+            r#"export default function render() {
+return <div>
+  <D3Figure key="a" width={10} height={20} draw={() => {}} />
+  <D3Figure key="b" width={30} height={40} draw={() => {}} />
+</div>;
+}"#,
+        )
+        .figure_calls;
+        assert_eq!(
+            calls,
+            vec![
+                FigureCall {
+                    key: "a".into(),
+                    width: 10.0,
+                    height: 20.0
+                },
+                FigureCall {
+                    key: "b".into(),
+                    width: 30.0,
+                    height: 40.0
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn draw_requests_do_not_carry_over_between_evals() {
+        let evaluator = JsxEvaluator::new(ONE_FIGURE, serde_json::Value::Null, None).unwrap();
+        let streams = std::collections::HashMap::new();
+        evaluator.eval(&streams).unwrap();
+        let second = evaluator.eval(&streams).unwrap().figure_calls;
+        assert_eq!(
+            second,
+            vec![FigureCall {
+                key: "cpu/1".into(),
+                width: 248.0,
+                height: 100.0
+            }],
+            "the second eval must hold only its own request"
+        );
+    }
+
+    #[test]
+    fn a_d3_figure_without_a_key_fails_the_eval_with_an_error_that_mentions_key() {
+        let err = JsxEvaluator::new(
+            r#"export default function render() {
+return <div><D3Figure width={248} height={100} draw={() => {}} /></div>;
+}"#,
+            serde_json::Value::Null,
+            None,
+        )
+        .unwrap()
+        .eval(&std::collections::HashMap::new())
+        .err()
+        .expect("a D3Figure without a key must fail the eval");
+        assert!(
+            err.to_string().contains("key"),
+            "the error must name the missing `key`, got: {err}"
+        );
+    }
+
+    /// The eval error of a layout with one `<D3Figure>` carrying `props`.
+    fn d3_figure_eval_error(props: &str) -> String {
+        JsxEvaluator::new(
+            &format!(
+                r#"export default function render() {{
+return <div><D3Figure key="k" {props} draw={{() => {{}}}} /></div>;
+}}"#
+            ),
+            serde_json::Value::Null,
+            None,
+        )
+        .unwrap()
+        .eval(&std::collections::HashMap::new())
+        .err()
+        .unwrap_or_else(|| panic!("a D3Figure with {props} must fail the eval"))
+        .to_string()
+    }
+
+    #[test]
+    fn a_d3_figure_without_a_width_fails_the_eval_with_an_error_that_mentions_width() {
+        let err = d3_figure_eval_error("height={100}");
+        assert!(
+            err.contains("<D3Figure> needs a numeric width"),
+            "the error must name the missing `width`, got: {err}"
+        );
+    }
+
+    #[test]
+    fn a_d3_figure_with_a_string_height_fails_the_eval_with_an_error_that_mentions_height() {
+        let err = d3_figure_eval_error(r#"width={248} height="100""#);
+        assert!(
+            err.contains("<D3Figure> needs a numeric width and height"),
+            "numbers only, so a string height must be refused by name, got: {err}"
+        );
+    }
+
+    #[test]
+    fn a_d3_figure_does_not_run_its_draw_function_in_the_render_runtime() {
+        let evaluator = JsxEvaluator::new(
+            r#"export default function render() {
+globalThis.__drew = false;
+return <div><D3Figure key="k" width={1} height={1}
+  draw={() => { globalThis.__drew = true; throw new Error("draw ran"); }} /></div>;
+}"#,
+            serde_json::Value::Null,
+            None,
+        )
+        .unwrap();
+        evaluator
+            .eval(&std::collections::HashMap::new())
+            .expect("draw must not run, so its throw must not fail the eval");
+        let drew = evaluator
+            .context
+            .with(|ctx| ctx.eval::<bool, _>("globalThis.__drew").unwrap());
+        assert!(!drew, "draw ran in the render runtime");
+    }
+
+    #[test]
+    fn a_numeric_key_is_accepted_and_stringified() {
+        let out = eval(
+            r#"export default function render() {
+return <div><D3Figure key={42} width={1} height={2} draw={() => {}} /></div>;
+}"#,
+        );
+        assert_eq!(
+            out.layout["children"][0]["src"],
+            format!("{}42", crate::render::picture::PICTURE_SRC_PREFIX)
+        );
+        assert_eq!(
+            out.figure_calls,
+            vec![FigureCall {
+                key: "42".into(),
+                width: 1.0,
+                height: 2.0
+            }]
+        );
+    }
+
     #[test]
     fn globals_object_persists_value_across_eval_calls() {
         let evaluator = JsxEvaluator::new(
@@ -1733,6 +2236,10 @@ export default function render() { return <span class="text-white">{String(Foo()
         crate::pkg::PackageContext {
             fetch_manager: Arc::new(crate::pkg::fetch_manager::FetchManager::new(reload_tx)),
             lockfile_path,
+            // Offline over an empty directory: these tests import no d3.
+            d3: Arc::new(crate::d3_figure::fetch::Fetcher::offline(
+                cache_root.join("d3"),
+            )),
             cache_root,
         }
     }
@@ -2499,5 +3006,294 @@ export default function render() { return <Volume />; }"#;
             .recv_timeout(std::time::Duration::from_secs(5))
             .expect("the Package's program should print a line");
         assert_eq!(line, r#"{"percent":42}"#);
+    }
+
+    use crate::d3_figure::test_support::{
+        d3_only_pkg_ctx, fake_d3_assets, fake_d3_fetcher, write_fake_files,
+    };
+
+    const D3_LAYOUT: &str = r#"import { scaleLinear } from "d3";
+export default function render() { return <span class="text-white">{String(scaleLinear(2))}</span>; }"#;
+
+    #[test]
+    fn a_layout_importing_a_name_from_d3_renders_with_the_fetched_d3() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let d3_dir = dir.path().join("d3");
+        write_fake_files(&d3_dir);
+        let pkg_ctx = d3_only_pkg_ctx(dir.path(), fake_d3_fetcher(&d3_dir));
+
+        let result = JsxEvaluator::new_with_packages(
+            D3_LAYOUT,
+            serde_json::Value::Null,
+            Some(dir.path()),
+            pkg_ctx,
+        )
+        .unwrap_or_else(|e| panic!("expected \"d3\" to resolve, got: {e}"))
+        .eval(&std::collections::HashMap::new())
+        .unwrap()
+        .layout;
+
+        assert_eq!(result["children"][0], "4", "got: {result:?}");
+    }
+
+    #[test]
+    fn importing_d3_before_its_files_are_fetched_fails_like_a_cold_package() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let pkg_ctx = d3_only_pkg_ctx(dir.path(), fake_d3_fetcher(&dir.path().join("empty")));
+
+        let result = JsxEvaluator::new_with_packages(
+            D3_LAYOUT,
+            serde_json::Value::Null,
+            Some(dir.path()),
+            pkg_ctx,
+        );
+
+        assert!(result.is_err(), "a cold d3 must fail resolution");
+    }
+
+    /// The "Discovery lives in the resolver" half: resolving a cold `"d3"` is what
+    /// starts the Fetcher's download (whose completion wakes the reload).
+    #[test]
+    fn importing_d3_before_its_files_are_fetched_starts_the_d3_download() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let (requested_tx, requested_rx) = std::sync::mpsc::channel::<String>();
+        let requested_tx = Mutex::new(requested_tx);
+        let (reload_tx, _reload_rx) = std::sync::mpsc::channel();
+        let fetcher = crate::d3_figure::fetch::Fetcher::build(
+            dir.path().join("d3"),
+            fake_d3_assets(),
+            Some((
+                reload_tx,
+                Arc::new(move |url: &str| {
+                    let _ = requested_tx.lock().unwrap().send(url.to_string());
+                    Err("offline in tests".to_string())
+                }),
+            )),
+        );
+        let pkg_ctx = d3_only_pkg_ctx(dir.path(), fetcher);
+
+        let result = JsxEvaluator::new_with_packages(
+            D3_LAYOUT,
+            serde_json::Value::Null,
+            Some(dir.path()),
+            pkg_ctx,
+        );
+
+        assert!(result.is_err(), "a cold d3 must fail resolution");
+        requested_rx
+            .recv_timeout(std::time::Duration::from_secs(10))
+            .expect("resolving a cold \"d3\" should start the d3 download");
+    }
+
+    #[test]
+    fn importing_d3_without_a_package_context_fails_like_any_unknown_import() {
+        let result = JsxEvaluator::new(D3_LAYOUT, serde_json::Value::Null, None);
+
+        assert!(result.is_err());
+    }
+
+    // ---- The draw runtime (`JsxEvaluator::new_draw` / `draw_figure`) ----
+
+    /// A limit no test draw comes near, except the one that loops forever.
+    const GENEROUS_LIMIT: std::time::Duration = std::time::Duration::from_secs(5);
+
+    /// A layout rendering one D3Figure with key `k`, 10×20, whose `draw` body is
+    /// `draw` (an arrow function taking `(svg, d3)`).
+    fn one_figure_with_draw(draw: &str) -> String {
+        format!(
+            r#"export default function render() {{
+return <div><D3Figure key="k" width={{10}} height={{20}} draw={{{draw}}} /></div>;
+}}"#
+        )
+    }
+
+    /// A draw evaluator over `source` with the fake d3/linkedom files in place,
+    /// already evaluated once so its figures are registered. The tempdir is
+    /// returned so it outlives the evaluator.
+    fn ready_draw_evaluator(source: &str) -> (JsxEvaluator, tempfile::TempDir) {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let d3_dir = dir.path().join("d3");
+        write_fake_files(&d3_dir);
+        let pkg_ctx = d3_only_pkg_ctx(dir.path(), fake_d3_fetcher(&d3_dir));
+        let evaluator = JsxEvaluator::new_draw(
+            source,
+            serde_json::Value::Null,
+            Some(dir.path()),
+            Default::default(),
+            Some(pkg_ctx),
+        )
+        .unwrap_or_else(|e| panic!("the draw runtime should start, got: {e}"));
+        evaluator
+            .eval(&std::collections::HashMap::new())
+            .unwrap_or_else(|e| panic!("the draw runtime should evaluate the layout, got: {e}"));
+        (evaluator, dir)
+    }
+
+    #[test]
+    fn the_draw_runtime_draws_a_figures_svg_with_its_draw_function() {
+        let (evaluator, _dir) = ready_draw_evaluator(&one_figure_with_draw(
+            r#"(svg) => svg.append("circle").attr("r", 3)"#,
+        ));
+
+        let svg = evaluator
+            .draw_figure("k", 10.0, 20.0, GENEROUS_LIMIT)
+            .expect("the figure should draw");
+
+        assert!(svg.contains("<svg"), "got: {svg}");
+        assert!(svg.contains(r#"width="10""#), "got: {svg}");
+        assert!(svg.contains(r#"height="20""#), "got: {svg}");
+        assert!(svg.contains(r#"<circle r="3""#), "got: {svg}");
+    }
+
+    #[test]
+    fn drawing_a_key_no_d3_figure_has_is_unknown_key() {
+        let (evaluator, _dir) = ready_draw_evaluator(&one_figure_with_draw("() => {}"));
+
+        let result = evaluator.draw_figure("no-such-key", 10.0, 20.0, GENEROUS_LIMIT);
+
+        assert!(
+            matches!(&result, Err(DrawError::UnknownKey(_))),
+            "got: {result:?}"
+        );
+    }
+
+    #[test]
+    fn a_draw_function_that_throws_is_threw_with_its_message() {
+        let (evaluator, _dir) = ready_draw_evaluator(&one_figure_with_draw(
+            r#"() => { throw new Error("bad draw"); }"#,
+        ));
+
+        let result = evaluator.draw_figure("k", 10.0, 20.0, GENEROUS_LIMIT);
+
+        match result {
+            Err(DrawError::Threw(message)) => {
+                assert!(message.contains("bad draw"), "got: {message}")
+            }
+            other => panic!("expected Threw, got: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_draw_function_that_loops_forever_times_out_and_the_runtime_still_draws_after() {
+        let (evaluator, _dir) = ready_draw_evaluator(
+            r#"export default function render() {
+return <div>
+  <D3Figure key="loop" width={10} height={20} draw={() => { for (;;) {} }} />
+  <D3Figure key="ok" width={10} height={20} draw={(svg) => svg.append("circle").attr("r", 3)} />
+</div>;
+}"#,
+        );
+
+        let started = std::time::Instant::now();
+        let result =
+            evaluator.draw_figure("loop", 10.0, 20.0, std::time::Duration::from_millis(200));
+        let elapsed = started.elapsed();
+
+        assert_eq!(result, Err(DrawError::TimedOut));
+        assert!(
+            elapsed < std::time::Duration::from_secs(2),
+            "a 200 ms limit took {elapsed:?}"
+        );
+        let svg = evaluator
+            .draw_figure("ok", 10.0, 20.0, GENEROUS_LIMIT)
+            .expect("the runtime should keep drawing after an interrupted draw");
+        assert!(svg.contains(r#"<circle r="3""#), "got: {svg}");
+    }
+
+    #[test]
+    fn the_draw_runtime_has_timers_that_never_fire() {
+        let (evaluator, _dir) = ready_draw_evaluator(&one_figure_with_draw(
+            r#"(svg) => {
+  setTimeout(() => { throw 1; }, 0);
+  const interval = setInterval(() => { throw 2; }, 0);
+  clearInterval(interval);
+  const frame = requestAnimationFrame(() => { throw 3; });
+  cancelAnimationFrame(frame);
+  clearTimeout(0);
+  svg.append("circle").attr("r", 3);
+}"#,
+        ));
+
+        let svg = evaluator
+            .draw_figure("k", 10.0, 20.0, GENEROUS_LIMIT)
+            .expect("a draw that schedules timers should still draw");
+
+        assert!(svg.contains(r#"<circle r="3""#), "got: {svg}");
+    }
+
+    /// SPEC: no `fetch`, filesystem or shell builtins in the draw runtime.
+    #[test]
+    fn the_draw_runtime_has_no_shell_filesystem_or_fetch() {
+        let (evaluator, _dir) = ready_draw_evaluator(&one_figure_with_draw(
+            r#"(svg) => svg.attr("data-effects", [typeof sh, typeof read, typeof ls, typeof fetch].join())"#,
+        ));
+
+        let svg = evaluator
+            .draw_figure("k", 10.0, 20.0, GENEROUS_LIMIT)
+            .expect("the figure should draw");
+
+        assert!(
+            svg.contains(r#"data-effects="undefined,undefined,undefined,undefined""#),
+            "got: {svg}"
+        );
+    }
+
+    #[test]
+    fn drawing_before_d3_and_linkedom_are_downloaded_is_not_ready() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let pkg_ctx = d3_only_pkg_ctx(dir.path(), fake_d3_fetcher(&dir.path().join("empty")));
+        let evaluator = JsxEvaluator::new_draw(
+            &one_figure_with_draw("() => {}"),
+            serde_json::Value::Null,
+            Some(dir.path()),
+            Default::default(),
+            Some(pkg_ctx),
+        )
+        .unwrap_or_else(|e| panic!("the draw runtime should start without d3, got: {e}"));
+        evaluator
+            .eval(&std::collections::HashMap::new())
+            .expect("the layout should evaluate");
+
+        let result = evaluator.draw_figure("k", 10.0, 20.0, GENEROUS_LIMIT);
+
+        assert_eq!(result, Err(DrawError::NotReady));
+    }
+
+    /// The real files, through the real Fetcher: d3's own axis must come out of
+    /// linkedom's serializer.
+    #[test]
+    #[ignore = "downloads d3 and linkedom"]
+    fn the_draw_runtime_draws_a_real_d3_axis() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let (reload_tx, _reload_rx) = std::sync::mpsc::channel();
+        let fetcher = crate::d3_figure::fetch::Fetcher::new(dir.path().join("d3"), reload_tx);
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(60);
+        while fetcher.sources().is_none() {
+            assert!(
+                std::time::Instant::now() < deadline,
+                "d3 and linkedom did not download within 60 s"
+            );
+            std::thread::sleep(std::time::Duration::from_millis(200));
+        }
+        let pkg_ctx = d3_only_pkg_ctx(dir.path(), fetcher);
+        let evaluator = JsxEvaluator::new_draw(
+            &one_figure_with_draw(
+                r#"(svg, d3) => svg.append("g").call(d3.axisBottom(d3.scaleLinear().domain([0, 1]).range([0, 100])))"#,
+            ),
+            serde_json::Value::Null,
+            Some(dir.path()),
+            Default::default(),
+            Some(pkg_ctx),
+        )
+        .unwrap_or_else(|e| panic!("the draw runtime should start, got: {e}"));
+        evaluator
+            .eval(&std::collections::HashMap::new())
+            .expect("the layout should evaluate");
+
+        let svg = evaluator
+            .draw_figure("k", 10.0, 20.0, GENEROUS_LIMIT)
+            .expect("the axis should draw");
+
+        assert!(svg.contains(r#"class="tick""#), "got: {svg}");
     }
 }

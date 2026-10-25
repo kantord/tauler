@@ -17,7 +17,7 @@ sync-versions:
 docs: web
     cargo build -p tauler-screenshot
     cargo run -p tauler-docgen
-    cd docs && pnpm install --frozen-lockfile && pnpm run build:css
+    cd docs && pnpm install --frozen-lockfile && pnpm run build:css && pnpm run build:d3
 
 # The wasm module the docs site loads. Not committed — it is a build product, and it would
 # be rewritten on most pull requests that touch `tauler-core` (ADR 0024).

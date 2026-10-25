@@ -24,6 +24,11 @@ pub struct PackageContext {
     pub fetch_manager: Arc<fetch_manager::FetchManager>,
     pub lockfile_path: PathBuf,
     pub cache_root: PathBuf,
+    /// The fetcher for the `"d3"` import. d3 is tauler-fetched, not a Package; it
+    /// rides here because this struct is already "what a layout imports that
+    /// tauler fetches", and every runtime that resolves Packages must resolve
+    /// `"d3"` too. See `crate::d3_figure::import`.
+    pub d3: Arc<crate::d3_figure::fetch::Fetcher>,
 }
 
 /// `@gh/<owner>/<repo>` → its GitHub HTTPS clone URL. GitHub only in v1 — see ADR

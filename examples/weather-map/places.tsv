@@ -1,0 +1,17 @@
+# The sampled places: name, latitude, longitude, radius in metres. `setup.sh`
+# fetches each into .data/<name>.js. Coordinates come from Nominatim (OSM's
+# geocoder), 2026-10-24; map data © OpenStreetMap contributors (ODbL).
+manhattan	40.75375	-73.98354	450
+shinjuku	35.69026	139.70051	450
+melbourne	-37.81842	144.96648	450
+mexico-city	19.43265	-99.13320	450
+venice	45.43757	12.32992	450
+levittown	40.72178	-73.51256	450
+saint-clar	43.89184	0.77037	450
+long-compton	52.00146	-1.58124	450
+montemagno	44.98370	8.32358	450
+hirogawa	34.02953	135.17305	450
+lindsborg	38.57362	-97.67448	450
+alpedrinha	40.09890	-7.46790	450
+nida	55.30361	21.00385	450
+aeroskobing	54.88966	10.41117	450

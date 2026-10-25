@@ -125,12 +125,16 @@ fn render_now(
 /// anchored panel's spec carries no absolute position at all — `output_rect`
 /// records the resolved output geometry it was last placed against, so a
 /// correction arriving from RandR *after* the panel already exists is visible
-/// to the diff (issue #537).
+/// to the diff (issue #537). And a D3Figure's Picture arriving changes nothing
+/// in the spec either — the content names `tauler:picture/<key>` before and
+/// after — so `pictures` records the [`crate::render::picture::frame_stamp`]
+/// of the content as last drawn.
 #[derive(Debug, Clone, PartialEq)]
 pub struct SurfaceState {
     pub spec: SurfaceSpec,
     backdrop: u64,
     output_rect: Option<Rect>,
+    pictures: u64,
 }
 
 /// The rect of the output a spec resolves to, or `None` if that output isn't
@@ -182,6 +186,7 @@ impl Lifecycle for Surface {
         ctx: &mut HashMap<String, OutputInfo>,
         output: &mut SurfaceOutputs,
     ) -> Result<SurfaceState, anyhow::Error> {
+        let pictures = crate::render::picture::frame_stamp(&self.0.content);
         let (frame, backdrop) = render_now(&self.0, output)?;
         output.commands.send(match self.0.kind {
             SurfaceKind::Panel => SurfaceCommand::Create {
@@ -198,6 +203,7 @@ impl Lifecycle for Surface {
             spec: self.0,
             backdrop,
             output_rect,
+            pictures,
         })
     }
 
@@ -209,10 +215,16 @@ impl Lifecycle for Surface {
     ) -> Result<(), anyhow::Error> {
         let new = self.0;
         let new_output_rect = resolve_output_rect(&new, ctx);
+        // Read before any render, as in `enter`: the frame is never older than
+        // the stamp recorded for it. A Picture the content names arriving or
+        // changing is invisible to the spec diff, so the stamp is diffed too.
+        let pictures = crate::render::picture::frame_stamp(&new.content);
+        let pictures_changed = pictures != state.pictures;
+        state.pictures = pictures;
         // A wallpaper has no window to move or resize, and re-painting is the
         // same operation as first painting — so any change at all is one command.
         if new.kind == SurfaceKind::Wallpaper {
-            if new != state.spec {
+            if new != state.spec || pictures_changed {
                 let (frame, backdrop) = render_now(&new, output)?;
                 output.commands.send(SurfaceCommand::PaintWallpaper {
                     spec: new.clone(),
@@ -241,8 +253,10 @@ impl Lifecycle for Surface {
         // registry directly. Wallpapers reconcile before panels (see
         // [`SurfaceSets`]), so this already reflects the current tick.
         let backdrop_changed = crate::backdrop::generation_for(&new) != state.backdrop;
-        let render_changed =
-            new.content != state.spec.content || new.dpr != state.spec.dpr || backdrop_changed;
+        let render_changed = new.content != state.spec.content
+            || new.dpr != state.spec.dpr
+            || backdrop_changed
+            || pictures_changed;
 
         if phys_dims_changed {
             let (frame, backdrop) = render_now(&new, output)?;
@@ -435,6 +449,7 @@ mod tests {
     /// with no resolved output rect recorded yet.
     fn make_state(spec: SurfaceSpec) -> SurfaceState {
         SurfaceState {
+            pictures: crate::render::picture::frame_stamp(&spec.content),
             spec,
             backdrop: 0,
             output_rect: None,
@@ -449,6 +464,7 @@ mod tests {
     ) -> SurfaceState {
         let output_rect = resolve_output_rect(&spec, ctx);
         SurfaceState {
+            pictures: crate::render::picture::frame_stamp(&spec.content),
             spec,
             backdrop: 0,
             output_rect,
@@ -574,6 +590,65 @@ mod tests {
         );
     }
 
+    /// A D3Figure's Picture arriving leaves the content exactly as it was — it
+    /// named `tauler:picture/<key>` before and after — yet the panel now looks
+    /// different, so it must be drawn again.
+    #[test]
+    fn panel_spec_reconcile_self_requests_a_repaint_when_only_a_named_picture_changes() {
+        let key = "surface-test/repaint-on-picture";
+        let content = serde_json::json!({
+            "type": "img",
+            "src": format!("{}{key}", crate::render::picture::PICTURE_SRC_PREFIX),
+            "style": { "width": 10, "height": 10 }
+        });
+        let spec_data = || {
+            let mut spec = make_spec_data("p1");
+            spec.content = content.clone();
+            spec
+        };
+        let (mut tx, rx, repaints) = test_outputs();
+        let mut state = make_state(spec_data());
+
+        <Surface as Lifecycle>::reconcile_self(
+            Surface(spec_data()),
+            &mut state,
+            &mut HashMap::new(),
+            &mut tx,
+        )
+        .unwrap();
+        assert!(
+            repaints
+                .recv_timeout(std::time::Duration::from_millis(200))
+                .is_err(),
+            "precondition: nothing changed yet, so nothing is repainted"
+        );
+
+        crate::render::picture::set_picture(
+            key,
+            r#"<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"/>"#.to_string(),
+        );
+        <Surface as Lifecycle>::reconcile_self(
+            Surface(spec_data()),
+            &mut state,
+            &mut HashMap::new(),
+            &mut tx,
+        )
+        .unwrap();
+
+        let requests = repaints_of(&repaints);
+        assert!(
+            matches!(requests.as_slice(), [r] if r.id == "p1"),
+            "the Picture the content names arrived, so the panel must be repainted once; got {}",
+            requests.len()
+        );
+        let cmds: Vec<SurfaceCommand> = rx.try_iter().collect();
+        assert!(
+            cmds.is_empty(),
+            "a repaint goes to the worker, not the presenter; got {} commands",
+            cmds.len()
+        );
+    }
+
     #[test]
     fn panel_spec_reconcile_self_emits_resize_not_update_picture_when_dpr_changes_phys_dims() {
         // State has dpr=1.0, logical 100x30 → physical 100x30.
@@ -677,6 +752,59 @@ mod tests {
                 .iter()
                 .any(|c| matches!(c, SurfaceCommand::Resize { .. } | SurfaceCommand::Move(_))),
             "wallpaper must never emit Resize or Move — it owns no window"
+        );
+    }
+
+    /// The wallpaper half of
+    /// `panel_spec_reconcile_self_requests_a_repaint_when_only_a_named_picture_changes`:
+    /// a wallpaper may show a D3Figure too.
+    #[test]
+    fn wallpaper_spec_reconcile_self_repaints_when_only_a_named_picture_changes() {
+        let key = "surface-test/wallpaper-repaint-on-picture";
+        let spec_data = || {
+            let mut spec = make_wallpaper_data("picture-bg");
+            spec.content = serde_json::json!({
+                "type": "img",
+                "src": format!("{}{key}", crate::render::picture::PICTURE_SRC_PREFIX),
+                "style": { "width": 10, "height": 10 }
+            });
+            spec
+        };
+        let (mut tx, rx, _repaints) = test_outputs();
+        let mut state = make_state(spec_data());
+
+        <Surface as Lifecycle>::reconcile_self(
+            Surface(spec_data()),
+            &mut state,
+            &mut HashMap::new(),
+            &mut tx,
+        )
+        .unwrap();
+        assert!(
+            rx.try_iter().next().is_none(),
+            "precondition: nothing changed yet, so nothing is painted"
+        );
+
+        crate::render::picture::set_picture(
+            key,
+            r#"<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"/>"#.to_string(),
+        );
+        <Surface as Lifecycle>::reconcile_self(
+            Surface(spec_data()),
+            &mut state,
+            &mut HashMap::new(),
+            &mut tx,
+        )
+        .unwrap();
+
+        let cmds: Vec<SurfaceCommand> = rx.try_iter().collect();
+        assert!(
+            matches!(
+                cmds.as_slice(),
+                [SurfaceCommand::PaintWallpaper { spec, .. }] if spec.id == "picture-bg"
+            ),
+            "the Picture the content names arrived, so the wallpaper must be painted once; got {} commands",
+            cmds.len()
         );
     }
 
