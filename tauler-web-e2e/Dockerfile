@@ -15,7 +15,7 @@
 # `chromedp/headless-shell` rather than a `.deb` from Google's pool: that pool keeps only
 # recent releases, so a pinned URL 404s within weeks and the image stops building for a
 # reason that has nothing to do with this project. These tags are immutable.
-FROM chromedp/headless-shell:157.0.8103.6@sha256:da0222c4fac0d3da76b4a9e534ffc9e64b4fb3dd99c56381e8281f5c7727c8e8
+FROM chromedp/headless-shell:158.0.8106.0@sha256:7e9783a01393515a5b1998a92a1ae46959f56ad3e05de8b9c0500f2e24fc3887
 
 # No system fonts are added on purpose. Every font the comparison depends on is served by
 # the page out of `assets/fonts/`, so a font arriving here by way of a dependency would be a
