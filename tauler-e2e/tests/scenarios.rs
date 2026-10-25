@@ -636,6 +636,172 @@ fn thermal_crops_one_field_across_every_window() -> Result<()> {
     Ok(())
 }
 
+/// The two figures in `fixtures/d3-figure`, by their centres: 16px of padding,
+/// 120×40 figures 16px apart, centred in a 64px bar.
+const D3_STATIC: (u32, u32) = (16 + 60, 32);
+const D3_LIVE: (u32, u32) = (16 + 120 + 16 + 60, 32);
+
+/// The flat fills the fixture draws — chosen because nothing else on this
+/// desktop is any of them, so a match can only be the figure.
+const MAGENTA: [u8; 3] = [0xff, 0x00, 0xff];
+const YELLOW: [u8; 3] = [0xff, 0xff, 0x00];
+const CYAN: [u8; 3] = [0x00, 0xff, 0xff];
+/// What the reload scenario rewrites `MAGENTA` to in the fixture.
+const ORANGE: [u8; 3] = [0xff, 0x80, 0x00];
+
+fn d3_figure_expected() -> Expected {
+    Expected {
+        gaps: Gaps {
+            left: 0,
+            right: 0,
+            top: 64,
+            bottom: 0,
+        },
+        panels: vec![rect(0, 0, 1920, 64)],
+        clients: 2,
+    }
+}
+
+/// Poll fresh frames until the pixel at `at` is exactly `rgb`.
+///
+/// Fresh frames, not `capture_stable`: the live figure flips every 2 seconds,
+/// so a settled capture shows whichever colour it settled on, not the one the
+/// test is waiting for.
+fn wait_for_colour(desktop: &Desktop, what: &str, at: (u32, u32), rgb: [u8; 3]) -> Result<()> {
+    let (x, y) = at;
+    wait_for(what, || {
+        let frame = desktop.capture_now()?;
+        let [r, g, b, _] = pixel_at(&frame, x, y)?;
+        if [r, g, b] == rgb {
+            Ok(())
+        } else {
+            anyhow::bail!(
+                "({x}, {y}) is {:?}, expected {rgb:?}\n--- tauler log ---\n{}",
+                [r, g, b],
+                desktop.tauler_log()
+            )
+        }
+    })
+}
+
+/// `<D3Figure>`: drawn off the loop in the Draw runtime, shown as a Picture,
+/// and drawn again when its key changes (ADR 0044).
+///
+/// The first figure is also the first use of d3 on this machine, so it is the
+/// download path too: d3 and linkedom are fetched from npm and GitHub over the
+/// container's network and checked against their pins before anything draws
+/// (ADR 0045). A figure that never appears here is as likely a failed download
+/// as a failed draw — the tauler log in the failure message says which.
+///
+/// The live figure's key comes from a stream that flips every 2 seconds, and
+/// its colour with it. Seeing both colours at the same pixel is the claim:
+/// a figure whose redraw was skipped, or whose Picture was never swapped,
+/// shows one colour for good.
+#[test]
+#[ignore = "needs Docker and `just e2e-image`"]
+fn d3_figure_draws_and_redraws_when_its_key_changes() -> Result<()> {
+    let (desktop, _) = run(
+        "d3-figure",
+        "d3-figure-draws-and-redraws-when-its-key-changes",
+        d3_figure_expected(),
+    )?;
+
+    // The download, the reload it triggers and the first draw all happen
+    // after the bar is up, so `run`'s screenshot may well show an empty bar.
+    wait_for_colour(
+        &desktop,
+        "the first figure to be drawn (d3 + linkedom downloaded, then drawn)",
+        D3_STATIC,
+        MAGENTA,
+    )?;
+    wait_for_colour(
+        &desktop,
+        "the live figure in its first colour",
+        D3_LIVE,
+        YELLOW,
+    )?;
+    wait_for_colour(
+        &desktop,
+        "the live figure to be redrawn under its next key",
+        D3_LIVE,
+        CYAN,
+    )?;
+
+    // Photograph the bar with both figures drawn, replacing `run`'s early
+    // capture as this scenario's desktop.png and gallery shot.
+    let screenshot = desktop.capture_stable()?;
+    let [r, g, b, _] = pixel_at(&screenshot, D3_STATIC.0, D3_STATIC.1)?;
+    assert_eq!(
+        [r, g, b],
+        MAGENTA,
+        "the static figure stopped showing its drawing while the live one was redrawn"
+    );
+    save_devtools_shot(
+        "d3-figure-draws-and-redraws-when-its-key-changes",
+        &screenshot,
+    )?;
+    Ok(())
+}
+
+/// A layout reload draws every figure again — its `draw` may have changed —
+/// and until the new drawing lands the figure keeps showing the old one.
+///
+/// The edit is made inside the container, to the copy of the fixture in
+/// `~/.config/tauler`, with `sed -i` — a write-and-rename, as an editor or
+/// `chezmoi apply` does it. Then every frame until the new colour appears must
+/// show the old one: a frame with neither means the figure blanked during the
+/// reload, which is exactly what keeping the previous Picture is for.
+///
+/// This samples as fast as `scrot` over `docker exec` allows (a frame every
+/// few hundred ms), so a blank shorter than that can slip between two samples.
+/// It catches a figure that is gone for the length of a draw, not a single
+/// dropped frame.
+#[test]
+#[ignore = "needs Docker and `just e2e-image`"]
+fn d3_figure_keeps_its_drawing_across_a_reload() -> Result<()> {
+    let (desktop, _) = run(
+        "d3-figure",
+        "d3-figure-keeps-its-drawing-across-a-reload",
+        d3_figure_expected(),
+    )?;
+    wait_for_colour(&desktop, "the first figure to be drawn", D3_STATIC, MAGENTA)?;
+
+    desktop.exec(&[
+        "sed",
+        "-i",
+        "s/#ff00ff/#ff8000/",
+        "/root/.config/tauler/layout.op.mdx",
+    ])?;
+
+    let (x, y) = D3_STATIC;
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+    let mut before = 0;
+    loop {
+        let frame = desktop.capture_now()?;
+        let [r, g, b, _] = pixel_at(&frame, x, y)?;
+        match [r, g, b] {
+            ORANGE => break,
+            MAGENTA => before += 1,
+            other => panic!(
+                "after the edit the figure showed {other:?}, neither its old drawing \
+                 nor its new one — it blanked during the reload\n--- tauler log ---\n{}",
+                desktop.tauler_log()
+            ),
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "the figure never showed its new drawing after the layout file was edited \
+             ({before} frames of the old one)\n--- tauler log ---\n{}",
+            desktop.tauler_log()
+        );
+    }
+    eprintln!("e2e: d3-figure reload · {before} frames of the old drawing before the new one");
+
+    let screenshot = desktop.capture_stable()?;
+    save_devtools_shot("d3-figure-keeps-its-drawing-across-a-reload", &screenshot)?;
+    Ok(())
+}
+
 /// Assert the reservation contract, then hand back the desktop and its
 /// screenshot so a scenario can add claims of its own.
 ///

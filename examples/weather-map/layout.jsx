@@ -6,8 +6,6 @@
 // The weather reading is a constant: the tracer measures drawing, and a stream
 // would only add a subprocess to wait for.
 //
-// DECISION (Q6, answered): the home is the dotfiles-tauler Package, in pieces;
-// this file is the tracer's stand-in for the card there.
 import city from "./.data/__CITY__.js";
 import CityScene, { LOOKS } from "./CityScene.jsx";
 

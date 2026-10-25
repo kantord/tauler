@@ -1,0 +1,49 @@
+// Scenario: two <D3Figure>s in a top bar, each one flat colour so a single
+// pixel says which drawing is showing.
+//
+// d3 and linkedom are not in the image. The first figure downloads them from
+// npm and GitHub into ~/.cache/tauler/d3, checked against the pinned hashes —
+// the same path a fresh machine takes (ADR 0045). The container has the
+// default bridge network, so the real download is what this exercises; there
+// is no TAULER_D3_DIR here on purpose.
+//
+// Every colour below is written out again in tauler-e2e/tests/scenarios.rs.
+// The reload scenario rewrites `#ff00ff` in this file inside the container, so
+// that string must appear exactly once.
+
+// A flat rectangle the size of the figure, through d3's own selection API.
+function Swatch({ figureKey, fill }) {
+  return (
+    <D3Figure
+      key={figureKey}
+      width={120}
+      height={40}
+      draw={(svg) => {
+        svg.append("rect").attr("width", 120).attr("height", 40).attr("fill", fill);
+      }}
+    />
+  );
+}
+
+export default function render() {
+  // Flips every 2 seconds. The figure's key is derived from it, so each flip
+  // is a new key and a new drawing; with a constant key the figure would
+  // never be drawn again.
+  const tick = useJSONStream("/bin/sh", `
+    while :; do echo '{"n":0}'; sleep 2; echo '{"n":1}'; sleep 2; done
+  `);
+  const n = tick?.n ?? 0;
+
+  return (
+    <root>
+      <I3Layout module="/usr/local/bin/tauler-i3">
+        <Panel id="d3bar" anchor="top" size={64}>
+          <div class="flex flex-row h-full w-full items-center gap-4 px-4 bg-background">
+            <Swatch figureKey="static" fill="#ff00ff" />
+            <Swatch figureKey={"live/" + n} fill={n === 0 ? "#ffff00" : "#00ffff"} />
+          </div>
+        </Panel>
+      </I3Layout>
+    </root>
+  );
+}

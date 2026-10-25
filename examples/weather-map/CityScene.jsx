@@ -1,11 +1,8 @@
 // CityScene: a few city blocks around a point, drawn as a tilted 3D view with
 // building heights exaggerated, meant to sit behind a card's text.
 //
-// DECISION (Q7, answered): this is an example that exercises <D3Figure>, not a
-// shipped widget; it may never merge into tauler. OSM's ODbL credit lives here,
-// in the file: map data © OpenStreetMap contributors.
-// DECISION (Q6, answered): if it ships, it ships in the dotfiles-tauler Package
-// in pieces — the fetcher, the scene, the card — next to <Weather>.
+// An example that exercises <D3Figure>, not a shipped widget.
+// Map data © OpenStreetMap contributors (ODbL).
 //
 // TERM: City scene — the drawing this file makes: ground, water, parks,
 // roads and extruded buildings around one point, seen from above at an angle.
@@ -16,11 +13,11 @@
 // DECISION (Q4, answered): the name.
 //
 // Paths, and what each needs:
-//   P1 happy — the weather card shows the scene for the weather's own location.
-//      Needs: coordinates (fetcher, below), cached geometry, a scene built off
-//      the per-tick path, pixels drawn once. All four traced; see DECISIONs.
+//   P1 happy — the card shows the scene for its location.
+//      Needs: coordinates, cached geometry, a scene built off the per-tick
+//      path, pixels drawn once.
 //   P2 no scene — first run (Overpass takes ~40 s), offline, Overpass refusing.
-//      The card renders exactly as <WeatherSummary> does today, no gap, no error.
+//      The card renders without a scene, no gap, no error.
 //   P3 location moves — new coordinates → new geometry → new scene; the old one
 //      stays up until the new one is ready.
 //   P4 theme switch — same geometry, new colours; no refetch.
