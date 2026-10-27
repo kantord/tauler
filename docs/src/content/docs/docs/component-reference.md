@@ -425,6 +425,11 @@ and the next tick brings the new value back — the same round trip `<Slider>` a
 `<Knob>` make. Omit `on_change` and `<ScrollArea>` still renders, clipped and
 translated to `scroll_top`, just not draggable.
 
+`show_scrollbar` controls the composed scrollbar's visibility: omitted, it shows
+only when `content_height > viewport_height` (nothing to scroll draws no visible
+thumb, matching shadcn's own default); `true` forces it to always show, `false`
+forces it to always hide, regardless of whether scrolling is actually needed.
+
 #### Usage
 
 ```jsx
