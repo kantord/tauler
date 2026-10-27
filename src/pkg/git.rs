@@ -109,13 +109,25 @@ pub fn place(temp_dir: &Path, final_path: &Path) -> Result<PlaceOutcome, FetchEr
 /// between two fetch attempts, however they arose (a normal retry, or one orphaned
 /// by tauler's own re-exec not killing its `git` child; see ADR 0041's cache
 /// hygiene section).
+///
+/// The counter is what keeps two attempts in this process apart: the clock alone
+/// does not, since macOS's `SystemTime` only ticks in microseconds and two fetches
+/// started together (two cold sibling imports) used to get the same directory.
 fn unique_temp_dir(cache_root: &Path) -> PathBuf {
+    use std::sync::atomic::{AtomicU64, Ordering};
     use std::time::{SystemTime, UNIX_EPOCH};
+    static ATTEMPT: AtomicU64 = AtomicU64::new(0);
+    let attempt = ATTEMPT.fetch_add(1, Ordering::Relaxed);
     let nanos = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_nanos())
         .unwrap_or_default();
-    cache_root.join(format!(".tmp-{}-{:x}", std::process::id(), nanos))
+    cache_root.join(format!(
+        ".tmp-{}-{:x}-{}",
+        std::process::id(),
+        nanos,
+        attempt
+    ))
 }
 
 /// Removes `.tmp-*` directories under `cache_root` older than `min_age` — the
@@ -269,6 +281,7 @@ pub(crate) fn fixture_repo(dir: &Path, files: &[(&str, &str, bool)]) -> (PathBuf
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::HashSet;
 
     /// The smallest Package: one `index.jsx`.
     fn index_only_repo(dir: &Path) -> (PathBuf, String) {
@@ -462,6 +475,13 @@ mod tests {
 
         assert_eq!(outcome, PlaceOutcome::AlreadyPresent);
         assert!(final_path.join("already-warm").exists());
+    }
+
+    #[test]
+    fn unique_temp_dir_never_repeats_within_a_process() {
+        let root = Path::new("/cache");
+        let names: HashSet<PathBuf> = (0..1000).map(|_| unique_temp_dir(root)).collect();
+        assert_eq!(names.len(), 1000);
     }
 
     #[test]
