@@ -261,6 +261,11 @@ mod tests {
     use super::*;
     use std::time::Duration;
 
+    /// How long to wait for a wake that has to come. Each one sits behind a real
+    /// `git clone`, and on a loaded macOS CI runner a 10s budget ran out (the
+    /// whole suite took 5x as long as on Linux). Only a failing test waits it out.
+    const WAKE_TIMEOUT: Duration = Duration::from_secs(60);
+
     fn key(r#ref: &str) -> FetchKey {
         FetchKey {
             owner: "foo".to_string(),
@@ -314,7 +319,7 @@ mod tests {
             final_path.clone(),
         );
 
-        rx.recv_timeout(Duration::from_secs(10))
+        rx.recv_timeout(WAKE_TIMEOUT)
             .expect("reload_tx should be woken on a successful fetch");
         assert!(final_path.join("index.jsx").exists());
     }
@@ -371,7 +376,7 @@ mod tests {
         );
 
         // Exactly one wake, not two — the second call was a no-op.
-        rx.recv_timeout(Duration::from_secs(10))
+        rx.recv_timeout(WAKE_TIMEOUT)
             .expect("first fetch should wake reload");
         assert!(
             rx.recv_timeout(Duration::from_millis(200)).is_err(),
@@ -396,7 +401,7 @@ mod tests {
             lockfile_path.clone(),
         );
 
-        rx.recv_timeout(Duration::from_secs(10))
+        rx.recv_timeout(WAKE_TIMEOUT)
             .expect("reload_tx should be woken once the first pin lands");
 
         let lockfile = crate::pkg::lockfile::Lockfile::load_from_path(&lockfile_path)
@@ -441,10 +446,8 @@ mod tests {
 
         // Both should complete and wake reload — neither was silently deduped
         // against the other despite naming the same owner/repo.
-        rx.recv_timeout(Duration::from_secs(10))
-            .expect("first wake");
-        rx.recv_timeout(Duration::from_secs(10))
-            .expect("second wake");
+        rx.recv_timeout(WAKE_TIMEOUT).expect("first wake");
+        rx.recv_timeout(WAKE_TIMEOUT).expect("second wake");
     }
 
     /// Found by review: two *different* Packages discovered cold in the same
@@ -501,10 +504,8 @@ mod tests {
 
         t1.join().unwrap();
         t2.join().unwrap();
-        rx.recv_timeout(Duration::from_secs(10))
-            .expect("first wake");
-        rx.recv_timeout(Duration::from_secs(10))
-            .expect("second wake");
+        rx.recv_timeout(WAKE_TIMEOUT).expect("first wake");
+        rx.recv_timeout(WAKE_TIMEOUT).expect("second wake");
 
         let final_lockfile_path = dir.path().join("tauler-pkg.lock");
         let lockfile = crate::pkg::lockfile::Lockfile::load_from_path(&final_lockfile_path)
@@ -549,7 +550,7 @@ mod tests {
             final_path.clone(),
         );
 
-        rx.recv_timeout(Duration::from_secs(10))
+        rx.recv_timeout(WAKE_TIMEOUT)
             .expect("reload_tx should be woken on a successful development fetch");
         assert!(final_path.join("index.jsx").exists());
         let head = std::process::Command::new("git")
