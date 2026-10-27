@@ -59,7 +59,11 @@ jobs:
             if cargo publish -p "$pkg" 2>&1 | tee /tmp/publish.log; then
               continue
             fi
-            if grep -q 'already exists on crates.io' /tmp/publish.log; then
+            # Two messages for the same state: the first is cargo's pre-check against
+            # the index; the second is crates.io rejecting the upload because a
+            # concurrent run of this workflow (one per push, no concurrency group)
+            # uploaded the same version while this one was still compiling.
+            if grep -qE 'already exists on crates.io|is already uploaded' /tmp/publish.log; then
               echo "$pkg already published, skipping."
             else
               echo "$pkg failed to publish."

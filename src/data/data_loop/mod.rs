@@ -524,7 +524,10 @@ mod tests {
                 bin: "/bin/sh".to_string(),
                 key: "/bin/sh:".to_string(),
             },
-            args: vec!["-c".into(), "echo hello".into()],
+            // Stays alive after the line: a process that exits at once gets
+            // restarted, and under load its second "hello" lands in the same
+            // drain batch as the first, before the stop flag is checked.
+            args: vec!["-c".into(), "echo hello; sleep 10".into()],
             env: BTreeMap::new(),
             current_dir: None,
             props: None,

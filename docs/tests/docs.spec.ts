@@ -57,10 +57,24 @@ test.describe('cross-device layout', () => {
           // preview here avoids checking the same known gap in two places.
           .exclude('[data-tauler-example]')
           .analyze()
-        expect(
-          results.violations,
-          JSON.stringify(results.violations, null, 2),
-        ).toEqual([])
+        // axe 4.14 added label-content-name-mismatch, which flags Starlight's
+        // own search button: its visible text is "Search Ctrl K" but its
+        // aria-label is just "Search" (the shortcut is in aria-keyshortcuts).
+        // That markup is Starlight's Search.astro, not ours, so drop only that
+        // rule on only that node and keep every other check on the button.
+        const violations = results.violations
+          .map((v) =>
+            v.id === 'label-content-name-mismatch'
+              ? {
+                  ...v,
+                  nodes: v.nodes.filter(
+                    (n) => !n.html.startsWith('<button data-open-modal'),
+                  ),
+                }
+              : v,
+          )
+          .filter((v) => v.nodes.length > 0)
+        expect(violations, JSON.stringify(violations, null, 2)).toEqual([])
       })
 
       test('sidebar content is reachable', async ({ page }) => {

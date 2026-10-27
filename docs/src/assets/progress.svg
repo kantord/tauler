@@ -1,17 +1,17 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="400" height="56" viewBox="0 0 400 56">
   <rect x="0" y="0" width="400" height="56" fill="#0a0a0a"/>
   <g fill="#a1a1a1">
-    <use href="#g0" x="16" y="26"/>
-    <use href="#g1" x="25.94" y="26"/>
-    <use href="#g2" x="32.35" y="26"/>
-    <use href="#g3" x="41.99" y="26"/>
-    <use href="#g4" x="48.58" y="26"/>
-    <use href="#g5" x="52.89" y="26"/>
+    <use href="#g0" x="16" y="27"/>
+    <use href="#g1" x="25.94" y="27"/>
+    <use href="#g2" x="32.35" y="27"/>
+    <use href="#g3" x="41.99" y="27"/>
+    <use href="#g4" x="48.58" y="27"/>
+    <use href="#g5" x="52.89" y="27"/>
   </g>
   <g fill="#fafafa">
-    <use href="#g6" x="192" y="26"/>
-    <use href="#g7" x="198.23" y="26"/>
-    <use href="#g8" x="204.93" y="26"/>
+    <use href="#g6" x="192.25" y="27"/>
+    <use href="#g7" x="198.48" y="27"/>
+    <use href="#g8" x="205.18" y="27"/>
   </g>
   <path d="M18 36h196c1.1 0 2 .9 2 2s-.9 2-2 2h-196c-1.1 0-2-.9-2-2s.9-2 2-2Z" fill="#262626"/>
   <path d="M18 36h140c1.1 0 2 .9 2 2s-.9 2-2 2h-140c-1.1 0-2-.9-2-2s.9-2 2-2Z" fill="#e5e5e5"/>
