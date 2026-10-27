@@ -105,6 +105,10 @@ pub(crate) fn run_x11_presenter_thread(
         if drain_commands(&command_rx, |cmd| apply_x11_cmd(&mut pt, cmd)) {
             return;
         }
+        // Not every command flushes its own requests (Delete and Move don't), and
+        // `poll_for_event` never flushes — without this a removed panel stays on
+        // screen until some other panel's repaint pushes the buffer out.
+        let _ = pt.dm.conn.flush();
 
         while let Some(event) = pt.dm.conn.poll_for_event().unwrap_or(None) {
             match event {
@@ -266,6 +270,181 @@ mod tests {
         assert!(
             is_dispatchable_button(9),
             "button 9 (forward) should dispatch"
+        );
+    }
+
+    /// A presenter thread on the real display, plus a second connection to watch it
+    /// with. Requests still sitting in the presenter's write buffer are invisible to
+    /// any other client, so every observation goes through `observer`.
+    struct LivePresenter {
+        commands: mpsc::Sender<SurfaceCommand>,
+        thread: std::thread::JoinHandle<()>,
+        observer: x11rb::rust_connection::RustConnection,
+        root: u32,
+        _events: (mpsc::Receiver<PresenterEvent>, mpsc::Receiver<()>),
+    }
+
+    /// Tests run in parallel on one display, and `create` finds its window by size,
+    /// so each test passes its own `height`.
+    const PANEL_W: u32 = 137;
+
+    fn panel_spec(id: &str, x: i32, height: u32) -> tauler::layout::SurfaceSpec {
+        tauler::layout::SurfaceSpec {
+            kind: tauler::layout::SurfaceKind::Panel,
+            id: id.to_string(),
+            anchor: None,
+            width: PANEL_W,
+            height,
+            x,
+            y: 0,
+            outer_gap: 0,
+            output: None,
+            above: false,
+            content: serde_json::Value::Null,
+            dpr: 1.0,
+        }
+    }
+
+    fn blank_frame(height: u32) -> tauler::presentation::SurfaceFrame {
+        tauler::presentation::SurfaceFrame {
+            pixels: Arc::new(vec![0u8; (PANEL_W * height * 4) as usize]),
+            width: PANEL_W,
+            height,
+            trace: None,
+        }
+    }
+
+    fn poll_until(timeout_ms: u64, mut done: impl FnMut() -> bool) -> bool {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_millis(timeout_ms);
+        while std::time::Instant::now() < deadline {
+            if done() {
+                return true;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        done()
+    }
+
+    impl LivePresenter {
+        fn start() -> Option<Self> {
+            let Ok(init) = crate::init_x11() else {
+                println!("SKIP: no X11 display available");
+                return None;
+            };
+            let (observer, screen) = x11rb::rust_connection::RustConnection::connect(None).ok()?;
+            let root = observer.setup().roots[screen].root;
+            let (commands, command_rx) = mpsc::channel();
+            let (event_tx, event_rx) = mpsc::channel();
+            let (notify_tx, notify_rx) = mpsc::sync_channel(1);
+            let events = PresenterEvents::new(event_tx, notify_tx);
+            let pt = PresentationThread::new(init.panel_ctx);
+            let thread =
+                std::thread::spawn(move || run_x11_presenter_thread(pt, command_rx, events));
+            Some(LivePresenter {
+                commands,
+                thread,
+                observer,
+                root,
+                _events: (event_rx, notify_rx),
+            })
+        }
+
+        fn children(&self) -> Vec<u32> {
+            use x11rb::protocol::xproto::ConnectionExt as _;
+            self.observer
+                .query_tree(self.root)
+                .ok()
+                .and_then(|c| c.reply().ok())
+                .map(|t| t.children)
+                .unwrap_or_default()
+        }
+
+        /// Root-relative geometry as another client sees it; `None` once the window
+        /// is gone (panels are override-redirect, so the WM never reparents them).
+        fn geometry(&self, win: u32) -> Option<(i16, i16, u16, u16)> {
+            use x11rb::protocol::xproto::ConnectionExt as _;
+            let g = self.observer.get_geometry(win).ok()?.reply().ok()?;
+            Some((g.x, g.y, g.width, g.height))
+        }
+
+        /// Create a panel and return its window, found by its distinctive size among
+        /// the root's new children.
+        fn create(&self, spec: tauler::layout::SurfaceSpec) -> u32 {
+            let before = self.children();
+            let height = spec.height;
+            self.commands
+                .send(SurfaceCommand::Create {
+                    spec,
+                    frame: blank_frame(height),
+                })
+                .unwrap();
+            let mut found = None;
+            poll_until(1000, || {
+                found = self.children().into_iter().find(|w| {
+                    !before.contains(w)
+                        && matches!(self.geometry(*w), Some((_, _, w, h))
+                            if u32::from(w) == PANEL_W && u32::from(h) == height)
+                });
+                found.is_some()
+            });
+            found.expect("the created panel's window should appear on the display")
+        }
+
+        fn shutdown(self) {
+            let _ = self.commands.send(SurfaceCommand::Shutdown);
+            let _ = self.thread.join();
+        }
+    }
+
+    /// Delete only queues a DestroyWindow; unless the loop flushes after applying
+    /// commands, the panel stays on screen until some other panel happens to repaint.
+    #[test]
+    fn a_deleted_panel_disappears_without_another_repaint() {
+        let Some(live) = LivePresenter::start() else {
+            return;
+        };
+        let win = live.create(panel_spec("flush-delete", 0, 23));
+
+        live.commands
+            .send(SurfaceCommand::Delete {
+                id: "flush-delete".into(),
+            })
+            .unwrap();
+        let gone = poll_until(500, || live.geometry(win).is_none());
+
+        live.shutdown();
+        assert!(
+            gone,
+            "window {win:#x} is still on the display 500ms after Delete"
+        );
+    }
+
+    /// Move only queues a ConfigureWindow; unless the loop flushes after applying
+    /// commands, the panel stays where it was until some other panel repaints.
+    #[test]
+    fn a_moved_panel_moves_without_another_repaint() {
+        let Some(live) = LivePresenter::start() else {
+            return;
+        };
+        let win = live.create(panel_spec("flush-move", 0, 29));
+        let (x0, ..) = live.geometry(win).expect("panel window should exist");
+
+        live.commands
+            .send(SurfaceCommand::Move(panel_spec("flush-move", 41, 29)))
+            .unwrap();
+        let moved = poll_until(
+            500,
+            || matches!(live.geometry(win), Some((x, ..)) if x != x0),
+        );
+        let x_after = live.geometry(win).map(|(x, ..)| x);
+
+        let _ = live.commands.send(SurfaceCommand::Delete {
+            id: "flush-move".into(),
+        });
+        live.shutdown();
+        assert!(
+            moved,
+            "window {win:#x} still at x={x_after:?} (was {x0}) 500ms after Move"
         );
     }
 }
