@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.2](https://github.com/kantord/tauler/compare/tauler-v0.7.1...tauler-v0.7.2) - 2026-10-27
+
+### Fixed
+
+- small stability fixes ([#701](https://github.com/kantord/tauler/pull/701))
+- remove and move X11 panels without waiting for a repaint ([#698](https://github.com/kantord/tauler/pull/698))
+
+### Other
+
+- fix docs-related failures ([#700](https://github.com/kantord/tauler/pull/700))
+
 ## [0.7.1](https://github.com/kantord/tauler/compare/tauler-v0.7.0...tauler-v0.7.1) - 2026-10-26
 
 ### Fixed

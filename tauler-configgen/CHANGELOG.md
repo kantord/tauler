@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.2](https://github.com/kantord/tauler/compare/tauler-configgen-v0.7.1...tauler-configgen-v0.7.2) - 2026-10-27
+
+### Fixed
+
+- *(deps)* update patch updates ([#695](https://github.com/kantord/tauler/pull/695))
+
 ## [0.7.1](https://github.com/kantord/tauler/compare/tauler-configgen-v0.7.0...tauler-configgen-v0.7.1) - 2026-10-26
 
 ### Fixed
