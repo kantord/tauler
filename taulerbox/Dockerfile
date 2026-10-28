@@ -13,7 +13,7 @@
 # conditions. `--no-install-recommends` here cuts it back to just what
 # sway/wayvnc actually need, baked in at build time instead of gambled on
 # at every compartment's first boot.
-FROM debian:trixie@sha256:4c25275446ca371766b8b093c696782eabce06263fccacb8d5d813b3dc44b308
+FROM debian:trixie@sha256:2dc419c6d7fe3dad0a2f9fd469c34cc90b0f9ba642d8fde837fe3d7d34a0e7f1
 
 RUN apt-get update && \
     apt-get install -y --no-install-recommends sway wayvnc && \
