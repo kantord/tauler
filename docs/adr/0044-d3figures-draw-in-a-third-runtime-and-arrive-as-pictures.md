@@ -107,11 +107,16 @@ named `json-<first 16 hex digits of sha256(JSON.stringify(key))>`, and the size 
 before: `json-…@<width>x<height>`. `JSON.stringify` follows insertion order, so key order
 is part of the name.
 
-A key that JSON would represent lossily throws, naming the path of the bad value: a
-function, `undefined`, a symbol, `NaN`, `±Infinity`, a `BigInt`, a cycle, a `Date`, an
-array hole, or an object whose prototype is not `Object.prototype`, `Array.prototype` or
-null. A silent drop would be the stale-Picture bug in a new form: two keys that differ only
-in what JSON drops would name one Picture.
+An object or array key that holds a value JSON would represent lossily throws, naming the
+path of the bad value: a function, `undefined`, a symbol, `NaN`, `±Infinity`, a `BigInt`, a
+cycle, a `Date`, an array hole, or an object whose prototype is not `Object.prototype`,
+`Array.prototype` or null. A silent drop would be the stale-Picture bug in a new form: two
+keys that differ only in what JSON drops would name one Picture. A whole key that is a
+function, a symbol, a `BigInt`, a `Date` or another non-plain object throws the same way,
+because `String(key)` would collide too: every `Symbol()` is `Symbol()`, two closures with
+the same source share a name whatever they capture, and every `Map` is `[object Map]`. A
+number key is never stringified as JSON, so `key={NaN}` is still named
+`NaN@<width>x<height>`.
 
 Unit keys are not checked this way. The desktop compares a Unit key by the text
 `JSON.stringify` gives, so it changes the same values silently, and it leaves out an Item
@@ -128,9 +133,10 @@ outside the `Effects::Allowed` gate, since the render runtime is the one that na
 Pictures. The page gets it as a synchronous wasm export installed before the shared globals
 run, because `crypto.subtle` is asynchronous and the name is needed mid-render.
 
-The cost is one `JSON.stringify` per Tick in both the render runtime and the Draw runtime —
-measured at about 0.8 ms per figure for 500 rows × 3 fields; the hash itself adds close to
-nothing. A hand-made string key stays the cheaper choice for large data.
+The cost is one walk of the key for lossy values plus one `JSON.stringify` per Tick, in both
+the render runtime and the Draw runtime — measured through `JsxEvaluator::eval` at about
+1.5 ms per figure per runtime for 500 rows × 3 fields, a little over half of it the walk; the
+hash itself adds close to nothing. A hand-made string key stays the cheaper choice for large data.
 
 Rejected: a public `hash()` global, which would be a new public global the page must also
 provide, and a `memo()` helper, which would keep state across Ticks against ADR

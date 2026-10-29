@@ -285,15 +285,17 @@ pass the figure's inputs directly:
 ```
 
 Key order matters, because `JSON.stringify` writes keys in the order they were added:
-`{ a: 1, b: 2 }` and `{ b: 2, a: 1 }` are two drawings. A key that holds a function,
-`undefined`, a symbol, `NaN`, `Infinity` or `-Infinity`, a `BigInt`, a cycle, a `Date`, an
-array hole, or an object that is not plain (a `Map`, a `Set`, a class instance) fails with an
-error that names where in the key it is. JSON would drop or change such a value, so two
-different keys could name the same drawing.
+`{ a: 1, b: 2 }` and `{ b: 2, a: 1 }` are two drawings. An object or array key that holds a
+function, `undefined`, a symbol, `NaN`, `Infinity` or `-Infinity`, a `BigInt`, a cycle, a
+`Date`, an array hole, or an object that is not plain (a `Map`, a `Set`, a class instance)
+fails with an error that names where in the key it is. JSON would drop or change such a
+value, so two different keys could name the same drawing. A key that is itself a function,
+a symbol, a `BigInt`, a `Date` or another object that is not plain fails the same way.
 
-An object key costs one `JSON.stringify` per tick, on the desktop twice: once in the bar and
-once where the figure is drawn. For 500 rows of 3 fields, that is about 0.8 ms per figure.
-For large data, a string key you make yourself, such as the newest timestamp, is cheaper.
+An object key is checked and turned into JSON on every tick, on the desktop twice: once in
+the bar and once where the figure is drawn. For 500 rows of 3 fields, that is about 1.5 ms
+per figure each time. For large data, a string key you make yourself, such as the newest
+timestamp, is cheaper.
 
 The key is the only thing tauler compares. A `draw` that reads anything not in the key still
 draws a stale picture when that thing changes.

@@ -19,7 +19,8 @@
 //!    array key is `json-` plus the first 16 hex digits of the sha256 of its
 //!    `JSON.stringify` (`__tauler_sha256`, registered in every runtime), after
 //!    the global has thrown on anything JSON would drop or change, naming its
-//!    path. From here on "key" means that name. The eval reads one
+//!    path. A whole key that is a function, symbol, `BigInt` or non-plain
+//!    object throws too. From here on "key" means that name. The eval reads one
 //!    [`crate::jsx::FigureCall`] per such `<img>` back from its tree, in document
 //!    order — from the tree, not from the calls, because an element built at
 //!    module scope calls `D3Figure` once, before any eval.

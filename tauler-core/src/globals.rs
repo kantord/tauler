@@ -343,30 +343,49 @@ pub const JSX_GLOBALS_JS: &str = r#"
         // the same: refuse anything JSON drops or mangles, naming where it is.
         // `ancestors` holds only the objects above `v`, so a value reached twice
         // without a cycle is fine. Arrays are walked by index so holes show up.
-        const checkKey = (v, path, ancestors) => {
-            const lossy = (what) => new Error("<D3Figure> key can't hold " + what + " (at " + path + "): it is hashed as JSON, which would drop or change it");
-            if (v === null || typeof v === "string" || typeof v === "boolean") return;
-            if (typeof v === "number") {
-                if (!Number.isFinite(v)) throw lossy(String(v));
-                return;
-            }
-            if (typeof v !== "object") throw lossy(v === undefined ? "undefined" : "a " + typeof v);
+        // A valid key is the normal case and is walked every Tick, so the walk
+        // allocates nothing per node: it returns null, or what is wrong plus the
+        // steps to it, which are only filled in as a failure unwinds.
+        const hasOwn = Object.prototype.hasOwnProperty;
+        const findLossy = (v, ancestors) => {
+            if (v === null || typeof v === "string" || typeof v === "boolean") return null;
+            if (typeof v === "number") return Number.isFinite(v) ? null : { what: String(v), steps: [] };
+            if (typeof v !== "object") return { what: v === undefined ? "undefined" : "a " + typeof v, steps: [] };
             const proto = Object.getPrototypeOf(v);
             if (proto !== Object.prototype && proto !== Array.prototype && proto !== null) {
-                throw lossy("a " + ((proto && proto.constructor && proto.constructor.name) || "non-plain object"));
+                return { what: "a " + ((proto && proto.constructor && proto.constructor.name) || "non-plain object"), steps: [] };
             }
-            if (ancestors.includes(v)) throw lossy("a cycle");
-            const inner = [...ancestors, v];
+            if (ancestors.includes(v)) return { what: "a cycle", steps: [] };
+            ancestors.push(v);
+            let found = null;
             if (Array.isArray(v)) {
-                for (let i = 0; i < v.length; i++) checkKey(v[i], path + "[" + i + "]", inner);
+                for (let i = 0; i < v.length && !found; i++) {
+                    found = findLossy(v[i], ancestors);
+                    if (found) found.steps.unshift(i);
+                }
             } else {
-                for (const k of Object.keys(v)) {
-                    const step = /^[A-Za-z_$][\w$]*$/.test(k) ? "." + k : "[" + JSON.stringify(k) + "]";
-                    checkKey(v[k], path + step, inner);
+                for (const k in v) {
+                    if (!hasOwn.call(v, k)) continue;
+                    found = findLossy(v[k], ancestors);
+                    if (found) { found.steps.unshift(k); break; }
                 }
             }
+            ancestors.pop();
+            return found;
         };
-        checkKey(key, "key", []);
+        // A number key (even NaN) keeps `String(key)`, which loses nothing, so
+        // it is not walked. Every other key is: a string or boolean passes, and
+        // a whole-key function, symbol, bigint or non-plain object is refused,
+        // since `String()` names every `Symbol()` alike, two closures by their
+        // source alone and every `Map` as `[object Map]`.
+        const lossy = typeof key === "number" ? null : findLossy(key, []);
+        if (lossy) {
+            const path = lossy.steps.map((s) =>
+                typeof s === "number" ? "[" + s + "]"
+                : /^[A-Za-z_$][\w$]*$/.test(s) ? "." + s
+                : "[" + JSON.stringify(s) + "]").join("");
+            throw new Error("<D3Figure> key can't hold " + lossy.what + " (at key" + path + "): it is hashed as JSON, which would drop or change it");
+        }
         // An object/array key is named by a hash of its JSON, since `String()`
         // gives every object the same `[object Object]`.
         const keyName = typeof key === "object"

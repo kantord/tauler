@@ -310,7 +310,10 @@ test('draw receives its picture name in a page', async ({ page }) => {
       if (Date.now() > deadline) return { error: 'the drawings never arrived' }
       await new Promise((resolve) => setTimeout(resolve, 50))
     }
-    return Array.from(el.querySelectorAll('svg text'), (text) => text.textContent)
+    return Array.from(
+      el.querySelectorAll('svg text'),
+      (text) => text.textContent,
+    )
   })
 
   expect(texts).toEqual(['json-015abd7f5cc57a2d@40x20', 'k1@40x20'])

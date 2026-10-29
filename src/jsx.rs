@@ -2357,6 +2357,22 @@ return <div><D3Figure key={true} width={1} height={2} draw={() => {}} /></div>;
     }
 
     #[rstest::rstest]
+    #[case::nan("NaN", "NaN@1x2")]
+    #[case::infinity("Infinity", "Infinity@1x2")]
+    #[case::negative_infinity("-Infinity", "-Infinity@1x2")]
+    fn a_non_finite_number_key_keeps_its_string_name(#[case] key: &str, #[case] name: &str) {
+        // A primitive key is never JSON-stringified, so nothing is lost: it is
+        // named `String(key)` as before, e.g. `total / count` with count 0.
+        let out = eval(&format!(
+            r#"export default function render() {{
+return <div><D3Figure key={{{key}}} width={{1}} height={{2}} draw={{() => {{}}}} /></div>;
+}}"#
+        ));
+        let keys: Vec<&str> = out.figure_calls.iter().map(|c| c.key.as_str()).collect();
+        assert_eq!(keys, [name], "got: {}", out.layout);
+    }
+
+    #[rstest::rstest]
     #[case::function("{f: () => 1}", "key.f")]
     #[case::undefined("{u: undefined}", "key.u")]
     #[case::symbol("{s: Symbol()}", "key.s")]
@@ -2370,7 +2386,10 @@ return <div><D3Figure key={true} width={1} height={2} draw={() => {}} /></div>;
     #[case::set("{s: new Set()}", "key.s")]
     #[case::class_instance("{c: new (class C {})()}", "key.c")]
     #[case::cycle("(() => { const o = {}; o.self = o; return o; })()", "key.self")]
-    #[case::top_level_nan("NaN", "key")]
+    #[case::non_identifier_name(r#"{"a-b": [0, NaN]}"#, r#"key["a-b"][1]"#)]
+    #[case::whole_key_function("() => 1", "(at key)")]
+    #[case::whole_key_symbol("Symbol()", "(at key)")]
+    #[case::whole_key_bigint("1n", "(at key)")]
     fn a_key_holding_a_lossy_value_fails_naming_its_path(#[case] key: &str, #[case] path: &str) {
         let err = d3_figure_key_eval_error(key);
         assert!(
@@ -2388,6 +2407,21 @@ return <div><D3Figure key={Object.assign(Object.create(null), {a: 1})} width={10
         );
         let keys: Vec<&str> = out.figure_calls.iter().map(|c| c.key.as_str()).collect();
         assert_eq!(keys, ["json-015abd7f5cc57a2d@10x20"], "got: {}", out.layout);
+    }
+
+    #[test]
+    fn a_key_reaching_one_object_twice_without_a_cycle_is_accepted() {
+        // Shared but acyclic, like `{ samples, latest: samples.at(-1) }`: only
+        // a true cycle is lossy, so a seen-set check would wrongly refuse this.
+        let out = eval(
+            r#"export default function render() {
+const x = {a: 1};
+return <div><D3Figure key={{p: x, q: [x]}} width={10} height={20} draw={() => {}} /></div>;
+}"#,
+        );
+        // The first 16 hex chars of sha256('{"p":{"a":1},"q":[{"a":1}]}').
+        let keys: Vec<&str> = out.figure_calls.iter().map(|c| c.key.as_str()).collect();
+        assert_eq!(keys, ["json-f2f7ebe41634361f@10x20"], "got: {}", out.layout);
     }
 
     #[test]
