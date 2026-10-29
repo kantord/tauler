@@ -3,10 +3,13 @@
 //! its own, and sends the result back as [`Drawn`] (ADR 0044).
 //!
 //! Built the way the reconciler thread is (`units::Reconciler`, ADR 0034): it
-//! loads the same layout file, evaluates it against the bar's Stream values and
-//! reads the bar's `globals`, both read fresh for each round. The loop spawns a
-//! new one on every layout load and drops the old one, which never waits for it
-//! (see [`DrawRuntime`]'s `Drop`).
+//! loads the same layout file and evaluates it with the inputs of the eval that
+//! asked ([`crate::jsx::EvalInputs`]: the globals before that render and the
+//! Stream values), not with the bar's current ones. Each round
+//! evaluates once, with the newest batch's inputs: a pending key is always one
+//! the newest batch names, so that eval names every figure still pending. The
+//! loop spawns a new one on every layout load and drops the old one, which
+//! never waits for it (see [`DrawRuntime`]'s `Drop`).
 //!
 //! The evaluator ([`crate::jsx::JsxEvaluator::new_draw`]) is built on the first
 //! request, and d3 and linkedom are loaded on the first draw, so a layout with no
@@ -37,10 +40,16 @@
 //! its Picture was dropped — theme dark → light → dark would leave the figure
 //! showing light for good. Requests for the same key still pending are collapsed
 //! into one drawing.
+//!
+//! Evaluated with the same inputs, a deterministic render names the same keys,
+//! so a [`DrawError::UnknownKey`] means the render is not deterministic
+//! (module-scope state, `Date.now`, `Math.random`) and the figure is never
+//! drawn. It is logged at `warn` once per layout load, and at `debug` after
+//! that: a key built from `Date.now` or a module-scope counter is new on every
+//! eval, so a limit per key would warn on every draw round.
 
-use crate::jsx::{JsxEvaluator, SharedGlobals};
+use crate::jsx::{EvalInputs, JsxEvaluator};
 use crate::pkg::PackageContext;
-use crate::units::SharedStreamValues;
 use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -94,11 +103,12 @@ pub enum DrawError {
     TimedOut,
 }
 
-/// One [`DrawRuntime::request`]: the drawings asked for, and every key on
-/// screen at the time.
+/// One [`DrawRuntime::request`]: the drawings asked for, every key on screen
+/// at the time, and the inputs of the eval that asked.
 struct Batch {
     named: HashSet<String>,
     draw: Vec<DrawRequest>,
+    inputs: Arc<EvalInputs>,
 }
 
 /// The draw runtime's thread. Dropping this stops the thread.
@@ -112,8 +122,7 @@ pub struct DrawRuntime {
 impl DrawRuntime {
     /// Start the draw runtime's thread for the layout `source`.
     ///
-    /// `stream_values` and `globals` are the render loop's, read fresh for each
-    /// request. Each drawing is sent on `drawn`, tagged with `generation`, then
+    /// Each drawing is sent on `drawn`, tagged with `generation`, then
     /// `notify` is pinged (never blocking: a full notifier already means "look
     /// again"). The loop gives each runtime a new `generation` and keeps only
     /// the current one's drawings ([`current_only`]).
@@ -122,8 +131,6 @@ impl DrawRuntime {
         source: String,
         ctx: serde_json::Value,
         layout_path: Option<PathBuf>,
-        stream_values: SharedStreamValues,
-        globals: SharedGlobals,
         pkg_ctx: Option<PackageContext>,
         drawn: mpsc::Sender<Drawn>,
         notify: mpsc::SyncSender<()>,
@@ -140,7 +147,6 @@ impl DrawRuntime {
                         &source,
                         ctx.clone(),
                         layout_path.as_deref(),
-                        Arc::clone(&globals),
                         pkg_ctx.clone(),
                     )
                 };
@@ -148,7 +154,6 @@ impl DrawRuntime {
                     build,
                     &request_rx,
                     &stop_thread,
-                    &stream_values,
                     &drawn,
                     &notify,
                     generation,
@@ -164,10 +169,14 @@ impl DrawRuntime {
     /// Ask for the drawings in `draw`. `named` is every key on screen now (the
     /// loop's [`crate::d3_figure::requests::Requests::named`], which includes
     /// `draw`'s keys): a pending request for any other key is superseded and
-    /// dropped. Never blocks.
-    pub fn request(&self, named: HashSet<String>, draw: Vec<DrawRequest>) {
+    /// dropped. `inputs` are those of the eval that asked. Never blocks.
+    pub fn request(&self, named: HashSet<String>, draw: Vec<DrawRequest>, inputs: Arc<EvalInputs>) {
         if let Some(requests) = &self.requests {
-            let _ = requests.send(Batch { named, draw });
+            let _ = requests.send(Batch {
+                named,
+                draw,
+                inputs,
+            });
         }
     }
 }
@@ -199,13 +208,31 @@ fn wait(
     }
 }
 
-/// Drops the pending requests whose key `batch` no longer names, then adds
-/// its requests as the newest, each replacing a pending one for the same key.
-fn keep(pending: &mut Vec<DrawRequest>, batch: Batch) {
-    pending.retain(|p| batch.named.contains(&p.key));
-    for request in batch.draw {
-        pending.retain(|p| p.key != request.key);
-        pending.push(request);
+/// What the thread has collected from the batches so far.
+#[derive(Default)]
+struct Queue {
+    pending: Vec<DrawRequest>,
+    /// The newest batch's inputs: its named keys include every pending one.
+    latest: Option<Arc<EvalInputs>>,
+}
+
+impl Queue {
+    /// Drops the pending requests that `batch` no longer names, then adds its requests as the newest, each replacing a pending
+    /// one for the same key, and makes its inputs the `latest`.
+    fn keep(&mut self, batch: Batch) {
+        self.latest = Some(batch.inputs);
+        self.pending.retain(|p| batch.named.contains(&p.key));
+        for request in batch.draw {
+            self.pending.retain(|p| p.key != request.key);
+            self.pending.push(request);
+        }
+    }
+
+    /// [`Self::keep`]s every batch already waiting, without blocking.
+    fn keep_waiting(&mut self, requests: &mpsc::Receiver<Batch>) {
+        while let Ok(batch) = requests.try_recv() {
+            self.keep(batch);
+        }
     }
 }
 
@@ -214,33 +241,32 @@ fn run(
     build: impl Fn() -> Result<JsxEvaluator, crate::jsx::JsError>,
     requests: &mpsc::Receiver<Batch>,
     stop: &AtomicBool,
-    stream_values: &SharedStreamValues,
     drawn: &mpsc::Sender<Drawn>,
     notify: &mpsc::SyncSender<()>,
     generation: u64,
 ) {
     let mut evaluator: Option<JsxEvaluator> = None;
-    let mut pending: Vec<DrawRequest> = Vec::new();
+    let mut queue = Queue::default();
+    // A runtime lives for one layout load: an UnknownKey warns once per load.
+    let mut warned_unknown_key = false;
     // Set when a round drew nothing: the next one waits for it.
     let mut retry_at: Option<Instant> = None;
     // So a broken layout is reported once, not on every poll.
     let mut reported_error: Option<String> = None;
 
     while !stop.load(Ordering::Relaxed) {
-        match wait(requests, &pending, retry_at) {
+        match wait(requests, &queue.pending, retry_at) {
             Wake::Closed => return,
             Wake::Request(batch) => {
-                keep(&mut pending, batch);
+                queue.keep(batch);
                 if retry_at.is_some_and(|at| Instant::now() < at) {
                     continue;
                 }
             }
             Wake::RoundDue => {}
         }
-        while let Ok(batch) = requests.try_recv() {
-            keep(&mut pending, batch);
-        }
-        if pending.is_empty() {
+        queue.keep_waiting(requests);
+        if queue.pending.is_empty() {
             continue;
         }
         retry_at = Some(Instant::now() + NOT_READY_POLL);
@@ -261,22 +287,34 @@ fn run(
             Err(DrawError::NotReady) => continue,
             Err(e) => {
                 tracing::warn!(error = %e, "d3 and linkedom failed to load; no D3Figure was drawn");
-                pending.clear();
+                queue.pending.clear();
                 continue;
             }
         }
-        let values = stream_values.read().unwrap().clone();
-        if let Err(e) = evaluator.eval(&values) {
+        // Building the evaluator and loading d3 can be slow: draw what is asked
+        // for now, with the newest inputs, not what was asked for before.
+        queue.keep_waiting(requests);
+        let Some(inputs) = queue.latest.as_deref() else {
+            continue;
+        };
+        if let Err(e) = evaluator.eval_inputs(inputs) {
             report_once(&mut reported_error, "the draw runtime's eval failed", &e);
             continue;
         }
         reported_error = None;
         retry_at = None;
-        for request in std::mem::take(&mut pending) {
+        for request in std::mem::take(&mut queue.pending) {
             if stop.load(Ordering::Relaxed) {
                 return;
             }
-            draw_one(evaluator, &request, drawn, notify, generation);
+            draw_one(
+                evaluator,
+                &request,
+                &mut warned_unknown_key,
+                drawn,
+                notify,
+                generation,
+            );
         }
     }
 }
@@ -285,6 +323,7 @@ fn run(
 fn draw_one(
     evaluator: &JsxEvaluator,
     request: &DrawRequest,
+    warned_unknown_key: &mut bool,
     drawn: &mpsc::Sender<Drawn>,
     notify: &mpsc::SyncSender<()>,
     generation: u64,
@@ -300,12 +339,21 @@ fn draw_one(
             });
             let _ = notify.try_send(());
         }
-        // Expected, not a fault: this runtime evaluates against the streams as they are now,
-        // and the request came from a Tick that saw them earlier — a figure keyed by live data
-        // has usually moved on (every bar start logged one for the placeholder data before the
-        // first stream line). The loop asks again for the key it now shows.
+        // The eval ran with the inputs of the eval that asked, so the same tree should name
+        // the same key: a key it does not name means the render is nondeterministic
+        // (module-scope state, Date.now, Math.random), and the figure will not be drawn.
         Err(e @ DrawError::UnknownKey(_)) => {
-            tracing::debug!(error = %e, "the D3Figure was not drawn");
+            if std::mem::replace(warned_unknown_key, true) {
+                tracing::debug!(key = %request.key, error = %e, "the D3Figure was not drawn");
+            } else {
+                tracing::warn!(
+                    key = %request.key,
+                    error = %e,
+                    "the D3Figure was not drawn: the layout rendered a different tree from the \
+                     same inputs; is its render nondeterministic (module-scope state, Date.now, \
+                     Math.random)?"
+                );
+            }
         }
         Err(e) => {
             tracing::warn!(key = %request.key, error = %e, "the D3Figure was not drawn");
@@ -357,7 +405,6 @@ mod tests {
     use super::*;
     use crate::d3_figure::test_support::{d3_only_pkg_ctx, fake_d3_fetcher, write_fake_files};
     use std::collections::HashMap;
-    use std::sync::RwLock;
 
     const DEADLINE: Duration = Duration::from_secs(5);
 
@@ -388,8 +435,6 @@ return <div><D3Figure key="k" width={10} height={20}
             layout.to_string(),
             serde_json::Value::Null,
             Some(dir.to_path_buf()),
-            Arc::new(RwLock::new(HashMap::new())),
-            Default::default(),
             Some(d3_only_pkg_ctx(dir, fake_d3_fetcher(d3_dir))),
             drawn_tx,
             notify_tx,
@@ -518,7 +563,8 @@ return <div>{{Array.from({{ length: {n} }}, (_, i) =>
     /// Asks for `draw`, naming exactly its keys as the ones on screen.
     fn ask(runtime: &DrawRuntime, draw: Vec<DrawRequest>) {
         let named = draw.iter().map(|r| r.key.clone()).collect();
-        runtime.request(named, draw);
+        // These layouts read neither streams nor `globals`.
+        runtime.request(named, draw, Default::default());
     }
 
     /// Asks for figures `k{i}` for every `i` in `range`, all of them on screen.
@@ -595,8 +641,6 @@ return <div>{{Array.from({{ length: {n} }}, (_, i) =>
             circles_layout(1),
             serde_json::Value::Null,
             Some(dir.path().to_path_buf()),
-            Arc::new(RwLock::new(HashMap::new())),
-            Default::default(),
             Some(pkg_ctx),
             drawn_tx,
             notify_tx,
@@ -715,6 +759,85 @@ return <div>{{Array.from({{ length: {n} }}, (_, i) =>
         );
     }
 
+    /// Asks for `out`'s figures the way the loop does (`Figures::request` in
+    /// `app.rs`): plan them, then request them with `out`'s inputs.
+    fn ask_from(
+        runtime: &DrawRuntime,
+        requests: &mut crate::d3_figure::requests::Requests,
+        out: &crate::jsx::EvalOutput,
+    ) {
+        let plan = requests.plan(&out.figure_calls);
+        runtime.request(requests.named(), plan.draw, Arc::clone(&out.inputs));
+    }
+
+    /// The render evaluator over `layout`, as the bar builds it.
+    fn render_evaluator(layout: &str, dir: &std::path::Path) -> JsxEvaluator {
+        JsxEvaluator::new(layout, serde_json::Value::Null, Some(dir))
+            .expect("the render evaluator builds")
+    }
+
+    #[test]
+    fn a_render_that_writes_globals_still_draws() {
+        let layout = r#"export default function render() {
+globals.n = (globals.n ?? 0) + 1;
+return <div><D3Figure key={"g" + globals.n} width={10} height={20}
+  draw={(svg) => svg.append("circle").attr("r", 3)} /></div>;
+}"#;
+        let dir = tempfile::tempdir().expect("tempdir");
+        let d3_dir = dir.path().join("d3");
+        write_fake_files(&d3_dir);
+        let running = spawn_layout(layout, dir.path(), &d3_dir);
+        let render = render_evaluator(layout, dir.path());
+        let mut requests = crate::d3_figure::requests::Requests::new();
+
+        for _ in 0..2 {
+            let out = render.eval(&HashMap::new()).expect("render eval");
+            ask_from(&running.runtime, &mut requests, &out);
+        }
+
+        let deadline = Instant::now() + DEADLINE;
+        loop {
+            let left = deadline.saturating_duration_since(Instant::now());
+            let drawn = running.drawn.recv_timeout(left).expect(
+                "the second eval's figure should be drawn: the draw runtime evaluates \
+                 with the globals that eval started from, not the ones it left behind",
+            );
+            if drawn.key == "g2@10x20" {
+                break;
+            }
+        }
+    }
+
+    #[test]
+    fn a_stream_faster_than_a_draw_round_draws_the_latest_batch() {
+        let layout = r#"export default function render() {
+return <div><D3Figure key={"v" + useStringStream("/bin/sh", "v")} width={10} height={20}
+  draw={(svg) => svg.append("circle").attr("r", 3)} /></div>;
+}"#;
+        let dir = tempfile::tempdir().expect("tempdir");
+        let d3_dir = dir.path().join("d3");
+        std::fs::create_dir_all(&d3_dir).expect("create empty d3 dir");
+        let running = spawn_layout(layout, dir.path(), &d3_dir);
+        let render = render_evaluator(layout, dir.path());
+        let mut requests = crate::d3_figure::requests::Requests::new();
+        let stream = ("/bin/sh".to_string(), Some("v".to_string()));
+
+        // Twenty Ticks while the runtime cannot draw yet.
+        for v in 1..=20 {
+            let values = HashMap::from([(stream.clone(), v.to_string())]);
+            let out = render.eval(&values).expect("render eval");
+            ask_from(&running.runtime, &mut requests, &out);
+        }
+
+        write_fake_files(&d3_dir);
+
+        assert_eq!(
+            drain_keys(&running.drawn),
+            ["v20@10x20"],
+            "the newest key is drawn with its batch's inputs; superseded keys are not"
+        );
+    }
+
     /// Many distinct keys, as a figure of live data produces over time.
     const MANY: usize = 300;
 
@@ -745,5 +868,61 @@ return <div>{{Array.from({{ length: {MANY} }}, (_, i) =>
              draws it again",
         );
         assert_eq!(again.key, "k0@10x20");
+    }
+
+    #[test]
+    #[tracing_test::traced_test]
+    fn unknown_keys_warn_once_per_runtime_even_when_every_key_is_new() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let d3_dir = dir.path().join("d3");
+        write_fake_files(&d3_dir);
+        let evaluator = JsxEvaluator::new_draw(
+            CIRCLE_LAYOUT,
+            serde_json::Value::Null,
+            Some(dir.path()),
+            Some(d3_only_pkg_ctx(dir.path(), fake_d3_fetcher(&d3_dir))),
+        )
+        .expect("the draw evaluator builds");
+        evaluator
+            .ensure_drawing_ready()
+            .expect("precondition: the fake d3 files load");
+        evaluator
+            .eval_inputs(&Default::default())
+            .expect("the draw runtime's eval");
+        let (drawn_tx, drawn) = mpsc::channel();
+        let (notify_tx, _notified) = mpsc::sync_channel(1);
+        let mut warned_unknown_key = false;
+
+        // A key built from Date.now or a counter is new on every eval.
+        for i in 0..3 {
+            let request = DrawRequest {
+                key: format!("r{i}@10x20"),
+                width: 10.0,
+                height: 20.0,
+            };
+            draw_one(
+                &evaluator,
+                &request,
+                &mut warned_unknown_key,
+                &drawn_tx,
+                &notify_tx,
+                GENERATION,
+            );
+        }
+
+        logs_assert(|lines: &[&str]| {
+            let n = lines
+                .iter()
+                .filter(|l| l.contains("WARN") && l.contains("nondeterministic"))
+                .count();
+            match n {
+                1 => Ok(()),
+                _ => Err(format!(
+                    "keys this runtime's render does not name mean a nondeterministic render: \
+                     warn once per runtime, got {n} warnings"
+                )),
+            }
+        });
+        assert!(drawn.try_recv().is_err(), "an unknown key draws nothing");
     }
 }

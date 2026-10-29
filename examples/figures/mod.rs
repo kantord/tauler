@@ -9,7 +9,7 @@
 //! the panel binds the Picture exactly as a frame on the bar does.
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::{mpsc, Arc, Mutex};
+use std::sync::{mpsc, Arc};
 use std::time::{Duration, Instant};
 
 use tauler::d3_figure::draw::TIME_LIMIT;
@@ -102,9 +102,8 @@ pub fn draw_figures(
     pkg: &PackageContext,
     calls: &[FigureCall],
 ) -> Drawn {
-    let globals = Arc::new(Mutex::new(serde_json::Map::new()));
     let t = Instant::now();
-    let ev = JsxEvaluator::new_draw(source, ctx, Some(layout_path), globals, Some(pkg.clone()))
+    let ev = JsxEvaluator::new_draw(source, ctx, Some(layout_path), Some(pkg.clone()))
         .expect("draw runtime compiles");
     ev.eval(&HashMap::new()).expect("draw runtime eval");
     let setup_ms = ms(t);

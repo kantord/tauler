@@ -269,6 +269,10 @@ changed. Give the figure a new key when what it shows changes,
 and the simplest way to get one is to derive it from the data, as `LoadChart` does from its
 newest sample. A figure with no `key` fails with an error that names it.
 
+A key must follow from what the render sees: the data, the streams and the globals. A key
+built from `Math.random()`, `Date.now()` or state kept
+at module scope is not drawn on the desktop, and tauler logs a warning.
+
 ### What a slow drawing looks like
 
 On the desktop, `draw` runs off the bar's own loop. A slow drawing shows up a little later;

@@ -40,8 +40,8 @@ or disappears.
 per runtime, as ADR 0034 already accepted for two.
 
 **No closure crosses runtimes.** The Draw runtime finds `draw` in its own evaluation of the
-layout, by key, so a figure is drawn from that runtime's view of the data, which can trail
-the bar's by one round.
+layout, by key. *(Amended below: that evaluation now uses the inputs of the eval that asked
+for the figure, so it no longer trails the bar's by one round.)*
 
 **A figure's identity across Ticks is its position among the figures, in document order.**
 That is what lets a figure whose key changed keep showing its previous Picture while the
@@ -63,3 +63,36 @@ new Picture and is drawn again, showing the old size's Picture meanwhile, and on
 sizes is two Pictures. Everything downstream already keyed on the name and did not change.
 "A key names one Picture for good" now reads "a key names one Picture per size for good";
 the key is still required and still the author's to change when the drawing should.
+
+## Amendment: a draw evaluates the inputs of the eval that asked for it
+
+The Draw runtime used to evaluate the layout with the bar's Stream values and `globals` as
+they were when its round started. When those had moved on since the eval that asked, its
+tree no longer named the key it was asked to draw, and the figure was not drawn. Issue #713
+measured it: a stream ticking every 50 ms against a ~200 ms draw missed between 4% and over
+90% of rounds, and a render that writes to `globals` never drew at all, because by the time
+the Draw runtime read them the render had already changed them.
+
+So each eval records what it ran with: an `Arc` snapshot of `globals` as they were before
+the render, and of every Stream value: not only the ones the render read, because a
+figure's `draw` runs against the same snapshot and may read others. A tree with no
+`<D3Figure>` keeps no Stream values, since nothing draws from it. Draw requests carry it, and the Draw
+runtime evaluates with the newest batch's snapshot, once per round. One snapshot is enough:
+a pending key is always one the newest batch names, so that eval names every pending key.
+The draw evaluator's `globals` are its own, filled from the snapshot and never written back.
+Taking the snapshot costs ~4 µs per eval.
+
+`ctx` is not in the snapshot. The render, reconciler and Draw runtimes are all built from
+the same `ctx` together, on every layout load, so it cannot differ between them; a future
+`ctx` refresh has to reach all of them at once.
+
+The reconciler (ADR 0034) still reads fresh values. A Sweep run against slightly stale
+values converges on the next round; a draw cannot, because it has to find the exact key it
+was asked for.
+
+With the inputs fixed, a deterministic render names the same keys in both runtimes, so an
+`UnknownKey` that remains means a nondeterministic render (module-scope state, `Date.now`,
+`Math.random`). The first one in a layout load is logged as a warning, instead of the
+debug line that used to treat it as expected; later ones stay at debug. The limit is per
+load, not per key: a key built from `Date.now` or a counter is new on every eval, and a
+per-key limit would warn on every draw round.

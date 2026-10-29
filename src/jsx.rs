@@ -52,6 +52,20 @@ pub struct EvalOutput {
     /// ([`figures_in`]): the draw requests the loop hands to the draw runtime
     /// (see `crate::d3_figure`).
     pub figure_calls: Vec<FigureCall>,
+    /// What this eval ran with: see [`EvalInputs`].
+    pub inputs: Arc<EvalInputs>,
+}
+
+/// The inputs an eval ran with, so the draw runtime can evaluate the same render
+/// again ([`JsxEvaluator::eval_inputs`]): `globals` as they were before the
+/// render, so a render that writes them does not change its own snapshot, and
+/// every stream value, since a figure's `draw` may read streams the render did
+/// not. A tree with no `<D3Figure>` keeps no stream values, since nothing
+/// draws from its snapshot. `ctx` is not here: every runtime is built from the same one.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct EvalInputs {
+    pub globals: serde_json::Map<String, serde_json::Value>,
+    pub stream_values: HashMap<(String, Option<String>), String>,
 }
 
 /// A `<D3Figure>` in an evaluated tree: the Picture it names and the size to
@@ -916,7 +930,8 @@ impl JsxEvaluator {
     }
 
     /// The draw runtime (see `crate::d3_figure`): the same layout file, with no
-    /// shell or filesystem builtins, reading the bar's `globals`. Its
+    /// shell or filesystem builtins and a private `globals` store that each
+    /// request's [`EvalInputs`] fills. Its
     /// `registerFigure` keeps each D3Figure's `draw` by key for
     /// [`Self::draw_figure`], and its timers never fire. `pkg_ctx` supplies the
     /// d3 and linkedom files.
@@ -928,20 +943,20 @@ impl JsxEvaluator {
     /// Its [`Self::eval`] differs in two ways. A figure stays registered across
     /// evals (one built at module scope registers only once, at load) until an
     /// eval's tree no longer shows its key, so [`DrawError::UnknownKey`] means
-    /// "not in the latest eval". And `globals` are a copy that is never written back: the
-    /// bar owns them. They are not made read-only (as [`Self::eval_units`]
-    /// does), because a render that assigns to `globals` is legal on the bar,
-    /// and throwing here would leave that layout's figures undrawable.
+    /// "not in the latest eval". And `globals` come from each request's
+    /// [`EvalInputs`] ([`Self::eval_inputs`]), held in a private store that is
+    /// never shared and never written back: the bar owns them. They are not made
+    /// read-only (as [`Self::eval_units`] does), because a render that assigns to
+    /// `globals` is legal on the bar, and throwing here would leave that layout's
+    /// figures undrawable.
     pub fn new_draw(
         source: &str,
         ctx: serde_json::Value,
         layout_path: Option<&Path>,
-        globals: SharedGlobals,
         pkg_ctx: Option<crate::pkg::PackageContext>,
     ) -> Result<Self, JsError> {
         let mut evaluator =
             Self::with_effects(source, ctx, layout_path, Effects::Denied, pkg_ctx, true)?;
-        evaluator.global_state = globals;
         evaluator.draw = Some(DrawState::default());
         Ok(evaluator)
     }
@@ -1318,6 +1333,17 @@ impl JsxEvaluator {
         })
     }
 
+    /// Evaluate against `inputs` instead of this evaluator's own `globals` and
+    /// the loop's stream values: the draw runtime's way of naming the same
+    /// figures the render that produced `inputs` named.
+    pub fn eval_inputs(&self, inputs: &EvalInputs) -> Result<EvalOutput, JsError> {
+        self.global_state
+            .lock()
+            .unwrap()
+            .clone_from(&inputs.globals);
+        self.eval(&inputs.stream_values)
+    }
+
     pub fn eval(
         &self,
         new_stream_values: &HashMap<(String, Option<String>), String>,
@@ -1331,15 +1357,16 @@ impl JsxEvaluator {
         self.reset_handlers();
 
         with_described(&self.context, |qjs_ctx| {
-            let globals_val =
-                rquickjs_serde::to_value(qjs_ctx.clone(), &*self.global_state.lock().unwrap())
-                    .map_err(|_| rquickjs::Error::Unknown)?;
+            // Snapshotted before the render, which may write `globals`.
+            let start_globals = self.global_state.lock().unwrap().clone();
+            let globals_val = rquickjs_serde::to_value(qjs_ctx.clone(), &start_globals)
+                .map_err(|_| rquickjs::Error::Unknown)?;
             qjs_ctx.globals().set("globals", globals_val)?;
 
             let render_fn = self.render_fn.as_ref().unwrap().clone().restore(&qjs_ctx)?;
             let value: rquickjs::Value = render_fn.call::<(), rquickjs::Value>(())?;
 
-            // The draw runtime reads `globals` and never writes them: the bar owns them.
+            // The draw runtime's `globals` come from each request's inputs; never kept.
             if self.draw.is_none() {
                 let updated_globals: rquickjs::Value = qjs_ctx.globals().get("globals")?;
                 if let Ok(new_state) = rquickjs_serde::from_value::<
@@ -1375,11 +1402,23 @@ impl JsxEvaluator {
                      __tauler_figures.set(k, __tauler_module_figures.get(k)); }}"
                 ))?;
             }
+            // Every stream, not only the ones this render read: a figure's `draw`
+            // runs later against this snapshot and may read others. Nothing reads
+            // the snapshot of a tree with no figure, so that one stays empty.
+            let stream_values = if figure_calls.is_empty() {
+                HashMap::new()
+            } else {
+                new_stream_values.clone()
+            };
             Ok(EvalOutput {
                 layout,
                 stream_calls: self.calls.lock().unwrap().clone(),
                 module_calls: self.module_calls.lock().unwrap().clone(),
                 figure_calls,
+                inputs: Arc::new(EvalInputs {
+                    globals: start_globals,
+                    stream_values,
+                }),
             })
         })
     }
@@ -2202,6 +2241,56 @@ return <div><D3Figure key={42} width={1} height={2} draw={() => {}} /></div>;
                 height: 2.0
             }]
         );
+    }
+
+    #[test]
+    fn an_eval_records_the_globals_it_started_from_and_every_stream() {
+        let evaluator = JsxEvaluator::new(
+            r#"export default function render() {
+globals.n = (globals.n ?? 0) + 1;
+return <div><D3Figure key={useStringStream("/bin/sh", "a")} width={1} height={1} draw={() => {}} /></div>;
+}"#,
+            serde_json::Value::Null,
+            None,
+        )
+        .unwrap();
+        let a = ("/bin/sh".to_string(), Some("a".to_string()));
+        let b = ("/bin/sh".to_string(), Some("b".to_string()));
+        let streams = HashMap::from([(a, "1".to_string()), (b, "unread".to_string())]);
+
+        let first = evaluator.eval(&streams).unwrap();
+        let second = evaluator.eval(&streams).unwrap();
+
+        assert!(
+            first.inputs.globals.is_empty(),
+            "{:?}",
+            first.inputs.globals
+        );
+        assert_eq!(
+            serde_json::Value::Object(second.inputs.globals.clone()),
+            serde_json::json!({ "n": 1 })
+        );
+        assert_eq!(second.inputs.stream_values, streams);
+    }
+
+    #[test]
+    fn an_eval_with_no_figure_keeps_no_stream_values() {
+        let evaluator = JsxEvaluator::new(
+            r#"export default function render() {
+return <span>{useStringStream("/bin/sh", "a")}</span>;
+}"#,
+            serde_json::Value::Null,
+            None,
+        )
+        .unwrap();
+        let streams = HashMap::from([(
+            ("/bin/sh".to_string(), Some("a".to_string())),
+            "1".to_string(),
+        )]);
+
+        let out = evaluator.eval(&streams).unwrap();
+
+        assert!(out.inputs.stream_values.is_empty());
     }
 
     #[test]
@@ -3217,7 +3306,6 @@ return <div><D3Figure key="k" width={{10}} height={{20}} draw={{{draw}}} /></div
             source,
             serde_json::Value::Null,
             Some(dir.path()),
-            Default::default(),
             Some(pkg_ctx),
         )
         .unwrap_or_else(|e| panic!("the draw runtime should start, got: {e}"));
@@ -3225,6 +3313,60 @@ return <div><D3Figure key="k" width={{10}} height={{20}} draw={{{draw}}} /></div
             .eval(&std::collections::HashMap::new())
             .unwrap_or_else(|e| panic!("the draw runtime should evaluate the layout, got: {e}"));
         (evaluator, dir)
+    }
+
+    #[test]
+    fn the_render_and_draw_runtimes_name_the_same_figures_for_the_same_inputs() {
+        let source = r#"export default function render() {
+globals.n = (globals.n ?? 0) + 1;
+return <div><D3Figure key={"k" + globals.n + "/" + useStringStream("/bin/sh", "v")} width={10} height={20} draw={() => {}} /></div>;
+}"#;
+        let streams = HashMap::from([(
+            ("/bin/sh".to_string(), Some("v".to_string())),
+            "7".to_string(),
+        )]);
+        let render = JsxEvaluator::new(source, serde_json::Value::Null, None).unwrap();
+        render.eval(&streams).unwrap();
+        let out = render.eval(&streams).unwrap();
+        let keys = |calls: &[FigureCall]| calls.iter().map(|c| c.key.clone()).collect::<Vec<_>>();
+        assert_eq!(keys(&out.figure_calls), ["k2/7@10x20"]);
+        let draw = JsxEvaluator::new_draw(source, serde_json::Value::Null, None, None).unwrap();
+
+        let first = draw.eval_inputs(&out.inputs).unwrap();
+        let second = draw.eval_inputs(&out.inputs).unwrap();
+
+        assert_eq!(first.figure_calls, out.figure_calls);
+        assert_eq!(second.figure_calls, out.figure_calls);
+    }
+
+    #[test]
+    fn a_stream_read_only_inside_draw_reaches_the_draw_runtime() {
+        let source = r#"export default function render() {
+return <div><D3Figure key={"k" + useStringStream("/bin/sh", "a")} width={10} height={20}
+  draw={(svg) => svg.append("text").attr("data-b", useStringStream("/bin/sh", "b"))} /></div>;
+}"#;
+        let streams = HashMap::from([
+            (
+                ("/bin/sh".to_string(), Some("a".to_string())),
+                "1".to_string(),
+            ),
+            (
+                ("/bin/sh".to_string(), Some("b".to_string())),
+                "B-VALUE".to_string(),
+            ),
+        ]);
+        let out = JsxEvaluator::new(source, serde_json::Value::Null, None)
+            .unwrap()
+            .eval(&streams)
+            .unwrap();
+        let (draw, _dir) = ready_draw_evaluator(source);
+        draw.eval_inputs(&out.inputs).unwrap();
+
+        let svg = draw
+            .draw_figure("k1@10x20", 10.0, 20.0, GENEROUS_LIMIT)
+            .expect("the figure should draw");
+
+        assert!(svg.contains(r#"data-b="B-VALUE""#), "got: {svg}");
     }
 
     #[test]
@@ -3416,7 +3558,6 @@ return <div>
             &one_figure_with_draw("() => {}"),
             serde_json::Value::Null,
             Some(dir.path()),
-            Default::default(),
             Some(pkg_ctx),
         )
         .unwrap_or_else(|e| panic!("the draw runtime should start without d3, got: {e}"));
@@ -3452,7 +3593,6 @@ return <div>
             ),
             serde_json::Value::Null,
             Some(dir.path()),
-            Default::default(),
             Some(pkg_ctx),
         )
         .unwrap_or_else(|e| panic!("the draw runtime should start, got: {e}"));
