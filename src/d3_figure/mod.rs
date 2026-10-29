@@ -13,7 +13,9 @@
 //! 1. **Render runtime.** The `D3Figure` global (`tauler-core/src/globals.rs`)
 //!    throws without a key, hands `draw` to `registerFigure` — which the render
 //!    runtime ignores, so `draw` never runs on the loop — and returns
-//!    `<img src="tauler:picture/<key>">` at the given size. The eval reads one
+//!    `<img src="tauler:picture/<key>@<width>x<height>">` at the given size: the
+//!    Picture's name is the key plus the size, so a resized figure names a new
+//!    Picture. From here on "key" means that name. The eval reads one
 //!    [`crate::jsx::FigureCall`] per such `<img>` back from its tree, in document
 //!    order — from the tree, not from the calls, because an element built at
 //!    module scope calls `D3Figure` once, before any eval.
@@ -46,10 +48,11 @@
 //! # Behaviour authors can rely on
 //!
 //! - A D3Figure can be built anywhere an element can, module scope included.
-//! - `draw` runs once per key while the key stays on screen; a figure that should
-//!   look different needs a new key. A key that leaves and comes back is drawn
-//!   again, and so is every figure after a layout reload, since its `draw` may
-//!   have changed.
+//! - `draw` runs once per key and size while both stay on screen; a figure that
+//!   should look different at the same size needs a new key. A resized figure is
+//!   drawn again at its new size, showing the old size's Picture meanwhile. A key
+//!   that leaves and comes back is drawn again, and so is every figure after a
+//!   layout reload, since its `draw` may have changed.
 //! - Until its drawing arrives, a figure shows its previous key's Picture, or
 //!   nothing the first time. The rest of the bar never waits for it. A layout
 //!   reload is no exception: each figure keeps showing what it showed until the

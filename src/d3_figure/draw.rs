@@ -404,7 +404,7 @@ return <div><D3Figure key="k" width={10} height={20}
 
     fn circle_request() -> DrawRequest {
         DrawRequest {
-            key: "k".into(),
+            key: "k@10x20".into(),
             width: 10.0,
             height: 20.0,
         }
@@ -423,7 +423,7 @@ return <div><D3Figure key="k" width={10} height={20}
             .drawn
             .recv_timeout(DEADLINE)
             .expect("the requested figure should be drawn");
-        assert_eq!(drawn.key, "k");
+        assert_eq!(drawn.key, "k@10x20");
         assert_eq!(
             drawn.generation, GENERATION,
             "a drawing carries the generation its runtime was spawned with"
@@ -460,7 +460,7 @@ return <div><D3Figure key="k" width={10} height={20}
             .drawn
             .recv_timeout(DEADLINE)
             .expect("the kept request should be drawn once the files appear");
-        assert_eq!(drawn.key, "k");
+        assert_eq!(drawn.key, "k@10x20");
         assert!(drawn.svg.contains(r#"<circle r="3""#), "got: {}", drawn.svg);
     }
 
@@ -528,7 +528,7 @@ return <div>{{Array.from({{ length: {n} }}, (_, i) =>
 
     fn keyed_request(i: usize) -> DrawRequest {
         DrawRequest {
-            key: format!("k{i}"),
+            key: format!("k{i}@10x20"),
             width: 10.0,
             height: 20.0,
         }
@@ -645,7 +645,7 @@ return <div>{{Array.from({{ length: {n} }}, (_, i) =>
 
         write_fake_files(&d3_dir);
 
-        let still_named: Vec<String> = (100..figures).map(|i| format!("k{i}")).collect();
+        let still_named: Vec<String> = (100..figures).map(|i| format!("k{i}@10x20")).collect();
         assert_eq!(
             drain_keys(&running.drawn),
             still_named,
@@ -678,7 +678,7 @@ return <div>{{Array.from({{ length: {n} }}, (_, i) =>
 
         write_fake_files(&d3_dir);
 
-        let all: Vec<String> = (0..figures).map(|i| format!("k{i}")).collect();
+        let all: Vec<String> = (0..figures).map(|i| format!("k{i}@10x20")).collect();
         assert_eq!(
             drain_keys(&running.drawn),
             all,
@@ -744,6 +744,6 @@ return <div>{{Array.from({{ length: {MANY} }}, (_, i) =>
             "the thread keeps no memory of drawn keys, so asking for one again \
              draws it again",
         );
-        assert_eq!(again.key, "k0");
+        assert_eq!(again.key, "k0@10x20");
     }
 }

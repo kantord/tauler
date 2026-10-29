@@ -263,8 +263,9 @@ error that names them.
 
 ### Change the key when the drawing should change
 
-A figure whose key does not change is not drawn again until the layout file is saved:
-tauler does not run `draw` to see whether its output changed. Give the figure a new key when what it shows changes,
+A figure whose key does not change is not drawn again until the layout file is saved or
+its `width` or `height` changes: tauler does not run `draw` to see whether its output
+changed. Give the figure a new key when what it shows changes,
 and the simplest way to get one is to derive it from the data, as `LoadChart` does from its
 newest sample. A figure with no `key` fails with an error that names it.
 
