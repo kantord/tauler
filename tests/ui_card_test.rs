@@ -25,11 +25,13 @@ fn card_appends_extra_tw_classes() {
 }
 
 #[test]
-fn card_tw_override_is_appended_for_last_wins_resolution() {
-    // takumi applies declarations in order (last-wins), so py-[8px] after py-[10px] wins
+fn card_tw_override_replaces_the_conflicting_base_class() {
+    // takumi orders conflicting utilities by Tailwind's sort, not by position, so
+    // appending py-[8px] after py-[10px] would not decide which wins — the base
+    // class has to go.
     assert_eq!(
         eval_card(r#"<Card class="py-[8px]" />"#)["class"],
-        format!("{BASE_TW} py-[8px]"),
+        BASE_TW.replace("py-[10px]", "py-[8px]"),
     );
 }
 

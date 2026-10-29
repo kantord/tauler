@@ -42,9 +42,9 @@ mod tw_prop {
     use super::*;
 
     #[test]
-    fn tw_is_appended_after_base_foreground_class() {
+    fn tw_color_replaces_base_foreground_class() {
         let node = eval_icon(r#"<Icon name="md-home" class="text-red-500" />"#);
-        assert_eq!(node["class"], "text-foreground text-red-500");
+        assert_eq!(node["class"], "text-red-500");
     }
 
     #[test]

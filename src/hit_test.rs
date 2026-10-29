@@ -134,6 +134,7 @@ fn with_scene<R>(
         let context = TakumiRenderContext::builder()
             .fonts(global.fonts.snapshot_with_fallbacks(None))
             .images(Rc::new(global.images.clone()))
+            .resource_cache(Some(global.resource_cache.clone()))
             .sizing(
                 SizingContext::builder()
                     .viewport(
@@ -230,8 +231,12 @@ fn collect_paints<'a>(
     for bucket in context.in_paint_order() {
         for item in bucket {
             match &item.kind {
-                PaintItemKind::Node(paint) | PaintItemKind::Floats(paint) => out.push(paint),
+                PaintItemKind::Node(paint) => out.push(paint),
                 PaintItemKind::Context(child) => collect_paints(contexts, *child, out),
+                // A second paint of a table that is already listed as a `Node`. Pushing
+                // it again, after the cells, would put the table on top of its own
+                // cells and let its handler take their clicks.
+                PaintItemKind::CollapsedBorders(_) => {}
             }
         }
     }

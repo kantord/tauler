@@ -11,20 +11,20 @@
     <use href="#g1" x="77.3" y="36"/>
   </g>
   <g fill="#a1a1a1">
-    <use href="#g0" x="142.67" y="36"/>
-    <use href="#g6" x="152.86" y="36"/>
-    <use href="#g7" x="161.85" y="36"/>
-    <use href="#g6" x="171.73" y="36"/>
-    <use href="#g8" x="182.11" y="36"/>
-    <use href="#g0" x="193.89" y="36"/>
+    <use href="#g0" x="142.66" y="36"/>
+    <use href="#g6" x="152.85" y="36"/>
+    <use href="#g7" x="161.84" y="36"/>
+    <use href="#g6" x="171.72" y="36"/>
+    <use href="#g8" x="182.1" y="36"/>
+    <use href="#g0" x="193.88" y="36"/>
   </g>
   <g fill="#a1a1a1">
     <use href="#g8" x="265.33" y="36"/>
-    <use href="#g9" x="277.11" y="36"/>
-    <use href="#g6" x="287.32" y="36"/>
+    <use href="#g9" x="277.1" y="36"/>
+    <use href="#g6" x="287.31" y="36"/>
     <use href="#g4" x="297.7" y="36"/>
-    <use href="#g10" x="302.01" y="36"/>
-    <use href="#g1" x="316.54" y="36"/>
+    <use href="#g10" x="302" y="36"/>
+    <use href="#g1" x="316.53" y="36"/>
   </g>
   <path d="M16 73h368v1h-368Z" fill="#fff" fill-opacity=".102"/>
   <g fill="#fafafa">
@@ -35,13 +35,13 @@
     <use href="#g14" x="52.29" y="65"/>
   </g>
   <g fill="#00c950">
-    <use href="#g15" x="142.67" y="65"/>
-    <use href="#g16" x="148.6" y="65"/>
-    <use href="#g11" x="157.98" y="65"/>
-    <use href="#g11" x="167.35" y="65"/>
-    <use href="#g13" x="176.73" y="65"/>
-    <use href="#g11" x="180.54" y="65"/>
-    <use href="#g12" x="189.92" y="65"/>
+    <use href="#g15" x="142.66" y="65"/>
+    <use href="#g16" x="148.59" y="65"/>
+    <use href="#g11" x="157.97" y="65"/>
+    <use href="#g11" x="167.34" y="65"/>
+    <use href="#g13" x="176.72" y="65"/>
+    <use href="#g11" x="180.53" y="65"/>
+    <use href="#g12" x="189.91" y="65"/>
   </g>
   <g fill="#fafafa">
     <use href="#g17" x="265.33" y="65"/>
