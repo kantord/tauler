@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.0](https://github.com/kantord/tauler/compare/tauler-v0.8.0...tauler-v0.9.0) - 2026-10-29
+
+### Added
+
+- accept any JSON value as a D3Figure key ([#716](https://github.com/kantord/tauler/pull/716))
+
+### Fixed
+
+- *(deps)* update rust crate minijinja to v3.0.4 ([#717](https://github.com/kantord/tauler/pull/717))
+- *(deps)* update takumi crates ([#708](https://github.com/kantord/tauler/pull/708))
+- draw figures against the inputs of the Tick that requested them ([#715](https://github.com/kantord/tauler/pull/715))
+
 ## [0.8.0](https://github.com/kantord/tauler/compare/tauler-v0.7.2...tauler-v0.8.0) - 2026-10-29
 
 ### Fixed
