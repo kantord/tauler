@@ -24,7 +24,7 @@
 //!    (which bounds what it keeps pending), and a figure whose key changed shows
 //!    its previous key's Picture meanwhile (`picture::set_fallback`).
 //! 3. **Draw runtime** ([`draw`]). Its own thread evaluates the same layout file
-//!    against the bar's Stream values and `globals`, finds the figure by key in
+//!    against the inputs of the eval that requested it, finds the figure by key in
 //!    *its own* tree (keeping each key's latest `registerFigure`, and those made
 //!    while the module loaded, for as long as the key is in that tree), runs `draw(svg, d3)` against an empty `<svg>` in a linkedom
 //!    document, and sends the markup back, pinging the loop's notifier.
@@ -79,8 +79,9 @@
 //!
 //! - **A third answer to module-scope code.** The layout file is evaluated in three
 //!   runtimes (ADR 0034 accepted two), so nondeterministic module-scope code can
-//!   give the Draw runtime a different tree. A key the Draw runtime's latest eval
-//!   does not have is logged and not drawn.
+//!   give the Draw runtime a different tree, even from the same inputs. A key the
+//!   Draw runtime's tree does not have is not drawn, and is warned about once per
+//!   layout load (later misses log at debug).
 //! - **First rasterization on the Render worker** — see [`crate::render::picture`].
 
 pub mod assets;

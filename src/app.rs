@@ -384,22 +384,23 @@ impl Figures {
         }
     }
 
-    /// Ask the runtime for every figure in `calls` not asked for yet, and show
-    /// each changed figure's previous Picture until its own arrives.
+    /// Ask the runtime for every figure in `out` not asked for yet, drawn with
+    /// `out`'s inputs, and show each changed figure's previous Picture until its
+    /// own arrives.
     ///
     /// Plans nothing while there is no runtime: [`App::spawn_draw_runtime`]
     /// plans the latest eval itself, once [`Self::requests`] knows about the
     /// new runtime.
-    fn request(&mut self, calls: &[tauler::jsx::FigureCall]) {
+    fn request(&mut self, out: &tauler::jsx::EvalOutput) {
         let Some(runtime) = &self.runtime else { return };
-        let plan = self.requests.plan(calls);
+        let plan = self.requests.plan(&out.figure_calls);
         for (key, from) in &plan.fallbacks {
             tauler::render::picture::set_fallback(key, from);
         }
         // Only with something to draw, so an unchanged Tick never wakes the
         // runtime; the named keys ride along and bound what it keeps pending.
         if !plan.draw.is_empty() {
-            runtime.request(self.requests.named(), plan.draw);
+            runtime.request(self.requests.named(), plan.draw, Arc::clone(&out.inputs));
         }
     }
 
@@ -1015,7 +1016,7 @@ impl App {
         trace: Option<Trace>,
     ) -> bool {
         self.last_eval = Some(out.clone());
-        self.figures.request(&out.figure_calls);
+        self.figures.request(out);
         self.reconcile_eval(out, trace)
     }
 
@@ -1039,6 +1040,7 @@ impl App {
             stream_calls: out.stream_calls.clone(),
             module_calls: out.module_calls.clone(),
             figure_calls: out.figure_calls.clone(),
+            inputs: out.inputs.clone(),
         };
         let (dpr, dpi, sw, sh) = (
             self.dpr,
@@ -1179,18 +1181,17 @@ impl App {
     /// context and whether or not the layout has a D3Figure: the runtime builds
     /// its evaluator on its first request and loads d3 on its first draw, so an
     /// idle one costs a parked thread.
+    ///
+    /// `ctx` is not part of an eval's [`tauler::jsx::EvalInputs`]: the render,
+    /// reconciler and Draw runtimes are all built from the same `ctx` together,
+    /// so a future `ctx` refresh must reach all of them at once.
     fn spawn_draw_runtime(&mut self, source: &str, layout_path: &std::path::Path, theme: &Theme) {
-        let Some(globals) = self.jsx_evaluator.as_ref().map(|e| e.globals_handle()) else {
-            return;
-        };
         self.figures.runtime = None;
         self.figures.generation += 1;
         self.figures.runtime = Some(tauler::d3_figure::draw::DrawRuntime::spawn(
             source.to_string(),
             jsx_ctx_with_theme(&self.jsx_ctx, theme),
             Some(layout_path.to_path_buf()),
-            Arc::clone(&self.stream_values),
-            globals,
             self.package_context(),
             self.figures.drawn_tx.clone(),
             self.figures.notifier.clone(),
@@ -1198,7 +1199,7 @@ impl App {
         ));
         self.figures.requests.after_reload();
         if let Some(out) = &self.last_eval {
-            self.figures.request(&out.figure_calls);
+            self.figures.request(out);
         }
     }
 
@@ -1769,6 +1770,7 @@ mod tests {
             stream_calls: vec![],
             module_calls: vec![],
             figure_calls: vec![],
+            inputs: Default::default(),
         }
     }
 
