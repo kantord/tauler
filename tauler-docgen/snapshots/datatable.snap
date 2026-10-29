@@ -2,4 +2,4 @@
 source: tauler-docgen/src/main.rs
 expression: svg_hash(&bytes)
 ---
-e79a2056e100470e  (10433 bytes)
+8f8be1a56bad6869  (10438 bytes)

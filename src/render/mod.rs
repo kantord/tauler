@@ -24,6 +24,8 @@ use takumi::prelude::{
     FontResource, Fonts, GenericFamily, ImageSource, Node, RenderOptions, SvgOptions, Viewport,
 };
 use takumi::{render, render_svg};
+use takumi_core::resources::glyph_cache::set_glyph_cache_max_bytes;
+use takumi_core::resources::image::{ImageCacheMode, ResourceCache};
 
 pub mod cache;
 pub mod picture;
@@ -43,6 +45,10 @@ pub struct RenderContext {
     pub fonts: Fonts,
     /// Pre-decoded images keyed by the `src` a node references them by.
     pub images: HashMap<Arc<str>, ImageSource>,
+    /// Decoded `data:` images and SVG rasters, kept across renders so an image a
+    /// layout draws every tick is decoded once. Clones share one store, so the
+    /// copy-on-write of a reload keeps what was already decoded.
+    pub resource_cache: ResourceCache,
 }
 
 /// Behind an `Arc` so a render can take a snapshot and let go of the lock: the
@@ -50,11 +56,19 @@ pub struct RenderContext {
 /// the length of a render would put one back in the other's way. Mutation is
 /// copy-on-write ([`Arc::make_mut`]), so a reload cannot pull the context out
 /// from under a render already using it.
+/// Caps a cached mask at 2 MiB: a frame about 680×2880 physical pixels.
+const GLYPH_CACHE_MAX_BYTES: usize = 64 << 20;
+
 static GLOBAL_CTX: OnceLock<RwLock<Arc<RenderContext>>> = OnceLock::new();
 
 /// Initialize the global rendering context. Must be called once at startup.
 /// Loads fonts into the context before storing it.
 pub fn init_global_ctx(font_config: FontConfig) {
+    // takumi reuses a rounded box's mask only when it fits in a 32nd of this budget,
+    // and the 8 MiB default leaves that at 256 KiB — less than a full-height
+    // workspace frame, which would then be re-rasterized on every render. Read once,
+    // by the first render, so it has to be set before one.
+    set_glyph_cache_max_bytes(GLYPH_CACHE_MAX_BYTES);
     let mut ctx = RenderContext::default();
     rebuild_font_context(&mut ctx, &font_config);
     GLOBAL_CTX.set(RwLock::new(Arc::new(ctx))).ok();
@@ -227,6 +241,7 @@ fn frame_options<'a>(
     RenderOptions::builder()
         .fonts(&ctx.fonts)
         .images(images)
+        .resource_cache(ctx.resource_cache.clone())
         .viewport(Viewport::new((Some(width), Some(height))).with_device_pixel_ratio(dpr))
         .node(node)
         .build()
@@ -514,7 +529,13 @@ fn preload_layout_images_impl(layout: &serde_json::Value, global: &mut RenderCon
             continue;
         }
         if let Ok(bytes) = std::fs::read(&src) {
-            if let Ok(image) = ImageSource::from_bytes(&bytes) {
+            // Through the cache rather than `ImageSource::from_bytes`: an SVG decoded
+            // without one has nowhere to keep its rasters, so it re-rasterizes on
+            // every render.
+            if let Ok(image) = global
+                .resource_cache
+                .get_or_decode(&bytes, ImageCacheMode::Auto)
+            {
                 global.images.insert(src.into(), image);
             }
         }
