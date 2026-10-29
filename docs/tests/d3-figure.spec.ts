@@ -243,3 +243,75 @@ test('figures still on screen are not evicted from the cache and drawn again', a
 
   expect(result).toEqual({ afterFirst: 70, stillAll: true, afterSecond: 70 })
 })
+
+test('a D3Figure with an object key names the same picture as on a desktop', async ({
+  page,
+}) => {
+  await page.goto('/docs/component-reference/')
+
+  const srcs = await page.evaluate(async () => {
+    // @ts-expect-error — /tauler/*.js is a build product astro check never sees
+    const { boot, Mount } = await import('/tauler/runtime.js')
+    await boot('/tauler/tauler_web_bg.wasm')
+
+    const el = document.createElement('div')
+    document.body.append(el)
+    const D3Figure = (globalThis as any).D3Figure
+
+    try {
+      const figures = [{ a: 1 }, { a: 2 }].map((key) =>
+        D3Figure({
+          key,
+          width: 40,
+          height: 20,
+          draw: (svg: any) => svg.append('circle').attr('r', 3),
+        }),
+      )
+      new Mount(el, () => ({ type: 'dom', children: figures })).tick()
+      return figures.map((figure: any) => figure.src as string)
+    } catch (error) {
+      return { error: String(error) }
+    }
+  })
+
+  expect(Array.isArray(srcs), JSON.stringify(srcs)).toBe(true)
+  const [first, second] = srcs as string[]
+  // The literal the desktop's Rust test pins: the first 16 hex chars of sha256('{"a":1}').
+  expect(first.endsWith('json-015abd7f5cc57a2d@40x20'), first).toBe(true)
+  expect(second).not.toBe(first)
+})
+
+test('draw receives its picture name in a page', async ({ page }) => {
+  await page.goto('/docs/component-reference/')
+
+  const texts = await page.evaluate(async () => {
+    // @ts-expect-error — /tauler/*.js is a build product astro check never sees
+    const { boot, Mount } = await import('/tauler/runtime.js')
+    await boot('/tauler/tauler_web_bg.wasm')
+
+    const el = document.createElement('div')
+    document.body.append(el)
+    const D3Figure = (globalThis as any).D3Figure
+
+    // Two figures in one DOM: ids derived from the name, such as Plot's clip-path, must differ.
+    const figures = [{ a: 1 }, 'k1'].map((key) =>
+      D3Figure({
+        key,
+        width: 40,
+        height: 20,
+        draw: (svg: any, _d3: any, { name }: { name: string }) =>
+          svg.append('text').text(name),
+      }),
+    )
+    new Mount(el, () => ({ type: 'dom', children: figures })).tick()
+
+    const deadline = Date.now() + 5_000
+    while (el.querySelectorAll('svg text').length < 2) {
+      if (Date.now() > deadline) return { error: 'the drawings never arrived' }
+      await new Promise((resolve) => setTimeout(resolve, 50))
+    }
+    return Array.from(el.querySelectorAll('svg text'), (text) => text.textContent)
+  })
+
+  expect(texts).toEqual(['json-015abd7f5cc57a2d@40x20', 'k1@40x20'])
+})

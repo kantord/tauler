@@ -326,7 +326,11 @@ pub const JSX_GLOBALS_JS: &str = r#"
     // keeps. `key` is how tauler tells that nothing changed and skips the
     // redraw, so it is required; so are a numeric width and height, the size
     // it is drawn at. The Picture's name is the key plus that size, appended
-    // last (`cpu@248x100`), so a resized figure names a new Picture.
+    // last (`cpu@248x100`), so a resized figure names a new Picture. An
+    // object/array key is first replaced by `json-` and 16 hex digits of the
+    // sha256 of its JSON (`__tauler_sha256`, which every QuickJS runtime and
+    // the page provide); a primitive key stays `String(key)`. `draw` gets that
+    // name as `{ name }`, for ids that must differ per figure.
     globalThis.D3Figure = ({ key, width, height, draw }) => {
         if (key === undefined || key === null || key === "") {
             throw new Error("<D3Figure> needs a key: it is how tauler tells that nothing changed and skips the redraw");
@@ -335,7 +339,40 @@ pub const JSX_GLOBALS_JS: &str = r#"
         if (!isSize(width) || !isSize(height)) {
             throw new Error("<D3Figure> needs a numeric width and height (numbers greater than 0, not strings): it is the size the figure is drawn at");
         }
-        const name = String(key) + "@" + width + "x" + height;
+        // The key must survive JSON unchanged, or two different keys could hash
+        // the same: refuse anything JSON drops or mangles, naming where it is.
+        // `ancestors` holds only the objects above `v`, so a value reached twice
+        // without a cycle is fine. Arrays are walked by index so holes show up.
+        const checkKey = (v, path, ancestors) => {
+            const lossy = (what) => new Error("<D3Figure> key can't hold " + what + " (at " + path + "): it is hashed as JSON, which would drop or change it");
+            if (v === null || typeof v === "string" || typeof v === "boolean") return;
+            if (typeof v === "number") {
+                if (!Number.isFinite(v)) throw lossy(String(v));
+                return;
+            }
+            if (typeof v !== "object") throw lossy(v === undefined ? "undefined" : "a " + typeof v);
+            const proto = Object.getPrototypeOf(v);
+            if (proto !== Object.prototype && proto !== Array.prototype && proto !== null) {
+                throw lossy("a " + ((proto && proto.constructor && proto.constructor.name) || "non-plain object"));
+            }
+            if (ancestors.includes(v)) throw lossy("a cycle");
+            const inner = [...ancestors, v];
+            if (Array.isArray(v)) {
+                for (let i = 0; i < v.length; i++) checkKey(v[i], path + "[" + i + "]", inner);
+            } else {
+                for (const k of Object.keys(v)) {
+                    const step = /^[A-Za-z_$][\w$]*$/.test(k) ? "." + k : "[" + JSON.stringify(k) + "]";
+                    checkKey(v[k], path + step, inner);
+                }
+            }
+        };
+        checkKey(key, "key", []);
+        // An object/array key is named by a hash of its JSON, since `String()`
+        // gives every object the same `[object Object]`.
+        const keyName = typeof key === "object"
+            ? "json-" + __tauler_sha256(JSON.stringify(key)).slice(0, 16)
+            : String(key);
+        const name = keyName + "@" + width + "x" + height;
         registerFigure(name, width, height, draw);
         return { type: "img", src: "tauler:picture/" + name, style: { width, height } };
     };

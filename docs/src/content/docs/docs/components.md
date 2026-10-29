@@ -250,13 +250,17 @@ const load = useJSONStream("/bin/sh", `
 
 | prop | type | description |
 |---|---|---|
-| `key` | string or number | names this drawing; see below |
+| `key` | string, number, boolean, or a JSON object or array | names this drawing; see below |
 | `width` | number | width in logical pixels |
 | `height` | number | height in logical pixels |
-| `draw` | `(svg, d3) => void` | draws into `svg` |
+| `draw` | `(svg, d3, { name }) => void` | draws into `svg` |
 
 `svg` is a d3 selection of an `<svg>` with that `width` and `height`, a `viewBox` of
 `0 0 width height` and `font-family: sans-serif`. `d3` is d3 7.9.0.
+
+`name` is the name tauler gives this drawing. It is different for each key and size, so use
+it for ids inside the drawing, such as a clip-path's. A page has a single DOM, so two
+figures that both use a fixed id such as `"clip"` can take each other's.
 
 `width` and `height` must be numbers greater than 0. A string such as `"248"` fails with an
 error that names them.
@@ -272,6 +276,27 @@ newest sample. A figure with no `key` fails with an error that names it.
 A key must follow from what the render sees: the data, the streams and the globals. A key
 built from `Math.random()`, `Date.now()` or state kept
 at module scope is not drawn on the desktop, and tauler logs a warning.
+
+A key can also be an object or an array. tauler names it by a hash of its JSON, so you can
+pass the figure's inputs directly:
+
+```jsx
+<D3Figure key={{ samples, theme }} width={240} height={80} draw={...} />
+```
+
+Key order matters, because `JSON.stringify` writes keys in the order they were added:
+`{ a: 1, b: 2 }` and `{ b: 2, a: 1 }` are two drawings. A key that holds a function,
+`undefined`, a symbol, `NaN`, `Infinity` or `-Infinity`, a `BigInt`, a cycle, a `Date`, an
+array hole, or an object that is not plain (a `Map`, a `Set`, a class instance) fails with an
+error that names where in the key it is. JSON would drop or change such a value, so two
+different keys could name the same drawing.
+
+An object key costs one `JSON.stringify` per tick, on the desktop twice: once in the bar and
+once where the figure is drawn. For 500 rows of 3 fields, that is about 0.8 ms per figure.
+For large data, a string key you make yourself, such as the newest timestamp, is cheaper.
+
+The key is the only thing tauler compares. A `draw` that reads anything not in the key still
+draws a stale picture when that thing changes.
 
 ### What a slow drawing looks like
 

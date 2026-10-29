@@ -50,6 +50,18 @@ pub fn use_string_stream(bin: String, script: Option<String>) -> String {
 #[wasm_bindgen(js_name = taulerRegisterModule)]
 pub fn register_module(_bin: String, _props: JsValue) {}
 
+/// `globalThis.__tauler_sha256`: the lowercase hex sha256 of `text`'s UTF-8 bytes. Synchronous
+/// because the shared globals name a D3Figure's object key with it mid-render, where
+/// `crypto.subtle`'s promise cannot be awaited.
+#[wasm_bindgen(js_name = taulerSha256)]
+pub fn sha256(text: &str) -> String {
+    use sha2::{Digest, Sha256};
+    Sha256::digest(text.as_bytes())
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect()
+}
+
 /// `globalThis.__tauler_theme_color`, behind the shared `themeColor` global — the same Rust
 /// QuickJS calls. The colours are the Mount's `ctx.theme` ([`theme_ctx`]).
 #[wasm_bindgen(js_name = taulerThemeColor)]

@@ -6448,6 +6448,7 @@ dependencies = [
  "serde-wasm-bindgen",
  "serde_json",
  "serde_yaml",
+ "sha2",
  "tauler-ui-macro",
  "thiserror 2.0.21",
  "wasm-bindgen",

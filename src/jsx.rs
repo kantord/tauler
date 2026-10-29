@@ -805,7 +805,8 @@ enum Effects {
 /// D3Figure built at module scope registers too: the figures Map
 /// `registerFigure` fills (latest registration per key), the never-
 /// firing timers (SPEC in `d3_figure/mod.rs`), and the function
-/// [`JsxEvaluator::draw_figure`] calls.
+/// [`JsxEvaluator::draw_figure`] calls, which hands `draw` the Picture's name
+/// as a third argument, `{ name }`.
 ///
 /// A draw that was interrupted leaves its half-built `<svg>` in the body, so
 /// every draw empties the body first.
@@ -831,7 +832,7 @@ const DRAW_RUNTIME_JS: &str = r#"
             .attr("height", h)
             .attr("viewBox", `0 0 ${w} ${h}`)
             .attr("font-family", "sans-serif");
-        figure.draw(svg, d3);
+        figure.draw(svg, d3, { name: key });
         const markup = svg.node().outerHTML;
         svg.remove();
         return markup;
@@ -1198,6 +1199,15 @@ impl JsxEvaluator {
                 qjs_ctx.globals().set(
                     "warn",
                     rquickjs::Function::new(qjs_ctx.clone(), warn_js_fn)?,
+                )?;
+                // Names an object/array `<D3Figure>` key's Picture (`JSX_GLOBALS_JS`).
+                // Outside the `Effects::Allowed` gate: it touches nothing, and the
+                // render runtime is the one that names Pictures.
+                qjs_ctx.globals().set(
+                    "__tauler_sha256",
+                    rquickjs::Function::new(qjs_ctx.clone(), |text: String| {
+                        crate::d3_figure::assets::sha256_hex(text.as_bytes())
+                    })?,
                 )?;
                 qjs_ctx.globals().set(
                     "__tauler_theme_color",
@@ -2165,12 +2175,12 @@ return <div><D3Figure width={248} height={100} draw={() => {}} /></div>;
         );
     }
 
-    /// The eval error of a layout with one `<D3Figure>` carrying `props`.
-    fn d3_figure_eval_error(props: &str) -> String {
+    /// The eval error of a layout with one `<D3Figure>` carrying exactly `props`.
+    fn d3_figure_with_props_eval_error(props: &str) -> String {
         JsxEvaluator::new(
             &format!(
                 r#"export default function render() {{
-return <div><D3Figure key="k" {props} draw={{() => {{}}}} /></div>;
+return <div><D3Figure {props} draw={{() => {{}}}} /></div>;
 }}"#
             ),
             serde_json::Value::Null,
@@ -2181,6 +2191,16 @@ return <div><D3Figure key="k" {props} draw={{() => {{}}}} /></div>;
         .err()
         .unwrap_or_else(|| panic!("a D3Figure with {props} must fail the eval"))
         .to_string()
+    }
+
+    /// The eval error of a layout with one `<D3Figure key="k">` carrying `props`.
+    fn d3_figure_eval_error(props: &str) -> String {
+        d3_figure_with_props_eval_error(&format!(r#"key="k" {props}"#))
+    }
+
+    /// The eval error of a layout with one `<D3Figure>` keyed by `key_expr`.
+    fn d3_figure_key_eval_error(key_expr: &str) -> String {
+        d3_figure_with_props_eval_error(&format!("key={{{key_expr}}} width={{1}} height={{2}}"))
     }
 
     #[test]
@@ -2291,6 +2311,83 @@ return <span>{useStringStream("/bin/sh", "a")}</span>;
         let out = evaluator.eval(&streams).unwrap();
 
         assert!(out.inputs.stream_values.is_empty());
+    }
+
+    #[test]
+    fn object_keys_name_their_pictures_by_a_hash_of_their_json() {
+        // `JsxEvaluator::new` is the render runtime, with effects denied: the
+        // hash helper must be there too, not only behind `Effects::Allowed`.
+        let out = eval(
+            r#"export default function render() {
+return <div>
+  <D3Figure key={{a: 1}} width={10} height={20} draw={() => {}} />
+  <D3Figure key={{a: 2}} width={10} height={20} draw={() => {}} />
+</div>;
+}"#,
+        );
+        // The first 16 hex chars of sha256('{"a":1}') and sha256('{"a":2}').
+        let names = ["json-015abd7f5cc57a2d@10x20", "json-7e8059f495589fcd@10x20"];
+        let keys: Vec<&str> = out.figure_calls.iter().map(|c| c.key.as_str()).collect();
+        assert_eq!(keys, names, "got: {}", out.layout);
+        for (i, name) in names.iter().enumerate() {
+            assert_eq!(
+                out.layout["children"][i]["src"],
+                format!("{}{name}", crate::render::picture::PICTURE_SRC_PREFIX),
+                "got: {}",
+                out.layout
+            );
+        }
+    }
+
+    #[test]
+    fn a_boolean_key_keeps_its_string_name() {
+        let out = eval(
+            r#"export default function render() {
+return <div><D3Figure key={true} width={1} height={2} draw={() => {}} /></div>;
+}"#,
+        );
+        assert_eq!(
+            out.figure_calls,
+            vec![FigureCall {
+                key: "true@1x2".into(),
+                width: 1.0,
+                height: 2.0
+            }]
+        );
+    }
+
+    #[rstest::rstest]
+    #[case::function("{f: () => 1}", "key.f")]
+    #[case::undefined("{u: undefined}", "key.u")]
+    #[case::symbol("{s: Symbol()}", "key.s")]
+    #[case::nan("{n: NaN}", "key.n")]
+    #[case::infinity("{i: Infinity}", "key.i")]
+    #[case::negative_infinity("{i: -Infinity}", "key.i")]
+    #[case::bigint("{b: 1n}", "key.b")]
+    #[case::nested_date("{rows: [{t: 1}, {t: new Date(0)}]}", "key.rows[1].t")]
+    #[case::array_hole("[1,,2]", "key[1]")]
+    #[case::map("{m: new Map()}", "key.m")]
+    #[case::set("{s: new Set()}", "key.s")]
+    #[case::class_instance("{c: new (class C {})()}", "key.c")]
+    #[case::cycle("(() => { const o = {}; o.self = o; return o; })()", "key.self")]
+    #[case::top_level_nan("NaN", "key")]
+    fn a_key_holding_a_lossy_value_fails_naming_its_path(#[case] key: &str, #[case] path: &str) {
+        let err = d3_figure_key_eval_error(key);
+        assert!(
+            err.contains("<D3Figure>") && err.contains(path),
+            "a key JSON would drop or mangle must be refused at {path}, got: {err}"
+        );
+    }
+
+    #[test]
+    fn a_null_prototype_object_key_is_accepted() {
+        let out = eval(
+            r#"export default function render() {
+return <div><D3Figure key={Object.assign(Object.create(null), {a: 1})} width={10} height={20} draw={() => {}} /></div>;
+}"#,
+        );
+        let keys: Vec<&str> = out.figure_calls.iter().map(|c| c.key.as_str()).collect();
+        assert_eq!(keys, ["json-015abd7f5cc57a2d@10x20"], "got: {}", out.layout);
     }
 
     #[test]
@@ -3382,6 +3479,35 @@ return <div><D3Figure key={"k" + useStringStream("/bin/sh", "a")} width={10} hei
         assert!(svg.contains("<svg"), "got: {svg}");
         assert!(svg.contains(r#"width="10""#), "got: {svg}");
         assert!(svg.contains(r#"height="20""#), "got: {svg}");
+        assert!(svg.contains(r#"<circle r="3""#), "got: {svg}");
+    }
+
+    #[test]
+    fn draw_receives_its_pictures_name() {
+        let (evaluator, _dir) = ready_draw_evaluator(&one_figure_with_draw(
+            r#"(svg, d3, { name }) => svg.attr("data-name", name)"#,
+        ));
+
+        let svg = evaluator
+            .draw_figure("k@10x20", 10.0, 20.0, GENEROUS_LIMIT)
+            .expect("the figure should draw");
+
+        assert!(svg.contains(r#"data-name="k@10x20""#), "got: {svg}");
+    }
+
+    #[test]
+    fn an_object_key_draws_under_the_name_the_render_runtime_gave_it() {
+        let source = r#"export default function render() {
+return <div><D3Figure key={{rows: [1, 2]}} width={10} height={20}
+  draw={(svg) => svg.append("circle").attr("r", 3)} /></div>;
+}"#;
+        let name = eval(source).figure_calls[0].key.clone();
+        let (evaluator, _dir) = ready_draw_evaluator(source);
+
+        let svg = evaluator
+            .draw_figure(&name, 10.0, 20.0, GENEROUS_LIMIT)
+            .unwrap_or_else(|e| panic!("{name} should draw in the draw runtime, got: {e}"));
+
         assert!(svg.contains(r#"<circle r="3""#), "got: {svg}");
     }
 
