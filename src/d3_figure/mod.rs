@@ -15,7 +15,12 @@
 //!    runtime ignores, so `draw` never runs on the loop — and returns
 //!    `<img src="tauler:picture/<key>@<width>x<height>">` at the given size: the
 //!    Picture's name is the key plus the size, so a resized figure names a new
-//!    Picture. From here on "key" means that name. The eval reads one
+//!    Picture. A string, number or boolean key is `String(key)`; an object or
+//!    array key is `json-` plus the first 16 hex digits of the sha256 of its
+//!    `JSON.stringify` (`__tauler_sha256`, registered in every runtime), after
+//!    the global has thrown on anything JSON would drop or change, naming its
+//!    path. A whole key that is a function, symbol, `BigInt` or non-plain
+//!    object throws too. From here on "key" means that name. The eval reads one
 //!    [`crate::jsx::FigureCall`] per such `<img>` back from its tree, in document
 //!    order — from the tree, not from the calls, because an element built at
 //!    module scope calls `D3Figure` once, before any eval.
@@ -26,8 +31,10 @@
 //! 3. **Draw runtime** ([`draw`]). Its own thread evaluates the same layout file
 //!    against the inputs of the eval that requested it, finds the figure by key in
 //!    *its own* tree (keeping each key's latest `registerFigure`, and those made
-//!    while the module loaded, for as long as the key is in that tree), runs `draw(svg, d3)` against an empty `<svg>` in a linkedom
-//!    document, and sends the markup back, pinging the loop's notifier.
+//!    while the module loaded, for as long as the key is in that tree), runs
+//!    `draw(svg, d3, { name })` — `name` being that key — against an empty
+//!    `<svg>` in a linkedom document, and sends the markup back, pinging the
+//!    loop's notifier.
 //! 4. **Loop.** Each arrival from the current Draw runtime is stored as its
 //!    key's Picture ([`crate::render::picture`]), and Pictures no figure names
 //!    any more are dropped.

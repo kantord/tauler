@@ -1,6 +1,6 @@
 //! The Draw runtime: a thread that turns a [`DrawRequest`] into SVG markup by
-//! running the matching `<D3Figure>`'s `draw(svg, d3)` in a QuickJS runtime of
-//! its own, and sends the result back as [`Drawn`] (ADR 0044).
+//! running the matching `<D3Figure>`'s `draw(svg, d3, { name })` in a QuickJS
+//! runtime of its own, and sends the result back as [`Drawn`] (ADR 0044).
 //!
 //! Built the way the reconciler thread is (`units::Reconciler`, ADR 0034): it
 //! loads the same layout file and evaluates it with the inputs of the eval that

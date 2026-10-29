@@ -109,6 +109,9 @@ export function boot(wasmUrl) {
     globalThis.registerFigure = (key, width, height, draw) =>
       figures.set(key, { width, height, draw })
     globalThis.__tauler_theme_color = wasm.taulerThemeColor
+    // Synchronous, unlike `crypto.subtle`: the shared `D3Figure` global hashes an
+    // object key mid-render to name its Picture, as QuickJS does on the desktop.
+    globalThis.__tauler_sha256 = wasm.taulerSha256
     globalThis.__esto_h = estoH
     globalThis.Fragment = { [ESTO_FRAGMENT]: true }
 
@@ -237,7 +240,8 @@ export class Mount {
       // The same root attributes the desktop's draw runtime gives its svg (`jsx.rs`), so
       // one `draw` produces the same figure in both places.
       svg.setAttribute('font-family', 'sans-serif')
-      draw(d3.select(svg), d3)
+      // `key` is the Picture's resolved name, the same `{ name }` the desktop passes.
+      draw(d3.select(svg), d3, { name: key })
       const markup = svg.outerHTML
 
       this.#pictures.set(key, markup)

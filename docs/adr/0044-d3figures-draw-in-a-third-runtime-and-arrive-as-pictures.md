@@ -96,3 +96,48 @@ With the inputs fixed, a deterministic render names the same keys in both runtim
 debug line that used to treat it as expected; later ones stay at debug. The limit is per
 load, not per key: a key built from `Date.now` or a counter is new on every eval, and a
 per-key limit would warn on every draw round.
+
+## Amendment: an object key names its Picture by hash
+
+`String(key)` gave every object key the same name, `[object Object]`, so figures with
+different object keys silently shared one Picture, and an author whose natural key was the
+figure's inputs had to turn them into a string by hand. So a key may now be any JSON value.
+A string, number or boolean keeps its name, `String(key)`, unchanged. An object or array is
+named `json-<first 16 hex digits of sha256(JSON.stringify(key))>`, and the size follows as
+before: `json-…@<width>x<height>`. `JSON.stringify` follows insertion order, so key order
+is part of the name.
+
+An object or array key that holds a value JSON would represent lossily throws, naming the
+path of the bad value: a function, `undefined`, a symbol, `NaN`, `±Infinity`, a `BigInt`, a
+cycle, a `Date`, an array hole, or an object whose prototype is not `Object.prototype`,
+`Array.prototype` or null. A silent drop would be the stale-Picture bug in a new form: two
+keys that differ only in what JSON drops would name one Picture. A whole key that is a
+function, a symbol, a `BigInt`, a `Date` or another non-plain object throws the same way,
+because `String(key)` would collide too: every `Symbol()` is `Symbol()`, two closures with
+the same source share a name whatever they capture, and every `Map` is `[object Map]`. A
+number key is never stringified as JSON, so `key={NaN}` is still named
+`NaN@<width>x<height>`.
+
+Unit keys are not checked this way. The desktop compares a Unit key by the text
+`JSON.stringify` gives, so it changes the same values silently, and it leaves out an Item
+whose key it cannot write at all. Units are older and native-only, and their keys are
+strings in every example and test in this repository, so they keep that behaviour.
+`units.md` says where the two kinds of key differ.
+
+`draw` now receives the resolved name as a third argument, `draw(svg, d3, { name })`, on the
+desktop and in a page. Ids derived from the key — a clip-path's, say — must differ per
+figure in the page's single DOM, and the name is the one string that already does.
+
+The hash is an internal helper, `__tauler_sha256`, registered in every QuickJS runtime
+outside the `Effects::Allowed` gate, since the render runtime is the one that names
+Pictures. The page gets it as a synchronous wasm export installed before the shared globals
+run, because `crypto.subtle` is asynchronous and the name is needed mid-render.
+
+The cost is one walk of the key for lossy values plus one `JSON.stringify` per Tick, in both
+the render runtime and the Draw runtime — measured through `JsxEvaluator::eval` at about
+1.5 ms per figure per runtime for 500 rows × 3 fields, a little over half of it the walk; the
+hash itself adds close to nothing. A hand-made string key stays the cheaper choice for large data.
+
+Rejected: a public `hash()` global, which would be a new public global the page must also
+provide, and a `memo()` helper, which would keep state across Ticks against ADR
+[0007](0007-every-tick-re-renders-everything.md).

@@ -326,7 +326,11 @@ pub const JSX_GLOBALS_JS: &str = r#"
     // keeps. `key` is how tauler tells that nothing changed and skips the
     // redraw, so it is required; so are a numeric width and height, the size
     // it is drawn at. The Picture's name is the key plus that size, appended
-    // last (`cpu@248x100`), so a resized figure names a new Picture.
+    // last (`cpu@248x100`), so a resized figure names a new Picture. An
+    // object/array key is first replaced by `json-` and 16 hex digits of the
+    // sha256 of its JSON (`__tauler_sha256`, which every QuickJS runtime and
+    // the page provide); a primitive key stays `String(key)`. `draw` gets that
+    // name as `{ name }`, for ids that must differ per figure.
     globalThis.D3Figure = ({ key, width, height, draw }) => {
         if (key === undefined || key === null || key === "") {
             throw new Error("<D3Figure> needs a key: it is how tauler tells that nothing changed and skips the redraw");
@@ -335,7 +339,59 @@ pub const JSX_GLOBALS_JS: &str = r#"
         if (!isSize(width) || !isSize(height)) {
             throw new Error("<D3Figure> needs a numeric width and height (numbers greater than 0, not strings): it is the size the figure is drawn at");
         }
-        const name = String(key) + "@" + width + "x" + height;
+        // The key must survive JSON unchanged, or two different keys could hash
+        // the same: refuse anything JSON drops or mangles, naming where it is.
+        // `ancestors` holds only the objects above `v`, so a value reached twice
+        // without a cycle is fine. Arrays are walked by index so holes show up.
+        // A valid key is the normal case and is walked every Tick, so the walk
+        // allocates nothing per node: it returns null, or what is wrong plus the
+        // steps to it, which are only filled in as a failure unwinds.
+        const hasOwn = Object.prototype.hasOwnProperty;
+        const findLossy = (v, ancestors) => {
+            if (v === null || typeof v === "string" || typeof v === "boolean") return null;
+            if (typeof v === "number") return Number.isFinite(v) ? null : { what: String(v), steps: [] };
+            if (typeof v !== "object") return { what: v === undefined ? "undefined" : "a " + typeof v, steps: [] };
+            const proto = Object.getPrototypeOf(v);
+            if (proto !== Object.prototype && proto !== Array.prototype && proto !== null) {
+                return { what: "a " + ((proto && proto.constructor && proto.constructor.name) || "non-plain object"), steps: [] };
+            }
+            if (ancestors.includes(v)) return { what: "a cycle", steps: [] };
+            ancestors.push(v);
+            let found = null;
+            if (Array.isArray(v)) {
+                for (let i = 0; i < v.length && !found; i++) {
+                    found = findLossy(v[i], ancestors);
+                    if (found) found.steps.unshift(i);
+                }
+            } else {
+                for (const k in v) {
+                    if (!hasOwn.call(v, k)) continue;
+                    found = findLossy(v[k], ancestors);
+                    if (found) { found.steps.unshift(k); break; }
+                }
+            }
+            ancestors.pop();
+            return found;
+        };
+        // A number key (even NaN) keeps `String(key)`, which loses nothing, so
+        // it is not walked. Every other key is: a string or boolean passes, and
+        // a whole-key function, symbol, bigint or non-plain object is refused,
+        // since `String()` names every `Symbol()` alike, two closures by their
+        // source alone and every `Map` as `[object Map]`.
+        const lossy = typeof key === "number" ? null : findLossy(key, []);
+        if (lossy) {
+            const path = lossy.steps.map((s) =>
+                typeof s === "number" ? "[" + s + "]"
+                : /^[A-Za-z_$][\w$]*$/.test(s) ? "." + s
+                : "[" + JSON.stringify(s) + "]").join("");
+            throw new Error("<D3Figure> key can't hold " + lossy.what + " (at key" + path + "): it is hashed as JSON, which would drop or change it");
+        }
+        // An object/array key is named by a hash of its JSON, since `String()`
+        // gives every object the same `[object Object]`.
+        const keyName = typeof key === "object"
+            ? "json-" + __tauler_sha256(JSON.stringify(key)).slice(0, 16)
+            : String(key);
+        const name = keyName + "@" + width + "x" + height;
         registerFigure(name, width, height, draw);
         return { type: "img", src: "tauler:picture/" + name, style: { width, height } };
     };

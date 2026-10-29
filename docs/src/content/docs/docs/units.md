@@ -37,6 +37,14 @@ nothing.
 `key` names an Item. Two Items with the same key are the same thing. The key is what lets
 tauler match what it sees in the world against what you asked for.
 
+A key can be any JSON value: a string, a number, or an object or array, compared by its JSON.
+A Unit key is not checked the way a [`<D3Figure>` key](/docs/components/#d3figure) is.
+Whatever `JSON.stringify` does to the value is what tauler compares, so `NaN` and `Infinity`
+become `null`, a `Date` becomes its date string, a `Map` or a `Set` becomes `{}`, and a
+function or `undefined` inside an object is left out. A key that `JSON.stringify` cannot
+write at all (`undefined`, a function, a `BigInt`, a cycle) leaves that Item out of the
+Sweep, with nothing logged.
+
 `value` is what decides "changed". If the observed value and the declared value differ, the
 Item needs an `update`. Return whatever you want to compare — a string, a number, an
 object.
