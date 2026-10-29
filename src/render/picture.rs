@@ -1,5 +1,6 @@
 //! Pictures: the pixels of one D3Figure's drawing ([`crate::d3_figure`]), kept
-//! under the figure's key and placed with `<img src="tauler:picture/<key>">`.
+//! under its name — the figure's key plus its size, `cpu@248x100` — and placed
+//! with `<img src="tauler:picture/<name>">`. Below, "key" means that name.
 //! Layout files never name a Picture; they write `<D3Figure>`.
 //!
 //! The registry holds each Picture's SVG markup, as the Draw runtime sent it, with
@@ -275,9 +276,9 @@ pub(super) fn bind(
     if named.is_empty() {
         return;
     }
-    // Binding is by src, so one key holds one bitmap per frame. If the same key
-    // is shown at two sizes, keep the largest; takumi scales it into the
-    // smaller box, which is good enough.
+    // Binding is by src, so one key holds one bitmap per frame. A D3Figure's key
+    // carries its size, so its `<img>`s agree; for any other `<img>` naming the
+    // same key at two sizes, keep the largest and let takumi scale it down.
     let mut wanted: HashMap<&str, (u32, u32, f64, f64)> = HashMap::new();
     for Named { key, size } in named {
         let Some((w, h)) = size else { continue };

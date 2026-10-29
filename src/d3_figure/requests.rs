@@ -7,8 +7,10 @@
 //! its eval reads from the tree. When the structure changes, a figure may show a neighbour's
 //! Picture until its own arrives — briefly wrong, never blank.
 //!
-//! A key is requested once while it stays in consecutive plans: a key names one
-//! Picture for good, so drawing it again could only produce the same thing. A key
+//! A key here is the Picture's name — the figure's key plus its size (see
+//! [`FigureCall`]). It is requested once while it stays in consecutive plans: it
+//! names one Picture for good, so drawing it again could only produce the same
+//! thing. A resized figure names a new key, so it is drawn again. A key
 //! that leaves the plan and comes back is requested again, because its Picture
 //! was dropped meanwhile (the loop keeps only the Pictures of [`Requests::named`]
 //! keys and the fallbacks they show). So all this remembers is the latest plan's
@@ -120,6 +122,74 @@ mod tests {
 
     fn keys(plan: &Plan) -> Vec<&str> {
         plan.draw.iter().map(|r| r.key.as_str()).collect()
+    }
+
+    /// The `figure_calls` of one eval by `evaluator`, with the `/bin/sh` stream of
+    /// `script` reading `value` — the path the loop takes from an eval to a plan.
+    fn figure_calls_with(
+        evaluator: &crate::jsx::JsxEvaluator,
+        script: &str,
+        value: &str,
+    ) -> Vec<FigureCall> {
+        let streams = std::collections::HashMap::from([(
+            ("/bin/sh".to_string(), Some(script.to_string())),
+            value.to_string(),
+        )]);
+        evaluator.eval(&streams).unwrap().figure_calls
+    }
+
+    fn sizes(plan: &Plan) -> Vec<(f64, f64)> {
+        plan.draw.iter().map(|r| (r.width, r.height)).collect()
+    }
+
+    #[test]
+    fn a_figure_whose_size_changed_but_key_did_not_is_drawn_again_at_the_new_size() {
+        let evaluator = crate::jsx::JsxEvaluator::new(
+            r#"export default function render() {
+const width = Number(useStringStream("/bin/sh", "width") || 100);
+return <div><D3Figure key="cpu" width={width} height={50} draw={() => {}} /></div>;
+}"#,
+            serde_json::Value::Null,
+            None,
+        )
+        .unwrap();
+        let mut requests = Requests::new();
+        let first = requests.plan(&figure_calls_with(&evaluator, "width", "100"));
+        assert_eq!(
+            sizes(&first),
+            [(100.0, 50.0)],
+            "precondition: the first plan draws the figure at its first size"
+        );
+
+        let second = requests.plan(&figure_calls_with(&evaluator, "width", "200"));
+        assert_eq!(
+            sizes(&second),
+            [(200.0, 50.0)],
+            "a Picture drawn at 100px wide cannot stand in for one 200px wide, \
+             so the resized figure must be drawn again, and only at its new size"
+        );
+    }
+
+    #[test]
+    fn one_key_shown_at_two_sizes_in_one_eval_is_drawn_once_per_size() {
+        let evaluator = crate::jsx::JsxEvaluator::new(
+            r#"export default function render() {
+return <div>
+  <D3Figure key="cpu" width={100} height={50} draw={() => {}} />
+  <D3Figure key="cpu" width={300} height={150} draw={() => {}} />
+</div>;
+}"#,
+            serde_json::Value::Null,
+            None,
+        )
+        .unwrap();
+        let mut requests = Requests::new();
+        let plan = requests.plan(&figure_calls_with(&evaluator, "unused", ""));
+        assert_eq!(
+            sizes(&plan),
+            [(100.0, 50.0), (300.0, 150.0)],
+            "each size needs a drawing of its own; one drawing cannot fill both"
+        );
     }
 
     #[test]

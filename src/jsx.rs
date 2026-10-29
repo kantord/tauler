@@ -58,6 +58,7 @@ pub struct EvalOutput {
 /// draw it at. Its `draw` function stays behind in the runtime that built it.
 #[derive(Debug, Clone, PartialEq)]
 pub struct FigureCall {
+    /// The Picture's name: the figure's key and size, `cpu@248x100`.
     pub key: String,
     pub width: f64,
     pub height: f64,
@@ -1991,7 +1992,10 @@ return <div><D3Figure key="cpu/1" width={248} height={100} draw={(svg, d3) => {}
         // on tauler): this is what holds it to the one the renderer binds.
         assert_eq!(
             img["src"],
-            format!("{}cpu/1", crate::render::picture::PICTURE_SRC_PREFIX),
+            format!(
+                "{}cpu/1@248x100",
+                crate::render::picture::PICTURE_SRC_PREFIX
+            ),
             "got: {layout}"
         );
         assert_eq!(img["style"]["width"], 248, "got: {layout}");
@@ -2003,7 +2007,7 @@ return <div><D3Figure key="cpu/1" width={248} height={100} draw={(svg, d3) => {}
         assert_eq!(
             eval(ONE_FIGURE).figure_calls,
             vec![FigureCall {
-                key: "cpu/1".into(),
+                key: "cpu/1@248x100".into(),
                 width: 248.0,
                 height: 100.0
             }]
@@ -2025,12 +2029,12 @@ return <div>
             calls,
             vec![
                 FigureCall {
-                    key: "a".into(),
+                    key: "a@10x20".into(),
                     width: 10.0,
                     height: 20.0
                 },
                 FigureCall {
-                    key: "b".into(),
+                    key: "b@30x40".into(),
                     width: 30.0,
                     height: 40.0
                 },
@@ -2047,7 +2051,7 @@ return <div>
         assert_eq!(
             second,
             vec![FigureCall {
-                key: "cpu/1".into(),
+                key: "cpu/1@248x100".into(),
                 width: 248.0,
                 height: 100.0
             }],
@@ -2069,7 +2073,7 @@ return <div>{chart}</div>;
             JsxEvaluator::new(MODULE_SCOPE_FIGURE, serde_json::Value::Null, None).unwrap();
         let streams = std::collections::HashMap::new();
         let expected = vec![FigureCall {
-            key: "k".into(),
+            key: "k@10x20".into(),
             width: 10.0,
             height: 20.0,
         }];
@@ -2098,7 +2102,7 @@ return <div><div>{late}</div>{early}</div>;
         let keys: Vec<&str> = calls.iter().map(|c| c.key.as_str()).collect();
         assert_eq!(
             keys,
-            ["b", "a"],
+            ["b@30x40", "a@10x20"],
             "document order, not the order the elements were built in"
         );
     }
@@ -2188,12 +2192,12 @@ return <div><D3Figure key={42} width={1} height={2} draw={() => {}} /></div>;
         );
         assert_eq!(
             out.layout["children"][0]["src"],
-            format!("{}42", crate::render::picture::PICTURE_SRC_PREFIX)
+            format!("{}42@1x2", crate::render::picture::PICTURE_SRC_PREFIX)
         );
         assert_eq!(
             out.figure_calls,
             vec![FigureCall {
-                key: "42".into(),
+                key: "42@1x2".into(),
                 width: 1.0,
                 height: 2.0
             }]
@@ -3230,7 +3234,7 @@ return <div><D3Figure key="k" width={{10}} height={{20}} draw={{{draw}}} /></div
         ));
 
         let svg = evaluator
-            .draw_figure("k", 10.0, 20.0, GENEROUS_LIMIT)
+            .draw_figure("k@10x20", 10.0, 20.0, GENEROUS_LIMIT)
             .expect("the figure should draw");
 
         assert!(svg.contains("<svg"), "got: {svg}");
@@ -3248,7 +3252,7 @@ return <div><D3Figure key="k" width={{10}} height={{20}} draw={{{draw}}} /></div
             .expect("the layout should evaluate again");
 
         let svg = evaluator
-            .draw_figure("k", 10.0, 20.0, GENEROUS_LIMIT)
+            .draw_figure("k@10x20", 10.0, 20.0, GENEROUS_LIMIT)
             .expect("a figure built at module scope is in the tree, so it should draw");
 
         assert!(svg.contains(r#"<circle r="3""#), "got: {svg}");
@@ -3269,7 +3273,7 @@ return <div>{n === 2 ? null : chart}</div>;
         evaluator.eval(&streams).expect("second eval: hidden");
         assert!(
             matches!(
-                evaluator.draw_figure("k", 10.0, 20.0, GENEROUS_LIMIT),
+                evaluator.draw_figure("k@10x20", 10.0, 20.0, GENEROUS_LIMIT),
                 Err(DrawError::UnknownKey(_))
             ),
             "precondition: a hidden figure is not in the latest eval"
@@ -3277,7 +3281,7 @@ return <div>{n === 2 ? null : chart}</div>;
         evaluator.eval(&streams).expect("third eval: shown again");
 
         let svg = evaluator
-            .draw_figure("k", 10.0, 20.0, GENEROUS_LIMIT)
+            .draw_figure("k@10x20", 10.0, 20.0, GENEROUS_LIMIT)
             .expect("the element was built once, at load, and is back in the tree");
 
         assert!(svg.contains(r#"<circle r="3""#), "got: {svg}");
@@ -3296,14 +3300,14 @@ return <div><D3Figure key={"k" + n} width={10} height={20} draw={() => {}} /></d
             .eval(&std::collections::HashMap::new())
             .expect("the layout should evaluate again");
 
-        let result = evaluator.draw_figure("k1", 10.0, 20.0, GENEROUS_LIMIT);
+        let result = evaluator.draw_figure("k1@10x20", 10.0, 20.0, GENEROUS_LIMIT);
 
         assert!(
             matches!(&result, Err(DrawError::UnknownKey(_))),
             "k1 left the tree, so it is not drawn; got: {result:?}"
         );
         assert!(evaluator
-            .draw_figure("k2", 10.0, 20.0, GENEROUS_LIMIT)
+            .draw_figure("k2@10x20", 10.0, 20.0, GENEROUS_LIMIT)
             .is_ok());
     }
 
@@ -3325,7 +3329,7 @@ return <div><D3Figure key={"k" + n} width={10} height={20} draw={() => {}} /></d
             r#"() => { throw new Error("bad draw"); }"#,
         ));
 
-        let result = evaluator.draw_figure("k", 10.0, 20.0, GENEROUS_LIMIT);
+        let result = evaluator.draw_figure("k@10x20", 10.0, 20.0, GENEROUS_LIMIT);
 
         match result {
             Err(DrawError::Threw(message)) => {
@@ -3347,8 +3351,12 @@ return <div>
         );
 
         let started = std::time::Instant::now();
-        let result =
-            evaluator.draw_figure("loop", 10.0, 20.0, std::time::Duration::from_millis(200));
+        let result = evaluator.draw_figure(
+            "loop@10x20",
+            10.0,
+            20.0,
+            std::time::Duration::from_millis(200),
+        );
         let elapsed = started.elapsed();
 
         assert_eq!(result, Err(DrawError::TimedOut));
@@ -3357,7 +3365,7 @@ return <div>
             "a 200 ms limit took {elapsed:?}"
         );
         let svg = evaluator
-            .draw_figure("ok", 10.0, 20.0, GENEROUS_LIMIT)
+            .draw_figure("ok@10x20", 10.0, 20.0, GENEROUS_LIMIT)
             .expect("the runtime should keep drawing after an interrupted draw");
         assert!(svg.contains(r#"<circle r="3""#), "got: {svg}");
     }
@@ -3377,7 +3385,7 @@ return <div>
         ));
 
         let svg = evaluator
-            .draw_figure("k", 10.0, 20.0, GENEROUS_LIMIT)
+            .draw_figure("k@10x20", 10.0, 20.0, GENEROUS_LIMIT)
             .expect("a draw that schedules timers should still draw");
 
         assert!(svg.contains(r#"<circle r="3""#), "got: {svg}");
@@ -3391,7 +3399,7 @@ return <div>
         ));
 
         let svg = evaluator
-            .draw_figure("k", 10.0, 20.0, GENEROUS_LIMIT)
+            .draw_figure("k@10x20", 10.0, 20.0, GENEROUS_LIMIT)
             .expect("the figure should draw");
 
         assert!(
@@ -3416,7 +3424,7 @@ return <div>
             .eval(&std::collections::HashMap::new())
             .expect("the layout should evaluate");
 
-        let result = evaluator.draw_figure("k", 10.0, 20.0, GENEROUS_LIMIT);
+        let result = evaluator.draw_figure("k@10x20", 10.0, 20.0, GENEROUS_LIMIT);
 
         assert_eq!(result, Err(DrawError::NotReady));
     }
@@ -3453,7 +3461,7 @@ return <div>
             .expect("the layout should evaluate");
 
         let svg = evaluator
-            .draw_figure("k", 10.0, 20.0, GENEROUS_LIMIT)
+            .draw_figure("k@10x20", 10.0, 20.0, GENEROUS_LIMIT)
             .expect("the axis should draw");
 
         assert!(svg.contains(r#"class="tick""#), "got: {svg}");

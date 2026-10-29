@@ -77,9 +77,10 @@ and what the cache keeps.
 _Avoid_: buffer, bitmap, image
 
 **Picture**:
-The pixels of one D3Figure's drawing on the desktop, named by that figure's key and kept
-so that every later Frame can show them without drawing again. A key names one Picture for
-good: a figure that should look different must say so with a new key.
+The pixels of one D3Figure's drawing on the desktop, named by that figure's key and size
+and kept so that every later Frame can show them without drawing again. A key names one
+Picture per size for good: a figure that should look different at the same size must say
+so with a new key.
 _Avoid_: image (any `<img>` source), bitmap, buffer (both name a Frame's pixels), drawing
 (the act), canvas
 

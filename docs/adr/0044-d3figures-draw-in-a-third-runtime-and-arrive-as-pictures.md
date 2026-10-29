@@ -52,3 +52,14 @@ check that found them piling up measured ~100 KB/s for a figure redrawn every se
 [0026](0026-the-web-renderer-emits-dom.md), [0027](0027-the-browsers-own-engine-runs-the-layout-file.md))
 the same `draw` runs in the page's realm against a real `<svg>`, placed inline; there is no
 Draw runtime and no Picture.
+
+## Amendment: the size is part of a Picture's name
+
+The key alone let an author get the identity wrong without noticing: a figure resized with
+an unchanged key was never drawn again, and its old drawing was scaled into the new box. So
+tauler adds what it already knows. The `D3Figure` global names the Picture
+`<key>@<width>x<height>` and registers `draw` under that name, so a resized figure names a
+new Picture and is drawn again, showing the old size's Picture meanwhile, and one key at two
+sizes is two Pictures. Everything downstream already keyed on the name and did not change.
+"A key names one Picture for good" now reads "a key names one Picture per size for good";
+the key is still required and still the author's to change when the drawing should.
