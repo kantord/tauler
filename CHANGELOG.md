@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.0](https://github.com/kantord/tauler/compare/tauler-v0.7.2...tauler-v0.8.0) - 2026-10-29
+
+### Fixed
+
+- *(deps)* update takumi crates ([#712](https://github.com/kantord/tauler/pull/712))
+- redraw d3 figures when only their size changes ([#711](https://github.com/kantord/tauler/pull/711))
+- *(deps)* update patch updates ([#709](https://github.com/kantord/tauler/pull/709))
+- *(deps)* update rust crate notify to v8.2.1 ([#702](https://github.com/kantord/tauler/pull/702))
+
 ## [0.7.2](https://github.com/kantord/tauler/compare/tauler-v0.7.1...tauler-v0.7.2) - 2026-10-27
 
 ### Fixed

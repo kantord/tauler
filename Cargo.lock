@@ -6395,7 +6395,7 @@ dependencies = [
 
 [[package]]
 name = "tauler"
-version = "0.7.2"
+version = "0.8.0"
 dependencies = [
  "accesskit",
  "accesskit_unix",
@@ -6443,7 +6443,7 @@ dependencies = [
 
 [[package]]
 name = "tauler-accumulate"
-version = "0.7.2"
+version = "0.8.0"
 dependencies = [
  "clap",
  "serde_json",
@@ -6451,7 +6451,7 @@ dependencies = [
 
 [[package]]
 name = "tauler-aerospace"
-version = "0.7.2"
+version = "0.8.0"
 dependencies = [
  "serde_json",
  "tracing",
@@ -6460,7 +6460,7 @@ dependencies = [
 
 [[package]]
 name = "tauler-configgen"
-version = "0.7.2"
+version = "0.8.0"
 dependencies = [
  "jsonschema",
  "minijinja",
@@ -6473,7 +6473,7 @@ dependencies = [
 
 [[package]]
 name = "tauler-core"
-version = "0.3.9"
+version = "0.3.10"
 dependencies = [
  "color",
  "optative",
@@ -6493,7 +6493,7 @@ dependencies = [
 
 [[package]]
 name = "tauler-docgen"
-version = "0.7.2"
+version = "0.8.0"
 dependencies = [
  "clap",
  "insta",
@@ -6504,7 +6504,7 @@ dependencies = [
 
 [[package]]
 name = "tauler-e2e"
-version = "0.7.2"
+version = "0.8.0"
 dependencies = [
  "anyhow",
  "image",
@@ -6515,7 +6515,7 @@ dependencies = [
 
 [[package]]
 name = "tauler-i3"
-version = "0.7.2"
+version = "0.8.0"
 dependencies = [
  "serde_json",
  "swayipc",
@@ -6525,7 +6525,7 @@ dependencies = [
 
 [[package]]
 name = "tauler-notify"
-version = "0.7.2"
+version = "0.8.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -6535,7 +6535,7 @@ dependencies = [
 
 [[package]]
 name = "tauler-screenshot"
-version = "0.7.2"
+version = "0.8.0"
 dependencies = [
  "clap",
  "serde_json",
@@ -6554,7 +6554,7 @@ dependencies = [
 
 [[package]]
 name = "tauler-web"
-version = "0.7.2"
+version = "0.8.0"
 dependencies = [
  "tauler-core",
  "wasm-bindgen",
@@ -6562,7 +6562,7 @@ dependencies = [
 
 [[package]]
 name = "tauler-web-e2e"
-version = "0.7.2"
+version = "0.8.0"
 dependencies = [
  "anyhow",
  "headless_chrome",
@@ -6575,7 +6575,7 @@ dependencies = [
 
 [[package]]
 name = "taulerbox"
-version = "0.7.2"
+version = "0.8.0"
 dependencies = [
  "anyhow",
  "clap",
