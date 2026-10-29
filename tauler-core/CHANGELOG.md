@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.10](https://github.com/kantord/tauler/compare/tauler-core-v0.3.9...tauler-core-v0.3.10) - 2026-10-29
+
+### Fixed
+
+- *(deps)* update takumi crates ([#712](https://github.com/kantord/tauler/pull/712))
+- redraw d3 figures when only their size changes ([#711](https://github.com/kantord/tauler/pull/711))
+
 ## [0.3.9](https://github.com/kantord/tauler/compare/tauler-core-v0.3.8...tauler-core-v0.3.9) - 2026-10-25
 
 ### Added
