@@ -64,17 +64,17 @@ rquickjs = { version = "=0.14.0", features = ["loader"] }
 rquickjs-serde = "=0.8.0"
 # `svg-backend` is `tauler-screenshot`'s output path (`render_svg`); the bar itself
 # rasterizes through the default raster backend.
-takumi = { version = "=2.18.1", features = ["svg-backend"] }
+takumi = { version = "=2.18.2", features = ["svg-backend"] }
 # For `ImageBuffer`, the only way to build an `ImageSource` from raw pixels: the
 # `takumi` facade re-exports it only behind its semver-exempt `unstable` feature.
-takumi-core = { version = "=0.33.0", default-features = false }
+takumi-core = { version = "=0.34.0", default-features = false }
 # Not used directly: these pin `takumi`'s own backends. Their later patch releases
 # moved to a newer `takumi-core`, so a lockfile-less resolve (`cargo install`,
 # release-plz's semver check) gets two `takumi-core` copies and fails to compile.
 # Keep these pinned in lockstep with `takumi` on every bump; dropping them reopens
 # the two-`takumi-core` break for every already-published release.
-takumi-raster = { version = "=0.5.10", default-features = false }
-takumi-svg = { version = "=0.3.32", default-features = false }
+takumi-raster = { version = "=0.5.11", default-features = false }
+takumi-svg = { version = "=0.3.33", default-features = false }
 x11rb = { version = "=0.14.0", features = ["randr"] }
 serde_json = "=1.0.154"
 serde = { version = "=1.0.229", features = ["derive"] }
