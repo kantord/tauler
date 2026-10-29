@@ -5,7 +5,7 @@
 //! Built the way the reconciler thread is (`units::Reconciler`, ADR 0034): it
 //! loads the same layout file and evaluates it with the inputs of the eval that
 //! asked ([`crate::jsx::EvalInputs`]: the globals before that render and the
-//! Stream values it read), not with the bar's current ones. Each round
+//! Stream values), not with the bar's current ones. Each round
 //! evaluates once, with the newest batch's inputs: a pending key is always one
 //! the newest batch names, so that eval names every figure still pending. The
 //! loop spawns a new one on every layout load and drops the old one, which

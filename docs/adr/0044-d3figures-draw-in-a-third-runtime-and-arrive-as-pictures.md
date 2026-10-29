@@ -74,7 +74,9 @@ measured it: a stream ticking every 50 ms against a ~200 ms draw missed between 
 the Draw runtime read them the render had already changed them.
 
 So each eval records what it ran with: an `Arc` snapshot of `globals` as they were before
-the render, and of only the Stream values it read. Draw requests carry it, and the Draw
+the render, and of every Stream value: not only the ones the render read, because a
+figure's `draw` runs against the same snapshot and may read others. A tree with no
+`<D3Figure>` keeps no Stream values, since nothing draws from it. Draw requests carry it, and the Draw
 runtime evaluates with the newest batch's snapshot, once per round. One snapshot is enough:
 a pending key is always one the newest batch names, so that eval names every pending key.
 The draw evaluator's `globals` are its own, filled from the snapshot and never written back.

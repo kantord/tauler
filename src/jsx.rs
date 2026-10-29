@@ -59,9 +59,9 @@ pub struct EvalOutput {
 /// The inputs an eval ran with, so the draw runtime can evaluate the same render
 /// again ([`JsxEvaluator::eval_inputs`]): `globals` as they were before the
 /// render, so a render that writes them does not change its own snapshot, and
-/// only the stream values it read (the keys in its `stream_calls`), which are
-/// all a deterministic render reads. `ctx` is not here: every runtime is built
-/// from the same one.
+/// every stream value, since a figure's `draw` may read streams the render did
+/// not. A tree with no `<D3Figure>` keeps no stream values, since nothing
+/// draws from its snapshot. `ctx` is not here: every runtime is built from the same one.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct EvalInputs {
     pub globals: serde_json::Map<String, serde_json::Value>,
@@ -1402,16 +1402,17 @@ impl JsxEvaluator {
                      __tauler_figures.set(k, __tauler_module_figures.get(k)); }}"
                 ))?;
             }
-            let stream_calls = self.calls.lock().unwrap().clone();
-            // Only the streams this render read: the rest cannot affect its output.
-            let stream_values = stream_calls
-                .iter()
-                .filter_map(|k| new_stream_values.get_key_value(k))
-                .map(|(k, v)| (k.clone(), v.clone()))
-                .collect();
+            // Every stream, not only the ones this render read: a figure's `draw`
+            // runs later against this snapshot and may read others. Nothing reads
+            // the snapshot of a tree with no figure, so that one stays empty.
+            let stream_values = if figure_calls.is_empty() {
+                HashMap::new()
+            } else {
+                new_stream_values.clone()
+            };
             Ok(EvalOutput {
                 layout,
-                stream_calls,
+                stream_calls: self.calls.lock().unwrap().clone(),
                 module_calls: self.module_calls.lock().unwrap().clone(),
                 figure_calls,
                 inputs: Arc::new(EvalInputs {
@@ -2243,11 +2244,11 @@ return <div><D3Figure key={42} width={1} height={2} draw={() => {}} /></div>;
     }
 
     #[test]
-    fn an_eval_records_the_globals_it_started_from_and_only_the_streams_it_read() {
+    fn an_eval_records_the_globals_it_started_from_and_every_stream() {
         let evaluator = JsxEvaluator::new(
             r#"export default function render() {
 globals.n = (globals.n ?? 0) + 1;
-return <span>{useStringStream("/bin/sh", "a")}</span>;
+return <div><D3Figure key={useStringStream("/bin/sh", "a")} width={1} height={1} draw={() => {}} /></div>;
 }"#,
             serde_json::Value::Null,
             None,
@@ -2255,7 +2256,7 @@ return <span>{useStringStream("/bin/sh", "a")}</span>;
         .unwrap();
         let a = ("/bin/sh".to_string(), Some("a".to_string()));
         let b = ("/bin/sh".to_string(), Some("b".to_string()));
-        let streams = HashMap::from([(a.clone(), "1".to_string()), (b, "unused".to_string())]);
+        let streams = HashMap::from([(a, "1".to_string()), (b, "unread".to_string())]);
 
         let first = evaluator.eval(&streams).unwrap();
         let second = evaluator.eval(&streams).unwrap();
@@ -2269,10 +2270,27 @@ return <span>{useStringStream("/bin/sh", "a")}</span>;
             serde_json::Value::Object(second.inputs.globals.clone()),
             serde_json::json!({ "n": 1 })
         );
-        assert_eq!(
-            second.inputs.stream_values,
-            HashMap::from([(a, "1".to_string())])
-        );
+        assert_eq!(second.inputs.stream_values, streams);
+    }
+
+    #[test]
+    fn an_eval_with_no_figure_keeps_no_stream_values() {
+        let evaluator = JsxEvaluator::new(
+            r#"export default function render() {
+return <span>{useStringStream("/bin/sh", "a")}</span>;
+}"#,
+            serde_json::Value::Null,
+            None,
+        )
+        .unwrap();
+        let streams = HashMap::from([(
+            ("/bin/sh".to_string(), Some("a".to_string())),
+            "1".to_string(),
+        )]);
+
+        let out = evaluator.eval(&streams).unwrap();
+
+        assert!(out.inputs.stream_values.is_empty());
     }
 
     #[test]
@@ -3319,6 +3337,36 @@ return <div><D3Figure key={"k" + globals.n + "/" + useStringStream("/bin/sh", "v
 
         assert_eq!(first.figure_calls, out.figure_calls);
         assert_eq!(second.figure_calls, out.figure_calls);
+    }
+
+    #[test]
+    fn a_stream_read_only_inside_draw_reaches_the_draw_runtime() {
+        let source = r#"export default function render() {
+return <div><D3Figure key={"k" + useStringStream("/bin/sh", "a")} width={10} height={20}
+  draw={(svg) => svg.append("text").attr("data-b", useStringStream("/bin/sh", "b"))} /></div>;
+}"#;
+        let streams = HashMap::from([
+            (
+                ("/bin/sh".to_string(), Some("a".to_string())),
+                "1".to_string(),
+            ),
+            (
+                ("/bin/sh".to_string(), Some("b".to_string())),
+                "B-VALUE".to_string(),
+            ),
+        ]);
+        let out = JsxEvaluator::new(source, serde_json::Value::Null, None)
+            .unwrap()
+            .eval(&streams)
+            .unwrap();
+        let (draw, _dir) = ready_draw_evaluator(source);
+        draw.eval_inputs(&out.inputs).unwrap();
+
+        let svg = draw
+            .draw_figure("k1@10x20", 10.0, 20.0, GENEROUS_LIMIT)
+            .expect("the figure should draw");
+
+        assert!(svg.contains(r#"data-b="B-VALUE""#), "got: {svg}");
     }
 
     #[test]
