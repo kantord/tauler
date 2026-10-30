@@ -18,6 +18,10 @@ use serde_json::Value;
 /// `layout::parse_root_node`). The flip side is that the rule is global — any
 /// node given a `type` prop becomes that type instead.
 ///
+/// Only the value it is given and, below that, `children` are walked. Every other prop is
+/// data and is left as written, even an object that happens to have `type` and `props`
+/// keys — a stream row or a library's descriptor passed as a prop is not a node.
+///
 /// Text needs no special case: a string child stays a string child, and the layout
 /// walker is what turns it into a text node (`docs/adr/0016`).
 ///
@@ -32,8 +36,8 @@ pub fn flatten_passthrough(value: Value) -> Value {
         Value::Object(mut map) => {
             let is_passthrough_node = map.contains_key("type") && map.contains_key("props");
             if !is_passthrough_node {
-                for (_, v) in map.iter_mut() {
-                    *v = flatten_passthrough(std::mem::take(v));
+                if let Some(children) = map.get_mut("children") {
+                    *children = flatten_passthrough(std::mem::take(children));
                 }
                 return Value::Object(map);
             }
@@ -58,5 +62,57 @@ pub fn flatten_passthrough(value: Value) -> Value {
             Value::Object(flat)
         }
         other => other,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    /// A prop value is data, not a node, even when it happens to have `type` and `props`
+    /// keys: a stream row or a library's descriptor passed as a prop must arrive as written.
+    #[test]
+    fn a_prop_shaped_like_a_node_is_left_untouched() {
+        let row = json!({ "type": "deploy", "props": { "env": "prod" }, "at": 17 });
+        let tree = json!({
+            "type": "div",
+            "data": row,
+            "rows": [row, row],
+            "deep": { "inner": { "x": row } },
+            "children": [],
+        });
+
+        let flat = flatten_passthrough(tree.clone());
+
+        assert_eq!(flat, tree);
+    }
+
+    /// `children` is still walked, at any depth, so a node that reached the tree without
+    /// passing through `h` is still flattened.
+    #[test]
+    fn children_are_still_flattened() {
+        let tree = json!({
+            "type": "div",
+            "children": [{
+                "type": "span",
+                "props": { "class": "x" },
+                "children": [{ "type": "b", "props": {}, "children": ["a"] }],
+            }],
+        });
+
+        let flat = flatten_passthrough(tree);
+
+        assert_eq!(
+            flat,
+            json!({
+                "type": "div",
+                "children": [{
+                    "type": "span",
+                    "class": "x",
+                    "children": [{ "type": "b", "children": ["a"] }],
+                }],
+            })
+        );
     }
 }

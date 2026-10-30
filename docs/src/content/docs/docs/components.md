@@ -327,6 +327,25 @@ const simulation = d3.forceSimulation(nodes)
 simulation.tick(300);
 ```
 
+### SVG in figures
+
+On the desktop, tauler draws the figure's SVG itself. Shapes, paths, groups, `<use>`,
+`<symbol>`, `<switch>`, `<image>`, text with `<tspan>` and `<textPath>`, linear and radial
+gradients, patterns, clip paths, masks, markers, filters and `<style>` rules all draw.
+`<foreignObject>` draws nothing. An `<image>` draws only from a `data:` URL; an `href` that
+names a file or a web address draws nothing.
+
+Text is drawn with the fonts the bar has: `sans-serif` (your `fonts.primary`, if you set
+one), `monospace`, and the families you registered in `fonts.primary` or `fonts.extra` (see
+[Fonts](/docs/elements/#fonts)). A `font-family` list is tried left to right. Text whose
+families are all unknown still draws, but in a fallback face, possibly not at the weight
+you asked for.
+
+End every `font-family` list with a generic family — `sans-serif`, `serif` or
+`monospace` — such as `"JetBrains Mono, monospace"`. The figure's root already sets
+`font-family: sans-serif`. On the desktop, `serif` gets the same fallback face as an unknown
+family, so prefer `sans-serif` or `monospace`.
+
 ### Text cannot be measured
 
 On the desktop, `getBBox`, `getComputedTextLength` and `getBoundingClientRect` measure
@@ -360,7 +379,7 @@ loads once it lands, like a [Package](/docs/packages/).
 
 On this site's live examples, `draw` runs against the page's real DOM and the drawing stays
 in the page as an inline `<svg>`. Text measurement works there. `import "d3"` at the top of
-a layout file does not work in a browser yet.
+a layout file works too, with the same d3 7.9.0.
 
 ## What has no kind
 

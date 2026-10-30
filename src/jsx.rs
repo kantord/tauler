@@ -867,6 +867,9 @@ impl JsxEvaluator {
     /// for the production call sites that actually construct a `PackageContext`
     /// (see ADR 0041), so a `@gh/...` import stays exactly as unresolvable as it
     /// always was for every existing test and call site that doesn't opt in.
+    ///
+    /// Public on purpose, so other crates' tests can evaluate layouts that import
+    /// Packages. It is not part of tauler's semver-stable API.
     pub fn new_with_packages(
         source: &str,
         ctx: serde_json::Value,
@@ -1757,6 +1760,22 @@ mod tests {
             "a type prop must win over the tag name"
         );
         assert_eq!(result["id"], "bg");
+    }
+
+    /// A prop value is data, even one shaped like a node: a row with `type` and `props`
+    /// keys passed as a prop reaches the tree as written, with every key it had.
+    #[test]
+    fn a_prop_shaped_like_a_node_reaches_the_tree_untouched() {
+        let result = eval(
+            r#"
+            const row = { type: "deploy", props: { env: "prod" }, at: 17 };
+            export default function render() { return <div data={row} rows={[row]} />; }
+            "#,
+        )
+        .layout;
+        let row = serde_json::json!({ "type": "deploy", "props": { "env": "prod" }, "at": 17 });
+        assert_eq!(result["data"], row);
+        assert_eq!(result["rows"][0], row);
     }
 
     /// A `type` prop wins over the tag for any tag, and the children survive it —
