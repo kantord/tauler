@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.0](https://github.com/kantord/tauler/compare/tauler-v0.9.0...tauler-v0.10.0) - 2026-10-30
+
+### Added
+
+- add measureText for exact text widths in layouts and figures ([#723](https://github.com/kantord/tauler/pull/723))
+- resolve import "d3" in pages; keep prop data intact ([#722](https://github.com/kantord/tauler/pull/722))
+
 ## [0.9.0](https://github.com/kantord/tauler/compare/tauler-v0.8.0...tauler-v0.9.0) - 2026-10-29
 
 ### Added
