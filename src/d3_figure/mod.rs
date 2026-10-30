@@ -74,8 +74,9 @@
 //!   otherwise throw. A Picture is drawn once — run a simulation to rest with
 //!   `.tick()`; a transition never plays.
 //! - linkedom has no layout engine, so `getBBox`, `getComputedTextLength` and
-//!   `getBoundingClientRect` measure nothing: d3 code that sizes labels by
-//!   measuring text works in a page, not on the desktop.
+//!   `getBoundingClientRect` measure nothing. `measureText` does, in every
+//!   runtime, with the fonts the bar draws with ([`crate::render::measure`],
+//!   ADR 0046), and in a page with the browser's: size labels with it.
 //! - What a `draw` costs is the author's business, because it is off the loop. A
 //!   60-node force layout takes ~390 ms in QuickJS (d3-force runs ~12× slower than
 //!   in Node); a line chart with axes, a few ms. d3 and linkedom load on the first

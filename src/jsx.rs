@@ -22,7 +22,7 @@
 //!
 //! Everything a layout file can reach is registered here — in `JSX_GLOBALS_JS` and in the
 //! setup below: `useStringStream`, `useJSONStream`, `useEvents`, `Module`, `I3Layout`,
-//! `Panel`, `themeColor`, `globals` and `ctx`. rquickjs grants nothing by default, so that
+//! `Panel`, `themeColor`, `measureText`, `globals` and `ctx`. rquickjs grants nothing by default, so that
 //! list is exhaustive by construction rather than by audit (ADR 0008).
 //!
 //! Each module also gets its own `import.meta.dirname`, `.filename` and `.url`: the
@@ -233,6 +233,28 @@ fn theme_color_js_fn(
     alpha: rquickjs::function::Opt<Option<f64>>,
 ) -> String {
     tauler_core::theme::resolver::theme_color(&colors, &token, alpha.0.flatten())
+}
+
+/// `__tauler_measure_text`, behind `measureText` (`JSX_GLOBALS_JS`), which checks the
+/// arguments and rounds the answer: `[width, ascent, descent]` in the bar's fonts.
+fn measure_text_js_fn(
+    ctx: rquickjs::Ctx<'_>,
+    text: String,
+    family: String,
+    size: f64,
+    weight: f64,
+    style: String,
+) -> rquickjs::Result<Vec<f64>> {
+    let font = crate::render::measure::TextFont {
+        family,
+        size,
+        weight,
+        style,
+    };
+    let m = crate::render::measure::measure_with_bar_fonts(&text, &font).ok_or_else(|| {
+        rquickjs::Exception::throw_message(&ctx, "measureText: no fonts are loaded yet")
+    })?;
+    Ok(vec![m.width, m.ascent, m.descent])
 }
 
 /// Dispatches a lifecycle hook, picking the batch spelling or the per-Item sugar
@@ -1211,6 +1233,14 @@ impl JsxEvaluator {
                     rquickjs::Function::new(qjs_ctx.clone(), |text: String| {
                         crate::d3_figure::assets::sha256_hex(text.as_bytes())
                     })?,
+                )?;
+                // Behind `measureText` (`JSX_GLOBALS_JS`). Outside the
+                // `Effects::Allowed` gate for the same reason: it is a pure
+                // function of the registered fonts (ADR 0046), and a chart lays
+                // out in whichever runtime builds it.
+                qjs_ctx.globals().set(
+                    "__tauler_measure_text",
+                    rquickjs::Function::new(qjs_ctx.clone(), measure_text_js_fn)?,
                 )?;
                 qjs_ctx.globals().set(
                     "__tauler_theme_color",
@@ -3784,5 +3814,119 @@ return <div>
             .expect("the axis should draw");
 
         assert!(svg.contains(r#"class="tick""#), "got: {svg}");
+    }
+
+    /// A layout file measuring `call` (a JS expression), in each of the three
+    /// runtimes that evaluate it: render, reconciler, Draw.
+    fn measured_in_every_runtime(call: &str) -> [serde_json::Value; 3] {
+        crate::init_global_ctx(crate::config::FontConfig::default());
+        let source = format!(
+            "export default function render() {{ return <div>{{JSON.stringify({call})}}</div>; }}"
+        );
+        let empty = std::collections::HashMap::new();
+        let text = |evaluator: JsxEvaluator| -> serde_json::Value {
+            let out = evaluator.eval(&empty).unwrap().layout;
+            serde_json::from_str(out["children"][0].as_str().unwrap()).unwrap()
+        };
+        [
+            text(JsxEvaluator::new(&source, serde_json::Value::Null, None).unwrap()),
+            text(
+                JsxEvaluator::new_reconciler(
+                    &source,
+                    serde_json::Value::Null,
+                    None,
+                    Default::default(),
+                )
+                .unwrap(),
+            ),
+            text(JsxEvaluator::new_draw(&source, serde_json::Value::Null, None, None).unwrap()),
+        ]
+    }
+
+    /// A chart compiles in the render runtime or the Draw runtime depending on
+    /// where it is built; it must lay out the same in both, so every runtime
+    /// measures, outside the effects gate, and gets the same answer.
+    #[test]
+    fn measure_text_gives_one_answer_in_every_runtime() {
+        let [render, reconciler, draw] = measured_in_every_runtime(
+            r#"measureText("Hello", { family: "sans-serif", size: 11 })"#,
+        );
+
+        assert!(render["width"].as_f64().unwrap() > 0.0, "got: {render}");
+        assert_eq!(render, reconciler);
+        assert_eq!(render, draw);
+    }
+
+    /// What the layout file sees is what the bar's fonts measure, to 1/64 px.
+    #[test]
+    fn measure_text_is_the_width_the_bars_fonts_give() {
+        let [render, ..] = measured_in_every_runtime(
+            r#"measureText("Requests per second", { family: "sans-serif", size: 11 })"#,
+        );
+        let expected = crate::render::with_global_ctx(|ctx| {
+            crate::render::measure::measure_text(
+                ctx,
+                "Requests per second",
+                &crate::render::measure::TextFont {
+                    family: "sans-serif".into(),
+                    size: 11.0,
+                    weight: 400.0,
+                    style: "normal".into(),
+                },
+            )
+        });
+
+        let width = render["width"].as_f64().unwrap();
+        assert!(
+            (width - expected.width).abs() < 1.0 / 64.0,
+            "{render} vs {expected:?}"
+        );
+        assert_eq!(
+            width * 64.0,
+            (width * 64.0).round(),
+            "rounded to 1/64 px: {width}"
+        );
+        assert!(render["ascent"].as_f64().unwrap() > 0.0, "got: {render}");
+        assert!(render["descent"].as_f64().unwrap() > 0.0, "got: {render}");
+    }
+
+    /// A family the host lacks is a configuration problem, not a bug in the
+    /// layout: it measures as the fallback drawing uses, and the bar stays up.
+    #[test]
+    fn measure_text_with_an_unknown_family_measures_the_fallback() {
+        let [render, ..] = measured_in_every_runtime(
+            r#"measureText("Hello", { family: "No Such Family", size: 11 })"#,
+        );
+        assert!(render["width"].as_f64().unwrap() > 0.0, "got: {render}");
+    }
+
+    /// The programmer's mistakes throw a `TypeError` that names the function.
+    #[rstest::rstest]
+    #[case::empty_family(r#"measureText("Hello", { family: "", size: 11 })"#)]
+    #[case::blank_family_list(r#"measureText("Hello", { family: " , ", size: 11 })"#)]
+    #[case::no_family(r#"measureText("Hello", { size: 11 })"#)]
+    #[case::no_options(r#"measureText("Hello")"#)]
+    #[case::zero_size(r#"measureText("Hello", { family: "sans-serif", size: 0 })"#)]
+    #[case::string_size(r#"measureText("Hello", { family: "sans-serif", size: "11" })"#)]
+    #[case::infinite_size(r#"measureText("Hello", { family: "sans-serif", size: Infinity })"#)]
+    #[case::number_text(r#"measureText(42, { family: "sans-serif", size: 11 })"#)]
+    fn measure_text_rejects_a_programmers_mistake_with_a_type_error(#[case] call: &str) {
+        let [render, ..] = measured_in_every_runtime(&format!(
+            r#"(() => {{ try {{ {call}; return "no error"; }} catch (e) {{ return [e.name, e.message]; }} }})()"#
+        ));
+        assert_eq!(render[0], "TypeError", "got: {render}");
+        assert!(
+            render[1].as_str().unwrap().contains("measureText"),
+            "got: {render}"
+        );
+    }
+
+    /// One line, as a canvas measures: a line break or a tab counts as a space.
+    #[test]
+    fn measure_text_measures_a_line_break_as_a_space() {
+        let [render, ..] = measured_in_every_runtime(
+            r#"[measureText("a\nb\tc", { family: "sans-serif", size: 11 }), measureText("a b c", { family: "sans-serif", size: 11 })]"#,
+        );
+        assert_eq!(render[0], render[1]);
     }
 }

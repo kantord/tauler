@@ -35,6 +35,35 @@ pub const JSX_GLOBALS_JS: &str = r#"
             String(token),
             alpha == null ? undefined : Number(alpha),
         );
+    // How wide `text` is drawn on one line, spaces kept and every tab or line break
+    // turned into a space as a canvas does, and how far the family's first face
+    // reaches above and below the baseline, in px rounded to 1/64. The measuring is
+    // the engine's own `__tauler_measure_text` (the bar's fonts on a desktop, the
+    // browser's in a page); the checks and the rounding are here, so both engines
+    // refuse and round alike. A family no font answers is not an error: the engine
+    // measures the fallback it would draw with.
+    globalThis.measureText = (text, options) => {
+        if (typeof text !== "string") {
+            throw new TypeError("measureText: text must be a string, got " + typeof text);
+        }
+        const { family, size, weight = 400, style = "normal" } = options ?? {};
+        if (typeof family !== "string" || !family.split(",").some((name) => name.trim() !== "")) {
+            throw new TypeError("measureText: family must name at least one font family, as CSS font-family does");
+        }
+        if (typeof size !== "number" || !Number.isFinite(size) || size <= 0) {
+            throw new TypeError("measureText: size must be a finite number of pixels greater than 0");
+        }
+        if (typeof weight !== "number" || !(weight >= 1 && weight <= 1000)) {
+            throw new TypeError("measureText: weight must be a number from 1 to 1000");
+        }
+        if (style !== "normal" && style !== "italic" && style !== "oblique") {
+            throw new TypeError('measureText: style must be "normal", "italic" or "oblique"');
+        }
+        const line = text.replace(/[\t\n\f\r]/g, " ");
+        const [width, ascent, descent] = __tauler_measure_text(line, family, size, weight, style);
+        const px = (v) => Math.round(v * 64) / 64;
+        return { width: px(width), ascent: px(ascent), descent: px(descent) };
+    };
     globalThis.useJSONStream = (bin, script) => {
         const str = useStringStream(bin, script);
         if (!str) return null;
