@@ -19,6 +19,9 @@ use std::sync::Arc;
 /// the shared [`fetch_manager::FetchManager`] that dedupes and notifies on cold
 /// misses. Threaded into [`crate::jsx::JsxEvaluator`] construction the same way
 /// `base_dir` already is — see ADR 0041.
+///
+/// Public on purpose: the example binaries (`examples/figures`, `d3_charts_tracer`,
+/// `weather_map_tracer`) and outside tests may use it. Not semver-stable.
 #[derive(Clone)]
 pub struct PackageContext {
     pub fetch_manager: Arc<fetch_manager::FetchManager>,

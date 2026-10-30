@@ -318,3 +318,43 @@ test('draw receives its picture name in a page', async ({ page }) => {
 
   expect(texts).toEqual(['json-015abd7f5cc57a2d@40x20', 'k1@40x20'])
 })
+
+test('a layout file that imports d3 at the top uses it in a page', async ({
+  page,
+}) => {
+  await page.goto('/docs/component-reference/')
+
+  const result = await page.evaluate(async () => {
+    // @ts-expect-error — /tauler/*.js is a build product astro check never sees
+    const { boot, Mount } = await import('/tauler/runtime.js')
+    await boot('/tauler/tauler_web_bg.wasm')
+
+    // A layout file as the page loads one: an ES module whose bare `"d3"` the page's
+    // import map resolves. d3 is used at module scope, outside any `draw`.
+    const layout = `
+      import * as d3 from 'd3'
+      import { scaleLinear } from 'd3'
+      const x = d3.scaleLinear().domain([0, 10]).range([0, 100])
+      export default () => ({
+        type: 'dom',
+        children: [
+          { type: 'span', children: [String(x(5)), ' ', String(scaleLinear === d3.scaleLinear)] },
+        ],
+      })
+    `
+    const url = URL.createObjectURL(
+      new Blob([layout], { type: 'text/javascript' }),
+    )
+    try {
+      const { default: render } = await import(url)
+      const el = document.createElement('div')
+      document.body.append(el)
+      new Mount(el, render).tick()
+      return el.querySelector('span')?.textContent ?? null
+    } catch (error) {
+      return { error: String(error) }
+    }
+  })
+
+  expect(result).toBe('50 true')
+})

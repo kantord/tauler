@@ -749,6 +749,7 @@ fn generate_web(
     fs::create_dir_all(&args.web_dir)?;
     web::write_ui_modules(&args.web_dir)?;
     web::write_constants(&args.web_dir)?;
+    web::write_d3_module(&args.web_dir)?;
 
     let runtime = workspace_root().join("tauler-web/js/runtime.js");
     fs::copy(&runtime, args.web_dir.join("runtime.js"))?;

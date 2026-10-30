@@ -148,7 +148,7 @@ pub fn parse_layout(value: &serde_json::Value) -> Result<Node, html::LayoutError
 ///
 /// `<surface type="panel">` and `<surface type="wallpaper">` are equivalent
 /// long-hand spellings: a `type` prop overrides the tag name during JSX
-/// flattening (see `jsx::flatten_passthrough`), so they arrive here already
+/// flattening (see `tauler_core::flatten::flatten_passthrough`), so they arrive here already
 /// indistinguishable from `<panel>` / `<wallpaper>`. A bare `<surface>` names no
 /// kind and is rejected rather than silently ignored.
 pub fn parse_root_node(root: &serde_json::Value) -> Result<Vec<SurfaceSpec>, String> {

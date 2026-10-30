@@ -2,9 +2,10 @@
 //!
 //! `h` hands back `{ type, props: {...}, children }` — nested, because a caller's props
 //! must not be able to collide with the wrapper's own `type` and `children` keys. Every
-//! consumer downstream of it wants the flat shape instead. This is the one step between,
-//! and it lives here rather than beside either engine because both engines need it: the
-//! QuickJS `h` shim calls it per node, and so does the browser's (ADR 0027).
+//! consumer downstream of it wants the flat shape instead. This is the whole-tree pass,
+//! run once at the end of `eval()` in `src/jsx.rs`. The per-node reshape is a different
+//! function: the JS `__tauler_flatten_node` in `globals.rs`, which both `h` shims call —
+//! QuickJS's in `src/jsx.rs` and the browser's in `tauler-web/js/runtime.js` (ADR 0027).
 
 use serde_json::Value;
 
@@ -18,22 +19,28 @@ use serde_json::Value;
 /// `layout::parse_root_node`). The flip side is that the rule is global — any
 /// node given a `type` prop becomes that type instead.
 ///
+/// Only the value it is given and, below that, `children` are walked. Every other prop is
+/// data and is left as written, even an object that happens to have `type` and `props`
+/// keys — a stream row or a library's descriptor passed as a prop is not a node.
+///
 /// Text needs no special case: a string child stays a string child, and the layout
 /// walker is what turns it into a text node (`docs/adr/0016`).
 ///
-/// Called per node by the `h` shim — a Rust-backed component consumes its `children` prop
-/// mid-render and needs the flat shape by then — and once more over the whole tree at the
-/// end of `eval()`. By then there is usually nothing left to do; it stays because "usually"
-/// is not "always", a node can reach the tree without passing through `h`, and the pass is
-/// idempotent.
+/// Its only caller is the whole-tree pass at the end of `eval()` in `src/jsx.rs`. The
+/// per-node reshape — a Rust-backed component consumes its `children` prop mid-render and
+/// needs the flat shape by then — is the JS `__tauler_flatten_node` in `globals.rs`, which
+/// both `h` shims call. It follows the same rule: prop values are copied as written, never
+/// walked. By the end of `eval()` there is usually nothing left to do; this pass stays
+/// because "usually" is not "always", a node can reach the tree without passing through
+/// `h`, and the pass is idempotent.
 pub fn flatten_passthrough(value: Value) -> Value {
     match value {
         Value::Array(items) => Value::Array(items.into_iter().map(flatten_passthrough).collect()),
         Value::Object(mut map) => {
             let is_passthrough_node = map.contains_key("type") && map.contains_key("props");
             if !is_passthrough_node {
-                for (_, v) in map.iter_mut() {
-                    *v = flatten_passthrough(std::mem::take(v));
+                if let Some(children) = map.get_mut("children") {
+                    *children = flatten_passthrough(std::mem::take(children));
                 }
                 return Value::Object(map);
             }
@@ -58,5 +65,57 @@ pub fn flatten_passthrough(value: Value) -> Value {
             Value::Object(flat)
         }
         other => other,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    /// A prop value is data, not a node, even when it happens to have `type` and `props`
+    /// keys: a stream row or a library's descriptor passed as a prop must arrive as written.
+    #[test]
+    fn a_prop_shaped_like_a_node_is_left_untouched() {
+        let row = json!({ "type": "deploy", "props": { "env": "prod" }, "at": 17 });
+        let tree = json!({
+            "type": "div",
+            "data": row,
+            "rows": [row, row],
+            "deep": { "inner": { "x": row } },
+            "children": [],
+        });
+
+        let flat = flatten_passthrough(tree.clone());
+
+        assert_eq!(flat, tree);
+    }
+
+    /// `children` is still walked, at any depth, so a node that reached the tree without
+    /// passing through `h` is still flattened.
+    #[test]
+    fn children_are_still_flattened() {
+        let tree = json!({
+            "type": "div",
+            "children": [{
+                "type": "span",
+                "props": { "class": "x" },
+                "children": [{ "type": "b", "props": {}, "children": ["a"] }],
+            }],
+        });
+
+        let flat = flatten_passthrough(tree);
+
+        assert_eq!(
+            flat,
+            json!({
+                "type": "div",
+                "children": [{
+                    "type": "span",
+                    "class": "x",
+                    "children": [{ "type": "b", "children": ["a"] }],
+                }],
+            })
+        );
     }
 }
