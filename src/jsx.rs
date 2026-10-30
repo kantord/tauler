@@ -868,8 +868,8 @@ impl JsxEvaluator {
     /// (see ADR 0041), so a `@gh/...` import stays exactly as unresolvable as it
     /// always was for every existing test and call site that doesn't opt in.
     ///
-    /// Public on purpose, so other crates' tests can evaluate layouts that import
-    /// Packages. It is not part of tauler's semver-stable API.
+    /// Public on purpose: the example binaries (`examples/figures`, `d3_charts_tracer`,
+    /// `weather_map_tracer`) and outside tests may use it. Not semver-stable.
     pub fn new_with_packages(
         source: &str,
         ctx: serde_json::Value,

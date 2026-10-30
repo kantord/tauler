@@ -20,8 +20,8 @@ use std::sync::Arc;
 /// misses. Threaded into [`crate::jsx::JsxEvaluator`] construction the same way
 /// `base_dir` already is — see ADR 0041.
 ///
-/// Public on purpose, so other crates' tests can evaluate layouts that import Packages
-/// through [`crate::jsx::JsxEvaluator::new_with_packages`]. Not semver-stable.
+/// Public on purpose: the example binaries (`examples/figures`, `d3_charts_tracer`,
+/// `weather_map_tracer`) and outside tests may use it. Not semver-stable.
 #[derive(Clone)]
 pub struct PackageContext {
     pub fetch_manager: Arc<fetch_manager::FetchManager>,
