@@ -358,3 +358,44 @@ test('a layout file that imports d3 at the top uses it in a page', async ({
 
   expect(result).toBe('50 true')
 })
+
+test('measureText measures with the browser in a page', async ({ page }) => {
+  await page.goto('/docs/component-reference/')
+
+  const result = await page.evaluate(async () => {
+    // @ts-expect-error — /tauler/*.js is a build product astro check never sees
+    const { boot } = await import('/tauler/runtime.js')
+    await boot('/tauler/tauler_web_bg.wasm')
+
+    const measureText = (globalThis as any).measureText
+    const hello = measureText('Hello', { family: 'sans-serif', size: 11 })
+    let thrown = null
+    try {
+      measureText('Hello', { family: '', size: 11 })
+    } catch (error) {
+      thrown = (error as Error).name
+    }
+    // Neither a generic family nor a missing one is a parse failure.
+    const serif = measureText('Hello', { family: 'serif', size: 11 })
+    const missing = measureText('Hello', { family: 'No Such Family', size: 11 })
+    let unparseable = null
+    try {
+      measureText('Hello', { family: 'a;b', size: 11 })
+    } catch (error) {
+      unparseable = [(error as Error).name, (error as Error).message]
+    }
+    return { hello, thrown, serif, missing, unparseable }
+  })
+
+  expect(result.hello.width).toBeGreaterThan(0)
+  expect(result.hello.ascent).toBeGreaterThan(0)
+  // Rounded to 1/64 px, as on the desktop.
+  expect(result.hello.width * 64).toBe(Math.round(result.hello.width * 64))
+  expect(result.thrown).toBe('TypeError')
+  expect(result.serif.width).toBeGreaterThan(0)
+  expect(result.missing.width).toBeGreaterThan(0)
+  // As on the desktop: a family that is not a CSS family list throws, naming it.
+  expect(result.unparseable?.[0]).toBe('TypeError')
+  expect(result.unparseable?.[1]).toContain('measureText')
+  expect(result.unparseable?.[1]).toContain('"a;b"')
+})

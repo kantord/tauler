@@ -28,6 +28,7 @@ use takumi_core::resources::glyph_cache::set_glyph_cache_max_bytes;
 use takumi_core::resources::image::{ImageCacheMode, ResourceCache};
 
 pub mod cache;
+pub mod measure;
 pub mod picture;
 pub mod worker;
 
@@ -49,6 +50,8 @@ pub struct RenderContext {
     /// layout draws every tick is decoded once. Clones share one store, so the
     /// copy-on-write of a reload keeps what was already decoded.
     pub resource_cache: ResourceCache,
+    /// What `measureText` has measured with these fonts ([`measure`]).
+    pub text_metrics: measure::Cache,
 }
 
 /// Behind an `Arc` so a render can take a snapshot and let go of the lock: the
@@ -88,6 +91,7 @@ pub fn init_global_ctx(font_config: FontConfig) {
 /// directories are never consulted, so the font set is the same on every host.
 pub(crate) fn rebuild_font_context(ctx: &mut RenderContext, config: &FontConfig) -> FontLoad {
     ctx.fonts = Fonts::default();
+    ctx.text_metrics = measure::Cache::default();
     apply_font_config(&mut ctx.fonts, config);
     if config.files_only {
         if let Some(symbol_path) = config.symbol_path.as_deref() {

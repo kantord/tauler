@@ -158,6 +158,46 @@ and `font-mono`. A theme may claim those keys to override the generic fonts. If 
 doesn't, they still resolve through takumi's built-in font handling, exactly as before
 — with no special-casing.
 
+### Measure text: `measureText`
+
+`measureText(text, { family, size, weight, style })` returns how wide tauler draws `text`,
+in logical pixels. Use it to size a margin to its widest label, to drop labels that would
+overlap, or to shorten a label that does not fit:
+
+```jsx
+const font = { family: "Inter, sans-serif", size: 11 };
+const margin = Math.max(...labels.map((label) => measureText(label, font).width)) + 4;
+```
+
+| option | type | default | description |
+|---|---|---|---|
+| `family` | string | required | a CSS `font-family` list, such as `"JetBrains Mono, monospace"` |
+| `size` | number | required | the font size in logical pixels, greater than 0 |
+| `weight` | number | `400` | from 1 to 1000 |
+| `style` | string | `"normal"` | `"normal"`, `"italic"` or `"oblique"` |
+
+It returns `{ width, ascent, descent }`. `ascent` and `descent` are how far the family's
+first font reaches above and below the baseline. All three are rounded to 1/64 of a pixel.
+
+The text is measured as one line, exactly as written: spaces are kept, and each tab or
+line-break character counts as a space.
+
+`family` is resolved the way a `fontFamily` style is, so the width is the width of what
+appears. A family that is not installed is measured in the font tauler falls back to, so
+it does not fail. An empty `family`, a `family` that is not a CSS family list (such as
+`"a;b"`), a `size` that is not a positive number, or a `text` that is not a string throws a
+`TypeError`.
+
+`family` is a CSS family list, so [font roles](#font-roles) do not apply to it. To measure
+text set in `font-heading`, pass the family the role points at, `"Lora"` in the example
+above, not `"heading"`.
+
+The same call gives the same answer for as long as the fonts stay the same, everywhere in
+the layout file, including in a [D3Figure's](/docs/components/#d3figure) `draw`. It
+depends on the fonts installed, so another machine can give other widths. In a browser,
+`measureText` measures with the browser's font for `family`, which may not be the font your
+desktop uses.
+
 ## Clicks
 
 `on_click` goes on the element you want clickable, and only fires on elements that have a

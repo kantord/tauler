@@ -78,6 +78,37 @@ const PICTURE_CACHE_SIZE = 64
 
 let d3Loaded = null
 
+let measureContext = null
+
+/**
+ * Whether the canvas took `font`. A canvas ignores a `font` it cannot parse and keeps
+ * the previous one, so `font` is set over two different valid fonts: only a font it
+ * refused leaves both in place, since no font serializes as both.
+ */
+function canvasTakes(font, prefix) {
+  return ['serif', 'sans-serif'].some((sentinel) => {
+    measureContext.font = prefix + sentinel
+    const before = measureContext.font
+    measureContext.font = font
+    return measureContext.font !== before
+  })
+}
+
+/**
+ * `measureText`'s engine half in a page (the checks and the rounding are the shared
+ * globals'): `[width, ascent, descent]` from a canvas, so the page measures with the
+ * browser's font for `family`, not the desktop's (ADR 0028). `null` when the canvas
+ * cannot parse `family` at all, as the desktop answers for a family takumi cannot
+ * parse; the shared globals throw for it.
+ */
+function measureTextInCanvas(text, family, size, weight, style) {
+  measureContext ??= document.createElement('canvas').getContext('2d')
+  const prefix = `${style} ${weight} ${size}px `
+  if (!canvasTakes(prefix + family, prefix)) return null
+  const metrics = measureContext.measureText(text)
+  return [metrics.width, metrics.fontBoundingBoxAscent, metrics.fontBoundingBoxDescent]
+}
+
 /**
  * d3, loaded on the first figure and never again. A page with no D3Figure never downloads
  * it — the same rule the desktop's draw runtime follows. The bundle is a UMD script that
@@ -112,6 +143,7 @@ export function boot(wasmUrl) {
     // Synchronous, unlike `crypto.subtle`: the shared `D3Figure` global hashes an
     // object key mid-render to name its Picture, as QuickJS does on the desktop.
     globalThis.__tauler_sha256 = wasm.taulerSha256
+    globalThis.__tauler_measure_text = measureTextInCanvas
     globalThis.__esto_h = estoH
     globalThis.Fragment = { [ESTO_FRAGMENT]: true }
 

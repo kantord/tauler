@@ -346,10 +346,11 @@ End every `font-family` list with a generic family — `sans-serif`, `serif` or
 `font-family: sans-serif`. On the desktop, `serif` gets the same fallback face as an unknown
 family, so prefer `sans-serif` or `monospace`.
 
-### Text cannot be measured
+### Measure text with `measureText`
 
 On the desktop, `getBBox`, `getComputedTextLength` and `getBoundingClientRect` measure
-nothing. Place labels from your scales, not from the size of the text.
+nothing. Call [`measureText`](/docs/elements/#measure-text-measuretext) instead, in `draw`
+or anywhere else in the layout file. It returns the width tauler draws the text at.
 
 ### The first figure downloads d3
 

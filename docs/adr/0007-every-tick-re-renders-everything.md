@@ -37,3 +37,11 @@ current stream values.
 
 Anyone arriving from React will expect the wrong thing here, in the direction of assuming
 more machinery than exists. The differences matter more than the similarities.
+
+## Amendment: a Tick may also depend on the registered fonts
+
+`measureText` lets a layout file read how wide a text will be drawn. Its answer depends on
+the fonts tauler registered as well as on the arguments, so "derivable from the current
+stream values" now reads "derivable from the current stream values and the font set". The
+font set changes only on a font reload, like `ctx`, and nothing a Tick does can change it.
+See [0046](0046-measuretext-is-a-pure-function-of-the-registered-font-set.md).
