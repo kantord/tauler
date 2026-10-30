@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.11](https://github.com/kantord/tauler/compare/tauler-core-v0.3.10...tauler-core-v0.3.11) - 2026-10-29
+
+### Added
+
+- accept any JSON value as a D3Figure key ([#716](https://github.com/kantord/tauler/pull/716))
+
 ## [0.3.10](https://github.com/kantord/tauler/compare/tauler-core-v0.3.9...tauler-core-v0.3.10) - 2026-10-29
 
 ### Fixed

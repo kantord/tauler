@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.0](https://github.com/kantord/tauler/compare/tauler-configgen-v0.8.0...tauler-configgen-v0.9.0) - 2026-10-29
+
+### Fixed
+
+- *(deps)* update rust crate minijinja to v3.0.4 ([#717](https://github.com/kantord/tauler/pull/717))
+
 ## [0.7.2](https://github.com/kantord/tauler/compare/tauler-configgen-v0.7.1...tauler-configgen-v0.7.2) - 2026-10-27
 
 ### Fixed
