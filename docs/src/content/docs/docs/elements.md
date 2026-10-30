@@ -179,13 +179,18 @@ const margin = Math.max(...labels.map((label) => measureText(label, font).width)
 It returns `{ width, ascent, descent }`. `ascent` and `descent` are how far the family's
 first font reaches above and below the baseline. All three are rounded to 1/64 of a pixel.
 
-The text is measured as one line, exactly as written: spaces are kept, and a tab or a line
-break counts as a space.
+The text is measured as one line, exactly as written: spaces are kept, and each tab or
+line-break character counts as a space.
 
 `family` is resolved the way a `fontFamily` style is, so the width is the width of what
 appears. A family that is not installed is measured in the font tauler falls back to, so
-it does not fail. An empty `family`, a `size` that is not a positive number, or a `text`
-that is not a string throws a `TypeError`.
+it does not fail. An empty `family`, a `family` that is not a CSS family list (such as
+`"a;b"`), a `size` that is not a positive number, or a `text` that is not a string throws a
+`TypeError`.
+
+`family` is a CSS family list, so [font roles](#font-roles) do not apply to it. To measure
+text set in `font-heading`, pass the family the role points at, `"Lora"` in the example
+above, not `"heading"`.
 
 The same call gives the same answer for as long as the fonts stay the same, everywhere in
 the layout file, including in a [D3Figure's](/docs/components/#d3figure) `draw`. It

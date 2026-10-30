@@ -56,6 +56,12 @@ impl TextMetrics {
     };
 }
 
+/// The family is not a CSS `font-family` list at all (`"a;b"`), so there is no
+/// font to resolve, fallback or otherwise. Unlike a family no font answers, this is
+/// a mistake in the layout file, and `measureText` throws for it.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct NotAFamilyList;
+
 /// Wide enough that no line is ever squeezed: the probe is laid out at its
 /// max-content width anyway, this only keeps the containing block out of the way.
 const PROBE_VIEWPORT: (u32, u32) = (100_000, 1_000);
@@ -77,7 +83,9 @@ const CACHE_CAPACITY: usize = 4096;
 /// starts a new one, so nothing measured with the old fonts survives a reload.
 /// Clones share it, as they share the fonts it was measured with.
 #[derive(Default, Clone)]
-pub struct Cache(Arc<Mutex<HashMap<Key, TextMetrics>>>);
+pub struct Cache(Arc<Mutex<HashMap<Key, Measured>>>);
+
+type Measured = Result<TextMetrics, NotAFamilyList>;
 
 #[cfg(test)]
 thread_local! {
@@ -86,13 +94,13 @@ thread_local! {
 
 /// [`measure_text`] with the fonts the bar draws with. `None` before
 /// [`super::init_global_ctx`] has loaded them.
-pub fn measure_with_bar_fonts(text: &str, font: &TextFont) -> Option<TextMetrics> {
+pub fn measure_with_bar_fonts(text: &str, font: &TextFont) -> Option<Measured> {
     let ctx = Arc::clone(&super::GLOBAL_CTX.get()?.read().unwrap());
     Some(measure_text(&ctx, text, font))
 }
 
 /// `text` on one line in `font`, measured against `ctx`'s fonts, memoised.
-pub fn measure_text(ctx: &RenderContext, text: &str, font: &TextFont) -> TextMetrics {
+pub fn measure_text(ctx: &RenderContext, text: &str, font: &TextFont) -> Measured {
     let key = Key {
         text: text.to_owned(),
         family: font.family.clone(),
@@ -113,7 +121,7 @@ pub fn measure_text(ctx: &RenderContext, text: &str, font: &TextFont) -> TextMet
 }
 
 /// The uncached measurement: one takumi layout of a two-line probe.
-fn lay_out(ctx: &RenderContext, text: &str, font: &TextFont) -> TextMetrics {
+fn lay_out(ctx: &RenderContext, text: &str, font: &TextFont) -> Measured {
     #[cfg(test)]
     LAYOUTS.with(|n| n.set(n.get() + 1));
     let style = serde_json::json!({
@@ -136,9 +144,8 @@ fn lay_out(ctx: &RenderContext, text: &str, font: &TextFont) -> TextMetrics {
             ]},
         ],
     });
-    let Ok(node) = crate::layout::parse_layout(&probe) else {
-        return TextMetrics::NOTHING;
-    };
+    // Every other style value was checked by `measureText` before it got here.
+    let node = crate::layout::parse_layout(&probe).map_err(|_| NotAFamilyList)?;
     let measured = takumi::measure(
         RenderOptions::builder()
             .fonts(&ctx.fonts)
@@ -149,10 +156,10 @@ fn lay_out(ctx: &RenderContext, text: &str, font: &TextFont) -> TextMetrics {
             .node(node)
             .build(),
     );
-    measured
+    Ok(measured
         .ok()
         .and_then(|m| metrics_of(&m))
-        .unwrap_or(TextMetrics::NOTHING)
+        .unwrap_or(TextMetrics::NOTHING))
 }
 
 /// The text line's width, and the second line's run split around its baseline mark.
@@ -174,7 +181,7 @@ fn metrics_of(probe: &MeasuredNode) -> Option<TextMetrics> {
 
 #[cfg(test)]
 mod tests {
-    use super::{measure_text, RenderContext, TextFont, LAYOUTS};
+    use super::{measure_text, NotAFamilyList, RenderContext, TextFont, LAYOUTS};
     use takumi::prelude::{MeasuredNode, RenderOptions, Viewport};
 
     fn sans(size: f64) -> TextFont {
@@ -237,7 +244,9 @@ mod tests {
         let expected = f64::from(laid_out.children[0].width);
         assert!(expected > 50.0, "the probe laid something out: {expected}");
 
-        let width = measure_text(&ctx, "Requests per second", &sans(11.0)).width;
+        let width = measure_text(&ctx, "Requests per second", &sans(11.0))
+            .unwrap()
+            .width;
 
         assert!(
             (width - expected).abs() < 1.0 / 64.0,
@@ -264,7 +273,7 @@ mod tests {
         );
         let run_height = f64::from(laid_out.children[0].runs[0].height);
 
-        let m = measure_text(&ctx, "Hello", &sans(11.0));
+        let m = measure_text(&ctx, "Hello", &sans(11.0)).unwrap();
 
         assert!(
             (m.ascent - 11.0 * 1984.0 / 2048.0).abs() < 1.0 / 64.0,
@@ -284,7 +293,7 @@ mod tests {
     /// to, not an error, so a host without the font still lays the bar out.
     #[rstest::rstest]
     #[case::unknown("No Such Family")]
-    #[case::unparseable("'unclosed")]
+    #[case::unclosed_quote("'unclosed")]
     fn an_unresolved_family_measures_as_the_fallback_drawing_uses(#[case] family: &str) {
         let ctx = inter_ctx();
         let laid_out = lay_out_tree(
@@ -305,7 +314,7 @@ mod tests {
             ..sans(11.0)
         };
 
-        let m = measure_text(&ctx, "Requests per second", &font);
+        let m = measure_text(&ctx, "Requests per second", &font).unwrap();
 
         assert!(expected > 50.0, "drawing fell back to a face: {expected}");
         assert!(
@@ -313,6 +322,19 @@ mod tests {
             "{m:?} vs {expected}"
         );
         assert!(m.ascent > 0.0, "{m:?}");
+    }
+
+    /// Not a family list at all: there is nothing to fall back from, so it is
+    /// refused rather than measured as nothing.
+    #[test]
+    fn a_family_that_does_not_parse_is_refused() {
+        let ctx = inter_ctx();
+        let font = TextFont {
+            family: "a;b".into(),
+            ..sans(11.0)
+        };
+
+        assert_eq!(measure_text(&ctx, "Hello", &font), Err(NotAFamilyList));
     }
 
     #[test]

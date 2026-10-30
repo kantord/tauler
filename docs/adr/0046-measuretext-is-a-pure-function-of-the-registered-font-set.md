@@ -34,8 +34,10 @@ parser and the same takumi `Fonts` a frame is drawn with, so the family list res
 as a Text node's does. A D3Figure's Picture is rasterized by the same renderer, whose SVG
 text layout shapes with the same fonts. A family no font answers is not an error: the measurement is the
 fallback face drawing would use, because an unattended bar must not go blank over a host's
-font configuration. Programmer mistakes — an empty family list, a size that is not a finite
-positive number, a text that is not a string — throw a `TypeError`.
+font configuration. Programmer mistakes — an empty family list, a family that is not a CSS
+family list at all, a size that is not a finite positive number, a text that is not a
+string — throw a `TypeError`. Whether a family parses is the engine's to say, since only
+its own CSS parser knows what it accepts: it answers `null`, and the shared source throws.
 
 An uncached measurement costs about 100 µs, and a chart asks for dozens every Tick, so answers
 are memoised. The memo lives beside the fonts and is replaced with them on a font reload, so
@@ -54,6 +56,14 @@ that must be identical everywhere.
 [0028](0028-web-fidelity-gates-geometry-not-pixels.md)'s position restated: the page and the
 desktop agree when they resolve the same face, and nothing makes them resolve the same face.
 The checks and the 1/64 rounding are shared source, so both refuse and round alike.
+
+**A layout reload evaluates the new layout twice.** The first eval, before anything is
+replaced, decides whether the reload goes ahead: a layout that fails to compile or throws
+keeps the old layout and the old fonts. That eval measured with the old fonts, so once the
+new fonts are in, the layout is evaluated again and that output is installed. Otherwise the
+first frame after a font change would draw stale widths, and a figure key derived from them
+would be one the Draw runtime, which measures with the new fonts, never produces. If the
+second eval throws, the first one's output is installed.
 
 **A font reload between the render and the Draw runtime's evaluation of the same Tick** can
 give the two different widths for one label. A key derived from them then differs, and the

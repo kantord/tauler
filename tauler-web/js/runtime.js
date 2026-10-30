@@ -81,17 +81,30 @@ let d3Loaded = null
 let measureContext = null
 
 /**
+ * Whether the canvas took `font`. A canvas ignores a `font` it cannot parse and keeps
+ * the previous one, so `font` is set over two different valid fonts: only a font it
+ * refused leaves both in place, since no font serializes as both.
+ */
+function canvasTakes(font, prefix) {
+  return ['serif', 'sans-serif'].some((sentinel) => {
+    measureContext.font = prefix + sentinel
+    const before = measureContext.font
+    measureContext.font = font
+    return measureContext.font !== before
+  })
+}
+
+/**
  * `measureText`'s engine half in a page (the checks and the rounding are the shared
  * globals'): `[width, ascent, descent]` from a canvas, so the page measures with the
- * browser's font for `family`, not the desktop's (ADR 0028). The font is set twice
- * because a canvas ignores a `font` it cannot parse and keeps the previous one; the
- * first, always valid, makes that the fallback at the right size instead.
+ * browser's font for `family`, not the desktop's (ADR 0028). `null` when the canvas
+ * cannot parse `family` at all, as the desktop answers for a family takumi cannot
+ * parse; the shared globals throw for it.
  */
 function measureTextInCanvas(text, family, size, weight, style) {
   measureContext ??= document.createElement('canvas').getContext('2d')
   const prefix = `${style} ${weight} ${size}px `
-  measureContext.font = `${prefix}sans-serif`
-  measureContext.font = prefix + family
+  if (!canvasTakes(prefix + family, prefix)) return null
   const metrics = measureContext.measureText(text)
   return [metrics.width, metrics.fontBoundingBoxAscent, metrics.fontBoundingBoxDescent]
 }

@@ -708,6 +708,27 @@ fn load_theme_or_exit(source: &ThemeSource) -> Theme {
     }
 }
 
+/// Replace the fonts with `fonts`, then evaluate the reloaded layout against them: the
+/// output a reload installs.
+///
+/// The trial eval that let the reload go ahead ran before the fonts were replaced, so
+/// every `measureText` in it answered for the old fonts (`docs/adr/0046`). Installing that
+/// would draw the first frame with stale widths, and a D3Figure keyed on them would ask the
+/// Draw runtime, which measures with the new fonts, for a key it never produces. A layout
+/// that passed the trial eval and throws now throws only because of a width; `trial` is
+/// installed then, so the bar keeps the reloaded layout rather than nothing.
+fn eval_with_reloaded_fonts(
+    evaluator: &tauler::jsx::JsxEvaluator,
+    fonts: tauler::config::FontConfig,
+    trial: tauler::jsx::EvalOutput,
+) -> tauler::jsx::EvalOutput {
+    tauler::reload_font_config(fonts);
+    evaluator.eval(&HashMap::new()).unwrap_or_else(|e| {
+        tracing::error!(error = %e, "JSX eval error with the reloaded fonts, installing the trial eval");
+        trial
+    })
+}
+
 /// The theme to render with after a config reload: the newly loaded one, or the one already on
 /// screen when the new one cannot be loaded (`docs/adr/0033`).
 ///
@@ -1263,8 +1284,10 @@ impl App {
         let loaded_paths = evaluator.loaded_paths();
         // Matches the emptied `stream_values` a successful reload commits below — the
         // new layout is evaluated exactly as it will be once installed, not against
-        // stream data a reload is about to clear anyway.
-        let out = match evaluator.eval(&HashMap::new()) {
+        // stream data a reload is about to clear anyway. This eval only decides whether
+        // the reload goes ahead: it measured text with the old fonts, so what is
+        // installed is evaluated again once the new fonts are in.
+        let trial = match evaluator.eval(&HashMap::new()) {
             Ok(out) => out,
             Err(e) => {
                 tracing::error!(error = %e, "JSX eval error, keeping the layout already in use");
@@ -1273,7 +1296,7 @@ impl App {
         };
 
         // Everything above succeeded — only now is it safe to replace state.
-        tauler::reload_font_config(loaded.config.fonts);
+        let out = eval_with_reloaded_fonts(&evaluator, loaded.config.fonts, trial);
         // Every frame the worker has kept was drawn with the fonts just replaced.
         let _ = self
             .outputs
@@ -1713,13 +1736,16 @@ impl Drop for App {
 #[cfg(test)]
 mod tests {
     use super::{
-        apply_eval_result, load_layout_or_exit, make_mod_init_value, merge_module_props,
-        stream_calls_to_specs, theme_after_reload, theme_file_watch_desired, theme_source_from,
-        ThemeSource,
+        apply_eval_result, eval_with_reloaded_fonts, load_layout_or_exit, make_mod_init_value,
+        merge_module_props, stream_calls_to_specs, theme_after_reload, theme_file_watch_desired,
+        theme_source_from, ThemeSource,
     };
     use std::collections::HashMap;
     use std::path::PathBuf;
     use std::sync::mpsc;
+
+    /// Tests that set the process-global fonts hold this, so one cannot swap them under another.
+    static GLOBAL_FONTS: std::sync::Mutex<()> = std::sync::Mutex::new(());
     use tauler::config::TaulerConfig;
     use tauler::data::data_loop::{DataLoop, StreamSource};
     use tauler::layout::OutputInfo;
@@ -1887,12 +1913,58 @@ mod tests {
         }
     }
 
+    /// A reload's trial eval measures with the fonts the reload is about to replace.
+    /// What it installs must be measured with the new ones, or the first frame after a
+    /// font change draws stale widths (`docs/adr/0046`).
+    #[test]
+    fn a_reload_installs_the_layout_as_the_new_fonts_measure_it() {
+        use tauler::config::FontConfig;
+        let _fonts = GLOBAL_FONTS.lock().unwrap_or_else(|e| e.into_inner());
+        tauler::init_global_ctx(FontConfig::default());
+        let inter = FontConfig {
+            primary_path: Some(
+                concat!(
+                    env!("CARGO_MANIFEST_DIR"),
+                    "/assets/fonts/inter/InterVariable.ttf"
+                )
+                .into(),
+            ),
+            files_only: true,
+            ..Default::default()
+        };
+        tauler::reload_font_config(inter);
+        let evaluator = tauler::jsx::JsxEvaluator::new(
+            r#"export default function render() {
+                return <div>{String(measureText("Hello", { family: "sans-serif", size: 11 }).width)}</div>;
+            }"#,
+            serde_json::Value::Null,
+            None,
+        )
+        .unwrap();
+        let trial = evaluator.eval(&HashMap::new()).unwrap();
+        let no_fonts = FontConfig {
+            files_only: true,
+            ..Default::default()
+        };
+
+        let installed = eval_with_reloaded_fonts(&evaluator, no_fonts, trial.clone());
+
+        let with_new_fonts = evaluator.eval(&HashMap::new()).unwrap();
+        tauler::reload_font_config(FontConfig::default());
+        assert_ne!(
+            trial.layout, with_new_fonts.layout,
+            "the two font sets measure differently"
+        );
+        assert_eq!(installed.layout, with_new_fonts.layout);
+    }
+
     /// A surface that names no output means "the primary one". That has to be
     /// resolved to the primary's real name before reconciling, or a panel and a
     /// wallpaper meaning the same monitor carry different keys (`None` vs
     /// `Some("DP-1")`) and `backdrop` never pairs them up.
     #[test]
     fn apply_eval_result_resolves_an_unspecified_output_to_the_primary_name() {
+        let _fonts = GLOBAL_FONTS.lock().unwrap_or_else(|e| e.into_inner());
         tauler::init_global_ctx(tauler::config::FontConfig::default());
         let layout = serde_json::json!({
             "type": "root",
@@ -1934,6 +2006,7 @@ mod tests {
     /// makes its declared and rendered sizes disagree.
     #[test]
     fn apply_eval_result_implicit_output_panel_uses_context_dpr_not_output_dpr() {
+        let _fonts = GLOBAL_FONTS.lock().unwrap_or_else(|e| e.into_inner());
         tauler::init_global_ctx(tauler::config::FontConfig::default());
         let layout = serde_json::json!({
             "type": "root",
@@ -1974,6 +2047,7 @@ mod tests {
     /// exactly, so the dimensions come from the output, not the layout file.
     #[test]
     fn apply_eval_result_sizes_wallpaper_to_its_output() {
+        let _fonts = GLOBAL_FONTS.lock().unwrap_or_else(|e| e.into_inner());
         tauler::init_global_ctx(tauler::config::FontConfig::default());
         let layout = serde_json::json!({
             "type": "root",

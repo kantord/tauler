@@ -236,7 +236,8 @@ fn theme_color_js_fn(
 }
 
 /// `__tauler_measure_text`, behind `measureText` (`JSX_GLOBALS_JS`), which checks the
-/// arguments and rounds the answer: `[width, ascent, descent]` in the bar's fonts.
+/// arguments and rounds the answer: `[width, ascent, descent]` in the bar's fonts, or
+/// `null` for a family that is not a CSS family list, which `measureText` throws for.
 fn measure_text_js_fn(
     ctx: rquickjs::Ctx<'_>,
     text: String,
@@ -244,7 +245,7 @@ fn measure_text_js_fn(
     size: f64,
     weight: f64,
     style: String,
-) -> rquickjs::Result<Vec<f64>> {
+) -> rquickjs::Result<Option<Vec<f64>>> {
     let font = crate::render::measure::TextFont {
         family,
         size,
@@ -254,7 +255,7 @@ fn measure_text_js_fn(
     let m = crate::render::measure::measure_with_bar_fonts(&text, &font).ok_or_else(|| {
         rquickjs::Exception::throw_message(&ctx, "measureText: no fonts are loaded yet")
     })?;
-    Ok(vec![m.width, m.ascent, m.descent])
+    Ok(m.ok().map(|m| vec![m.width, m.ascent, m.descent]))
 }
 
 /// Dispatches a lifecycle hook, picking the batch spelling or the per-Item sugar
@@ -3874,6 +3875,7 @@ return <div>
                     style: "normal".into(),
                 },
             )
+            .unwrap()
         });
 
         let width = render["width"].as_f64().unwrap();
@@ -3919,6 +3921,21 @@ return <div>
             render[1].as_str().unwrap().contains("measureText"),
             "got: {render}"
         );
+    }
+
+    /// A family that is not a CSS family list at all is a typo in the layout, not a
+    /// font the host lacks: it throws rather than measure as nothing.
+    #[test]
+    fn measure_text_rejects_a_family_that_does_not_parse_naming_it() {
+        let [render, reconciler, draw] = measured_in_every_runtime(
+            r#"(() => { try { measureText("Hello", { family: "a;b", size: 11 }); return "no error"; } catch (e) { return [e.name, e.message]; } })()"#,
+        );
+        assert_eq!(render[0], "TypeError", "got: {render}");
+        let message = render[1].as_str().unwrap();
+        assert!(message.contains("measureText"), "got: {message}");
+        assert!(message.contains(r#""a;b""#), "got: {message}");
+        assert_eq!(render, reconciler);
+        assert_eq!(render, draw);
     }
 
     /// One line, as a canvas measures: a line break or a tab counts as a space.

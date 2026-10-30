@@ -35,13 +35,15 @@ pub const JSX_GLOBALS_JS: &str = r#"
             String(token),
             alpha == null ? undefined : Number(alpha),
         );
-    // How wide `text` is drawn on one line, spaces kept and every tab or line break
-    // turned into a space as a canvas does, and how far the family's first face
-    // reaches above and below the baseline, in px rounded to 1/64. The measuring is
-    // the engine's own `__tauler_measure_text` (the bar's fonts on a desktop, the
+    // How wide `text` is drawn on one line, spaces kept and each tab or line-break
+    // character turned into a space as a canvas does, and how far the family's first
+    // face reaches above and below the baseline, in px rounded to 1/64. The measuring
+    // is the engine's own `__tauler_measure_text` (the bar's fonts on a desktop, the
     // browser's in a page); the checks and the rounding are here, so both engines
     // refuse and round alike. A family no font answers is not an error: the engine
-    // measures the fallback it would draw with.
+    // measures the fallback it would draw with. A family that is not a CSS family
+    // list at all is: the engine answers `null`, because only its own CSS parser
+    // knows what it accepts, and the throw is here.
     globalThis.measureText = (text, options) => {
         if (typeof text !== "string") {
             throw new TypeError("measureText: text must be a string, got " + typeof text);
@@ -60,7 +62,11 @@ pub const JSX_GLOBALS_JS: &str = r#"
             throw new TypeError('measureText: style must be "normal", "italic" or "oblique"');
         }
         const line = text.replace(/[\t\n\f\r]/g, " ");
-        const [width, ascent, descent] = __tauler_measure_text(line, family, size, weight, style);
+        const measured = __tauler_measure_text(line, family, size, weight, style);
+        if (measured == null) {
+            throw new TypeError("measureText: family " + JSON.stringify(family) + " is not a CSS font-family list");
+        }
+        const [width, ascent, descent] = measured;
         const px = (v) => Math.round(v * 64) / 64;
         return { width: px(width), ascent: px(ascent), descent: px(descent) };
     };
