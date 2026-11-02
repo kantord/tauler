@@ -1,7 +1,12 @@
 import type { ReactNode } from 'react'
-import { HomeLayout } from 'fumadocs-ui/layouts/home'
-import { baseOptions } from '@/lib/layout.shared'
+import { SiteFooter, SiteHeader } from '@/components/site/SiteHeader'
 
 export default function Layout({ children }: { children: ReactNode }) {
-  return <HomeLayout {...baseOptions()}>{children}</HomeLayout>
+  return (
+    <>
+      <SiteHeader current="home" />
+      {children}
+      <SiteFooter />
+    </>
+  )
 }

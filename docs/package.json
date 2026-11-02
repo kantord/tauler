@@ -12,9 +12,10 @@
     "test": "playwright test",
     "test:docker": "bash scripts/update-snapshots.sh",
     "test:update": "bash scripts/update-snapshots.sh --update",
-    "format": "prettier --write .",
-    "format:check": "prettier --check .",
-    "check": "next typegen && tsc --noEmit"
+    "format": "oxfmt",
+    "format:check": "oxfmt --check",
+    "check": "next typegen && tsc --noEmit",
+    "lint": "oxlint --deny-warnings"
   },
   "dependencies": {
     "d3": "7.9.0",
@@ -23,6 +24,7 @@
     "fumadocs-ui": "npm:@fumadocs/base-ui@16.17.9",
     "lucide-react": "^1.61.0",
     "next": "16.4.2",
+    "next-themes": "0.4.6",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
     "remark-directive": "4.0.0"
@@ -36,9 +38,10 @@
     "@types/node": "^26.6.5",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
+    "oxfmt": "0.75.0",
+    "oxlint": "1.90.0",
     "postcss": "^8.5.31",
-    "prettier": "3.9.10",
-    "prettier-plugin-tailwindcss": "0.8.1",
+    "shiki": "4.5.0",
     "sirv-cli": "3.0.1",
     "tailwindcss": "4.3.3",
     "typescript": "5.9.3"

@@ -45,6 +45,8 @@ for (const route of routes) {
     // Viewport is set per-test below, independent of the project's own —
     // running this under all 7 breakpoint projects would just repeat the
     // same 5 widths seven times for no benefit.
+    // Playwright requires the fixtures argument to be a destructuring pattern.
+    // oxlint-disable-next-line no-empty-pattern
     test.beforeEach(({}, testInfo) => {
       test.skip(
         testInfo.project.name !== 'desktop',
@@ -63,7 +65,7 @@ for (const route of routes) {
         const offenders = await page.evaluate(() => {
           const bad: string[] = []
           for (const el of document.querySelectorAll<HTMLElement>(
-            'header *:not(.sr-only), #nd-sidebar a:not(.sr-only)',
+            'header *:not(.sr-only), nav[aria-label="Docs"] a:not(.sr-only)',
           )) {
             if (el.children.length > 0) continue // leaf text-bearing elements only
             const text = el.textContent?.trim()

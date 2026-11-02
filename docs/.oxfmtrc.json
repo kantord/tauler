@@ -1,0 +1,23 @@
+{
+  "$schema": "./node_modules/oxfmt/configuration_schema.json",
+  "semi": false,
+  "singleQuote": true,
+  "printWidth": 80,
+  "sortPackageJson": false,
+  "sortTailwindcss": {
+    "stylesheet": "./src/app/global.css"
+  },
+  "ignorePatterns": [
+    "dist/",
+    ".next/",
+    ".source/",
+    "node_modules/",
+    ".tauler/",
+    "public/tauler/",
+    "test-results/",
+    "content/",
+    "*.md",
+    "*.mdx",
+    "pnpm-lock.yaml"
+  ]
+}

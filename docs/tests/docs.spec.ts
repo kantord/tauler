@@ -35,17 +35,6 @@ for (const route of ROUTES) {
         // themes/default.yaml, so nothing resolves it, on either renderer —
         // see docs/scripts/check-classes.mjs's KNOWN_UNRESOLVED entry.
         .exclude('[data-tauler-example]')
-        // Fumadocs' stock theme fails these out of the box (muted sidebar
-        // and code-token contrast, an unlabelled second <nav>, content
-        // outside landmarks, a second <header> banner on mobile). The site
-        // runs that theme unmodified for now; re-enable each rule as the
-        // theme is customised.
-        .disableRules([
-          'color-contrast',
-          'region',
-          'landmark-unique',
-          'landmark-no-duplicate-banner',
-        ])
         .analyze()
       expect(
         results.violations,
@@ -55,19 +44,28 @@ for (const route of ROUTES) {
   })
 }
 
-test('the sidebar is reachable', async ({ page }) => {
+test('the contents tile links every page', async ({ page }) => {
   await page.goto('/docs/layout-file/')
-  // Below Fumadocs' md breakpoint the sidebar hides behind the menu button.
-  const width = page.viewportSize()?.width ?? 0
-  if (width < 768) {
-    await page
-      .getByRole('button', { name: /open sidebar/i })
-      .first()
-      .click()
-  }
+  const contents = page.getByRole('navigation', { name: 'Docs' })
   await expect(
-    page.getByRole('link', { name: 'Elements and styling' }).last(),
+    contents.getByRole('link', { name: 'Elements and styling' }),
   ).toBeVisible()
+  await expect(
+    contents.getByRole('link', { name: 'The layout file' }),
+  ).toHaveAttribute('aria-current', 'page')
+})
+
+test('the theme toggle switches between light and dark', async ({ page }) => {
+  await page.goto('/docs/layout-file/')
+  const html = page.locator('html')
+  const toggle = page.getByRole('button', {
+    name: /switch to (light|dark) mode/i,
+  })
+  await expect(async () => {
+    const before = await html.getAttribute('class')
+    await toggle.click()
+    expect(await html.getAttribute('class')).not.toBe(before)
+  }).toPass()
 })
 
 test('search finds a page', async ({ page }) => {

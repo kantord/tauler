@@ -15,11 +15,11 @@ export function TaulerExample({
   children: ReactNode
 }) {
   return (
-    <>
+    <div className="mb-5">
       {live && <div className="tauler-mount" data-tauler-example={name} />}
       <div className="tauler-fallback" data-tauler-example={name}>
         {children}
       </div>
-    </>
+    </div>
   )
 }

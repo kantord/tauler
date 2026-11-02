@@ -34,6 +34,21 @@ end in a slash. Two things had to change shape:
 - GitHub Pages has no server redirects, and a static export's `redirect()` only works
   with JavaScript; the pre-`/docs` URLs are meta-refresh pages instead.
 
-The axe check runs with four rules off (`color-contrast`, `region`, `landmark-unique`,
-`landmark-no-duplicate-banner`) that the stock theme fails out of the box. Turn each back
-on as the theme is customised.
+## Amendment: the site's own design
+
+The stock theme was replaced by the "tauler — website" design (framed tiles with hatched
+title bars, Archivo/DM Sans/IBM Plex Mono, light and dark). Its layout is not Fumadocs'
+`DocsLayout`, so the docs pages render their own chrome (`src/components/site/`) from
+Fumadocs' headless parts — the page tree, the TOC, `findNeighbour`, the search dialog —
+rather than vendoring Fumadocs' layout with `fumadocs customise`. That keeps the code we
+own to what the design actually draws. The design's generative wallpaper canvas was not
+ported: its module was not part of the exported file.
+
+Code blocks are highlighted with the design's own palette (`src/lib/shiki-theme.ts`),
+dark in both site themes. Every axe rule runs again; the four the stock theme failed
+were switched off only while the site used it.
+
+Formatting and linting moved to oxc: `oxfmt` (Prettier-compatible, with Tailwind class
+sorting) replaces Prettier, and `oxlint` with the TypeScript, React, Next.js and import
+plugins runs in Docs CI. ADR 0030 picked Prettier because it was the only mature
+formatter for `.astro` templates; with no `.astro` files left, that reason is gone.

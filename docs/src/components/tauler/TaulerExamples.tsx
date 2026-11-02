@@ -68,5 +68,8 @@ export function TaulerExamples() {
 
   // The examples' compiled Tailwind. React hoists it into the <head>, on a
   // full load and on a client-side navigation alike.
+  // A build product of `just docs` served from public/, not a module the
+  // bundler can import.
+  // oxlint-disable-next-line nextjs/no-css-tags
   return <link rel="stylesheet" href="/tauler/tauler.css" precedence="tauler" />
 }

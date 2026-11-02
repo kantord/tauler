@@ -1,6 +1,7 @@
 {
   "title": "tauler",
   "pages": [
+    "---Guide---",
     "index",
     "layout-file",
     "themes",
@@ -8,9 +9,11 @@
     "data",
     "units",
     "layout",
+    "---Reference---",
     "components",
     "component-reference",
     "packages",
+    "---Platforms---",
     "macos"
   ]
 }
