@@ -1,9 +1,9 @@
 //! The web renderer, run against the documentation site a reader actually gets.
 //!
-//! Against the built Starlight page rather than a purpose-made harness, deliberately: the
+//! Against the built docs page rather than a purpose-made harness, deliberately: the
 //! mount's isolation from the site's CSS is a scoped `all: revert` in a cascade layer
-//! (ADR 0026), and a test page without Starlight's stylesheet would not exercise the one
-//! thing most likely to be wrong about it.
+//! (ADR 0026), and a test page without the site's own stylesheet would not exercise the
+//! one thing most likely to be wrong about it.
 //!
 //! These are not **Scenarios** in `CONTEXT.md`'s sense — there is no fixture, no
 //! reservation and no desktop, and the expected values are derived rather than written by

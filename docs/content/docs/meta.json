@@ -1,0 +1,16 @@
+{
+  "title": "tauler",
+  "pages": [
+    "index",
+    "layout-file",
+    "themes",
+    "elements",
+    "data",
+    "units",
+    "layout",
+    "components",
+    "component-reference",
+    "packages",
+    "macos"
+  ]
+}

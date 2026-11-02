@@ -9,7 +9,7 @@
 # environment, so what passes here passes there.
 #
 # --update regenerates the committed baselines. No flag just verifies them
-# (what CI does).
+# (what CI does). Further arguments go to Playwright, e.g. tests/docs.spec.ts.
 #
 # The image tag is derived from @playwright/test, so it can't drift from
 # the npm package on its own; renovate.json groups it with the tag
@@ -20,27 +20,28 @@ cd "$(dirname "$0")/.."
 PLAYWRIGHT_VERSION=$(node -e "console.log(require('@playwright/test/package.json').version)")
 IMAGE="mcr.microsoft.com/playwright:v${PLAYWRIGHT_VERSION}-noble"
 
-TEST_CMD='pnpm exec playwright test'
+UPDATE=''
 if [ "${1:-}" = '--update' ]; then
-  TEST_CMD='pnpm exec playwright test --update-snapshots'
+  UPDATE='--update-snapshots'
+  shift
 fi
+# Anything else is passed through to Playwright (e.g. a spec file).
+TEST_CMD="pnpm exec playwright test $UPDATE $*"
+
+# Hand ownership of anything the root container touched back to the invoking
+# user — on failure too, or the next host build trips over root-owned files.
+trap 'docker run --rm -v "$(pwd):/d" alpine \
+  chown -R "$(id -u):$(id -g)" /d/dist /d/.next /d/.source /d/test-results \
+  2>/dev/null || true' EXIT
 
 docker run --rm -e CI=true \
   -v "$(pwd)/..:/repo" -v /repo/docs/node_modules \
   -w /repo/docs "$IMAGE" bash -c "
     corepack enable pnpm >/dev/null 2>&1
     pnpm install --frozen-lockfile
+    # The host's build caches were made by a different Node and toolchain;
+    # build from scratch, as CI's fresh checkout does.
+    rm -rf .next .source dist
     $TEST_CMD
   "
 
-# The container runs as root; hand ownership of anything it touched back
-# to the invoking user so a plain `pnpm test` still works afterward.
-docker run --rm -v "$(pwd)/..:/repo" alpine \
-  chown -R "$(id -u):$(id -g)" /repo/docs/dist /repo/docs/test-results 2>/dev/null || true
-
-# The hidden devtools gallery reads its own copy, not the Playwright baselines
-# directly — keeping the two in sync is this script's job, not the gallery's.
-if [ "${1:-}" = '--update' ]; then
-  mkdir -p src/assets/devtools/landing
-  cp tests/landing.spec.ts-snapshots/*.png src/assets/devtools/landing/
-fi

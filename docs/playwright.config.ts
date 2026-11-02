@@ -36,15 +36,14 @@ export default defineConfig({
     use: { browserName: 'chromium' as const, viewport },
   })),
   webServer: {
-    // Test the production build: no dev toolbar in the screenshots.
-    // sirv, not `astro preview`: preview daemonizes when stdin is not a TTY,
-    // so Playwright would think it exited and later reuse stale daemons.
+    // Test the production build: the static export Next writes to dist/
+    // (see next.config.mjs), served as GitHub Pages would serve it.
     command:
-      'pnpm exec astro build && pnpm exec sirv dist --host 127.0.0.1 --port 4321',
+      'pnpm exec next build && pnpm exec sirv dist --host 127.0.0.1 --port 4321',
     url: 'http://127.0.0.1:4321',
-    // Never reuse: a lingering server (astro's TTY-less daemon mode, an old
-    // sirv) serves a stale dist and silently poisons every assertion.
+    // Never reuse: a lingering server serves a stale dist and silently
+    // poisons every assertion.
     reuseExistingServer: false,
-    timeout: 120_000,
+    timeout: 180_000,
   },
 })

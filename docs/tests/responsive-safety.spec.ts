@@ -29,12 +29,7 @@ const BASE_URL = 'http://127.0.0.1:4321'
 async function discoverRoutes(): Promise<string[]> {
   const ctx = await pwRequest.newContext({ baseURL: BASE_URL })
   try {
-    const indexXml = await (await ctx.get('/sitemap-index.xml')).text()
-    const sitemapLoc = indexXml.match(/<loc>(.*?)<\/loc>/)?.[1]
-    const sitemapPath = sitemapLoc
-      ? new URL(sitemapLoc).pathname
-      : '/sitemap-0.xml'
-    const xml = await (await ctx.get(sitemapPath)).text()
+    const xml = await (await ctx.get('/sitemap.xml')).text()
     return [...xml.matchAll(/<loc>(.*?)<\/loc>/g)].map(
       (m) => new URL(m[1]).pathname,
     )
@@ -68,7 +63,7 @@ for (const route of routes) {
         const offenders = await page.evaluate(() => {
           const bad: string[] = []
           for (const el of document.querySelectorAll<HTMLElement>(
-            'header *:not(.sr-only), .sidebar-content a:not(.sr-only)',
+            'header *:not(.sr-only), #nd-sidebar a:not(.sr-only)',
           )) {
             if (el.children.length > 0) continue // leaf text-bearing elements only
             const text = el.textContent?.trim()

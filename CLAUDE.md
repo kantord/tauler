@@ -6,12 +6,12 @@
   ones it lists under `_Avoid_`. Glossary only, no implementation detail.
 - `docs/adr/` — decisions that are hard to reverse and surprising without context. Check
   here before "fixing" something that looks wrong.
-- `docs/src/content/docs/` — the published site. Everything a person writing a layout file
-  needs; nothing about how tauler is built inside. Exception: `docs/src/content/docs/devtools/`
-  is maintainer-only tooling that happens to live in this tree to reuse the Astro/Starlight
-  build (image galleries, routing) — it is unlisted from the sidebar and documents build/test
-  internals on purpose. The "nothing about how tauler is built" rule applies to every other
-  page here.
+- `docs/content/docs/` — the published site (Next.js + Fumadocs). Everything a person
+  writing a layout file needs; nothing about how tauler is built inside. Exception:
+  `docs/content/devtools/` is maintainer-only tooling that reuses the same build (image
+  galleries, routing) — it is its own unlisted collection, never in the sidebar or search,
+  and documents build/test internals on purpose. The "nothing about how tauler is built"
+  rule applies to every page under `docs/content/docs/`.
 - **Module-level `//!` docs** — how a given piece actually works. This is where
   implementation detail belongs: next to the code, where it goes stale loudly.
 

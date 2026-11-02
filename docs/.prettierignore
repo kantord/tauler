@@ -1,10 +1,11 @@
 dist/
+.next/
+.source/
 node_modules/
-.astro/
 .tauler/
 public/tauler/
 test-results/
-src/content/
+content/
 *.md
 *.mdx
 pnpm-lock.yaml
