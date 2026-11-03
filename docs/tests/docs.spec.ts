@@ -87,3 +87,19 @@ test('an old root-level docs URL redirects to /docs/', async ({ page }) => {
   await page.goto('/layout-file/')
   await expect(page).toHaveURL(/\/docs\/layout-file\/$/)
 })
+
+test('the header and the side tiles stay in view while the article scrolls', async ({
+  page,
+}) => {
+  const width = page.viewportSize()?.width ?? 0
+  test.skip(
+    width < 768,
+    'narrow screens stack the tiles; only the header sticks',
+  )
+  await page.goto('/docs/data/')
+  await page.evaluate(() => window.scrollTo(0, 3000))
+  await expect(page.getByRole('navigation', { name: 'Site' })).toBeInViewport()
+  await expect(
+    page.getByRole('complementary', { name: 'Contents' }),
+  ).toBeInViewport()
+})

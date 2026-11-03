@@ -68,12 +68,12 @@ export function DocsTiles({
       <div className="flex flex-wrap items-start gap-3">
         <aside
           aria-label="Contents"
-          className="tile max-w-[280px] flex-[1_1_230px] max-md:max-w-none"
+          className="tile side max-w-[280px] flex-[1_1_230px] max-md:max-w-none"
         >
           <div className="bar">
             <span className="tt">contents</span>
           </div>
-          <nav aria-label="Docs" className="px-2 pb-3.5">
+          <nav aria-label="Docs" className="scroll px-2 pb-3.5">
             {groups.map((g, i) => (
               <div key={g.label ?? i}>
                 {g.label && <div className="grp">{g.label}</div>}
@@ -122,12 +122,12 @@ export function DocsTiles({
         {headings.length > 0 && (
           <aside
             aria-label="On this page"
-            className="tile max-w-[240px] flex-[1_1_200px] max-md:max-w-none"
+            className="tile side max-w-[240px] flex-[1_1_200px] max-md:max-w-none"
           >
             <div className="bar">
               <span className="tt">on this page</span>
             </div>
-            <nav className="toc py-2.5 pb-3.5" aria-label="On this page">
+            <nav className="toc scroll py-2.5 pb-3.5" aria-label="On this page">
               {headings.map((h) => (
                 <a key={h.url} href={h.url} className={`depth-${h.depth}`}>
                   {h.title}

@@ -8,6 +8,9 @@
    src/app/layout.tsx, which sets the --font-tu-* variables. */
 
 :root {
+  /* Height of the sticky site header on a wide screen (one row: 40px
+     controls, 8px padding top and bottom, 1.5px rule). */
+  --tu-header-h: 58px;
   --tu-page: #e6e4de;
   --tu-body: #f3f2ee;
   --tu-ink: #111111;
@@ -186,6 +189,21 @@ body {
   background: var(--tu-or);
 }
 
+/* Wide screens: the side tiles stay in view while the article scrolls, and
+   scroll on their own when they are taller than the window. Narrow screens
+   stack the tiles, so there they scroll with the page. */
+@media (min-width: 768px) {
+  .tu .tile.side {
+    position: sticky;
+    top: calc(var(--tu-header-h) + 12px);
+    max-height: calc(100vh - var(--tu-header-h) - 24px);
+  }
+  .tu .tile.side > .scroll {
+    min-height: 0;
+    overflow-y: auto;
+  }
+}
+
 /* Sub-panels: code blocks and callouts */
 .tu .sub {
   border: 1px solid var(--tu-line);
@@ -328,7 +346,7 @@ body {
   font-size: 24px;
   line-height: 1.1;
   margin: 48px 0 14px;
-  scroll-margin-top: 24px;
+  scroll-margin-top: calc(var(--tu-header-h) + 24px);
 }
 .tu .art h3,
 .tu .art h4 {
@@ -336,7 +354,7 @@ body {
   font-size: 15px;
   font-weight: 600;
   margin: 28px 0 10px;
-  scroll-margin-top: 24px;
+  scroll-margin-top: calc(var(--tu-header-h) + 24px);
 }
 .tu .art p {
   font-size: 17px;

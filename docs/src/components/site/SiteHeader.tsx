@@ -4,7 +4,7 @@ import { SearchButton, ThemeToggle } from './controls'
 /** The top bar shared by every page: wordmark, site links, search, theme. */
 export function SiteHeader({ current }: { current: 'home' | 'docs' }) {
   return (
-    <header className="m border-b-[1.5px] border-(--tu-rule) bg-(--tu-page) text-[12px] tracking-[.08em] uppercase">
+    <header className="m sticky top-0 z-40 border-b-[1.5px] border-(--tu-rule) bg-(--tu-page) text-[12px] tracking-[.08em] uppercase">
       <div className="mx-auto flex max-w-[1320px] flex-wrap items-center justify-between gap-3 px-6 py-2">
         <nav aria-label="Site" className="flex items-center gap-[18px]">
           <Link
