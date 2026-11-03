@@ -28,10 +28,14 @@ fi
 # Anything else is passed through to Playwright (e.g. a spec file).
 TEST_CMD="pnpm exec playwright test $UPDATE $*"
 
-# Hand ownership of anything the root container touched back to the invoking
-# user — on failure too, or the next host build trips over root-owned files.
-trap 'docker run --rm -v "$(pwd):/d" alpine \
-  chown -R "$(id -u):$(id -g)" /d/dist /d/.next /d/.source /d/test-results \
+# On exit, failure too: delete the container's build output and hand the test
+# reports back to the invoking user. The build output is root-owned and has
+# the container's paths baked in (.source/ imports /repo/docs/...), so a host
+# build that reuses it fails with "Module not found ... outside configured
+# roots".
+trap 'docker run --rm -v "$(pwd):/d" alpine sh -c \
+  "rm -rf /d/dist /d/.next /d/.source; \
+   chown -R $(id -u):$(id -g) /d/test-results" \
   2>/dev/null || true' EXIT
 
 docker run --rm -e CI=true \

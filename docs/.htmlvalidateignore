@@ -1,0 +1,7 @@
+# Next's built-in not-found page, not ours: it renders a second <title> and a
+# <style> inside a <div>. Both are harmless in browsers.
+dist/404.html
+dist/404/
+dist/_not-found/
+# The dev server's output, not the static export.
+dist/dev/

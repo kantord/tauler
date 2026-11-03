@@ -5,3 +5,8 @@ allowBuilds:
   '@parcel/watcher': false
   esbuild: true
   sharp: true
+# A version has to be three days old before it is installed (Renovate waits
+# the same). Strict: a too-new version fails the install instead of being
+# swapped for an older one in silence.
+minimumReleaseAge: 4320
+minimumReleaseAgeStrict: true

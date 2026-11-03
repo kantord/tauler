@@ -1,13 +1,22 @@
 @import 'tailwindcss';
 @import 'fumadocs-ui/css/neutral.css';
 @import 'fumadocs-ui/css/preset.css';
+@import 'tw-animate-css';
+
+/* content/ holds layout examples, whose class names are tauler's, not the site's. */
+@source not '../../content';
 
 /* ── Design tokens ─────────────────────────────────────────────────────────
    From the "tauler — website" design. Light on :root, dark on .dark (the
-   class next-themes puts on <html>). The fonts are loaded by next/font in
-   src/app/layout.tsx, which sets the --font-tu-* variables. */
+   class next-themes puts on <html>). The fonts are @fontsource packages,
+   imported in src/app/layout.tsx; the --font-tu-* variables name them. */
 
 :root {
+  /* The packages imported in src/app/layout.tsx. */
+  --font-tu-display: 'Archivo Variable', sans-serif;
+  --font-tu-text: 'DM Sans Variable', sans-serif;
+  --font-tu-mono: 'IBM Plex Mono', monospace;
+  --font-tu-ws: 'Oswald', sans-serif;
   /* Height of the sticky site header on a wide screen (one row: 40px
      controls, 8px padding top and bottom, 1.5px rule). */
   --tu-header-h: 58px;
@@ -25,6 +34,13 @@
   --tu-key: #111111;
   /* Text on an orange fill is always this, in both themes. */
   --tu-on-or: #111111;
+  /* Errors and destructive actions; 4.5:1 or more on page and body. */
+  --tu-red: #a61b1b;
+  /* Read by the wallpaper module (src/lib/wallpaper). The background must
+     equal --tu-page, or the gaps between windows show a seam. */
+  --wallpaper-bg: #e6e4de;
+  --wallpaper-ring-l: 0.66;
+  --wallpaper-ring-c: 0.12;
 }
 
 .dark {
@@ -40,6 +56,10 @@
   --tu-code: #161615;
   --tu-codeink: #ecebe6;
   --tu-key: #9b988f;
+  --tu-red: #ff6b6b;
+  --wallpaper-bg: #111110;
+  --wallpaper-ring-l: 0.72;
+  --wallpaper-ring-c: 0.11;
 }
 
 /* Fumadocs' own components (the search dialog) read these slots. */
@@ -63,434 +83,706 @@
   --color-fd-ring: var(--tu-or);
 }
 
+/* shadcn/ui components (components.json) read these slots. */
+:root,
+.dark {
+  --background: var(--tu-page);
+  --foreground: var(--tu-ink);
+  --card: var(--tu-body);
+  --card-foreground: var(--tu-ink);
+  --popover: var(--tu-body);
+  --popover-foreground: var(--tu-ink);
+  --primary: var(--tu-or);
+  --primary-foreground: var(--tu-on-or);
+  --secondary: var(--tu-page);
+  --secondary-foreground: var(--tu-ink);
+  --muted: var(--tu-page);
+  --muted-foreground: var(--tu-muted);
+  --accent: var(--tu-page);
+  --accent-foreground: var(--tu-ink);
+  --destructive: var(--tu-red);
+  /* Panels and separators take the thin line; controls the heavy rule. */
+  --border: var(--tu-line);
+  --input: var(--tu-rule);
+  --ring: var(--tu-or);
+  --chart-1: var(--tu-or);
+  --chart-2: var(--tu-ink);
+  --chart-3: var(--tu-muted);
+  --chart-4: var(--tu-ord);
+  --chart-5: var(--tu-line);
+  --radius: 0;
+  --sidebar: var(--tu-body);
+  --sidebar-foreground: var(--tu-ink);
+  --sidebar-primary: var(--tu-or);
+  --sidebar-primary-foreground: var(--tu-on-or);
+  --sidebar-accent: var(--tu-page);
+  --sidebar-accent-foreground: var(--tu-ink);
+  --sidebar-border: var(--tu-line);
+  --sidebar-ring: var(--tu-or);
+}
+
 @theme inline {
+  --font-ws: var(--font-tu-ws);
   --font-sans: var(--font-tu-text);
   --font-mono: var(--font-tu-mono);
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+  /* --radius is 0, so every step is 0. */
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+  --radius-3xl: calc(var(--radius) * 2.2);
+  --radius-4xl: calc(var(--radius) * 2.6);
 }
 
-html {
-  scrollbar-gutter: stable;
+@layer base {
+  html {
+    scrollbar-gutter: stable;
+  }
+  /* The home page and its slides (<Wallpaper edgeToEdge />): no gutter, so
+     the wallpaper and the render reach the window's right edge. Chrome clips
+     fixed elements at the root's gutter, so they cannot run under it. These
+     pages rarely scroll; where one does, its scrollbar takes its own strip. */
+  html:has([data-edge-to-edge]) {
+    scrollbar-gutter: auto;
+  }
+  body {
+    background: var(--tu-page);
+    color: var(--tu-ink);
+    font-family: var(--font-tu-text);
+  }
 }
 
+/* Unlayered: it has to beat the scroll lock's own injected style. */
 html > body[data-scroll-locked] {
   margin-right: 0px !important;
   --removed-body-scroll-bar-size: 0px !important;
 }
 
-body {
-  background: var(--tu-page);
-  color: var(--tu-ink);
-  font-family: var(--font-tu-text);
-}
-
-/* The design has square corners everywhere except keycaps. */
+/* The design has square corners everywhere except keycaps. A utility, so it
+   also squares the rounded-* classes Fumadocs' search dialog carries. */
 @layer utilities {
   .tu *,
   [role='dialog'],
   [role='dialog'] * {
     border-radius: 0;
   }
-}
-
-/* ── Type ──────────────────────────────────────────────────────────────── */
-
-.tu .h {
-  font-family: var(--font-tu-display);
-  font-weight: 900;
-  font-stretch: 125%;
-  text-transform: uppercase;
-  line-height: 0.92;
-  letter-spacing: -0.01em;
-}
-.tu .m {
-  font-family: var(--font-tu-mono);
-}
-.tu kbd {
-  font-family: var(--font-tu-mono);
-  font-size: 12px;
-  font-weight: 600;
-  display: inline-block;
-  padding: 3px 7px;
-  border: 1.5px solid var(--tu-key);
-  border-bottom-width: 3px;
-  border-radius: 4px;
-  background: var(--tu-body);
-  color: var(--tu-ink);
-  white-space: nowrap;
-  line-height: 1.4;
-}
-.tu a {
-  color: var(--tu-ink);
-}
-.tu a:hover {
-  color: var(--tu-or);
-}
-
-/* The wordmark's hatched square and the theme toggle's half-filled dot. */
-.tu .mark {
-  width: 16px;
-  height: 16px;
-  border: 1.5px solid var(--tu-rule);
-  background:
-    repeating-conic-gradient(var(--tu-or) 0 25%, transparent 0 50%) 0 0/4px 4px,
-    var(--tu-body);
-}
-.tu .half-moon {
-  width: 12px;
-  height: 12px;
-  border-radius: 50% !important;
-  border: 1.5px solid var(--tu-ink);
-  background: linear-gradient(90deg, var(--tu-ink) 50%, transparent 50%);
-}
-
-/* ── Tiles: framed panels with a hatched title bar ─────────────────────── */
-
-.tu .tile {
-  border: 1.5px solid var(--tu-rule);
-  background: var(--tu-body);
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-}
-.tu .tile.on {
-  border-color: var(--tu-or);
-  box-shadow: 0 0 0 1.5px var(--tu-or);
-}
-.tu .bar {
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  min-height: 42px;
-  padding: 6px 12px;
-  border-bottom: 1.5px solid var(--tu-rule);
-  background:
-    repeating-conic-gradient(var(--tu-t2) 0 25%, transparent 0 50%) 0 0/4px 4px,
-    var(--tu-page);
-  color: var(--tu-muted);
-  font-family: var(--font-tu-mono);
-  font-size: 13px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.12em;
-  flex: none;
-}
-.tu .tt {
-  background: var(--tu-page);
-  padding: 3px 14px;
-}
-.tu .tile.on > .bar {
-  background:
-    repeating-conic-gradient(var(--tu-ord) 0 25%, transparent 0 50%) 0 0/4px 4px,
-    var(--tu-or);
-  color: var(--tu-on-or);
-  border-bottom-color: var(--tu-or);
-}
-.tu .tile.on > .bar .tt {
-  background: var(--tu-or);
-}
-
-/* Wide screens: the side tiles stay in view while the article scrolls, and
-   scroll on their own when they are taller than the window. Narrow screens
-   stack the tiles, so there they scroll with the page. */
-@media (min-width: 768px) {
-  .tu .tile.side {
-    position: sticky;
-    top: calc(var(--tu-header-h) + 12px);
-    max-height: calc(100vh - var(--tu-header-h) - 24px);
-  }
-  .tu .tile.side > .scroll {
-    min-height: 0;
-    overflow-y: auto;
+  .tu kbd {
+    border-radius: 4px;
   }
 }
 
-/* Sub-panels: code blocks and callouts */
-.tu .sub {
-  border: 1px solid var(--tu-line);
-  background: var(--tu-body);
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-  margin: 0 0 20px;
-}
-.tu .sbar {
-  min-height: 32px;
-  padding: 6px 12px 9px;
-  border-bottom: 1px solid var(--tu-line);
-  background:
-    repeating-conic-gradient(var(--tu-t2) 0 25%, transparent 0 50%) left
-      bottom/4px 4px repeat-x,
-    var(--tu-body);
-  color: var(--tu-muted);
-  font-family: var(--font-tu-mono);
-  font-size: 12px;
-  font-weight: 500;
-  text-align: center;
-}
-.tu .sub.note .sbar {
-  color: var(--tu-or);
-  font-weight: 600;
-  border-bottom-color: var(--tu-or);
-  background:
-    repeating-conic-gradient(var(--tu-or) 0 25%, transparent 0 50%) left
-      bottom/4px 4px repeat-x,
-    var(--tu-body);
-}
-.tu .sub.note {
-  border-color: var(--tu-or);
-}
-.tu .sub .sb {
-  padding: 16px 18px;
-  font-size: 15px;
-  line-height: 1.6;
-}
-.tu .sub .sb > :last-child {
-  margin-bottom: 0;
-}
-.tu .sub .sb p {
-  font-size: 15px;
-  line-height: 1.6;
-}
+/* The design's own rules sit in `components`: below utilities, so a class
+   on the element wins, and below the preview stylesheet's reset, so the
+   component previews keep their user-agent styles (ADR 0026). */
+@layer components {
+  /* ── Type ──────────────────────────────────────────────────────────────── */
 
-/* ── Navigation ────────────────────────────────────────────────────────── */
+  .tu .h {
+    font-family: var(--font-tu-display);
+    font-weight: 900;
+    font-stretch: 125%;
+    text-transform: uppercase;
+    line-height: 0.9;
+    letter-spacing: -0.01em;
+  }
+  .tu .m {
+    font-family: var(--font-tu-mono);
+  }
+  .tu kbd {
+    font-family: var(--font-tu-mono);
+    font-size: 12px;
+    font-weight: 600;
+    display: inline-block;
+    padding: 3px 7px;
+    border: 1.5px solid var(--tu-key);
+    border-bottom-width: 3px;
+    background: var(--tu-body);
+    color: var(--tu-ink);
+    white-space: nowrap;
+    line-height: 1.4;
+  }
+  .tu a {
+    color: var(--tu-ink);
+  }
+  .tu a:hover {
+    color: var(--tu-or);
+  }
 
-.tu .nav {
-  display: flex;
-  align-items: center;
-  width: 100%;
-  min-height: 38px;
-  padding: 6px 12px;
-  color: var(--tu-ink);
-  font-family: var(--font-tu-text);
-  font-size: 15px;
-  font-weight: 500;
-  text-decoration: none;
-}
-.tu .nav:hover {
-  color: var(--tu-or);
-}
-.tu .nav.on {
-  background: var(--tu-or);
-  color: var(--tu-on-or);
-  font-weight: 700;
-}
-.tu .grp {
-  font-family: var(--font-tu-mono);
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.12em;
-  color: var(--tu-muted);
-  padding: 18px 12px 6px;
-}
-.tu .toc a {
-  display: block;
-  padding: 7px 14px;
-  font-family: var(--font-tu-mono);
-  font-size: 13px;
-  text-decoration: none;
-  color: var(--tu-muted);
-  border-left: 2px solid transparent;
-}
-.tu .toc a.depth-3 {
-  padding-left: 26px;
-}
-.tu .toc a:hover {
-  color: var(--tu-or);
-  border-left-color: var(--tu-or);
-}
-.tu .pn {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 6px;
-  width: 100%;
-  min-height: 72px;
-  padding: 14px 16px;
-  border: 1px solid var(--tu-line);
-  background: var(--tu-body);
-  color: var(--tu-ink);
-  text-align: left;
-  font-family: var(--font-tu-text);
-  font-size: 17px;
-  font-weight: 700;
-  text-decoration: none;
-}
-.tu .pn:hover {
-  border-color: var(--tu-or);
-  color: var(--tu-ink);
-}
-.tu .pn small {
-  font-family: var(--font-tu-mono);
-  font-size: 11px;
-  font-weight: 500;
-  text-transform: uppercase;
-  letter-spacing: 0.1em;
-  color: var(--tu-muted);
-}
+  /* The wordmark's hatched square and the theme toggle's half-filled dot. */
+  .tu .mark {
+    width: 16px;
+    height: 16px;
+    border: 1.5px solid var(--tu-rule);
+    background:
+      repeating-conic-gradient(var(--tu-or) 0 25%, transparent 0 50%) 0 0/4px
+        4px,
+      var(--tu-body);
+  }
+  .tu .half-moon {
+    width: 12px;
+    height: 12px;
+    border-radius: 50% !important;
+    border: 1.5px solid var(--tu-ink);
+    background: linear-gradient(90deg, var(--tu-ink) 50%, transparent 50%);
+  }
 
-/* ── Article ───────────────────────────────────────────────────────────── */
+  /* ── Tiles: framed panels with a hatched title bar ─────────────────────── */
 
-.tu .art {
-  padding: 40px 48px 48px;
-  max-width: 780px;
-}
-.tu .art h1 {
-  margin: 0 0 18px;
-  font-size: clamp(40px, 4.4vw, 64px);
-}
-.tu .art h2 {
-  font-family: var(--font-tu-display);
-  font-weight: 900;
-  font-stretch: 125%;
-  text-transform: uppercase;
-  font-size: 24px;
-  line-height: 1.1;
-  margin: 48px 0 14px;
-  scroll-margin-top: calc(var(--tu-header-h) + 24px);
-}
-.tu .art h3,
-.tu .art h4 {
-  font-family: var(--font-tu-mono);
-  font-size: 15px;
-  font-weight: 600;
-  margin: 28px 0 10px;
-  scroll-margin-top: calc(var(--tu-header-h) + 24px);
-}
-.tu .art p {
-  font-size: 17px;
-  line-height: 1.65;
-  margin: 0 0 16px;
-}
-.tu .art .lead {
-  font-size: 20px;
-  line-height: 1.55;
-  color: var(--tu-muted);
-  margin-bottom: 28px;
-}
-.tu .art ul,
-.tu .art ol {
-  margin: 0 0 18px;
-  padding-left: 20px;
-  font-size: 17px;
-  line-height: 1.65;
-}
-.tu .art ul {
-  list-style: disc;
-}
-.tu .art ol {
-  list-style: decimal;
-}
-.tu .art li {
-  margin-bottom: 6px;
-}
-.tu .art li > p {
-  margin: 0;
-}
-.tu .art blockquote {
-  border-left: 3px solid var(--tu-line);
-  padding-left: 16px;
-  color: var(--tu-muted);
-  margin: 0 0 16px;
-}
-.tu .art hr {
-  border: 0;
-  border-top: 1px solid var(--tu-line);
-  margin: 32px 0;
-}
-.tu .art img {
-  max-width: 100%;
-  height: auto;
-}
-.tu .art :not(pre) > code {
-  font-family: var(--font-tu-mono);
-  font-size: 0.86em;
-  background: var(--tu-page);
-  border: 1px solid var(--tu-line);
-  padding: 1px 5px;
-  overflow-wrap: anywhere;
-}
-.tu .art a {
-  text-decoration: underline;
-  text-decoration-color: var(--tu-or);
-  text-decoration-thickness: 1.5px;
-  text-underline-offset: 3px;
-}
-.tu .art a.pn {
-  text-decoration: none;
-}
-.tu .art :is(h1, h2, h3, h4) code {
-  font-size: inherit;
-  background: none;
-  border: 0;
-  padding: 0;
-}
-.tu .art a code {
-  color: inherit;
-}
-.tu pre.code {
-  margin: 0;
-  padding: 18px 20px;
-  background: var(--tu-code) !important;
-  color: var(--tu-codeink);
-  font-family: var(--font-tu-mono);
-  font-size: 14px;
-  line-height: 1.7;
-  overflow-x: auto;
-}
-.tu pre.code code {
-  font-family: inherit;
-}
-/* Code panels are dark in both site themes, so they always take Shiki's
-   dark-theme values (source.config.ts registers the same palette for both). */
-.tu pre.code span {
-  color: var(--shiki-dark) !important;
-  font-style: var(--shiki-dark-font-style) !important;
-  font-weight: var(--shiki-dark-font-weight) !important;
-}
-.tu .tbl {
-  overflow-x: auto;
-  margin: 0 0 20px;
-  border: 1px solid var(--tu-line);
-}
-.tu table {
-  width: 100%;
-  min-width: 520px;
-  border-collapse: collapse;
-  font-size: 14px;
-  background: var(--tu-body);
-}
-.tu th {
-  font-family: var(--font-tu-mono);
-  font-size: 11px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.1em;
-  color: var(--tu-muted);
-  text-align: left;
-  padding: 10px 14px;
-  border-bottom: 1px solid var(--tu-line);
-  background: var(--tu-page);
-}
-.tu td {
-  padding: 11px 14px;
-  border-bottom: 1px solid var(--tu-line);
-  vertical-align: top;
-  line-height: 1.5;
-}
-.tu tr:last-child td {
-  border-bottom: 0;
-}
+  .tu .tile {
+    border: 1.5px solid var(--tu-rule);
+    background: var(--tu-body);
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+  }
+  .tu .tile.on {
+    border-color: var(--tu-or);
+    box-shadow: 0 0 0 1.5px var(--tu-or);
+  }
+  .tu .bar {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-height: 42px;
+    padding: 6px 12px;
+    border-bottom: 1.5px solid var(--tu-rule);
+    background:
+      repeating-conic-gradient(var(--tu-t2) 0 25%, transparent 0 50%) 0 0/4px
+        4px,
+      var(--tu-page);
+    color: var(--tu-muted);
+    font-family: var(--font-tu-mono);
+    font-size: 13px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    flex: none;
+  }
+  .tu .tt {
+    background: var(--tu-page);
+    padding: 3px 14px;
+  }
+  .tu .tile.on > .bar {
+    background:
+      repeating-conic-gradient(var(--tu-ord) 0 25%, transparent 0 50%) 0 0/4px
+        4px,
+      var(--tu-or);
+    color: var(--tu-on-or);
+    border-bottom-color: var(--tu-or);
+  }
+  .tu .tile.on > .bar .tt {
+    background: var(--tu-or);
+  }
 
-@media (max-width: 640px) {
+  /* A title bar that focuses its window is a button (home page). */
+  .tu button.bar {
+    width: 100%;
+    border: 0;
+    border-bottom: 1.5px solid var(--tu-rule);
+    cursor: pointer;
+  }
+  .tu button.sbar,
+  .tu button.wbar {
+    width: 100%;
+    border: 0;
+    border-bottom: 1px solid var(--tu-line);
+    cursor: pointer;
+  }
+  .tu .tb {
+    padding: 28px;
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+    flex: 1;
+  }
+
+  /* Sub-windows: a window's own row of smaller windows. */
+  .tu .subs {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr));
+    gap: 10px;
+    padding: 10px;
+    background: var(--tu-page);
+    flex: 1;
+  }
+  .tu .subs > .sub {
+    margin: 0;
+  }
+  .tu .sub.on {
+    border-color: var(--tu-or);
+  }
+  .tu .sub.on > .sbar {
+    color: var(--tu-or);
+    font-weight: 600;
+    border-bottom-color: var(--tu-or);
+    background:
+      repeating-conic-gradient(var(--tu-or) 0 25%, transparent 0 50%) left
+        bottom/4px 4px repeat-x,
+      var(--tu-body);
+  }
+
+  /* Mini app windows (the install terminal). */
+  .tu .win {
+    border: 1px solid var(--tu-line);
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    background: var(--tu-body);
+  }
+  .tu .wbar {
+    min-height: 32px;
+    padding: 6px 10px 9px;
+    border-bottom: 1px solid var(--tu-line);
+    background:
+      repeating-conic-gradient(var(--tu-t2) 0 25%, transparent 0 50%) left
+        bottom/4px 4px repeat-x,
+      var(--tu-body);
+    color: var(--tu-muted);
+    font-family: var(--font-tu-mono);
+    font-size: 12px;
+    font-weight: 500;
+    text-align: center;
+  }
+
+  /* Workspace buttons and section labels (home page and slides). */
+  .tu .ws {
+    width: 40px;
+    height: 40px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: 1.5px solid var(--tu-rule);
+    text-decoration: none;
+    font-family: var(--font-tu-ws);
+    font-weight: 700;
+    font-size: 18px;
+    background: var(--tu-body);
+  }
+  .tu .ws.cur {
+    background: var(--tu-or);
+    border-color: var(--tu-or);
+    color: var(--tu-on-or);
+  }
+  .tu .wslabel {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    font-family: var(--font-tu-mono);
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--tu-muted);
+    margin: 44px 0 12px;
+    scroll-margin-top: calc(var(--tu-header-h) + 12px);
+  }
+  .tu .wslabel h1 {
+    margin: 0;
+    font: inherit;
+    color: var(--tu-ink);
+    font-weight: 600;
+  }
+  .tu .wslabel::after {
+    content: '';
+    flex: 1;
+    height: 1.5px;
+    background: var(--tu-line);
+    order: 1;
+  }
+  .tu .wslabel span {
+    order: 2;
+  }
+
+  /* Slide odds and ends. */
+  .tu .btn {
+    min-height: 52px;
+    padding: 0 24px;
+    display: flex;
+    align-items: center;
+    border: 1.5px solid var(--tu-rule);
+    font-weight: 600;
+    text-decoration: none;
+  }
+  .tu .btn.primary {
+    background: var(--tu-or);
+    color: var(--tu-on-or);
+  }
+  .tu .ic {
+    font-family: var(--font-tu-mono);
+    font-size: 0.86em;
+    background: var(--tu-page);
+    border: 1px solid var(--tu-line);
+    padding: 1px 5px;
+    white-space: nowrap;
+  }
+  .tu .hero-strip {
+    border: 1.5px solid var(--tu-rule);
+    background:
+      repeating-conic-gradient(var(--tu-or) 0 25%, transparent 0 50%) 0 0/8px
+        8px,
+      var(--tu-body);
+  }
+  .tu .outline-num {
+    -webkit-text-stroke: 2px var(--tu-ink);
+    color: transparent;
+  }
+  .tu .home-code {
+    display: flex;
+    background: var(--tu-code);
+  }
+  .tu .home-code pre {
+    flex: 1;
+    margin: 0;
+    padding: 28px;
+    background: var(--tu-code) !important;
+    font-family: var(--font-tu-mono);
+    font-size: 14px;
+    line-height: 1.7;
+    overflow-x: auto;
+  }
+
+  /* Wide screens: the side tiles stay in view while the article scrolls, and
+     scroll on their own when they are taller than the window. Narrow screens
+     stack the tiles, so there they scroll with the page. */
+  @media (min-width: 768px) {
+    .tu .tile.side {
+      position: sticky;
+      top: calc(var(--tu-header-h) + 12px);
+      max-height: calc(100vh - var(--tu-header-h) - 24px);
+    }
+    .tu .tile.side > .scroll {
+      min-height: 0;
+      overflow-y: auto;
+    }
+  }
+
+  /* Sub-panels: code blocks and callouts */
+  .tu .sub {
+    border: 1px solid var(--tu-line);
+    background: var(--tu-body);
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    margin: 0 0 20px;
+  }
+  .tu .sbar {
+    min-height: 32px;
+    padding: 6px 12px 9px;
+    border-bottom: 1px solid var(--tu-line);
+    background:
+      repeating-conic-gradient(var(--tu-t2) 0 25%, transparent 0 50%) left
+        bottom/4px 4px repeat-x,
+      var(--tu-body);
+    color: var(--tu-muted);
+    font-family: var(--font-tu-mono);
+    font-size: 12px;
+    font-weight: 500;
+    text-align: center;
+  }
+  .tu .sub.note .sbar {
+    color: var(--tu-or);
+    font-weight: 600;
+    border-bottom-color: var(--tu-or);
+    background:
+      repeating-conic-gradient(var(--tu-or) 0 25%, transparent 0 50%) left
+        bottom/4px 4px repeat-x,
+      var(--tu-body);
+  }
+  .tu .sub.note {
+    border-color: var(--tu-or);
+  }
+  .tu .sub .sb {
+    padding: 16px 18px;
+    font-size: 15px;
+    line-height: 1.6;
+  }
+  .tu .sub .sb > :last-child {
+    margin-bottom: 0;
+  }
+  .tu .sub .sb p {
+    font-size: 15px;
+    line-height: 1.6;
+  }
+
+  /* ── Navigation ────────────────────────────────────────────────────────── */
+
+  .tu .nav {
+    display: flex;
+    align-items: center;
+    width: 100%;
+    min-height: 38px;
+    padding: 6px 12px;
+    color: var(--tu-ink);
+    font-family: var(--font-tu-text);
+    font-size: 15px;
+    font-weight: 500;
+    text-decoration: none;
+  }
+  .tu .nav:hover {
+    color: var(--tu-or);
+  }
+  .tu .nav.on {
+    background: var(--tu-or);
+    color: var(--tu-on-or);
+    font-weight: 700;
+  }
+  .tu .grp {
+    font-family: var(--font-tu-mono);
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: var(--tu-muted);
+    padding: 18px 12px 6px;
+  }
+  .tu .toc a {
+    display: block;
+    padding: 7px 14px;
+    font-family: var(--font-tu-mono);
+    font-size: 13px;
+    text-decoration: none;
+    color: var(--tu-muted);
+    border-left: 2px solid transparent;
+  }
+  .tu .toc a.depth-3 {
+    padding-left: 26px;
+  }
+  .tu .toc a:hover {
+    color: var(--tu-or);
+    border-left-color: var(--tu-or);
+  }
+  .tu .pn {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 6px;
+    width: 100%;
+    min-height: 72px;
+    padding: 14px 16px;
+    border: 1px solid var(--tu-line);
+    background: var(--tu-body);
+    color: var(--tu-ink);
+    text-align: left;
+    font-family: var(--font-tu-text);
+    font-size: 17px;
+    font-weight: 700;
+    text-decoration: none;
+  }
+  .tu .pn:hover {
+    border-color: var(--tu-or);
+    color: var(--tu-ink);
+  }
+  .tu .pn small {
+    font-family: var(--font-tu-mono);
+    font-size: 11px;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--tu-muted);
+  }
+
+  /* ── Article ───────────────────────────────────────────────────────────── */
+
   .tu .art {
-    padding: 28px 20px 32px;
+    padding: 40px 48px 48px;
+    max-width: 780px;
   }
-  /* Archivo at 125% width runs wide: a single word like "COMPONENTS" at the
-     design's 40px floor is wider than a phone's column. */
   .tu .art h1 {
-    font-size: 8vw;
+    margin: 0 0 18px;
+    font-size: clamp(40px, 4.4vw, 64px);
   }
-  .tu .art :is(h1, h2) {
+  .tu .art h2 {
+    font-family: var(--font-tu-display);
+    font-weight: 900;
+    font-stretch: 125%;
+    text-transform: uppercase;
+    font-size: 24px;
+    line-height: 1.1;
+    margin: 48px 0 14px;
+    scroll-margin-top: calc(var(--tu-header-h) + 24px);
+  }
+  .tu .art h3,
+  .tu .art h4 {
+    font-family: var(--font-tu-mono);
+    font-size: 15px;
+    font-weight: 600;
+    margin: 28px 0 10px;
+    scroll-margin-top: calc(var(--tu-header-h) + 24px);
+  }
+  .tu .art p {
+    font-size: 17px;
+    line-height: 1.65;
+    margin: 0 0 16px;
+  }
+  .tu .art .lead {
+    font-size: 20px;
+    line-height: 1.55;
+    color: var(--tu-muted);
+    margin-bottom: 28px;
+  }
+  .tu .art ul,
+  .tu .art ol {
+    margin: 0 0 18px;
+    padding-left: 20px;
+    font-size: 17px;
+    line-height: 1.65;
+  }
+  .tu .art ul {
+    list-style: disc;
+  }
+  .tu .art ol {
+    list-style: decimal;
+  }
+  .tu .art li {
+    margin-bottom: 6px;
+  }
+  .tu .art li > p {
+    margin: 0;
+  }
+  .tu .art blockquote {
+    border-left: 3px solid var(--tu-line);
+    padding-left: 16px;
+    color: var(--tu-muted);
+    margin: 0 0 16px;
+  }
+  .tu .art hr {
+    border: 0;
+    border-top: 1px solid var(--tu-line);
+    margin: 32px 0;
+  }
+  .tu .art img {
+    max-width: 100%;
+    height: auto;
+  }
+  .tu .art :not(pre) > code {
+    font-family: var(--font-tu-mono);
+    font-size: 0.86em;
+    background: var(--tu-page);
+    border: 1px solid var(--tu-line);
+    padding: 1px 5px;
     overflow-wrap: anywhere;
+  }
+  .tu .art a {
+    text-decoration: underline;
+    text-decoration-color: var(--tu-or);
+    text-decoration-thickness: 1.5px;
+    text-underline-offset: 3px;
+  }
+  .tu .art a.pn {
+    text-decoration: none;
+  }
+  .tu .art :is(h1, h2, h3, h4) code {
+    font-size: inherit;
+    background: none;
+    border: 0;
+    padding: 0;
+  }
+  .tu .art a code {
+    color: inherit;
+  }
+  .tu pre.code {
+    margin: 0;
+    padding: 18px 20px;
+    background: var(--tu-code) !important;
+    color: var(--tu-codeink);
+    font-family: var(--font-tu-mono);
+    font-size: 14px;
+    line-height: 1.7;
+    overflow-x: auto;
+  }
+  .tu pre.code code {
+    font-family: inherit;
+  }
+  /* Code panels are dark in both site themes, so they always take Shiki's
+     dark-theme values (source.config.ts registers the same palette for both). */
+  .tu pre.code span {
+    color: var(--shiki-dark) !important;
+    font-style: var(--shiki-dark-font-style) !important;
+    font-weight: var(--shiki-dark-font-weight) !important;
+  }
+  .tu .tbl {
+    overflow-x: auto;
+    margin: 0 0 20px;
+    border: 1px solid var(--tu-line);
+  }
+  .tu table {
+    width: 100%;
+    min-width: 520px;
+    border-collapse: collapse;
+    font-size: 14px;
+    background: var(--tu-body);
+  }
+  .tu th {
+    font-family: var(--font-tu-mono);
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--tu-muted);
+    text-align: left;
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--tu-line);
+    background: var(--tu-page);
+  }
+  .tu td {
+    padding: 11px 14px;
+    border-bottom: 1px solid var(--tu-line);
+    vertical-align: top;
+    line-height: 1.5;
+  }
+  .tu tr:last-child td {
+    border-bottom: 0;
+  }
+
+  @media (max-width: 640px) {
+    .tu .art {
+      padding: 28px 20px 32px;
+    }
+    /* Archivo at 125% width runs wide: a single word like "COMPONENTS" at the
+       design's 40px floor is wider than a phone's column. */
+    .tu .art h1 {
+      font-size: 8vw;
+    }
+    .tu .art :is(h1, h2) {
+      overflow-wrap: anywhere;
+    }
+  }
+
+  /* Temporary: the home page's path-traced background (whiteroom/) is
+     busy where the wallpaper was pale and quiet, so text that sat straight on
+     the wallpaper gets a solid patch of page colour behind it. */
+  .tu .on-room .wslabel {
+    background: var(--tu-page);
+    padding: 8px 12px;
   }
 }

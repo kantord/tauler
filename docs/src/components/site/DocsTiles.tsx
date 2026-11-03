@@ -54,10 +54,7 @@ export function DocsTiles({
         aria-label="Breadcrumb"
         className="m mb-3.5 flex items-center gap-3 text-[12px] tracking-[.1em] text-(--tu-muted) uppercase"
       >
-        <Link
-          href="/docs/"
-          className="font-semibold text-(--tu-ink) no-underline"
-        >
+        <Link href="/docs/" className="font-semibold no-underline">
           docs
         </Link>
         <span>
@@ -110,7 +107,7 @@ export function DocsTiles({
                 <span />
               )}
               {next && (
-                <Link href={next.url} className="pn items-end! text-right!">
+                <Link href={next.url} className="pn items-end text-right">
                   <small>next →</small>
                   {next.name}
                 </Link>

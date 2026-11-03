@@ -1,27 +1,21 @@
 import type { Metadata } from 'next'
 import type { ReactNode } from 'react'
-import { Archivo, DM_Sans, IBM_Plex_Mono } from 'next/font/google'
 import { RootProvider } from 'fumadocs-ui/provider/next'
 import SearchDialog from '@/components/search'
 import { TaulerImportMap } from '@/components/tauler/TaulerImportMap'
 import './global.css'
 
-// Downloaded at build time and served from the site itself.
-const display = Archivo({
-  subsets: ['latin'],
-  axes: ['wdth'],
-  variable: '--font-tu-display',
-})
-const text = DM_Sans({
-  subsets: ['latin'],
-  weight: ['400', '500', '700'],
-  variable: '--font-tu-text',
-})
-const mono = IBM_Plex_Mono({
-  subsets: ['latin'],
-  weight: ['400', '500', '600', '700'],
-  variable: '--font-tu-mono',
-})
+// Fonts come from npm (ADR 0032), not from next/font/google: Google
+// sometimes serves DM Sans from fonts.gstatic.com/l/font?kit=…&skey=…, and
+// Next.js 16's font loader fails the build on a URL with `&` in it. The
+// --font-tu-* variables are set in global.css.
+import '@fontsource-variable/archivo/wdth.css'
+import '@fontsource-variable/dm-sans/index.css'
+import '@fontsource/ibm-plex-mono/400.css'
+import '@fontsource/ibm-plex-mono/500.css'
+import '@fontsource/ibm-plex-mono/600.css'
+import '@fontsource/ibm-plex-mono/700.css'
+import '@fontsource/oswald/700.css'
 
 export const metadata: Metadata = {
   metadataBase: new URL('https://tauler.dev'),
@@ -33,11 +27,7 @@ export const metadata: Metadata = {
 
 export default function Layout({ children }: { children: ReactNode }) {
   return (
-    <html
-      lang="en"
-      className={`${display.variable} ${text.variable} ${mono.variable}`}
-      suppressHydrationWarning
-    >
+    <html lang="en" suppressHydrationWarning>
       <head>
         <TaulerImportMap />
       </head>

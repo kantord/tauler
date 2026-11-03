@@ -2,6 +2,7 @@ import { defineConfig, defineDocs } from 'fumadocs-mdx/config'
 import { metaSchema, pageSchema } from 'fumadocs-core/source/schema'
 import { remarkDirectiveAdmonition } from 'fumadocs-core/mdx-plugins'
 import remarkDirective from 'remark-directive'
+import { remarkLiteralDirectives } from './src/lib/remark-literal-directives'
 import { taulerCodeTheme } from './src/lib/shiki-theme'
 
 // The published docs: everything a person writing a layout file needs.
@@ -27,6 +28,8 @@ export default defineConfig({
     // `:::caution` / `:::danger[Title]` asides, carried over from Starlight.
     remarkPlugins: [
       remarkDirective,
+      // Only container directives are meant; "3:1" in prose must stay text.
+      remarkLiteralDirectives,
       [
         remarkDirectiveAdmonition,
         {

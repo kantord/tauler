@@ -1,0 +1,54 @@
+The site's one change to the scene of "White Room, Pixel Traced", applied by
+scripts/vendor-whiteroom.sh after it copies the scene out of the zip.
+
+The page frames the room at 3:2; the site renders it full width at half the
+window height, from about 0.9:1 to 12:1 and wider (whiteroom.ts keeps the
+vertical field of view and widens the horizontal one). Wide frames see past
+the left end of the back wall and floor at x = -1400; tall frames see over
+the walls at 470 cm. So the back wall, its window band and the floor run on
+to x = -5000 (enough for about 20:1), and the walls rise to 620 cm (more than
+the tallest frame, capped at 37 degrees half-angle, reaches). No ceiling or
+left wall: the room is lit mostly by the open sky they would shut out. The
+window's light source grows with it, so the far wall is lit as the near one.
+
+--- a/src/components/site/whiteroom/vendor/room-scene.js
++++ b/src/components/site/whiteroom/vendor/room-scene.js
+@@ -74,16 +74,23 @@
+ 
+   /* ---------------- room ---------------- */
+   var WALL_X = 176, WIN_Y0 = 313, WIN_Y1 = 405, CEIL = 470;
++  // tauler: the site renders the room into boxes from 0.9:1 to 12:1 and wider,
++  // not the page's 3:2. The back wall, window band and floor run on to LEFT_X
++  // (from -1400), so a wide frame never runs out of room on the left; the
++  // walls rise to CEIL (from 470), so a tall frame never sees over them.
++  // Applied by scripts/vendor-whiteroom.sh from scripts/whiteroom-scene.patch.
++  var LEFT_X = -5000;
++  CEIL = 620;
+   var room = G('room');
+-  room.box([-1400, -20, -60], [WALL_X + 30, 0, 1500], MAT.FLOOR);                 // floor slab
+-  room.box([-1400, 0, -40], [WALL_X, WIN_Y0, 0], MAT.WALL);                       // back wall, lower
+-  room.box([-1400, WIN_Y1, -40], [WALL_X, CEIL, 0], MAT.WALL);                    // above window
++  room.box([LEFT_X, -20, -60], [WALL_X + 30, 0, 1500], MAT.FLOOR);                 // floor slab
++  room.box([LEFT_X, 0, -40], [WALL_X, WIN_Y0, 0], MAT.WALL);                       // back wall, lower
++  room.box([LEFT_X, WIN_Y1, -40], [WALL_X, CEIL, 0], MAT.WALL);                    // above window
+   room.box([WALL_X, 0, -40], [WALL_X + 30, CEIL, 1500], MAT.WALL);                // right wall
+   room.box([WALL_X - 14, WIN_Y0, -40], [WALL_X, WIN_Y1, 0], MAT.WALL);            // return at window end
+-  room.box([-1400, WIN_Y0, -14], [WALL_X - 14, WIN_Y1, -12], MAT.GROUT);         // sill & frame backing (behind glow)
+-  room.quad([-1400, WIN_Y0, -11], [WALL_X - 14, WIN_Y0, -11], [WALL_X - 14, WIN_Y1, -11], [-1400, WIN_Y1, -11], MAT.WINDOW);
++  room.box([LEFT_X, WIN_Y0, -14], [WALL_X - 14, WIN_Y1, -12], MAT.GROUT);         // sill & frame backing (behind glow)
++  room.quad([LEFT_X, WIN_Y0, -11], [WALL_X - 14, WIN_Y0, -11], [WALL_X - 14, WIN_Y1, -11], [LEFT_X, WIN_Y1, -11], MAT.WINDOW);
+   // window reveal (top and bottom faces of the opening)
+-  room.box([-1400, WIN_Y0 - 1, -40], [WALL_X - 14, WIN_Y0, 0], MAT.WALL);
++  room.box([LEFT_X, WIN_Y0 - 1, -40], [WALL_X - 14, WIN_Y0, 0], MAT.WALL);
+ 
+   /* ---------------- sideboard ---------------- */
+   var sb = G('sideboard'); sb.pos = [-22, 0, 27];
+@@ -243,7 +250,7 @@
+   }
+ 
+   window.ROOM_SCENE = { pack: pack, MAT: MAT, bulbs: bulbs, lamp: lampInfo,
+-    window: { c0: [-1400, WIN_Y0, -11], e1: [WALL_X - 14 + 1400, 0, 0], e2: [0, WIN_Y1 - WIN_Y0, 0], n: [0, 0, 1] } };
++    window: { c0: [LEFT_X, WIN_Y0, -11], e1: [WALL_X - 14 - LEFT_X, 0, 0], e2: [0, WIN_Y1 - WIN_Y0, 0], n: [0, 0, 1] } };
+ })();
+ 
+ 

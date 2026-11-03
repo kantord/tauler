@@ -38,8 +38,9 @@ export default defineConfig({
   webServer: {
     // Test the production build: the static export Next writes to dist/
     // (see next.config.mjs), served as GitHub Pages would serve it.
-    command:
-      'pnpm exec next build && pnpm exec sirv dist --host 127.0.0.1 --port 4321',
+    // DOCS_PREBUILT=1 skips the build, for a caller that has just run it
+    // (`pnpm run checks`); without it every run builds fresh.
+    command: `${process.env.DOCS_PREBUILT ? '' : 'pnpm exec next build && '}pnpm exec sirv dist --host 127.0.0.1 --port 4321`,
     url: 'http://127.0.0.1:4321',
     // Never reuse: a lingering server serves a stale dist and silently
     // poisons every assertion.
