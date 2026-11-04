@@ -1,7 +1,18 @@
-/* Procedural Monstera deliciosa in a terracotta pot, for the White Room path tracer.
+/* Procedural Monstera deliciosa in a mid-century planter, for the White Room path tracer.
  *
  * addMonstera(group, { seed, KIND, MAT }) appends analytic primitives to a scene Group
- * (centimetres, y up, the pot standing on the floor at the group origin). Same seed, same plant.
+ * (centimetres, y up, the planter standing on the floor at the group origin, the back wall
+ * toward -z). Same seed, same plant. The planter is a low cylinder glazed in the chairs' ochre
+ * (the room's LEATHER) on a recessed chrome plinth (its CHROME).
+ *
+ * The habit follows photographs of potted plants of about 1.2 m (see the README): a few rooted
+ * cuttings, close together, each with a short stem whose leaves alternate sides; petioles rise
+ * steeply in a loose bundle and arch over near the top; at the geniculum the blade turns out and
+ * down, held 20-60 degrees below level and arching to a drooping tip. Leaves get bigger and more
+ * split with each new one, so the oldest are small, whole and low and the newest large, split
+ * and high; the newest of all is still a furled spike. Leaves keep off the wall behind.
+ * Irregularity is seeded noise on every choice, plus a few deliberate faults: an old leaf that
+ * sags, a blade turned on its petiole, a torn margin.
  *
  * New primitive kinds (the room shader's MONSTERA additions):
  *   KIND.LEAF  a = blade base (petiole junction), b = a + midribDir * length,
@@ -9,13 +20,14 @@
  *              The blade is the height field z = L (bend X^2 + twist X Y + cup Y^2) over the
  *              plane (midribDir, lateralDir), less each strap's droop; outline, pinnate splits,
  *              fenestrations, droop and veins come from the leaf's map, baked on the GPU by
- *              the leaf-map shader from g.leafMats (one maturity per leaf, in order).
+ *              the leaf-map shader from g.leafMats (one code per leaf, in order: see leafCode).
  *   KIND.CLUSTER  a box (a = min, b = max) around the next c.x primitives: a ray that misses
- *              it skips them (one cluster per leaf with its petiole, one for the pot, ...).
+ *              it skips them (one cluster per leaf with its petiole, one for the planter, ...).
  *   KIND.CONE  open frustum a -> b with radii c.x -> c.y; optional annular caps:
  *              c.z = inner radius of the cap at b, d.x = inner radius of the cap at a (-1 = none).
  *              r = max radius (bounding pad).
- * Materials: MAT.LEAF, PETIOLE, STEM, AERIAL_ROOT, POT, SOIL.
+ * Materials: MAT.LEAF, PETIOLE, STEM, AERIAL_ROOT, SOIL, FURL (and POT, which this planter
+ * does not use).
  */
 export function addMonstera(g, o) {
   var KIND = o.KIND,
@@ -51,6 +63,10 @@ export function addMonstera(g, o) {
   }
   function horiz(az) {
     return [Math.cos(az), 0, Math.sin(az)]
+  }
+  // unit vector tilted `tilt` from vertical toward azimuth az
+  function tilted(az, tilt) {
+    return add(sc(horiz(az), Math.sin(tilt)), [0, Math.cos(tilt), 0])
   }
   function bez(p0, p1, p2, p3, t) {
     var u = 1 - t
@@ -106,6 +122,14 @@ export function addMonstera(g, o) {
     c.b = mx
     c.c = [g.prims.length - at - 1, 0, 0]
   }
+  // one float per leaf for the leaf maps: maturity (0..1, in 64ths), freshness (0..1, in 16ths), torn
+  function leafCode(mat, fresh, torn) {
+    return (
+      Math.round(mat * 63) +
+      64 * Math.round(Math.min(1, fresh) * 15) +
+      (torn ? 1024 : 0)
+    )
+  }
   function chain(pts, r0, r1, mat) {
     for (var i = 0; i < pts.length - 1; i++)
       g.capsule(
@@ -116,189 +140,174 @@ export function addMonstera(g, o) {
       )
   }
 
-  /* ---- pot: tapered terracotta "standard" pot with a rolled collar, on a saucer ---- */
-  var H = 31,
-    rTop = 17.5,
-    rBot = 13.2,
-    collarH = 5.5,
-    lip = 1.1,
-    wall = 1.2,
-    sau = 1.0
-  var bodyTopR = rBot + (rTop - lip - rBot) * 1.0 // body radius under the collar
-  var soilY = H - 3.4,
-    inR = rTop - lip - wall + 0.15
-  var inRsoil = inR - ((H - soilY) * (rTop - rBot)) / H
+  /* ---- planter: returns the soil's height and radius ---- */
+  // A round pot: wall r0 -> r1 from y0 to y1 with a flat rim, an inner wall down to the soil
+  function roundPot(y0, y1, r0, r1, rim, mat) {
+    var soilY = y1 - 2.6,
+      inR = r1 - rim,
+      inRs = inR - ((y1 - soilY) * (r1 - r0)) / (y1 - y0)
+    cone([0, y0, 0], [0, y1, 0], r0, r1, inR, 0, mat)
+    cone([0, soilY - 0.5, 0], [0, y1, 0], inRs - 0.05, inR, -1, -1, mat)
+    cone([0, soilY - 1.5, 0], [0, soilY, 0], inRs, inRs, 0, -1, MAT.SOIL)
+    return { y: soilY, r: inRs }
+  }
+  // low wide cylinder in the chairs' ochre (satin glaze), floating on a recessed chrome plinth
+  var soil
   cluster(function () {
-    cone([0, 0, 0], [0, 3.2, 0], 15.2, 18.6, 17.4, 0, MAT.POT) // saucer wall + rim
-    cone([0, 0.2, 0], [0, sau, 0], 17.45, 17.45, 0, -1, MAT.POT) // saucer floor
-    cone([0, sau, 0], [0, H - collarH, 0], rBot, bodyTopR, -1, 0, MAT.POT)
-    cone(
-      [0, H - collarH, 0],
-      [0, H, 0],
-      rTop,
-      rTop + 0.15,
-      rTop - lip - wall + 0.15,
-      bodyTopR - 0.05,
-      MAT.POT,
-    )
-    cone([0, soilY - 0.5, 0], [0, H, 0], inRsoil, inR, -1, -1, MAT.POT) // inner wall
-    cone(
-      [0, soilY - 1.5, 0],
-      [0, soilY, 0],
-      inRsoil + 0.05,
-      inRsoil + 0.05,
-      0,
-      -1,
-      MAT.SOIL,
-    )
+    cone([0, 0, 0], [0, 4.5, 0], 15.5, 15.5, -1, -1, MAT.CHROME)
+    soil = roundPot(4.5, 33, 21.5, 21.5, 1.2, MAT.LEATHER)
   })
 
-  /* ---- stems: a nursery pot holds a few rooted cuttings; each a short thick stem ---- */
-  var nodes = [],
-    nStems = 3,
-    az0 = rnd(0, Math.PI * 2)
+  /* ---- stems: three rooted cuttings, close together, each a short leaning stem ---- */
+  var WALL = -Math.PI / 2,
+    FRONT = Math.PI / 2 // azimuths of the wall behind and of the room
+  function angDiff(a, b) {
+    var d = (a - b) % (2 * Math.PI)
+    return d > Math.PI ? d - 2 * Math.PI : d < -Math.PI ? d + 2 * Math.PI : d
+  }
+  // keep leaves from pointing into the wall: squeeze the back half-circle toward the sides
+  function offWall(az) {
+    var d = angDiff(az, WALL)
+    return Math.abs(d) > 1.6
+      ? az
+      : WALL + (d < 0 ? -1 : 1) * (1.15 + Math.abs(d) * 0.3)
+  }
+  var stems = [],
+    phi = rnd(0, Math.PI * 2),
+    counts = [6, 5, 3]
+  if (rand() < 0.5) counts = [5, 6, 3]
   cluster(function () {
-    for (var s = 0; s < nStems; s++) {
-      var saz = az0 + (s * Math.PI * 2) / nStems + rnd(-0.4, 0.4),
-        srad = rnd(2.5, 6.5)
-      var base = [Math.cos(saz) * srad, soilY - 1, Math.sin(saz) * srad]
-      var lean = rnd(0.35, 0.8),
-        len = rnd(9, 16),
-        lean2 = lean + rnd(-0.3, 0.2)
-      var dir = add(sc(horiz(saz + rnd(-0.5, 0.5)), Math.sin(lean)), [
+    for (var s = 0; s < 3; s++) {
+      phi += s === 0 ? 0 : rnd(1.7, 2.7)
+      var base = add(sc(horiz(phi + rnd(-0.4, 0.4)), rnd(1.5, 4.5)), [
         0,
-        Math.cos(lean),
+        soil.y - 1.5,
         0,
       ])
-      var mid = add(base, sc(dir, len * 0.55))
-      var dir2 = add(sc(horiz(saz + rnd(-0.6, 0.6)), Math.sin(lean2)), [
-        0,
-        Math.cos(lean2),
-        0,
-      ])
-      var tip = add(mid, sc(dir2, len * 0.45))
-      var sr = rnd(2.0, 2.6)
-      g.capsule(base, mid, sr, MAT.STEM)
-      g.capsule(mid, tip, sr * 0.9, MAT.STEM)
-      var nN = 4
-      for (var k = 0; k < nN; k++) {
-        var t = (k + 1) / nN
-        var p =
-          t < 0.55
-            ? add(base, sc(add(mid, sc(base, -1)), t / 0.55))
-            : add(mid, sc(add(tip, sc(mid, -1)), (t - 0.55) / 0.45))
-        nodes.push({ p: p, stemAz: saz, stem: s, k: k, sr: sr })
-      }
+      var len = [rnd(10, 15), rnd(6, 10), rnd(3, 6)][s],
+        lean = rnd(0.15, 0.45)
+      var tip = add(base, sc(tilted(phi, lean), len))
+      var sr = rnd(1.6, 2.1)
+      g.capsule(base, tip, sr, MAT.STEM)
+      stems.push({ base: base, tip: tip, phi: phi, sr: sr, n: counts[s] })
     }
   })
 
-  /* ---- leaves: distichous along each stem, sizes from juvenile to mature ---- */
-  var golden = 2.39996,
-    leaves = []
+  /* ---- leaves ---- */
+  var leaves = []
   var LEAF_DROOP = 0.06 // deepest strap droop below the sheet, in leaf lengths (the leaf maps' droop stays below it)
-  nodes.forEach(function (nd, i) {
-    // the stem's two ranks of leaves alternate sides; the whole plant fans out in all directions
-    var az = az0 + i * golden + rnd(-0.35, 0.35) // spread around the pot (golden angle)
-    var rank = nd.k / 3 // older leaves sit lower and are smaller
-    var L =
-      nd.stem === 0 && nd.k === 3
-        ? rnd(28, 34)
-        : rnd(38, 47) + rank * rnd(12, 24) + (nd.stem === 1 ? 4 : 0)
-    var mat = Math.min(1, Math.max(0, (L - 30) / 26 + rnd(-0.1, 0.1)))
-    var out = horiz(az),
-      up = [0, 1, 0]
-    var Lp = L * rnd(0.9, 1.25) + 10
-    var el0 = rnd(1.25, 1.5),
-      elc = rnd(0.95, 1.25) - rank * 0.3 // petiole leaves the stem steeply, arches out
-    var p0 = nd.p
-    var p3 = add(
-      p0,
-      add(sc(out, Math.cos(elc) * Lp), [0, Math.sin(elc) * Lp, 0]),
-    )
-    var p1 = add(
-      p0,
-      add(sc(out, Math.cos(el0) * Lp * 0.5), [0, Math.sin(el0) * Lp * 0.5, 0]),
-    )
-    var p2 = add(
-      p3,
-      add(sc(out, -Math.cos(elc) * Lp * 0.3), [0, -Lp * 0.06, 0]),
-    )
-    var pts = []
-    for (var j = 0; j <= 5; j++) pts.push(bez(p0, p1, p2, p3, j / 5))
-    cluster(function () {
-      var pr = 0.5 + 0.009 * L
-      g.capsule(pts[0], pts[1], pr * 1.5, MAT.PETIOLE) // sheathing base
-      chain(pts.slice(1), pr * 1.1, pr * 0.95, MAT.PETIOLE)
-      var knee = pts[5]
-      // blade: from the geniculum outward, near level at the base and arching down to the tip, its
-      // halves only slightly folded down; big mature blades hang a little lower than young ones
-      var yaw = az + rnd(-0.3, 0.3)
-      var pitch = -rnd(0.05, 0.35) - mat * 0.15
-      var T = norm(
-        add(sc(horiz(yaw), Math.cos(pitch)), [0, Math.sin(pitch), 0]),
+  var sagLeaf = Math.floor(rnd(0, 2)),
+    turnLeaf = 3 + Math.floor(rnd(0, 4)),
+    tornLeaf = 2 + Math.floor(rnd(0, 5)),
+    li = 0
+  stems.forEach(function (st, s) {
+    var az = st.phi + rnd(-0.5, 0.5)
+    for (var k = 0; k < st.n; k++, li++) {
+      // r: 0 the stem's oldest leaf .. 1 its newest; the youngest stem's leaves are smaller
+      var r = k / (st.n - 1),
+        furled = s === 0 && k === st.n - 1
+      az += k === 0 ? 0 : Math.PI + rnd(-0.7, 0.7) // alternate sides, unevenly
+      var aZ = offWall(az)
+      aZ += 0.2 * angDiff(FRONT, aZ) // the room side is the light side
+      var sizeS = [1, 0.93, 0.8][s]
+      var L = (24 + 22 * r + rnd(-3, 3)) * sizeS
+      var mat = Math.min(1, Math.max(0, (L - 26) / 14 + rnd(-0.12, 0.12)))
+      var sag = s === 0 && k === sagLeaf
+      // petioles: older ones shorter and leaning out more, younger ones longer and steeper
+      var Lp =
+        (32 + 36 * r + rnd(-5, 6) + (s === 2 ? -4 : 0)) * (furled ? 0.85 : 1)
+      var tb = 0.1 + 0.32 * (1 - r) + rnd(-0.06, 0.1) + (sag ? 0.25 : 0) // tilt from vertical at the base
+      var tt = tb + 0.25 + 0.35 * (1 - r) + rnd(-0.1, 0.15) + (sag ? 0.4 : 0) // ... and at the top (it arches over)
+      var p0 = add(
+        st.base,
+        sc(add(st.tip, sc(st.base, -1)), 0.35 + (0.65 * k) / st.n),
       )
-      var S = norm(cross(up, T)),
-        N = cross(T, S)
-      var roll = rnd(-0.4, 0.4)
-      var S2 = add(sc(S, Math.cos(roll)), sc(N, Math.sin(roll)))
-      var bend = -rnd(0.16, 0.32),
-        cup = -rnd(0.06, 0.2) - 0.06 * mat,
-        twist = rnd(-0.15, 0.15)
-      var N2 = cross(T, S2),
-        ext = []
-      for (var X = -0.3; X <= 1.001; X += 0.1)
-        for (var Y = -0.65; Y <= 0.651; Y += 0.13) {
-          var z = bend * X * X + twist * X * Y + cup * Y * Y
-          ;[0, -LEAF_DROOP].forEach(function (dz) {
-            ext.push(
-              add(knee, sc(add(add(sc(T, X), sc(S2, Y)), sc(N2, z + dz)), L)),
-            )
-          })
+      var dB = tilted(aZ + rnd(-0.25, 0.25), tb),
+        dT = tilted(aZ, tt)
+      var p3 = add(p0, sc(tilted(aZ, 0.5 * (tb + tt) + 0.05), Lp))
+      var p1 = add(p0, sc(dB, Lp * 0.4)),
+        p2 = add(p3, sc(dT, -Lp * 0.35))
+      var pts = []
+      for (var j = 0; j <= 6; j++) pts.push(bez(p0, p1, p2, p3, j / 6))
+      var pr = 0.32 + 0.011 * L
+      cluster(function () {
+        g.capsule(pts[0], add(pts[0], sc(dB, 7)), pr * 1.8, MAT.STEM) // sheathing base
+        chain(pts, pr * 1.15, pr * 0.85, MAT.PETIOLE)
+        var knee = pts[6]
+        if (furled) {
+          // a new leaf still rolled into a spike, carried up on the petiole's line
+          var f1 = add(knee, sc(tilted(aZ, tt - 0.1), L * 0.16)),
+            f2 = add(f1, sc(tilted(aZ + 0.3, tt + 0.15), L * 0.18))
+          cone(knee, f1, pr * 1.3, pr * 1.9, -1, -1, MAT.FURL)
+          cone(f1, f2, pr * 1.9, 0.12, -1, -1, MAT.FURL)
+          return []
         }
-      var pad = L * 1.25
-      g.prims.push({
-        k: KIND.LEAF,
-        m: MAT.LEAF,
-        a: knee,
-        b: add(knee, sc(T, L)),
-        r: pad,
-        c: sc(S2, 1 + leaves.length),
-        d: [bend, cup, twist],
+        // the blade turns out and down at the geniculum, older leaves hanging lower, and turns
+        // its face toward the room, where the light comes from
+        var yaw =
+          aZ +
+          0.3 * angDiff(FRONT, aZ) +
+          rnd(-0.35, 0.35) +
+          (li === turnLeaf ? 0.9 * (rand() < 0.5 ? -1 : 1) : 0)
+        var pitch =
+          -(0.25 + 0.3 * (1 - r) + rnd(-0.12, 0.15)) - (sag ? 0.45 : 0)
+        var T = norm(
+          add(sc(horiz(yaw), Math.cos(pitch)), [0, Math.sin(pitch), 0]),
+        )
+        var S = norm(cross(norm([0, 1, 0.5]), T)),
+          N = cross(T, S)
+        var roll = rnd(-0.3, 0.3) + (li === turnLeaf ? 0.45 : 0)
+        var S2 = add(sc(S, Math.cos(roll)), sc(N, Math.sin(roll)))
+        var bend = -rnd(0.14, 0.3) - 0.08 * mat - (sag ? 0.1 : 0),
+          cup = -rnd(0.12, 0.28) - 0.08 * mat,
+          twist = rnd(-0.18, 0.18)
+        var N2 = cross(T, S2),
+          ext = []
+        for (var X = -0.3; X <= 1.001; X += 0.1)
+          for (var Y = -0.65; Y <= 0.651; Y += 0.13) {
+            var z = bend * X * X + twist * X * Y + cup * Y * Y
+            ;[0, -LEAF_DROOP].forEach(function (dz) {
+              ext.push(
+                add(knee, sc(add(add(sc(T, X), sc(S2, Y)), sc(N2, z + dz)), L)),
+              )
+            })
+          }
+        g.prims.push({
+          k: KIND.LEAF,
+          m: MAT.LEAF,
+          a: knee,
+          b: add(knee, sc(T, L)),
+          r: L * 1.25,
+          c: sc(S2, 1 + leaves.length),
+          d: [bend, cup, twist],
+        })
+        // freshness: the newest leaves are a lighter, yellower green; old ones dark
+        leaves.push(
+          leafCode(
+            mat,
+            Math.max(0, r * 1.2 - 0.4 + rnd(-0.1, 0.1)) * sizeS,
+            li === tornLeaf,
+          ),
+        )
+        return ext
       })
-      leaves.push(mat)
-      return ext
-    })
+    }
   })
 
-  /* ---- aerial roots: one dives into the soil, one hangs over the rim to the floor ---- */
+  /* ---- an aerial root from the oldest stem, arching down into the soil ---- */
   cluster(function () {
-    var nd = nodes[1],
-      o1 = horiz(o.rootAz === undefined ? 1.75 : o.rootAz) // default: front-left as seen from the room camera
-    var r0 = add(nd.p, sc(o1, nd.sr))
-    var rim = add(sc(o1, rTop + 0.8), [0, H + 1.2, 0])
-    var pts = [
-      r0,
-      add(r0, add(sc(o1, 5), [0, 2.5, 0])),
-      add(sc(o1, rTop - 3), [0, H + 2.4, 0]),
-      rim,
-      add(sc(o1, rTop + 1.6), [0, H - 6, 0]),
-      add(sc(o1, rTop + 0.6), [0, H - 17, 0]),
-      add(sc(o1, rBot + 2.4), [0, 9, 0]),
-      add(sc(o1, rBot + 4.5), [0, 3.6, 0]),
-    ]
-    chain(pts, 0.55, 0.45, MAT.AERIAL_ROOT)
-    var nd2 = nodes[nodes.length - 2],
-      o2 = horiz(nd2.stemAz + 0.8)
-    var q0 = add(nd2.p, sc(o2, nd2.sr))
+    var st = stems[0],
+      d = horiz(offWall(st.phi + 0.6))
+    var r0 = add(st.tip, sc(d, st.sr * 0.8))
     chain(
       [
-        q0,
-        add(q0, add(sc(o2, 4), [0, -1, 0])),
-        add(q0, add(sc(o2, 7.5), [0, -4.5, 0])),
-        add(q0, add(sc(o2, 9), [0, -8, 0])),
+        r0,
+        add(r0, add(sc(d, 3), [0, -0.5, 0])),
+        add(r0, add(sc(d, 5.5), [0, -3.5, 0])),
+        add(r0, add(sc(d, 6.5), [0, -9, 0])),
       ],
-      0.5,
       0.45,
+      0.4,
       MAT.AERIAL_ROOT,
     )
   })

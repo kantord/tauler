@@ -89,7 +89,12 @@ which was built for 3:2: beyond the left end of its back wall and floor, and ove
 walls. So `scripts/whiteroom-scene.patch`, applied by the vendoring script and failing it
 if it no longer applies, runs the back wall, its window band and the floor further left
 and raises the walls; it adds no ceiling or left wall, which would shut out the open sky
-that lights most of the room. At 3:2 the room looks as before.
+that lights most of the room. It also gives the junctions of walls and floor, and of
+the two walls, a small cove (3 cm), so they read as a soft shading change rather than
+a harsh one-pixel line. The cove is a primitive kind of the site's own, the inside of a
+cylinder between its axis and the corner, which `whiteroom.ts` teaches the room's
+shader; it meets both planes tangentially, so unlike a skirting it makes no edge above
+itself. Otherwise, at 3:2 the room looks as before.
 
 The render's dither pixels are the wallpaper's: 3 device px at any zoom (the size is read
 from the wallpaper module), on one grid counted from the window's top-left, with the
@@ -255,11 +260,17 @@ top eighth, more floor at the bottom.
 
 ## Amendment: a Monstera in the room
 
-The room has a plant: a Monstera deliciosa in a terracotta pot at the left of the scene
-(the 8th and last group the renderer takes, at x −383), where every wide frame shows
-it, clear of the logo above and of the fade, and the page's own 3:2 frame and phones do
-not reach. It stands over the end of the uplighter's cable, which used to stop on the
-open floor; the cable's last metre is rerouted to end behind the saucer.
+The room has a plant: a Monstera deliciosa in a low ochre bowl on a chrome plinth
+(the chairs' leather and steel), a little way out from the back wall at the left of
+the scene (the 8th and last group the renderer takes, at x −425), where every wide
+frame shows it, clear of the logo above and of the fade, and the page's own 3:2 frame and
+phones do not reach. Its habit follows photographs of real potted plants of its size: a
+compact, upright cluster of steep petioles, blades turned out and down at the geniculum,
+the oldest leaves small and whole, the newest large and split, one still furled, and a few
+faults on purpose (a sagging leaf, a turned one, a torn margin). The uplighter's cable
+used to stop on the open floor; it now curves back to the wall and runs along the cove
+at its foot behind the planter, up to a wall socket the pot hides, so the lamp does not
+read as plugged into the plant.
 
 It goes in the way the room's other changes do. The scene change is a second patch,
 `scripts/whiteroom-monstera.patch`, applied by the vendoring script after the first
@@ -281,8 +292,10 @@ are not computed per ray but baked once into a small texture (one 128 × 128 map
 leaf, by a shader of its own, before the first sample) that the blade's intersection
 samples. Leaves are matte with a sheen rather than glossy: at 48 samples a glossy coat's
 rare reflections of the window were white dots. Measured on an RTX 4060 Ti, per frame
-of the home page at 1440 × 900: about 3.7 ms before, 4.7 ms with the plant (2560 × 1440:
-8.8 and 11.3); the 48 frames still take about 0.8 s, bound by the display's refresh.
+of the home page at 1440 × 900: about 3.7 ms before, 4.7 ms with the first plant
+(2560 × 1440: 8.8 and 11.3), about 5.0 ms with the rebuilt one (11.8), within the
+measurements' noise of the first in a side-by-side bench; the 48 frames still take about
+0.8 s, bound by the display's refresh.
 
 ## Amendment: the room fades in, and fireflies are clamped
 

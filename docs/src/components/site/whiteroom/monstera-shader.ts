@@ -152,6 +152,7 @@ const DEFINES = `// MONSTERA: material ids (must match MAT in the scene script) 
 #define M_AERIAL_ROOT 25
 #define M_POT 26
 #define M_SOIL 27
+#define M_FURL 28
 #define K_LEAF 5
 #define K_CONE 6
 #define K_CLUSTER 7
@@ -286,44 +287,46 @@ void monsteraMaterial(int id, vec3 p, vec3 n, inout int type, inout vec3 albedo,
 {
 	// One noise lookup, shared by all the plant's materials at a scale each: every lookup in the
 	// shader is inlined, and its code and registers cost every pixel, plant on screen or not.
-	float m = fbm(p * (id == M_POT ? vec3(0.25, 0.6, 0.25) : id == M_PETIOLE ? vec3(0.3, 2.5, 0.3) : vec3(1.6)));   // about 0.2 .. 0.75
+	float m = fbm(p * (id == M_PETIOLE ? vec3(0.3, 2.5, 0.3) : vec3(1.6)));   // about 0.2 .. 0.75
 	if (id == M_LEAF) {
-		// Matte with a waxy sheen: diffuse, lightened toward the sky's tone at grazing angles. A real
-		// glossy coat (COAT) sparkled: at 48 samples its rare reflections of the window are white dots.
-		float aux = abs(hitAux) - 2.0, mat = floor(aux) / 255.0, vein = fract(aux) / 0.99;
+		// Matte with a waxy sheen: diffuse, lightened toward the sky's tone at grazing angles, most
+		// on faces turned up to the sky. A real glossy coat (COAT) sparkled: at 48 samples its
+		// rare reflections of the window are white dots. New leaves are a lighter, yellower green.
+		float aux = abs(hitAux) - 2.0, fresh = floor(aux) / 255.0, vein = fract(aux) / 0.99;
 		bool top = hitAux > 0.0;
-		float mottle = 0.8 + 0.4 * m;
-		float age = clamp(1.0 - mat, 0.0, 1.0);
-		float sheen = pow(1.0 - abs(dot(normalize(n), rayDirection)), 4.0);
-		vec3 base = top ? mix(vec3(0.020, 0.052, 0.015), vec3(0.045, 0.11, 0.020), age * 0.7)
-		                : mix(vec3(0.060, 0.115, 0.040), vec3(0.08, 0.17, 0.04), age * 0.6);
-		albedo = mix(base * mottle, top ? vec3(0.13, 0.22, 0.05) : vec3(0.22, 0.30, 0.10), vein * (top ? 0.5 : 0.6));
-		albedo = mix(albedo, vec3(0.30, 0.36, 0.28), (top ? 0.6 : 0.3) * sheen);
+		vec3 nn = normalize(n);
+		float sheen = pow(1.0 - abs(dot(nn, rayDirection)), 2.0) * (0.4 + 0.6 * abs(nn.y));
+		vec3 base = top ? mix(vec3(0.011, 0.032, 0.016), vec3(0.04, 0.1, 0.028), fresh)
+		                : mix(vec3(0.05, 0.095, 0.045), vec3(0.08, 0.16, 0.05), fresh);
+		albedo = mix(base * (0.85 + 0.3 * m), top ? vec3(0.08, 0.15, 0.06) : vec3(0.18, 0.26, 0.1), vein * (top ? 0.45 : 0.6));
+		albedo = mix(albedo, vec3(0.3, 0.35, 0.34), (top ? 0.75 : 0.3) * sheen);
 	}
-	else if (id == M_PETIOLE) {
-		albedo = vec3(0.060, 0.15, 0.020) * (0.8 + 0.4 * m);
-		albedo = mix(vec3(0.16, 0.12, 0.05), albedo, smoothstep(27.0, 33.0, p.y));   // papery sheath near the soil
+	else if (id == M_PETIOLE || id == M_FURL) {
+		// petioles a lighter green than the blades; a furled new leaf paler still
+		albedo = (id == M_FURL ? vec3(0.09, 0.2, 0.04) : vec3(0.05, 0.12, 0.03)) * (0.8 + 0.4 * m);
 		type = COAT; rough = 0.45; specK = 0.3;
 	}
 	else if (id == M_STEM) {
+		// the stems and the petioles' sheathing bases: olive green, ringed with old leaf scars
 		float ring = smoothstep(0.85, 1.0, abs(sin(p.y * 0.9 + m * 4.0)));
-		albedo = mix(vec3(0.055, 0.075, 0.020), vec3(0.11, 0.085, 0.04), ring) * (0.75 + 0.5 * m);
-		type = COAT; rough = 0.45; specK = 0.4;
+		albedo = mix(vec3(0.05, 0.08, 0.02), vec3(0.11, 0.09, 0.04), ring) * (0.75 + 0.5 * m);
+		type = COAT; rough = 0.45; specK = 0.3;
 	}
 	else if (id == M_AERIAL_ROOT) {
 		albedo = vec3(0.17, 0.105, 0.05) * (0.6 + 0.8 * m);
 	}
 	else if (id == M_POT) {
-		// matte terracotta: mottled, with chalky mineral bloom creeping down from the rim, darker inside
-		vec3 terra = vec3(0.36, 0.15, 0.08) * (0.75 + 0.45 * m);
-		float bloom = smoothstep(0.55, 0.85, m + (p.y - 22.0) * 0.02) * 0.45;
-		albedo = mix(terra, vec3(0.62, 0.55, 0.47), bloom);
-		if (n.y < 0.5 && dot(n, vec3(p.x, 0.0, p.z)) < 0.0) albedo *= 0.55;           // inner wall: damp
+		// satin white glaze, faintly uneven; the inside, below the rim, in shadow and dulled
+		albedo = vec3(0.8, 0.79, 0.76) * (0.96 + 0.08 * m);
+		type = COAT; rough = 0.35; specK = 0.25;
+		if (n.y < 0.5 && dot(n, vec3(p.x, 0.0, p.z)) < 0.0) albedo *= 0.5;
 	}
 	else if (id == M_SOIL) {
-		albedo = vec3(0.030, 0.020, 0.013) * (0.4 + 1.6 * m);
-		float perlite = step(0.975, hash13(floor(p * 1.5)));
-		albedo = mix(albedo, vec3(0.75, 0.74, 0.70), perlite);                           // perlite grains
+		// dark potting mix with chips of bark and the odd grain of perlite
+		albedo = vec3(0.035, 0.022, 0.014) * (0.5 + 1.3 * m);
+		float h = hash13(floor(p * 0.8));
+		albedo = mix(albedo, vec3(0.17, 0.1, 0.055) * (0.5 + m), step(0.8, h));
+		albedo = mix(albedo, vec3(0.75, 0.74, 0.7), step(0.975, hash13(floor(p * 1.7))));
 	}
 }
 /* ==================== MONSTERA: primitives and materials (end) ==================== */
@@ -393,7 +396,10 @@ export const MONSTERA_EDITS: [string, string][] = [
 /** Texels per leaf map side; the target is LEAF_RES wide and LEAF_RES * leaves high. */
 export const LEAF_RES = 128
 
-/** The leaf-map shader: a fragment shader for the room's full-screen triangle, uniform uLeafMat[16]. */
+/**
+ * The leaf-map shader: a fragment shader for the room's full-screen triangle,
+ * uniform uLeafMat[16] (the scene's leafMats: one code per leaf).
+ */
 export const LEAF_MAPS = `precision highp float;
 precision highp int;
 
@@ -408,9 +414,9 @@ precision highp int;
  *   r  signed distance to the blade's edge, roughly (> 0 on the blade): outline, splits, holes
  *   g  how far the strap there hangs below the leaf's curved sheet
  *   b  vein strength, for shading
- *   a  maturity (0 juvenile .. 1 mature), for shading
+ *   a  freshness (0 old, dark .. 1 new, light), for shading
  */
-uniform float uLeafMat[16];   // maturity of each leaf, from the scene (ROOM_SCENE.leafMats)
+uniform float uLeafMat[16];   // each leaf's code, from the scene (ROOM_SCENE.leafMats): maturity in 64ths + 64 * freshness in 16ths + 1024 if torn
 #define LEAF_RES 128.0
 
 float hash13(vec3 p) { p = fract(p * 0.1031); p += dot(p, p.zyx + 31.32); return fract((p.x + p.y) * p.z); }
@@ -423,13 +429,18 @@ float hash13(vec3 p) { p = fract(p * 0.1031); p += dot(p, p.zyx + 31.32); return
 
 // The pinnate split in interval i (between lateral veins i and i + 1), from the margin in along
 // the middle of the interval: x = where it ends inside, as a share of the half-width (2 = no
-// split); y = its line's offset across the interval. Young blades have none; mature ones are
+// split; negative = a tear ending at -x, a narrow slit); y = its line's offset across the
+// interval. Young blades have none; mature ones are
 // split at nearly every interval, about half way to the midrib.
+bool gTorn;   // this leaf is torn (set by main)
+
 vec2 leafSplit(float i, float side, float mat, float seed, float nv)
 {
 	float h1 = hash13(vec3(seed, i * 1.7 + side, 1.3)), h2 = hash13(vec3(seed, i * 2.3 + side, 5.9));
 	bool split = i >= 0.0 && i < nv && h1 < mat * 1.35 - 0.25;
-	return vec2(split ? 0.42 + 0.2 * h2 + 0.25 * (1.0 - mat) : 2.0, (hash13(vec3(seed, i * 3.1 + side, 4.4)) - 0.5) * 0.3);
+	// a torn leaf has one more split, a ragged tear, in an interval chosen by its seed
+	bool tear = gTorn && !split && i == floor(1.0 + hash13(vec3(seed, 9.1, 2.2)) * (nv - 2.0)) && side == (hash13(vec3(seed, 4.3, 1.7)) < 0.5 ? -1.0 : 1.0);
+	return vec2(split ? 0.3 + 0.2 * h2 + 0.3 * (1.0 - mat) : tear ? -0.6 - 0.15 * h2 : 2.0, (hash13(vec3(seed, i * 3.1 + side, 4.4)) - 0.5) * 0.3);
 }
 
 void main()
@@ -437,8 +448,11 @@ void main()
 	float li = floor(gl_FragCoord.y / LEAF_RES);
 	vec2 uv = vec2(gl_FragCoord.x, gl_FragCoord.y - li * LEAF_RES) / LEAF_RES;
 	float X = -0.3 + uv.x * 1.35, Y = -0.65 + uv.y * 1.3;
-	float mat = uLeafMat[int(li)], seed = 11.0 + li * 7.0;
-	float nv = floor(4.5 + 4.0 * mat), ds = 0.77 / nv;
+	float code = uLeafMat[int(li)], seed = 11.0 + li * 7.0;
+	gTorn = code > 1023.5;
+	code -= gTorn ? 1024.0 : 0.0;
+	float mat = mod(code, 64.0) / 63.0, fresh = floor(code / 64.0) / 15.0;
+	float nv = floor(4.0 + 3.0 * mat), ds = 0.77 / nv;
 
 	float side = Y < 0.0 ? -1.0 : 1.0;
 	float ay = abs(Y) * (1.0 + 0.08 * side * (hash13(vec3(seed, 3.1, 7.7)) - 0.5));
@@ -454,12 +468,14 @@ void main()
 	float droop = 0.0;
 	if (i >= 0.0 && i < nv && dist > -0.05) {
 		vec2 sp = leafSplit(i, side, mat, seed, nv);
+		float tw = sp.x < 0.0 ? 0.3 : 1.0;   // a tear is narrow
+		sp.x = abs(sp.x);
 		float d = (fr - sp.y) * w;   // across the interval from the split's line
 		// ... a split: a slit with a rounded inner end that opens into a wide gap at the margin
 		if (f > sp.x) {
 			float g = (f - sp.x) / (1.0 - sp.x);
-			float hw = (0.005 + 0.012 * g * g + 0.035 * pow(max(0.0, (f - 0.78) / 0.22), 2.0)) * sqrt(min(1.0, (f - sp.x) / 0.035));
-			dist = min(dist, abs(d) - hw);
+			float hw = (0.008 + 0.022 * g + 0.02 * pow(max(0.0, (f - 0.8) / 0.2), 2.0)) * sqrt(min(1.0, (f - sp.x) / 0.035));
+			dist = min(dist, abs(d) - hw * tw);
 		}
 		// ... and holes on the same line: an outer row of long ones inside the split (in an
 		// unsplit interval, where it would be) and on mature blades an inner row of small ones by
@@ -468,12 +484,12 @@ void main()
 		float hlO = (0.1 + 0.09 * h4) * (0.6 + 0.4 * mat);
 		float fcO = min(sp.x, 0.86) - 0.05 - 0.05 * h3 - hlO;
 		bool outer = h3 < mat * 1.8 - 0.4 && fcO - hlO > 0.19;
-		bool inner = fract(h3 * 7.31) < mat * 1.6 - 0.7;
+		bool inner = fract(h3 * 7.31) < mat * 1.6 - 1.0;
 		bool isOuter = f > 0.19 || !inner;
 		if (isOuter ? outer : inner) {
 			float fc = isOuter ? fcO : 0.12 + 0.05 * h3, hl = isOuter ? hlO : 0.035 + 0.03 * h4;
 			float e = (f - fc) / hl, ec = clamp(e, -1.0, 1.0);
-			float hw = w * (isOuter ? 0.22 + 0.1 * h4 : 0.12 + 0.05 * h3) * sqrt(1.0 - ec * ec) * (0.85 + 0.25 * ec) * (1.0 + 0.12 * sin(ec * 4.0 + h3 * 20.0));
+			float hw = w * (isOuter ? 0.15 + 0.08 * h4 : 0.1 + 0.04 * h3) * sqrt(1.0 - ec * ec) * (0.85 + 0.25 * ec) * (1.0 + 0.12 * sin(ec * 4.0 + h3 * 20.0));
 			float dc = d - w * ((h4 - 0.5) * 0.12 + (h3 - 0.5) * 0.15 * ec * ec);
 			dist = min(dist, -min(hw - abs(dc), (1.0 - abs(e)) * hl * Ym));
 		}
@@ -481,7 +497,7 @@ void main()
 		// free beyond the shallower of its two splits, each by its own amount, and turns a little
 		// about its vein, so the blade is no longer one sheet
 		float right = fr > sp.y ? 1.0 : 0.0, j = i + right;
-		float f0 = max(sp.x, leafSplit(i + 2.0 * right - 1.0, side, mat, seed, nv).x);
+		float f0 = max(sp.x, abs(leafSplit(i + 2.0 * right - 1.0, side, mat, seed, nv).x));
 		if (f0 < 1.0 && f > f0) {
 			float e = min(f - f0, 1.0 - f0) / (1.0 - f0), h = hash13(vec3(seed, j * 1.9 + side, 6.6));
 			float dv = (fr + 0.5 - right) * w;   // across the strap from its vein
@@ -489,9 +505,9 @@ void main()
 		}
 	}
 	float vd = (0.5 - abs(fr)) * w;
-	float vein = max(max(exp(-pow(vd / 0.007, 2.0)) * (1.0 - min(f, 1.0) * 0.75) * 0.7,
+	float vein = max(max(exp(-pow(vd / 0.006, 2.0)) * (1.0 - min(f, 1.0) * 0.75) * 0.35,
 	                     exp(-pow(Y / 0.009, 2.0)) * (1.0 - 0.6 * max(0.0, X))),
-	                 smoothstep(0.94, 1.0, f) * 0.45);   // and a paler rim
-	gl_FragColor = vec4(clamp(dist, -0.05, 0.05), droop, vein, mat);
+	                 smoothstep(0.95, 1.0, f) * 0.3);   // and a paler rim
+	gl_FragColor = vec4(clamp(dist, -0.05, 0.05), droop, vein, fresh);
 }
 `

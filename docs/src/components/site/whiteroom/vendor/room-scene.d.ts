@@ -32,7 +32,10 @@ export interface RoomScene {
   bulbs: Vec3[]
   lamp: RoomRect
   window: RoomRect
-  /** The maturity of each leaf of the Monstera (0 juvenile .. 1 mature), in order: for its leaf maps. */
+  /**
+   * One code per leaf of the Monstera, in order, for its leaf maps: maturity
+   * in 64ths + 64 * freshness in 16ths + 1024 if the leaf is torn.
+   */
   leafMats: number[]
 }
 

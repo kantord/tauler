@@ -19,7 +19,8 @@
 # - The scene description (the script that builds window.ROOM_SCENE) is
 #   wrapped in an exported function with a local `window`, body unchanged
 #   but for two patches, each saying why: scripts/whiteroom-scene.patch
-#   (longer and taller walls, for the site's wider and taller frames) and
+#   (longer and taller walls, for the site's wider and taller frames, and a
+#   small cove where they meet the floor and each other) and
 #   scripts/whiteroom-monstera.patch (a Monstera in a pot, the scene's 8th
 #   group, from the site's own monstera-scene.js). Patches rather than
 #   edits, so re-vendoring keeps them, and stops here if one no longer

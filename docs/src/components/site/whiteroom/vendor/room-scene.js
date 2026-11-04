@@ -15,7 +15,7 @@ export function buildRoomScene() {
     WALL: 0, FLOOR: 1, CHROME: 2, TEAK: 3, TEAK_DARK: 4, GAP: 5, LEATHER: 6, STONE: 7,
     LAMPHEAD: 8, MARBLE: 9, GLASS_DARK: 10, RUG: 11, FRAME: 12, ART: 13,
     WINDOW: 14, UPLIGHT: 15, BULB: 16, BOOK_CREAM: 17, BOOK_RED: 18, CERAMIC: 19, FRINGE: 20, GROUT: 21,
-    LEAF: 22, PETIOLE: 23, STEM: 24, AERIAL_ROOT: 25, POT: 26, SOIL: 27
+    LEAF: 22, PETIOLE: 23, STEM: 24, AERIAL_ROOT: 25, POT: 26, SOIL: 27, FURL: 28
   };
 
   function Group(name) { this.name = name; this.prims = []; this.pos = [0, 0, 0]; this.rotY = 0; }
@@ -94,6 +94,16 @@ export function buildRoomScene() {
   room.quad([LEFT_X, WIN_Y0, -11], [WALL_X - 14, WIN_Y0, -11], [WALL_X - 14, WIN_Y1, -11], [LEFT_X, WIN_Y1, -11], MAT.WINDOW);
   // window reveal (top and bottom faces of the opening)
   room.box([LEFT_X, WIN_Y0 - 1, -40], [WALL_X - 14, WIN_Y0, 0], MAT.WALL);
+  // tauler: a cove, from scripts/whiteroom-scene.patch
+  // cove: a concave fillet of radius COVE_R (3 cm) where the walls meet the floor and each other,
+  // in the walls' paint; it meets both planes tangentially, so no edge forms (kind COVE, the
+  // inside of a cylinder between its axis and the corner, in the room shader)
+  KIND.COVE = 8;
+  var COVE_R = 3;
+  function cove(a, b, e1, e2) { room.prims.push({ k: KIND.COVE, m: MAT.WALL, a: a, b: b, c: e1, d: e2, r: COVE_R }); }
+  cove([LEFT_X, COVE_R, COVE_R], [WALL_X, COVE_R, COVE_R], [0, -1, 0], [0, 0, -1]);                                 // back wall's foot
+  cove([WALL_X - COVE_R, COVE_R, 0], [WALL_X - COVE_R, COVE_R, 1500], [1, 0, 0], [0, -1, 0]);                   // right wall's foot
+  cove([WALL_X - COVE_R, 0, COVE_R], [WALL_X - COVE_R, CEIL, COVE_R], [1, 0, 0], [0, 0, -1]);                   // the corner between them
 
   /* ---------------- sideboard ---------------- */
   var sb = G('sideboard'); sb.pos = [-22, 0, 27];
@@ -148,7 +158,7 @@ export function buildRoomScene() {
     room.quad([hx - 13, ey, hz - 6.5], [hx - 13, ey, hz + 6.5], [hx + 13, ey, hz + 6.5], [hx + 13, ey, hz - 6.5], MAT.UPLIGHT);
     lampInfo = { c0: [hx - 13, ey, hz - 6.5], e1: [26, 0, 0], e2: [0, 0, 13], n: [0, 1, 0] };
     // cable across the floor
-    var cab = [[bx, 0.5, bz], [bx - 20, 0.4, bz + 30], [bx - 55, 0.4, bz + 55], [bx - 70, 0.4, bz + 90], [bx - 100, 0.4, bz + 105], [bx - 150, 0.4, bz + 95], [bx - 179, 0.4, bz + 88], [bx - 201, 0.4, bz + 72], [bx - 227, 0.4, bz + 62]];   // tauler: ends behind the planter
+    var cab = [[bx, 0.5, bz], [bx - 20, 0.4, bz + 30], [bx - 55, 0.4, bz + 55], [bx - 70, 0.4, bz + 90], [bx - 100, 0.4, bz + 105], [bx - 150, 0.4, bz + 95], [bx - 158.6, 0.4, bz + 87.38], [bx - 164.7, 0.4, bz + 72.82], [bx - 168.9, 0.4, bz + 53.69], [bx - 172.1, 0.4, bz + 32.33], [bx - 175, 0.4, bz + 11.1], [bx - 178.3, 0.4, bz - 7.66], [bx - 182.7, 0.4, bz - 21.6], [bx - 189, 0.45, bz - 27.5], [bx - 308, 0.45, bz - 27.5], [bx - 308, 1.16, bz - 28.84], [bx - 308, 3, bz - 29.6], [bx - 308, 18, bz - 29.6]];   // tauler: runs along the cove at the wall's foot, behind the planter, up to a socket
     for (var i = 0; i < cab.length - 1; i++) room.capsule(cab[i], cab[i + 1], 0.4, MAT.LAMPHEAD);
   })();
 
@@ -229,11 +239,11 @@ export function buildRoomScene() {
     room.box([cx - RW / 2 + 1, 0, cz - RD / 2 - 7.5], [cx + RW / 2 - 1, 0.7, cz - RD / 2], MAT.FRINGE);
   })();
 
-  /* ---------------- monstera in a terracotta pot (hides the end of the uplighter cable) ---------------- */
+  /* ---------------- monstera in a planter, by the back wall (the uplighter's cable runs behind it to the wall) ---------------- */
   // tauler: an 8th group, from ../monstera-scene.js. Applied by scripts/vendor-whiteroom.sh
   // from scripts/whiteroom-monstera.patch.
-  var plant = G('monstera'); plant.pos = [-383, 0, 118]; plant.rotY = 0;
-  addMonstera(plant, { seed: 19, KIND: KIND, MAT: MAT });
+  var plant = G('monstera'); plant.pos = [-425, 0, 60]; plant.rotY = 0;
+  addMonstera(plant, { seed: 7, KIND: KIND, MAT: MAT });
 
   /* ---------------- pack ---------------- */
   function pack() {

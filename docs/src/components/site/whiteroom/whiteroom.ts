@@ -39,11 +39,13 @@
  *
  * Changed to frame any box: see frame().
  *
- * Added: a Monstera in a pot at the left of the room, the scene's 8th group
- * (monstera-scene.js, put in by scripts/whiteroom-monstera.patch), which wide
- * frames show. The room shader learns its primitives and materials by
- * load-time edits (monstera-shader.ts, withPlant()), and its leaves' maps are
- * baked once, before the first sample (bakeLeaves()).
+ * Added: a Monstera in an ochre bowl at the left of the room, the scene's
+ * 8th group (monstera-scene.js, put in by scripts/whiteroom-monstera.patch),
+ * which wide frames show, and a small cove where the walls meet the floor
+ * (scripts/whiteroom-scene.patch). The room shader learns their primitives
+ * and materials by load-time edits (COVE_EDITS, monstera-shader.ts,
+ * withPlant()), and the leaves' maps are baked once, before the first sample
+ * (bakeLeaves()).
  */
 import * as THREE from 'three'
 import { installPathTracingChunks } from './vendor/PathTracingCommon.js'
@@ -131,11 +133,63 @@ function replaceSpan(
 }
 
 /**
- * The room shader with the Monstera's primitives and materials, traced from
- * one intersection call site (see monstera-shader.ts).
+ * The cove where the walls meet the floor and each other (KIND.COVE, from
+ * scripts/whiteroom-scene.patch): the inside of a cylinder, between its axis
+ * and the corner, which meets both planes tangentially. Its branch goes in
+ * before the Monstera's, which takes every kind from K_LEAF up. The walls'
+ * paint takes its colour from the wall's coordinates on the cove as well, so
+ * the backdrop's cells do not change colour half way round it.
+ * Kept byte for byte with the plant's standalone prototype, like
+ * monstera-shader.ts.
+ */
+const COVE_EDITS: [string, string][] = [
+  [
+    '/* ---------------- scene ---------------- */',
+    `// COVE: a concave fillet where two planes meet: the inside of the cylinder of radius r around
+// the axis a -> b, only between the axis and the corner (the planes lie along e1 and e2 from
+// the axis). The far root is the inside; the normal faces the axis.
+#define K_COVE 8
+float CoveIntersect(vec3 a, vec3 b, float r, vec3 e1, vec3 e2, vec3 ro, vec3 rd, out vec3 n)
+{
+	vec3 w = b - a; float h = length(w); w /= h;
+	vec3 o = ro - a;
+	float od = dot(o, w), dw = dot(rd, w);
+	vec3 op = o - w * od, dp = rd - w * dw;
+	float A = dot(dp, dp), B = dot(op, dp), disc = B * B - A * (dot(op, op) - r * r);
+	if (disc < 0.0 || A < 1e-9) return INFINITY;
+	float t = (-B + sqrt(disc)) / A, y = od + t * dw;
+	vec3 q = op + t * dp;
+	if (t <= 0.004 || y < 0.0 || y > h || dot(q, e1) < 0.0 || dot(q, e2) < 0.0) return INFINITY;
+	n = -q;
+	return t;
+}
+` + '\n/* ---------------- scene ---------------- */',
+  ],
+  [
+    '\t\t\telse { d = SphereIntersect(a1.w, a1.xyz, lro, lrd); n = (lro + lrd * d) - a1.xyz; }',
+    `			else if (k == K_COVE) {   // COVE
+				vec3 a3 = texelFetch(tPrims, ivec2(3, i), 0).xyz;
+				vec3 a4 = texelFetch(tPrims, ivec2(4, i), 0).xyz;
+				d = CoveIntersect(a1.xyz, a2.xyz, a1.w, a3, a4, lro, lrd, n);
+			}
+` +
+      '\t\t\telse { d = SphereIntersect(a1.w, a1.xyz, lro, lrd); n = (lro + lrd * d) - a1.xyz; }',
+  ],
+  [
+    '\tif (id == M_WALL) { albedo = backdropAlbedo(backdropCoord(p, n))',
+    '\tif (id == M_WALL) { albedo = backdropAlbedo(backdropCoord(p, abs(n.y) > 0.999 ? n : vec3(n.x, 0.0, n.z) / length(n.xz)))',
+  ],
+]
+
+/**
+ * The room shader with the cove, and the Monstera's primitives and materials,
+ * traced from one intersection call site (see monstera-shader.ts).
  */
 function withPlant(fsRoom: string) {
-  return editShader(replaceSpan(fsRoom, ONE_TRACE), MONSTERA_EDITS)
+  return editShader(
+    editShader(replaceSpan(fsRoom, ONE_TRACE), COVE_EDITS),
+    MONSTERA_EDITS,
+  )
 }
 
 /**
