@@ -25,13 +25,15 @@ export const metadata: Metadata = {
   icons: { icon: { url: '/favicon.svg', type: 'image/svg+xml' } },
 }
 
+// The body is positioned so the wallpaper's host (<Wallpaper />) can cover
+// the whole page, not just the window, and scroll with it.
 export default function Layout({ children }: { children: ReactNode }) {
   return (
     <html lang="en" suppressHydrationWarning>
       <head>
         <TaulerImportMap />
       </head>
-      <body className="tu flex min-h-screen flex-col">
+      <body className="tu relative flex min-h-screen flex-col">
         <RootProvider search={{ SearchDialog }}>{children}</RootProvider>
       </body>
     </html>

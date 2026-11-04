@@ -36,8 +36,9 @@
   --tu-on-or: #111111;
   /* Errors and destructive actions; 4.5:1 or more on page and body. */
   --tu-red: #a61b1b;
-  /* Read by the wallpaper module (src/lib/wallpaper). The background must
-     equal --tu-page, or the gaps between windows show a seam. */
+  /* Read by the wallpaper (src/components/site/wallpaper). Its background
+     pixels are exactly --wallpaper-bg, so it must equal --tu-page, or the
+     gaps between windows show a seam. */
   --wallpaper-bg: #e6e4de;
   --wallpaper-ring-l: 0.66;
   --wallpaper-ring-c: 0.12;

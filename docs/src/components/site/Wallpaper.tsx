@@ -2,51 +2,51 @@
 import { useEffect, useRef } from 'react'
 
 /**
- * The dithered wallpaper behind every page (src/lib/wallpaper, vendored from
- * the design unchanged). It shows only where no window covers it: the gaps
- * between tiles.
+ * The dithered wallpaper behind every page. It shows only where no window
+ * covers it: the gaps between tiles.
  *
- * The host is fixed to the viewport rather than the page's full height, so
- * the canvas stays window-sized: a page-sized canvas costs width × height ×
- * dpr² × 4 bytes, and the longest docs pages pass the browser's canvas limit.
- * The price is that the wallpaper does not scroll with the page.
+ * It is anchored to the page and scrolls with it: the host covers the whole
+ * page (the body is positioned, see src/app/layout.tsx) and
+ * wallpaper/page-wallpaper.ts keeps a window-sized canvas drawn where the
+ * window is, by a WebGL shader or, without WebGL 2, by the wallpaper module
+ * (src/lib/wallpaper) on the CPU. It re-renders on a theme switch by itself
+ * (next-themes puts `.dark` on <html>).
  *
- * The module watches the class on <html> (where next-themes puts `.dark`), so
- * it re-renders on a theme switch by itself.
- *
- * `edgeToEdge` drops the scrollbar gutter the site otherwise reserves (see
- * global.css), so the wallpaper, and anything else fixed to the window, runs
- * to its right edge: Chrome clips fixed elements at the root's gutter, so
- * they cannot run under it.
+ * `room` adds the path-traced room over the bottom of the first screen,
+ * drawn with the wallpaper as one image where the GPU allows (see
+ * page-wallpaper.ts); `edgeToEdge` drops the scrollbar gutter the site
+ * otherwise reserves (see global.css), so the two run to the window's right
+ * edge: the body stops at the gutter.
  */
-/**
- * The wallpaper's options. The home page's render (whiteroom.ts) reads its
- * pixel size from them, to draw its dither pixels on the same grid.
- */
-export const WALLPAPER_OPTIONS = { intensity: 0.1, seed: 18 } as const
-
-export function Wallpaper({ edgeToEdge = false }: { edgeToEdge?: boolean }) {
+export function Wallpaper({
+  edgeToEdge = false,
+  room = false,
+}: {
+  edgeToEdge?: boolean
+  room?: boolean
+}) {
   const host = useRef<HTMLDivElement>(null)
   useEffect(() => {
     let destroy: (() => void) | undefined
     let cancelled = false
-    void import('@/lib/wallpaper/tauler-wallpaper.js').then(
-      ({ mountWallpaper }) => {
-        if (cancelled || !host.current) return
-        destroy = mountWallpaper(host.current, WALLPAPER_OPTIONS).destroy
-      },
-    )
+    // fetched alongside the wallpaper rather than after it: three.js and the
+    // room's shaders are most of the time to the room's first frame
+    if (room) void import('./whiteroom/whiteroom').catch(() => {})
+    void import('./wallpaper/page-wallpaper').then(({ mountPageWallpaper }) => {
+      if (cancelled || !host.current) return
+      destroy = mountPageWallpaper(host.current, { room })
+    })
     return () => {
       cancelled = true
       destroy?.()
     }
-  }, [])
+  }, [room])
   return (
     <div
       ref={host}
       aria-hidden="true"
       data-edge-to-edge={edgeToEdge || undefined}
-      className="pointer-events-none fixed inset-0 -z-10"
+      className="tauler-wallpaper pointer-events-none absolute inset-0 -z-10 overflow-hidden"
     />
   )
 }

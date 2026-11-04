@@ -24,6 +24,10 @@
  *   4. pixel  = each OKLCH channel snapped to its own equal grid (measured from the
  *               background) with an ordered dither: level = floor(value / step + bayer(x, y))
  *
+ * [tauler] Changes from the designer's file are marked [tauler]: a slice of the page can be
+ * computed on its own (col0 / row0), the background level is the background colour itself,
+ * and a few internals are exported for the WebGL wallpaper (wallpaper-gl.ts).
+ *
  * Colour maths: OKLab / OKLCH by Björn Ottosson (public domain / MIT).
  * Output is deterministic: the same options and size always give the same pixels, and
  * resizing never changes pixels that were already visible.
@@ -137,13 +141,13 @@ const pack = ([r, g, b]) => (LITTLE_ENDIAN ? ((255 << 24) | (b << 16) | (g << 8)
    Randomness: a seeded integer hash (deterministic, no state)
    ──────────────────────────────────────────────────────────────────────────────────── */
 
-function hash3(seed, i, j) {
+export function hash3(seed, i, j) {
   let h = Math.imul(i | 0, 0x27d4eb2d) ^ Math.imul(j | 0, 0x165667b1) ^ Math.imul(seed | 0, 0x9E3779B1);
   h = Math.imul(h ^ (h >>> 15), 0x85ebca6b);
   h = Math.imul(h ^ (h >>> 13), 0xc2b2ae35);
   return (h ^ (h >>> 16)) >>> 0;
 }
-const U32 = 1 / 4294967296;   // hash → 0..1
+export const U32 = 1 / 4294967296;   // hash → 0..1
 
 /* ────────────────────────────────────────────────────────────────────────────────────
    Lattices: values on whole-number grid corners (i, j)
@@ -155,7 +159,7 @@ const U32 = 1 / 4294967296;   // hash → 0..1
  * on those three neighbours, so this is a small dynamic-programming table, filled on
  * demand and memoized. Corners further than 2 outside the page have no constraint.
  */
-function distinctLattice(seed, values) {
+export function distinctLattice(seed, values) {
   const memo = new Map(), n = values.length;
   const idx = (i, j) => {
     if (i < -2 || j < -2) return hash3(seed, i, j) % n;
@@ -181,13 +185,13 @@ const BAYER8 = [
   12, 44,  4, 36, 14, 46,  6, 38, 60, 28, 52, 20, 62, 30, 54, 22,
    3, 35, 11, 43,  1, 33,  9, 41, 51, 19, 59, 27, 49, 17, 57, 25,
   15, 47,  7, 39, 13, 45,  5, 37, 63, 31, 55, 23, 61, 29, 53, 21];
-const THRESHOLDS = {
+export const THRESHOLDS = {
   bayer8: Float32Array.from({ length: 64 }, (_, i) => (BAYER8[i] + 0.5) / 64),
   bayer4: Float32Array.from({ length: 64 }, (_, i) => (BAYER4[((i >> 3) & 3) * 4 + (i & 3)] + 0.5) / 16),
   checker: Float32Array.from({ length: 64 }, (_, i) => ((((i >> 3) + i) & 1) + 0.5) / 2),
 };
 
-const EASE = { linear: (t) => t, smooth: (t) => t * t * (3 - 2 * t) };
+export const EASE = { linear: (t) => t, smooth: (t) => t * t * (3 - 2 * t) };
 const f32 = Math.fround;   // values pass through 32-bit floats at fixed points: keeps output identical to the reference prototype
 
 /* ────────────────────────────────────────────────────────────────────────────────────
@@ -204,6 +208,9 @@ const MAX_SIDE = 32767, MAX_AREA = 268000000;
  *   width, height   size in CSS px (required)
  *   dpr             device pixel ratio (default 1)
  *   deviceWidth, deviceHeight   exact size in device px, if measured (preferred)
+ *   col0, row0      [tauler] the area's top-left, in whole dither pixels from the page's
+ *                   top-left (default 0, 0): the pixels are the page's from there on, so a
+ *                   slice of the page computes exactly what the whole page would show there
  *   background      sRGB [r, g, b] (default: FALLBACK[mode])
  *   ringL, ringC    hue-ring OKLCH lightness / chroma (default: FALLBACK[mode])
  * @param {Uint32Array} [reuse]  optional buffer to write into (reused between renders)
@@ -233,6 +240,7 @@ export function computeWallpaper(options, reuse) {
   if (devW > MAX_SIDE) { devW = MAX_SIDE; clipped = true; }
   if (devH > MAX_SIDE || devW * devH > MAX_AREA) { devH = Math.min(MAX_SIDE, Math.floor(MAX_AREA / devW)); clipped = true; }
   const cols = Math.max(1, Math.ceil(devW / devP)), rows = Math.max(1, Math.ceil(devH / devP));
+  const col0 = o.col0 | 0, row0 = o.row0 | 0;   // [tauler] the area's offset on the page, in dither pixels
 
   // Quantization grid
   const sL = Math.max(0.002, o.stepL), sC = Math.max(0.001, o.stepC);
@@ -257,7 +265,7 @@ export function computeWallpaper(options, reuse) {
   const cellH = Math.max(1, o.cell), cellW = Math.max(1, o.washSize);
   const hIx = new Int32Array(cols), hTx = new Float64Array(cols), wIx = new Int32Array(cols), wTx = new Float64Array(cols);
   for (let c = 0; c < cols; c++) {
-    const x = (c + 0.5) * pc;
+    const x = (c + col0 + 0.5) * pc;
     let u = x / cellH, i = Math.floor(u); hIx[c] = i; hTx[c] = E(u - i);
     u = x / cellW; i = Math.floor(u); wIx[c] = i; wTx[c] = E(u - i);
   }
@@ -276,7 +284,11 @@ export function computeWallpaper(options, reuse) {
     if (!have[k]) { cache[k] = pack(oklchToRgb(bgL + qL * sL, Math.max(0, bgC + qC * sC), qH * sHq)); have[k] = 1; used++; }
     return cache[k];
   };
-  const bgPacked = colourAt(0, 0, 0);   // the background is always an exact grid point
+  // [tauler] The background level is the background colour itself, byte for byte. The
+  // designer's file drew it as the grid point at hue 0 (colourAt(0, 0, 0)): the background's
+  // lightness and chroma at hue 0°, which is not its own hue, so the "background" pixels
+  // came out a pinkish rgb(233, 226, 228) on a #e6e4de page.
+  const bgPacked = pack(o.background || fb.background); used++;
   const qLmin = qL0, qLmax = qL0 + nqL - 1, qCmax = nqC - 1;
 
   const T = THRESHOLDS[o.matrix] || THRESHOLDS.bayer8;
@@ -285,29 +297,29 @@ export function computeWallpaper(options, reuse) {
 
   // One fused pass: every pixel is computed and written exactly once.
   for (let r = 0, p = 0; r < rows; r++) {
-    const y = (r + 0.5) * pc;
+    const y = (r + row0 + 0.5) * pc;
     // corner values of the current lattice row, refreshed only when the row changes
     let v = y / cellH, j = Math.floor(v); const hTy = E(v - j);
     if (j !== hJ) { for (let k = 0; k < hN; k++) { hTop[k] = hueLat(hI0 + k, j); hBot[k] = hueLat(hI0 + k, j + 1); } hJ = j; }
     v = y / cellW; j = Math.floor(v); const wTy = E(v - j);
     if (j !== wJ) { for (let k = 0; k < wN; k++) { wTop[k] = washLat(wI0 + k, j); wBot[k] = washLat(wI0 + k, j + 1); } wJ = j; }
-    const tRow = (r & 7) << 3;
+    const tRow = ((r + row0) & 7) << 3;
 
     for (let c = 0; c < cols; c++, p++) {
       // 1. hue: 4-corner mean (hues blend as numbers along the ring) + noise
       let k = hIx[c] - hI0, t = hTx[c];
       let a = hTop[k] + (hTop[k + 1] - hTop[k]) * t, b = hBot[k] + (hBot[k + 1] - hBot[k]) * t;
-      const hue = f32(f32(a + (b - a) * hTy) + hueAmp * (f32(hash3(seedHueNoise, c, r) * U32) - 0.5));
+      const hue = f32(f32(a + (b - a) * hTy) + hueAmp * (f32(hash3(seedHueNoise, c + col0, r + row0) * U32) - 0.5));
 
       // 2. fade amount: intensity × (1 − wash) + bias noise
       k = wIx[c] - wI0; t = wTx[c];
       a = wTop[k] + (wTop[k + 1] - wTop[k]) * t; b = wBot[k] + (wBot[k + 1] - wBot[k]) * t;
-      let amt = f32(f32(intensity * (1 - f32(a + (b - a) * wTy))) + biasAmp * (f32(hash3(seedBias, c, r) * U32) - 0.5));
+      let amt = f32(f32(intensity * (1 - f32(a + (b - a) * wTy))) + biasAmp * (f32(hash3(seedBias, c + col0, r + row0) * U32) - 0.5));
       amt = amt < 0 ? 0 : amt > 1 ? 1 : amt;
 
       // 3 + 4. each OKLCH channel, measured from the background, snapped to its grid with
       //        the shared ordered-dither threshold: level = floor(value / step + threshold)
-      const th = T[tRow | (c & 7)];
+      const th = T[tRow | ((c + col0) & 7)];
       let qL = Math.floor((dL * amt) / sL + th);
       let qC = Math.floor((dC * amt) / sC + th);
       if (qC < 0) qC = 0; else if (qC > qCmax) qC = qCmax;

@@ -13,12 +13,17 @@
 #   checking that the zip's copies are byte-identical to it. The chunks are a
 #   classic script that writes onto a global THREE.ShaderChunk; they are
 #   wrapped in an exported function that takes THREE, body unchanged.
-# - The page's five shaders are cut out of their <script> tags as they are.
+# - Four of the page's five shaders are cut out of their <script> tags as
+#   they are: all but its pixel pass (fs-pix), whose work the wallpaper's
+#   shader does (src/components/site/wallpaper/wallpaper-gl.ts).
 # - The scene description (the script that builds window.ROOM_SCENE) is
 #   wrapped in an exported function with a local `window`, body unchanged
-#   but for scripts/whiteroom-scene.patch: longer and taller walls, for the
-#   site's wider and taller frames (the patch says why). A patch rather than
-#   an edit, so re-vendoring keeps it, and stops here if it no longer applies.
+#   but for two patches, each saying why: scripts/whiteroom-scene.patch
+#   (longer and taller walls, for the site's wider and taller frames) and
+#   scripts/whiteroom-monstera.patch (a Monstera in a pot, the scene's 8th
+#   group, from the site's own monstera-scene.js). Patches rather than
+#   edits, so re-vendoring keeps them, and stops here if one no longer
+#   applies.
 #
 # three.js comes from npm at the revision the zip ships (r185). The page's
 # render loop is ported by hand into whiteroom.ts, without its tweak panel and
@@ -57,7 +62,7 @@ import re, sys
 html, shaders, scene = sys.argv[1:4]
 page = open(html, encoding='utf-8').read()
 # A <script>'s textContent is its raw text: no entity decoding happens.
-for name in ['vs', 'fs-copy', 'fs-out', 'fs-pix', 'fs-room']:
+for name in ['vs', 'fs-copy', 'fs-out', 'fs-room']:
     match = re.search(r'<script id="%s"[^>]*>(.*?)</script>' % re.escape(name), page, re.S)
     if not match:
         sys.exit('shader %s not found' % name)
@@ -74,8 +79,10 @@ open(scene, 'w', encoding='utf-8').write(
     + bodies[0] +
     '\n  return window.ROOM_SCENE\n}\n')
 PY
-patch --forward --fuzz=0 --no-backup-if-mismatch --reject-file=- --quiet \
-  "$LIB/room-scene.js" < scripts/whiteroom-scene.patch
+for change in scene monstera; do
+  patch --forward --fuzz=0 --no-backup-if-mismatch --reject-file=- --quiet \
+    "$LIB/room-scene.js" < "scripts/whiteroom-$change.patch"
+done
 
 cp "$WORK/licenses/PathTracing-Renderer-CC0.txt" "$LIB/LICENSE"
 cp "$WORK/licenses/PathTracing-Renderer-CC0.txt" "$PUBLIC/LICENSE"

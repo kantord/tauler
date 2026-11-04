@@ -55,6 +55,9 @@ export interface ComputeOptions extends WallpaperOptions {
   /** Exact size in device px, if measured (preferred over width/height × dpr). */
   deviceWidth?: number;
   deviceHeight?: number;
+  /** [tauler] The area's top-left, in whole dither pixels from the page's top-left. Default 0. */
+  col0?: number;
+  row0?: number;
 }
 
 export interface ComputeResult {
@@ -128,3 +131,11 @@ export function mountWallpaper(host: HTMLElement, options?: MountOptions): Wallp
 export function readCssColors(el: Element): { background?: RGB; ringL?: number; ringC?: number };
 export function rgbToOklab(rgb: RGB): [number, number, number];
 export function oklchToRgb(L: number, C: number, h: number): RGB;
+
+// [tauler] Internals exported for the WebGL wallpaper (src/lib/wallpaper/wallpaper-gl.ts),
+// so it reads the same lattices, hash and thresholds as computeWallpaper.
+export function hash3(seed: number, i: number, j: number): number;
+export const U32: number;
+export function distinctLattice(seed: number, values: number[]): (i: number, j: number) => number;
+export const THRESHOLDS: Readonly<Record<DitherMatrix, Float32Array>>;
+export const EASE: Readonly<Record<Ease, (t: number) => number>>;
