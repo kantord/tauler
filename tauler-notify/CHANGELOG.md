@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.0](https://github.com/kantord/tauler/compare/tauler-notify-v0.9.0...tauler-notify-v0.10.0) - 2026-11-05
+
+### Fixed
+
+- *(deps)* update rust crate zbus to v6.2.1 ([#727](https://github.com/kantord/tauler/pull/727))
+
 ## [0.7.1](https://github.com/kantord/tauler/compare/tauler-notify-v0.7.0...tauler-notify-v0.7.1) - 2026-10-26
 
 ### Fixed
