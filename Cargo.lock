@@ -2424,17 +2424,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "html5ever"
-version = "0.40.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "456a1a377e608e555d22ddab27ac0114bc7a7b4199078108e34c2aeae6c9b130"
-dependencies = [
- "log",
- "markup5ever",
- "memchr",
-]
-
-[[package]]
 name = "http"
 version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3318,17 +3307,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0fae87c125b03c1d2c0150c90365d7d6bcc53fb73a9acaef207d2d065860f062"
 dependencies = [
  "imgref",
-]
-
-[[package]]
-name = "markup5ever"
-version = "0.40.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0ab3dc68ac4a0f5719e560136778c1ee716e296030d75dbd4484e37e39e3a842"
-dependencies = [
- "log",
- "tendril",
- "web_atoms",
 ]
 
 [[package]]
@@ -4546,16 +4524,6 @@ dependencies = [
  "phf_macros",
  "phf_shared",
  "serde",
-]
-
-[[package]]
-name = "phf_codegen"
-version = "0.14.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "41b585a510fb76fdebead6897982ef2a03a21d8e6cbcca904999742a4afc6ffe"
-dependencies = [
- "phf_generator",
- "phf_shared",
 ]
 
 [[package]]
@@ -6087,30 +6055,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "string_cache"
-version = "0.11.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ffa8a5dbe8b3f0bbe29d4c3225daafaeead63afdc1b65fc4c01a1384166038e6"
-dependencies = [
- "new_debug_unreachable",
- "parking_lot",
- "phf_shared",
- "precomputed-hash",
-]
-
-[[package]]
-name = "string_cache_codegen"
-version = "0.11.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "928dcdf75e47626b3617a976ec205d9f057584c371c1f23b782129268d0e6edc"
-dependencies = [
- "phf_generator",
- "phf_shared",
- "proc-macro2",
- "quote",
-]
-
-[[package]]
 name = "strsim"
 version = "0.11.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6239,21 +6183,20 @@ dependencies = [
 
 [[package]]
 name = "takumi"
-version = "2.18.2"
+version = "2.19.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "54ff626bc3755d0525bf82fed0334d1f8755c8f07b4ccceeb71bca485c1c9c7d"
+checksum = "51036ce9435b90c36e57d76939ed45cab2f94adbeee60805ac09363b7780043e"
 dependencies = [
  "takumi-core",
- "takumi-html",
  "takumi-raster",
  "takumi-svg",
 ]
 
 [[package]]
 name = "takumi-core"
-version = "0.34.0"
+version = "0.35.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f08b13b7130ebf8e4867b24b5f5f53410fe1df78d24788ed1a36183a68877e8f"
+checksum = "81026e2b18d8ce4035c95ef8d1d33665201091630e82587a40e778645be3b1d9"
 dependencies = [
  "bitflags 2.13.2",
  "bytemuck",
@@ -6277,7 +6220,6 @@ dependencies = [
  "precomputed-hash",
  "quick_cache",
  "rayon",
- "roxmltree 0.21.1",
  "rustc-hash",
  "selectors",
  "serde",
@@ -6296,22 +6238,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "takumi-html"
-version = "0.7.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "55654ecbf05c4a683af9ea9069e2684a72f7f308a9a88a3ab21923806a2a208c"
-dependencies = [
- "html5ever",
- "takumi-core",
- "thiserror 2.0.21",
- "typed-builder",
-]
-
-[[package]]
 name = "takumi-raster"
-version = "0.5.11"
+version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "78cfb7b903c2521905b50beafa1f4aa895e1b913d3e451678d73533dd444f22a"
+checksum = "cbb1bfa6491a7677626a4f0d8dc14e313d4dfc07dc62ab95a8eafda33284b17e"
 dependencies = [
  "bytemuck",
  "color",
@@ -6334,9 +6264,9 @@ dependencies = [
 
 [[package]]
 name = "takumi-svg"
-version = "0.3.33"
+version = "0.3.34"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5d6de3d20bead875026abbe326f0e6656adb04f6709a7bae05679d5f3302df91"
+checksum = "c5523e1cf0877914e524c0a319af9a2a8a504dcbce8a65510695a0e8e14abe9e"
 dependencies = [
  "quick-xml 0.42.0",
  "takumi-core",
@@ -6564,15 +6494,6 @@ dependencies = [
  "once_cell",
  "rustix 1.1.5",
  "windows-sys 0.61.2",
-]
-
-[[package]]
-name = "tendril"
-version = "0.5.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5fed54709c5b3a53d09bb1c113ea4f5ceafd1e772ddcb0030a82e1d56c087b08"
-dependencies = [
- "new_debug_unreachable",
 ]
 
 [[package]]
@@ -7606,18 +7527,6 @@ checksum = "5a6580f308b1fad9207618087a65c04e7a10bc77e02c8e84e9b00dd4b12fa0bb"
 dependencies = [
  "js-sys",
  "wasm-bindgen",
-]
-
-[[package]]
-name = "web_atoms"
-version = "0.3.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7572660c8890448ba236b7376f27e389c6a7e1c70195622faced601f855c0ada"
-dependencies = [
- "phf",
- "phf_codegen",
- "string_cache",
- "string_cache_codegen",
 ]
 
 [[package]]
