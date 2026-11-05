@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.0](https://github.com/kantord/tauler/compare/tauler-v0.9.0...tauler-v0.10.0) - 2026-11-05
+
+### Added
+
+- add measureText for exact text widths in layouts and figures ([#723](https://github.com/kantord/tauler/pull/723))
+- resolve import "d3" in pages; keep prop data intact ([#722](https://github.com/kantord/tauler/pull/722))
+
+### Fixed
+
+- *(deps)* update rust crate zbus to v6.2.1 ([#727](https://github.com/kantord/tauler/pull/727))
+- *(deps)* update takumi crates ([#728](https://github.com/kantord/tauler/pull/728))
+- *(deps)* update rust crate cached to v4.1.0 ([#732](https://github.com/kantord/tauler/pull/732))
+- *(deps)* update patch updates ([#726](https://github.com/kantord/tauler/pull/726))
+
 ## [0.9.0](https://github.com/kantord/tauler/compare/tauler-v0.8.0...tauler-v0.9.0) - 2026-10-29
 
 ### Added
