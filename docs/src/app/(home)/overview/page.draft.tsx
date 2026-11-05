@@ -1,6 +1,7 @@
 import type { Metadata } from 'next'
 import Link from 'next/link'
 import { Desk, Window } from '@/components/site/desk/Desk'
+import { buttonVariants } from '@/components/ui/button'
 
 export const metadata: Metadata = {
   title: 'Overview',
@@ -24,10 +25,16 @@ export default function OverviewSlide() {
               re-renders, no restart.
             </p>
             <div className="flex flex-wrap gap-3">
-              <Link href="/get-started/" className="m btn primary">
+              <Link
+                href="/get-started/"
+                className={buttonVariants({ size: 'lg' })}
+              >
                 Get started →
               </Link>
-              <Link href="/docs/" className="m btn">
+              <Link
+                href="/docs/"
+                className={buttonVariants({ variant: 'outline', size: 'lg' })}
+              >
                 Read the docs
               </Link>
             </div>

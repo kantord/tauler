@@ -39,4 +39,4 @@ Use subagents for each stage:
 - `tauler-i3` is a separate binary; build with `cargo build --release -p tauler-i3` and replace atomically: `cp target/release/tauler-i3 ~/.cargo/bin/tauler-i3.new && mv ~/.cargo/bin/tauler-i3.new ~/.cargo/bin/tauler-i3`
 - Config-only changes: `chezmoi apply ~/.config/tauler/layout.op.mdx` (or `config.yaml`/`layout.jsx` on the legacy path) — tauler hot-reloads within 500ms, no restart needed
 - `bar_width` or `outer_gap` changes trigger a full re-exec automatically
-- Docs site: `cd docs && pnpm run checks` before pushing — format, lint, types, the static build, its HTML nesting, and a console-error sweep of every page (what CI runs, minus the full Playwright suite)
+- Docs site: `cd docs && pnpm run checks` before pushing

@@ -12,19 +12,26 @@ import {
   rgbToOklab,
 } from '../src/lib/wallpaper/tauler-wallpaper.js'
 import { WALLPAPER } from '../src/components/site/wallpaper/options'
+import { ROOM_HUE_SUB } from '../src/components/site/wallpaper/wallpaper-gl'
 import {
   ROOM_EASE_IN,
   ROOM_WAVE,
 } from '../src/components/site/whiteroom/room-size'
+
+// The workspace slides are drafts: only `next dev` serves them, so their
+// tests run only with DOCS_DEV_URL set (see playwright.config.ts), and the
+// production build is checked for having none of them.
+const AGAINST_DEV = !!process.env.DOCS_DEV_URL
+const SLIDE_PATHS = ['/overview/', '/principles/', '/get-started/']
+const slidesOnly = () =>
+  test.skip(!AGAINST_DEV, 'the slides are drafts, served only by next dev')
 
 // Every project in playwright.config.ts is a different device breakpoint —
 // these run at all seven, so a layout break at one width doesn't slip
 // through untested.
 const ROUTES = [
   '/',
-  '/overview/',
-  '/principles/',
-  '/get-started/',
+  ...(AGAINST_DEV ? SLIDE_PATHS : []),
   '/docs/',
   '/docs/layout-file/',
   '/docs/elements/',
@@ -158,8 +165,28 @@ const SLIDES = [
   },
 ]
 
+test('the published build has no slides and no workspace buttons', async ({
+  page,
+  request,
+}) => {
+  test.skip(AGAINST_DEV, 'next dev serves the drafts')
+  for (const path of SLIDE_PATHS) {
+    expect((await request.get(path)).status(), path).toBe(404)
+  }
+  for (const path of ['/', '/docs/']) {
+    await page.goto(path)
+    await expect(page.getByRole('navigation', { name: 'Site' })).toBeVisible()
+    await expect(
+      page.getByRole('navigation', { name: 'Workspaces' }),
+    ).toHaveCount(0)
+  }
+  const xml = await (await request.get('/sitemap.xml')).text()
+  for (const path of SLIDE_PATHS) expect(xml).not.toContain(path)
+})
+
 for (const slide of SLIDES) {
   test(`${slide.path} is its workspace's slide`, async ({ page }) => {
+    slidesOnly()
     await page.goto(slide.path)
     for (const name of slide.windows) {
       await expect(
@@ -182,6 +209,7 @@ for (const slide of SLIDES) {
 test('clicking a title bar on a slide moves focus to that window', async ({
   page,
 }) => {
+  slidesOnly()
   await page.goto('/get-started/')
   // Hydration can lag the first paint; retry the click until it takes.
   await expect(async () => {
@@ -195,6 +223,7 @@ test('clicking a title bar on a slide moves focus to that window', async ({
 })
 
 test('the workspace buttons move between the slides', async ({ page }) => {
+  slidesOnly()
   await page.goto('/')
   const workspaces = page.getByRole('navigation', { name: 'Workspaces' })
   await workspaces.getByRole('link', { name: '2, principles' }).click()
@@ -209,6 +238,7 @@ test('the workspace buttons move between the slides', async ({ page }) => {
 test('previous and next walk the slides from home to the docs', async ({
   page,
 }) => {
+  slidesOnly()
   await page.goto('/overview/')
   const step = (direction: 'previous' | 'next') =>
     page.getByRole('link', {
@@ -533,6 +563,7 @@ for (const { dpr, scroll } of [
     playwright,
   }, testInfo) => {
     test.skip(testInfo.project.name !== 'desktop', 'one width is enough')
+    slidesOnly()
     await withConvergedRoom(
       playwright,
       testInfo,
@@ -1098,13 +1129,15 @@ type RGB = [number, number, number]
 /**
  * Every colour of the wallpaper's grid on `background`, as the wallpaper
  * module draws it, over the whole range of lightness and the chroma any sRGB
- * colour reaches.
+ * colour reaches, and with the room's finer hue grid (ROOM_HUE_SUB levels
+ * per wallpaper hue level, the wallpaper's own among them).
  */
 function wallpaperPalette(background: RGB): RGB[] {
   const { stepL, stepC, stepH } = WALLPAPER
   const [L, a, b] = rgbToOklab(background)
   const C = Math.hypot(a, b)
-  const hues = Math.max(1, Math.round(360 / Math.max(0.5, stepH)))
+  const hues =
+    Math.max(1, Math.round(360 / Math.max(0.5, stepH))) * ROOM_HUE_SUB
   const palette: RGB[] = []
   for (let qL = Math.ceil(-L / stepL); qL <= (1 - L) / stepL; qL++)
     for (let qC = 0; qC * stepC <= 0.4; qC++)
@@ -1179,8 +1212,9 @@ test('a ratio in prose stays literal text, not a directive', async ({
 })
 
 test('the sitemap lists the slides', async ({ request }) => {
+  slidesOnly()
   const xml = await (await request.get('/sitemap.xml')).text()
-  for (const path of ['/overview/', '/principles/', '/get-started/']) {
+  for (const path of SLIDE_PATHS) {
     expect(xml).toContain(`https://tauler.dev${path}<`)
   }
 })

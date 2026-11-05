@@ -255,8 +255,8 @@ html > body[data-scroll-locked] {
     width: 12px;
     height: 12px;
     border-radius: 50% !important;
-    border: 1.5px solid var(--tu-ink);
-    background: linear-gradient(90deg, var(--tu-ink) 50%, transparent 50%);
+    border: 1.5px solid currentColor;
+    background: linear-gradient(90deg, currentColor 50%, transparent 50%);
   }
 
   /* ── Tiles: framed panels with a hatched title bar ─────────────────────── */
@@ -377,25 +377,7 @@ html > body[data-scroll-locked] {
     text-align: center;
   }
 
-  /* Workspace buttons and section labels (home page and slides). */
-  .tu .ws {
-    width: 40px;
-    height: 40px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    border: 1.5px solid var(--tu-rule);
-    text-decoration: none;
-    font-family: var(--font-tu-ws);
-    font-weight: 700;
-    font-size: 18px;
-    background: var(--tu-body);
-  }
-  .tu .ws.cur {
-    background: var(--tu-or);
-    border-color: var(--tu-or);
-    color: var(--tu-on-or);
-  }
+  /* Section labels (home page and slides). */
   .tu .wslabel {
     display: flex;
     align-items: center;
@@ -426,19 +408,6 @@ html > body[data-scroll-locked] {
   }
 
   /* Slide odds and ends. */
-  .tu .btn {
-    min-height: 52px;
-    padding: 0 24px;
-    display: flex;
-    align-items: center;
-    border: 1.5px solid var(--tu-rule);
-    font-weight: 600;
-    text-decoration: none;
-  }
-  .tu .btn.primary {
-    background: var(--tu-or);
-    color: var(--tu-on-or);
-  }
   .tu .ic {
     font-family: var(--font-tu-mono);
     font-size: 0.86em;
@@ -488,7 +457,7 @@ html > body[data-scroll-locked] {
     }
   }
 
-  /* Sub-panels: code blocks and callouts */
+  /* Sub-panels: code blocks (callouts are components/ui/alert.tsx) */
   .tu .sub {
     border: 1px solid var(--tu-line);
     background: var(--tu-body);
@@ -510,30 +479,6 @@ html > body[data-scroll-locked] {
     font-size: 12px;
     font-weight: 500;
     text-align: center;
-  }
-  .tu .sub.note .sbar {
-    color: var(--tu-or);
-    font-weight: 600;
-    border-bottom-color: var(--tu-or);
-    background:
-      repeating-conic-gradient(var(--tu-or) 0 25%, transparent 0 50%) left
-        bottom/4px 4px repeat-x,
-      var(--tu-body);
-  }
-  .tu .sub.note {
-    border-color: var(--tu-or);
-  }
-  .tu .sub .sb {
-    padding: 16px 18px;
-    font-size: 15px;
-    line-height: 1.6;
-  }
-  .tu .sub .sb > :last-child {
-    margin-bottom: 0;
-  }
-  .tu .sub .sb p {
-    font-size: 15px;
-    line-height: 1.6;
   }
 
   /* ── Navigation ────────────────────────────────────────────────────────── */

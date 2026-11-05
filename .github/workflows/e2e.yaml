@@ -83,7 +83,7 @@ jobs:
           tmp=$(mktemp -d)
           cp screenshots/*.png "$tmp/"
           # The "Run scenarios" step above leaves tracked fixture PNGs
-          # (docs/src/assets/devtools/i3-scenarios/*.png) modified in the
+          # (docs/public/devtools/i3-scenarios/*.png) modified in the
           # working tree as a side effect of running the scenarios — reproduced
           # and confirmed directly: `git checkout -B` refuses to switch branches
           # over that ("local changes would be overwritten"), where a plain

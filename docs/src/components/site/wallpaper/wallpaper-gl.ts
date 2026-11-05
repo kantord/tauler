@@ -18,7 +18,8 @@
  *    cell, the room's colour takes over, channel by channel (see Room
  *    below). Then the one quantize: one Bayer threshold for every channel,
  *    level = floor(value + threshold), and the levels pick the colour from
- *    a palette texture.
+ *    a palette texture. Room cells take hue on a finer grid than the
+ *    wallpaper's (ROOM_HUE_SUB), with the same threshold.
  * 2. Present: every device pixel of the canvas copies its cell, by integer
  *    division, so a cell is exactly devP × devP device pixels on the page's
  *    grid however the slice's top falls.
@@ -26,7 +27,8 @@
  * What the CPU prepares instead of the shader, per draw (all small):
  *
  * - The palette: every grid point the slice can reach, the wallpaper's and
- *   the room's (any lightness, chroma to 0.4), converted to sRGB by the
+ *   the room's (any lightness, chroma to 0.4, ROOM_HUE_SUB hue columns per
+ *   wallpaper hue level), converted to sRGB by the
  *   module's own oklchToRgb() (gamut mapping included), so a colour is the
  *   module's to the byte; the shader only computes levels.
  * - The hue lattice: a corner never equals its left, upper or upper-left
@@ -161,8 +163,28 @@ const TAU = 2 * Math.PI
 /** The highest chroma a room colour keeps a level for (no sRGB colour goes past 0.37). */
 const ROOM_MAX_CHROMA = 0.4
 
+/**
+ * How many times finer than the wallpaper's the room's hue grid is: 4, so
+ * 15° steps where the wallpaper's are 60° (WALLPAPER.stepH).
+ *
+ * On the wallpaper's own grid the dither spreads a room colour over the two
+ * hue levels around it, up to 60° away: a green leaf between 120° and
+ * 180° drew cyan specks, and the tan rug and floor pink and yellow ones. The
+ * wallpaper's colours are near grey, where hue barely shows, so its grid
+ * was never chosen with saturated colours in mind. On the finer grid a room
+ * cell's hue is within one 15° step of its colour's, and the dither still
+ * blends the two levels around it, so no gradient bands.
+ *
+ * The palette holds both grids at once: column h is hue h × sHq /
+ * ROOM_HUE_SUB, so the wallpaper's level q is column q × ROOM_HUE_SUB, the
+ * very colour it was before. Wallpaper cells are unchanged to the byte, and
+ * a room cell fading into the wallpaper picks from a superset of its
+ * colours. (ADR 0047, "the room's hue grid is finer".)
+ */
+export const ROOM_HUE_SUB = 4
+
 /** The quantization grid and lattices for one set of colours. */
-function wallpaperGrid(colours: WallpaperColours) {
+export function wallpaperGrid(colours: WallpaperColours) {
   const o = WALLPAPER
   const lab = rgbToOklab(colours.background)
   const bgL = lab[0],
@@ -188,21 +210,27 @@ function wallpaperGrid(colours: WallpaperColours) {
   // ROOM_MAX_CHROMA (tests/docs.spec.ts builds the same grid).
   const roomL = [Math.ceil(-bgL / sL), Math.floor((1 - bgL) / sL)]
   const roomC = Math.floor(ROOM_MAX_CHROMA / sC + 1e-9)
-  // Palette: x = hue level, y = (lightness level - palL0) * palNC + chroma level.
+  // Palette: x = the room's hue level (the wallpaper's level q is column
+  // q * ROOM_HUE_SUB), y = (lightness level - palL0) * palNC + chroma level.
   const palL0 = Math.min(qL0, roomL[0])
   const palNL = Math.max(qL0 + nqL - 1, roomL[1]) - palL0 + 1
   const palNC = Math.max(nqC, roomC + 1)
-  const palette = new Uint8Array(nHq * palNL * palNC * 4)
+  const palNH = nHq * ROOM_HUE_SUB
+  const palette = new Uint8Array(palNH * palNL * palNC * 4)
   for (let l = 0; l < palNL; l++)
     for (let c = 0; c < palNC; c++)
-      for (let h = 0; h < nHq; h++) {
+      for (let h = 0; h < palNH; h++) {
         const qL = palL0 + l
         // the background level is the background colour itself (see the module)
         const rgb =
           qL === 0 && c === 0
             ? colours.background
-            : oklchToRgb(bgL + qL * sL, Math.max(0, bgC + c * sC), h * sHq)
-        palette.set([...rgb, 255], ((l * palNC + c) * nHq + h) * 4)
+            : oklchToRgb(
+                bgL + qL * sL,
+                Math.max(0, bgC + c * sC),
+                (h * sHq) / ROOM_HUE_SUB,
+              )
+        palette.set([...rgb, 255], ((l * palNC + c) * palNH + h) * 4)
       }
   return {
     bgL,
@@ -211,6 +239,7 @@ function wallpaperGrid(colours: WallpaperColours) {
     sC,
     sHq,
     nHq,
+    palNH,
     dL,
     dC,
     intensity,
@@ -415,6 +444,7 @@ void main() {
   float vL = (uDL * amt) / uSL, vC = (uDC * amt) / uSC, vH = hue / uSH;
   ivec2 rangeL = uWallL;
   int lastC = uWallC;
+  bool roomCell = false;
 
   // the room, where it covers the cell: each channel eases from the
   // wallpaper's (weight 1) to the room's (0) down from the top fade's start,
@@ -466,6 +496,7 @@ void main() {
       vH = rH + dH * w.z;
       rangeL = uRoomL;
       lastC = uRoomC;
+      roomCell = true;
     }
   }
 
@@ -473,8 +504,12 @@ void main() {
   float th = texelFetch(uThreshold, ivec2(page & 7u), 0).r;
   int qL = clamp(int(floor(vL + th)), rangeL.x, rangeL.y);
   int qC = clamp(int(floor(vC + th)), 0, lastC);
-  int qH = int(floor(vH + th));
-  qH = qH < 0 ? qH + uNH * ((uNH - 1 - qH) / uNH) : qH - uNH * (qH / uNH);
+  // hue in palette columns, SUB per wallpaper level (see ROOM_HUE_SUB): a
+  // room cell on the fine grid, a wallpaper cell on its own grid, scaled
+  const int SUB = ${ROOM_HUE_SUB};
+  int nF = uNH * SUB;
+  int qH = roomCell ? int(floor(vH * float(SUB) + th)) : int(floor(vH + th)) * SUB;
+  qH = qH < 0 ? qH + nF * ((nF - 1 - qH) / nF) : qH - nF * (qH / nF);
   colour = texelFetch(uPalette, ivec2(qH, (qL - uPalL0) * uPalNC + qC), 0);
 }`
 
@@ -695,7 +730,7 @@ export function createGlRenderer(
         gridKey = key
         upload(
           'palette',
-          grid.nHq,
+          grid.palNH,
           grid.palNL * grid.palNC,
           'rgba8',
           grid.palette,

@@ -1,6 +1,6 @@
 /**
  * The room shader's additions for the Monstera (monstera-scene.js), and a path
- * loop with one intersection call site, as load-time edits of the vendored
+ * loop with one intersection call site, as load-time edits of the
  * fs-room shader, in the style of whiteroom.ts's own: each goes in at one
  * anchor that must appear exactly once, or the room fails to start
  * (editShader, replaceSpan).
@@ -16,9 +16,6 @@
  *   outline, splits, holes, veins and drooping straps into a texture (tLeaf)
  *   that the room shader samples, a few lookups per ray instead of all that
  *   code in the intersection loop.
- *
- * The GLSL is kept byte for byte with the plant's standalone prototype (the
- * zip page plus an apply script), where it was tuned; edit both together.
  */
 
 /** Light sampling and the path loop with one SceneIntersect call site: replaces the span from `start` up to `end`. */

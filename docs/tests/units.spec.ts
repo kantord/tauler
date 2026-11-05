@@ -13,9 +13,9 @@ test('a browser Unit enters, updates and exits from a scripted observe()', async
   await page.goto('/docs/component-reference/')
 
   const events = await page.evaluate(async () => {
-    // @ts-expect-error — /tauler/*.js is a build product astro check never sees
+    // @ts-expect-error — /tauler/*.js is a build product tsc never sees
     const { boot } = await import('/tauler/runtime.js')
-    // @ts-expect-error — /tauler/*.js is a build product astro check never sees
+    // @ts-expect-error — /tauler/*.js is a build product tsc never sees
     const { defineUnit } = await import('/tauler/units.js')
     await boot('/tauler/tauler_web_bg.wasm')
 
@@ -61,7 +61,7 @@ test('a Unit may not define both a batch hook and its per-Item spelling', async 
   await page.goto('/docs/component-reference/')
 
   const message = await page.evaluate(async () => {
-    // @ts-expect-error — /tauler/*.js is a build product astro check never sees
+    // @ts-expect-error — /tauler/*.js is a build product tsc never sees
     const { defineUnit } = await import('/tauler/units.js')
     try {
       defineUnit({
@@ -87,9 +87,9 @@ test('a per-Item hook written under the batch name throws, not silently does not
   await page.goto('/docs/component-reference/')
 
   const message = await page.evaluate(async () => {
-    // @ts-expect-error — /tauler/*.js is a build product astro check never sees
+    // @ts-expect-error — /tauler/*.js is a build product tsc never sees
     const { boot } = await import('/tauler/runtime.js')
-    // @ts-expect-error — /tauler/*.js is a build product astro check never sees
+    // @ts-expect-error — /tauler/*.js is a build product tsc never sees
     const { defineUnit } = await import('/tauler/units.js')
     await boot('/tauler/tauler_web_bg.wasm')
 

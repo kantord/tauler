@@ -1,6 +1,6 @@
 /**
  * The room's materials: physically based, procedural, and different
- * everywhere, as load-time edits of the vendored room shader (after the cove
+ * everywhere, as load-time edits of the room shader (after the cove
  * and the plant's, withPlant() in whiteroom.ts), each at an anchor that must
  * appear exactly once.
  *
@@ -32,9 +32,8 @@
  *   still take theirs from the site theme's page colour).
  *
  * The plant's material function and transmission in monstera-shader.ts are
- * replaced here, at load time, so that file stays byte for byte with the
- * plant's prototype; its pot now uses MAT.POT (monstera-scene.js), no longer
- * the chairs' LEATHER.
+ * replaced here, at load time; its pot uses MAT.POT (monstera-scene.js),
+ * not the chairs' LEATHER.
  *
  * The G-buffer's albedo (denoise.ts) is the albedo getMaterial returns, so
  * every procedural colour is demodulated out of the irradiance and kept
@@ -169,7 +168,7 @@ vec3 ggxHalf(vec3 n, vec3 v, float a) {
  *   end. The fringe: the warp's ends, cords of uneven length and width,
  *   knotted at the rug, wandering and frayed, the floor (its colour and
  *   sealer) showing between them; each cord cream or the stripes' dull
- *   cotton green, in the vendored fringe's irregular runs.
+ *   cotton green, in the scene's fringe's irregular runs.
  * - Frame: oiled light ash, grain along each piece. Print: matte paper behind
  *   glazing (a COAT of roughness 0.02) that reflects the room.
  * - Leaves: a waxy cuticle as a real GGX lobe (0.17 new to 0.3 old, duller
@@ -356,7 +355,7 @@ void getMaterial(int id, vec3 p, vec3 n, out int type, out vec3 albedo, out vec3
 	}
 	else if (id == M_FRINGE) {
 		// the warp's ends: cords of uneven length, knotted in pairs at the rug, wandering, frayed; the floor between;
-		// green or cream by the vendored fringe's 1.1 cm bars (same hash)
+		// green or cream by the scene's fringe's 1.1 cm bars (same hash)
 		float zf = p.z > 138.0 ? p.z - 213.0 : 63.0 - p.z;
 		float x = p.x / 0.7, u = 9.0, w = 0.0, len = 0.0, cc = 0.0; vec3 h;
 		for (int k = -1; k <= 1; k++) {

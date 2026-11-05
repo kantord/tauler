@@ -1,8 +1,11 @@
 import Link from 'next/link'
+import { buttonVariants } from '@/components/ui/button'
+import { DRAFTS } from '@/lib/drafts'
 
 /**
- * The landing content as numbered workspaces, one slide page each. `first` is
- * the title of the window that has focus when the slide opens.
+ * The landing content as numbered workspaces, one slide page each. The slides
+ * are drafts (see src/lib/drafts.ts): served by `next dev`, not published.
+ * `first` is the title of the window that has focus when the slide opens.
  */
 export const WORKSPACES = [
   { n: 1, name: 'overview', href: '/overview/', first: 'about' },
@@ -12,8 +15,12 @@ export const WORKSPACES = [
 
 export type WorkspaceNumber = (typeof WORKSPACES)[number]['n']
 
-/** The header's workspace buttons: one link per slide, `current` lit. */
+/**
+ * The header's workspace buttons: one link per slide, `current` lit. Nothing
+ * in the published build, which has no slides to link to.
+ */
 export function WorkspaceNav({ current }: { current?: WorkspaceNumber }) {
+  if (!DRAFTS) return null
   return (
     <nav aria-label="Workspaces" className="flex gap-1.5">
       {WORKSPACES.map((w) => (
@@ -22,7 +29,7 @@ export function WorkspaceNav({ current }: { current?: WorkspaceNumber }) {
           href={w.href}
           aria-label={`${w.n}, ${w.name}`}
           aria-current={w.n === current ? 'page' : undefined}
-          className={`ws ${w.n === current ? 'cur' : ''}`}
+          className={buttonVariants({ variant: 'nav', size: 'icon' })}
         >
           {w.n}
         </Link>

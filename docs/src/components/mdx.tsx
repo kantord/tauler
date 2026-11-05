@@ -3,6 +3,7 @@ import { isValidElement } from 'react'
 import defaultMdxComponents from 'fumadocs-ui/mdx'
 import type { MDXComponents } from 'mdx/types'
 import { TaulerExample } from '@/components/tauler/TaulerExample'
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { TaulerExamples } from '@/components/tauler/TaulerExamples'
 
 const SHELL = new Set(['sh', 'bash', 'shell', 'console', 'zsh'])
@@ -58,19 +59,19 @@ function CalloutContainer({
     success: 'tip',
   }[type ?? 'info']
   return (
-    <div className="sub note" role="note">
-      {!hasTitle && <div className="sbar">{fallback ?? 'note'}</div>}
+    <Alert role="note" className="mb-5">
+      {!hasTitle && <AlertTitle>{fallback ?? 'note'}</AlertTitle>}
       {children}
-    </div>
+    </Alert>
   )
 }
 
 function CalloutTitle({ children }: { children: ReactNode }) {
-  return <div className="sbar">{children}</div>
+  return <AlertTitle>{children}</AlertTitle>
 }
 
 function CalloutDescription({ children }: { children: ReactNode }) {
-  return <div className="sb">{children}</div>
+  return <AlertDescription>{children}</AlertDescription>
 }
 
 // Headings without Fumadocs' anchor-link decoration; ids still come from

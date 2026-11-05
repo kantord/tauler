@@ -13,7 +13,7 @@ import {
   readCssColors,
 } from '../../../lib/wallpaper/tauler-wallpaper.js'
 
-/** The site's overrides of the designer's defaults. */
+/** The site's overrides of tauler-wallpaper.js's defaults. */
 export const WALLPAPER_OPTIONS = { intensity: 0.1, seed: 18 } as const
 
 /** Every option, as the site draws the wallpaper. */

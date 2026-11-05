@@ -1,5 +1,6 @@
 'use client'
 import { useState } from 'react'
+import { Button } from '@/components/ui/button'
 
 /** The install command is a placeholder until there is a real one. */
 export function Terminal() {
@@ -12,9 +13,9 @@ export function Terminal() {
         <code className="flex-[1_1_220px] text-[15px]">
           <span className="text-(--tu-or)">$</span> {command}
         </code>
-        <button
-          type="button"
-          className="m min-h-10 cursor-pointer border-[1.5px] border-(--tu-or) bg-transparent px-4 text-[12px] font-semibold tracking-[.08em] text-(--tu-or) uppercase"
+        <Button
+          variant="outline-primary"
+          className="px-4"
           onClick={() => {
             void navigator.clipboard?.writeText(command).then(() => {
               setCopied(true)
@@ -22,7 +23,7 @@ export function Terminal() {
           }}
         >
           {copied ? 'copied' : 'copy'}
-        </button>
+        </Button>
       </div>
     </div>
   )

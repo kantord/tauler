@@ -14,7 +14,7 @@ test('a D3Figure mounted in a page is drawn by its draw function into a real svg
   await page.goto('/docs/component-reference/')
 
   const width = await page.evaluate(async () => {
-    // @ts-expect-error — /tauler/*.js is a build product astro check never sees
+    // @ts-expect-error — /tauler/*.js is a build product tsc never sees
     const { boot, Mount } = await import('/tauler/runtime.js')
     await boot('/tauler/tauler_web_bg.wasm')
 
@@ -50,7 +50,7 @@ test('a D3Figure whose key does not change is drawn once, and a new key draws ag
   await page.goto('/docs/component-reference/')
 
   const draws = await page.evaluate(async () => {
-    // @ts-expect-error — /tauler/*.js is a build product astro check never sees
+    // @ts-expect-error — /tauler/*.js is a build product tsc never sees
     const { boot, Mount } = await import('/tauler/runtime.js')
     await boot('/tauler/tauler_web_bg.wasm')
 
@@ -114,7 +114,7 @@ test('a D3Figure whose draw throws is tried once, not on every tick', async ({
   await page.goto('/docs/component-reference/')
 
   const count = await page.evaluate(async () => {
-    // @ts-expect-error — /tauler/*.js is a build product astro check never sees
+    // @ts-expect-error — /tauler/*.js is a build product tsc never sees
     const { boot, Mount } = await import('/tauler/runtime.js')
     await boot('/tauler/tauler_web_bg.wasm')
 
@@ -159,7 +159,7 @@ test('a D3Figure built once, outside the render function, is drawn', async ({
   await page.goto('/docs/component-reference/')
 
   const drawn = await page.evaluate(async () => {
-    // @ts-expect-error — /tauler/*.js is a build product astro check never sees
+    // @ts-expect-error — /tauler/*.js is a build product tsc never sees
     const { boot, Mount } = await import('/tauler/runtime.js')
     await boot('/tauler/tauler_web_bg.wasm')
 
@@ -195,7 +195,7 @@ test('figures still on screen are not evicted from the cache and drawn again', a
   await page.goto('/docs/component-reference/')
 
   const result = await page.evaluate(async () => {
-    // @ts-expect-error — /tauler/*.js is a build product astro check never sees
+    // @ts-expect-error — /tauler/*.js is a build product tsc never sees
     const { boot, Mount } = await import('/tauler/runtime.js')
     await boot('/tauler/tauler_web_bg.wasm')
 
@@ -250,7 +250,7 @@ test('a D3Figure with an object key names the same picture as on a desktop', asy
   await page.goto('/docs/component-reference/')
 
   const srcs = await page.evaluate(async () => {
-    // @ts-expect-error — /tauler/*.js is a build product astro check never sees
+    // @ts-expect-error — /tauler/*.js is a build product tsc never sees
     const { boot, Mount } = await import('/tauler/runtime.js')
     await boot('/tauler/tauler_web_bg.wasm')
 
@@ -285,7 +285,7 @@ test('draw receives its picture name in a page', async ({ page }) => {
   await page.goto('/docs/component-reference/')
 
   const texts = await page.evaluate(async () => {
-    // @ts-expect-error — /tauler/*.js is a build product astro check never sees
+    // @ts-expect-error — /tauler/*.js is a build product tsc never sees
     const { boot, Mount } = await import('/tauler/runtime.js')
     await boot('/tauler/tauler_web_bg.wasm')
 
@@ -325,7 +325,7 @@ test('a layout file that imports d3 at the top uses it in a page', async ({
   await page.goto('/docs/component-reference/')
 
   const result = await page.evaluate(async () => {
-    // @ts-expect-error — /tauler/*.js is a build product astro check never sees
+    // @ts-expect-error — /tauler/*.js is a build product tsc never sees
     const { boot, Mount } = await import('/tauler/runtime.js')
     await boot('/tauler/tauler_web_bg.wasm')
 
@@ -363,7 +363,7 @@ test('measureText measures with the browser in a page', async ({ page }) => {
   await page.goto('/docs/component-reference/')
 
   const result = await page.evaluate(async () => {
-    // @ts-expect-error — /tauler/*.js is a build product astro check never sees
+    // @ts-expect-error — /tauler/*.js is a build product tsc never sees
     const { boot } = await import('/tauler/runtime.js')
     await boot('/tauler/tauler_web_bg.wasm')
 

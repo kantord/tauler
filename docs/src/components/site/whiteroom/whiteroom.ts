@@ -6,11 +6,12 @@
  * room's continuous colour with its own and turns the two into pixel art in
  * one quantize, on one grid, with one palette.
  *
- * What renders runs unchanged (scripts/vendor-whiteroom.sh): the renderer's
- * GLSL chunks and blue noise, the page's path-tracing and output shaders,
- * and its scene description, on the three.js revision it ships (r185).
+ * It began as a standalone page ("the page" below), whose path-tracing and
+ * output shaders (public/whiteroom/shaders/) and scene description
+ * (room-scene.js) run here on the renderer's GLSL chunks and blue noise
+ * (vendor/, the only third-party code) and three.js r185.
  *
- * The page's main script is ported here by hand, with its defaults: the
+ * The page's main script is ported here, with its defaults: the
  * "Photo match" lights and 48 samples. Kept: the uniforms, the three passes
  * up to continuous colour (path trace into a float target, copy it into the
  * accumulation target, filmic tone-map into an 8-bit target) and the photo's
@@ -39,9 +40,9 @@
  * Changed to frame any box: see frame().
  *
  * Added: a Monstera in an ochre bowl at the left of the room, the scene's
- * 8th group (monstera-scene.js, put in by scripts/whiteroom-monstera.patch),
- * which wide frames show, and a small cove where the walls meet the floor
- * (scripts/whiteroom-scene.patch). The room shader learns their primitives
+ * 8th group (monstera-scene.js, added in room-scene.js), which wide frames
+ * show, and a small cove where the walls meet the floor (room-scene.js).
+ * The room shader learns their primitives
  * and materials by load-time edits (COVE_EDITS, monstera-shader.ts,
  * withPlant()), and the leaves' maps are baked once, before the first sample
  * (bakeLeaves()).
@@ -69,7 +70,7 @@
  */
 import * as THREE from 'three'
 import { installPathTracingChunks } from './vendor/PathTracingCommon.js'
-import { buildRoomScene } from './vendor/room-scene.js'
+import { buildRoomScene } from './room-scene.js'
 import { rgbToOklab } from '@/lib/wallpaper/tauler-wallpaper.js'
 import { ditherPixel, type WallpaperColours } from '../wallpaper/options'
 import {
@@ -129,11 +130,11 @@ const shaders = Promise.all(
 )
 shaders.catch(() => {}) // reported by createRoom()
 
-/** Applies each edit to its single anchor; throws if the vendored shader changed. */
+/** Applies each edit to its single anchor; throws if the anchor is missing or repeated. */
 function editShader(shader: string, edits: [string, string][]) {
   for (const [from, to] of edits) {
     if (shader.split(from).length !== 2)
-      throw new Error(`vendored shader changed: no single "${from}"`)
+      throw new Error(`shader edit: no single "${from}"`)
     shader = shader.replace(from, to)
   }
   return shader
@@ -146,7 +147,7 @@ function replaceSpan(
 ) {
   for (const anchor of [start, end])
     if (shader.split(anchor).length !== 2)
-      throw new Error(`vendored shader changed: no single "${anchor}"`)
+      throw new Error(`shader edit: no single "${anchor}"`)
   return (
     shader.slice(0, shader.indexOf(start)) +
     text +
@@ -156,13 +157,11 @@ function replaceSpan(
 
 /**
  * The cove where the walls meet the floor and each other (KIND.COVE, from
- * scripts/whiteroom-scene.patch): the inside of a cylinder, between its axis
+ * room-scene.js): the inside of a cylinder, between its axis
  * and the corner, which meets both planes tangentially. Its branch goes in
  * before the Monstera's, which takes every kind from K_LEAF up. The walls'
  * paint takes its colour from the wall's coordinates on the cove as well, so
  * the backdrop's cells do not change colour half way round it.
- * Kept byte for byte with the plant's standalone prototype, like
- * monstera-shader.ts.
  */
 const COVE_EDITS: [string, string][] = [
   [

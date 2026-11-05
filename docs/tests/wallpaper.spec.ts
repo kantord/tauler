@@ -7,6 +7,15 @@ import {
   type TestInfo,
 } from '@playwright/test'
 import { WALLPAPER } from '../src/components/site/wallpaper/options'
+import {
+  ROOM_HUE_SUB,
+  wallpaperGrid,
+} from '../src/components/site/wallpaper/wallpaper-gl'
+import {
+  THRESHOLDS,
+  oklchToRgb,
+  rgbToOklab,
+} from '../src/lib/wallpaper/tauler-wallpaper.js'
 
 // The wallpaper is drawn by a WebGL shader (wallpaper-gl.ts) on a GPU, and
 // otherwise by the wallpaper module on the CPU; the module is the reference.
@@ -468,5 +477,101 @@ for (const softwareGl of [true, false]) {
         expect(await page.screenshot()).not.toEqual(before)
       },
     )
+  })
+}
+
+// The room's hue grid is ROOM_HUE_SUB times finer than the wallpaper's (see
+// wallpaper-gl.ts): the palette holds both, and the wallpaper's level q is
+// column q * ROOM_HUE_SUB. CI's software WebGL draws no room, so these check
+// the grid on the CPU, where wallpaperGrid() builds the palette the shader
+// uploads; the wallpaper's own pixels are held to the module's above.
+
+const THEME_COLOURS = {
+  light: { background: [230, 228, 222], ringL: 0.66, ringC: 0.12 },
+  dark: { background: [17, 17, 16], ringL: 0.72, ringC: 0.11 },
+} as const satisfies Record<string, Parameters<typeof wallpaperGrid>[0]>
+
+type RGB = [number, number, number]
+
+/** A palette entry's RGB: hue column `h`, lightness level `qL`, chroma level `qC`. */
+function entry(
+  grid: ReturnType<typeof wallpaperGrid>,
+  h: number,
+  qL: number,
+  qC: number,
+) {
+  const i = (((qL - grid.palL0) * grid.palNC + qC) * grid.palNH + h) * 4
+  return Array.from(grid.palette.subarray(i, i + 3)) as RGB
+}
+
+for (const [theme, colours] of Object.entries(THEME_COLOURS)) {
+  test(`every ${ROOM_HUE_SUB}th hue column of the palette is the wallpaper's own colour, in the ${theme} theme`, () => {
+    test.skip(test.info().project.name !== 'desktop', 'no page involved')
+    const g = wallpaperGrid({ ...colours, background: [...colours.background] })
+    expect(g.palNH).toBe(g.nHq * ROOM_HUE_SUB)
+    for (let l = 0; l < g.palNL; l++)
+      for (let qC = 0; qC < g.palNC; qC++)
+        for (let q = 0; q < g.nHq; q++) {
+          const qL = g.palL0 + l
+          // the palette as it was with one column per wallpaper hue level
+          const before =
+            qL === 0 && qC === 0
+              ? [...colours.background]
+              : oklchToRgb(g.bgL + qL * g.sL, g.bgC + qC * g.sC, q * g.sHq)
+          expect(
+            entry(g, q * ROOM_HUE_SUB, qL, qC),
+            `${qL} ${qC} ${q}`,
+          ).toEqual(before)
+        }
+  })
+
+  // The specks this grid fixed: a green leaf's cells dithered into the
+  // wallpaper's hue levels on either side, up to 60° away (cyan, yellow).
+  // Each green a leaf takes is quantized here with every threshold of the
+  // dither matrix, by the rule the CELLS shader applies to a room cell
+  // (step 4: level = floor(value + threshold) per channel, hue on the room's
+  // grid), and the palette colour it lands on keeps its hue.
+  test(`a green room colour never lands on a far hue, in the ${theme} theme`, () => {
+    test.skip(test.info().project.name !== 'desktop', 'no page involved')
+    const g = wallpaperGrid({ ...colours, background: [...colours.background] })
+    const deg = (r: number) => (r * 180) / Math.PI
+    const hueOf = (rgb: RGB) => {
+      const [, a, b] = rgbToOklab(rgb)
+      return { C: Math.hypot(a, b), h: Math.atan2(b, a) }
+    }
+    const off = (a: number, b: number) =>
+      Math.abs(deg(Math.atan2(Math.sin(a - b), Math.cos(a - b))))
+    /** The worst hue error over the greens, with the hue on `sub` columns per level. */
+    const worst = (sub: number) => {
+      let max = 0
+      for (let hue = 100; hue <= 150; hue++)
+        for (const L of [0.3, 0.4, 0.5, 0.6])
+          for (const C of [0.06, 0.1, 0.14]) {
+            const h = (hue * Math.PI) / 180
+            const vL = (L - g.bgL) / g.sL,
+              vC = (C - g.bgC) / g.sC,
+              vH = h / g.sHq
+            for (const th of THRESHOLDS.bayer8) {
+              const qL = Math.min(
+                Math.max(Math.floor(vL + th), g.roomL[0]),
+                g.roomL[1],
+              )
+              const qC = Math.min(Math.max(Math.floor(vC + th), 0), g.roomC)
+              const column =
+                (((Math.floor(vH * sub + th) * (ROOM_HUE_SUB / sub)) %
+                  g.palNH) +
+                  g.palNH) %
+                g.palNH
+              const got = hueOf(entry(g, column, qL, qC))
+              // near grey, a byte of rounding moves the hue a long way
+              if (got.C >= 0.03) max = Math.max(max, off(got.h, h))
+            }
+          }
+      return max
+    }
+    // within one 15° step, and a few degrees of sRGB rounding
+    expect(worst(ROOM_HUE_SUB)).toBeLessThan(20)
+    // the wallpaper's own 60° grid, for contrast: this is what drew the specks
+    expect(worst(1)).toBeGreaterThanOrEqual(45)
   })
 }

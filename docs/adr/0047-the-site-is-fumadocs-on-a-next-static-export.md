@@ -42,10 +42,9 @@ title bars, Archivo/DM Sans/IBM Plex Mono, light and dark). Its layout is not Fu
 Fumadocs' headless parts — the page tree, the TOC, `findNeighbour`, the search dialog —
 rather than vendoring Fumadocs' layout with `fumadocs customise`. That keeps the code we
 own to what the design actually draws. The design's dithered wallpaper is
-the designer's own module (first-party, as ADR 0032 already counted it), vendored
-unchanged in `src/lib/wallpaper/` and kept outside lint and format so it stays diffable
-against the next drop. It is mounted on a viewport-fixed host, not on the page as its
-README shows: a page-sized canvas costs width × height × dpr² × 4 bytes and the longest
+a first-party module (as ADR 0032 already counted it) in `src/lib/wallpaper/`, linted
+and formatted like the rest of the site. It is mounted on a viewport-fixed host, not on
+the page itself: a page-sized canvas costs width × height × dpr² × 4 bytes and the longest
 docs pages pass the browser's canvas size limit, so the wallpaper does not scroll with
 the page.
 
@@ -69,12 +68,16 @@ path-traced live by Erich Loftis's
 [THREE.js PathTracing Renderer](https://github.com/erichlof/THREE.js-PathTracing-Renderer)
 (CC0, credited on the page anyway), then reduced to dithered pixel art on the
 wallpaper's palette: its pixel pass quantizes on the wallpaper's own grid, read from the
-same source the wallpaper uses (`WALLPAPER` in `src/components/site/wallpaper/options.ts`). It runs the page it came from, not an imitation:
-`docs/scripts/vendor-whiteroom.sh` takes the page's zip, checks that its copies of the
-renderer's GLSL chunks and blue noise are byte-identical to upstream at a pinned commit,
-and copies the page's five shaders and its scene description unchanged, but for one
-small patch to the scene (below). three.js is r185 from npm, the revision the page ships. Only the page's render loop is ported by hand, into
-`src/components/site/whiteroom/whiteroom.ts`, without its tweak panel and drag controls.
+same source the wallpaper uses (`WALLPAPER` in `src/components/site/wallpaper/options.ts`). It began
+as a standalone page, made for the site and copied in once: its shaders
+(`public/whiteroom/shaders/`) and its scene description
+(`src/components/site/whiteroom/room-scene.js`) are first-party code. The only
+third-party code is the renderer's GLSL chunks and blue-noise texture, taken from
+upstream at a pinned commit (`whiteroom/vendor/PathTracingCommon.js`, with the CC0
+licence beside it, and `public/whiteroom/BlueNoise_R_128.png`).
+three.js is r185 from npm, the revision the page was written for. The page's render loop
+is ported into `src/components/site/whiteroom/whiteroom.ts`, without its tweak panel and
+drag controls.
 
 The render does not fill the window: the standard wallpaper does, as on the docs pages,
 and the room fills the bottom half of the window on top of it, edge to edge. These pages drop the site's `scrollbar-gutter: stable`
@@ -86,8 +89,7 @@ short, very wide window) instead of the scene's own 3:2. The camera keeps the pa
 a 40° vertical view, widened horizontally to fit, and on boxes narrower than 3:2 the 3:2
 horizontal view, widened vertically. Those wider and taller views see past the scene,
 which was built for 3:2: beyond the left end of its back wall and floor, and over its
-walls. So `scripts/whiteroom-scene.patch`, applied by the vendoring script and failing it
-if it no longer applies, runs the back wall, its window band and the floor further left
+walls. So the scene runs the back wall, its window band and the floor further left
 and raises the walls; it adds no ceiling or left wall, which would shut out the open sky
 that lights most of the room. It also gives the junctions of walls and floor, and of
 the two walls, a small cove (3 cm), so they read as a soft shading change rather than
@@ -167,7 +169,7 @@ window nears its edge is it moved and drawn again (`page-wallpaper.ts`). A canva
 to the window and redrawn on scroll would be drawn from the main thread's scroll
 position, a frame or more behind the compositor's on a fast scroll.
 
-The designer's module (`src/lib/wallpaper/tauler-wallpaper.js`) stays, as the
+The CPU module (`src/lib/wallpaper/tauler-wallpaper.js`) stays, as the
 reference and the fallback. The shader draws its pixels byte for byte for the same
 options, colours, device pixel ratio and page position, and `tests/wallpaper.spec.ts`
 holds it to that; the palette, the hue lattice (a dynamic-programming table) and each
@@ -178,10 +180,9 @@ WebGL, which is slower than the CPU path here (headless Chromium's SwiftShader, 
 draws the wallpaper on the CPU, and checks the shader on SwiftShader only in the tests
 that ask for it).
 
-The module is no longer vendored unchanged. Three changes, marked `[tauler]` in it:
-it can compute a slice of the page by itself (`col0`, `row0`), it exports the internals
-the shader reuses, and one deliberate deviation from the designer's file: the
-background level is the background colour itself. The designer's file drew it at the
+The module gained three things for this: it can compute a slice of the page by itself
+(`col0`, `row0`), it exports the internals the shader reuses, and the background level
+is the background colour itself. The module's first version drew it at the
 background's lightness and chroma but at hue 0°, not the background's own hue, so the
 "background" pixels were a pinkish `rgb(233, 226, 228)` on the `#e6e4de` page. The
 room's pixel pass follows the same rule. `WALLPAPER` (`wallpaper/options.ts`) is the one
@@ -203,8 +204,7 @@ where every channel is still the wallpaper's the cell is the wallpaper's own
 computation, byte for byte, so `tests/wallpaper.spec.ts` holds as before and the room's
 edges are the wallpaper exactly.
 
-Gone with it: the vendored pixel shader (`fs-pix.glsl`, no longer copied by the
-vendoring script) and the four load-time edits that adapted it (window grid, wallpaper
+Gone with it: the page's pixel shader (`fs-pix.glsl`) and the four load-time edits that adapted it (window grid, wallpaper
 palette, fade, single quantize); the JS wallpaper texture computed for the fade on every
 resize (about 100 ms on the main thread at 1440 × 900); `RoomBackground.tsx` and its
 fixed host. `<Wallpaper edgeToEdge room />` asks for the room; `page-wallpaper.ts`
@@ -272,10 +272,8 @@ used to stop on the open floor; it now curves back to the wall and runs along th
 at its foot behind the planter, up to a wall socket the pot hides, so the lamp does not
 read as plugged into the plant.
 
-It goes in the way the room's other changes do. The scene change is a second patch,
-`scripts/whiteroom-monstera.patch`, applied by the vendoring script after the first
-and failing it the same way; the plant's generator is the site's own code
-(`whiteroom/monstera-scene.js`), which the patch imports. The shader side is load-time
+It goes in the way the room's other changes do. The scene adds it as its 8th group,
+from the plant's generator (`whiteroom/monstera-scene.js`). The shader side is load-time
 edits of `fs-room` at single anchors (`whiteroom/monstera-shader.ts`, applied in
 `whiteroom.ts`): three primitive kinds (a leaf blade, an open frustum for the pot, and a
 cluster box that lets a ray skip a leaf and its stalk when it misses them), the plant's
@@ -357,7 +355,7 @@ by the albedo, the linear irradiance left is smoothed by four passes of a 5 × 5
 steps 1, 2, 4 and 8, each tap stopped by unlike normals, distances, albedos or a
 luminance difference beyond the cell's noise, and the albedo is multiplied back in. The
 page's copy shader is no longer used (the copy pass copies all three attachments), so it
-is no longer vendored.
+is gone.
 
 The grain it removes was path-tracing variance at 48 samples, not quantization. Measured
 as the detrended standard deviation of OKLab lightness, the raw 48-sample image against a
@@ -473,6 +471,108 @@ view, flat-woven green-striped ends, and a fringe of separate cords with
 the floor between them. Pebbles and tufts are 2D cellular noise, nine
 hashes, on camera and mirror paths only. About +0.14 ms a sample
 (3.96 → 4.10 ms) and +1.7 KB gzipped. Each cord is then cream or a dull cotton
-green, chosen by the vendored fringe's own hash over its 1.1 cm bars, so its
+green, chosen by the scene's fringe's own hash over its 1.1 cm bars, so its
 irregular runs of green read again from across the room; the end band's
 stripes take the same green (one hash per fringe hit, +0.1 KB gzipped).
+
+## Amendment: the room's hue grid is finer
+
+The room's colours are quantized on the wallpaper's grid, and that grid's
+hue step is 60°. That step was chosen for the wallpaper, whose colours are
+near grey, where hue barely shows. With the room's saturated colours, the
+dither spread each cell over the two hue levels around its colour, up to 60°
+away. Green leaves got cyan and yellow specks, and the tan rug fringe and the
+floor got pink ones.
+
+Room cells now take hue on a 15° grid (`ROOM_HUE_SUB` = 4 in
+`wallpaper-gl.ts`), with the same threshold as every other channel, so the
+dither still blends the two levels around a colour. Lightness and chroma
+are unchanged. The palette is a superset of the old one: it has
+`nHq × 4` hue columns (24 × 319 texels, was 6 × 319), and column `q × 4` is
+the wallpaper's level `q`, the same colour as before. Wallpaper cells use only
+those columns, so their pixels are unchanged to the byte
+(`tests/wallpaper.spec.ts` still asks for every byte). A room cell that fades
+into the wallpaper picks from a superset of the wallpaper's colours, so the two
+stay one palette. The room has no path in the module
+(`tauler-wallpaper.js`), so it is unchanged.
+
+Measured on 48-sample renders at 1440 × 900, light theme (dark in brackets),
+cells whose hue lands more than 30° off their continuous colour went to zero:
+leaves 240 → 0 (271 → 0), rug fringe 269 → 0 (286 → 0), floor 409 → 0
+(590 → 0), and the bowl and both chairs also went to zero. Mean OKLab a/b
+error dropped by 15–55% per region (bowl 37.1 → 15.9, leaves 19.7 → 12.9,
+floor 15.9 → 14.5, ×1000). The rows above the room were byte-identical in
+both themes. Cost: the cells pass measured 0.103–0.108 ms before and
+0.099–0.110 ms after (median of 7 × 100 passes), so no measurable change.
+
+`tests/wallpaper.spec.ts` checks two things on the CPU, because CI's software
+WebGL draws no room. First, every 4th palette column is the old palette.
+Second, a green leaf's colours, quantized with every threshold of the matrix
+by the shader's room rule, land within one 15° step of their hue. On the 60°
+grid they land 45° or more off.
+
+Rejected:
+
+- *Rounding hue to the nearest 60° level, with no dither* (fixB). It moved
+  whole areas to the nearest of six hues: the bowl turned orange, the rug
+  pink and the leaves olive. Some off-hue cells stayed (floor 7, fringe 15),
+  and its mean error was higher than the 15° grid's in every region.
+- *Rounding hue to the nearest 15° level, with no dither* (fixC). Its error
+  was within about 1/1000 of the dithered 15° grid. But it adds a second
+  quantize rule to a pipeline that is built on one, and it turns a slow hue
+  gradient into hard steps where the dither blends them.
+- A 30° grid (fixA30) left a few off-hue cells (one each in the floor and
+  chair) and had a higher error than 15°, at the same cost.
+
+## Amendment: the slides are drafts
+
+The three workspace slides (`/overview/`, `/principles/`, `/get-started/`) are
+unfinished, so they are drafts: `next dev` serves them, the published site does
+not have them. The published site is the home page and the docs.
+
+A draft route file is named `page.draft.tsx`. `next.config.mjs` adds `draft.tsx`
+to `pageExtensions` only when `NODE_ENV` is `development`, so in the build the
+file is not a page and the export has no route, HTML or chunk for it. There is no
+runtime check to forget. Links to the slides check `DRAFTS` (`src/lib/drafts.ts`,
+the same `NODE_ENV` test): the header's workspace buttons render nothing and the
+sitemap leaves the slides out. Search and `llms.txt` come from the docs collection
+and never had them.
+
+The slides' Playwright tests run only with `DOCS_DEV_URL` set to a running dev
+server; against the build they skip, and one test checks that the build has no
+slide routes and no workspace buttons.
+
+Rejected:
+
+- *Keep the routes and hide only the links.* The pages would still be published
+  and reachable by URL.
+- *An explicit env var such as `DOCS_DRAFTS=1`.* It can disagree with the mode:
+  a dev server without it hides the slides, a build with it publishes them.
+  The mode itself already says which one is wanted.
+
+## Amendment: the site's controls are themed shadcn components
+
+The site's buttons, button-styled links and callouts are shadcn's `Button` and
+`Alert` (base-lyra, added with `shadcn add`), in `src/components/ui/`. They used
+to be hand-built, each repeating the same inline classes. The look lives in two
+places. The colours are the shadcn slots in `global.css`, which point at the
+`--tu-*` tokens (above). The shape is the components' own `cva` classes, edited
+to the design: a 1.5px rule, square corners, 12px uppercase mono with wide
+tracking, and an orange `focus-visible` outline. The variants are `default`
+(orange fill), `outline`, `outline-primary` (the terminal's copy button) and
+`nav`, a link whose current page (`aria-current="page"`) is lit. The sizes are
+`default`, `lg` (the slides' calls to action), `inline` (the header's text links)
+and `icon` (the workspace keys).
+
+A link that looks like a button is a Next `Link` with `buttonVariants()` as its
+class, not a `Button` with a `render` prop: Base UI's Button puts button
+semantics (`role="button"`) on any element it renders, and its docs say not to
+render links with it. `buttonVariants()` merges its classes with `cn`, so a size
+like `inline` replaces the base border rather than racing it in CSS order.
+
+The callout's title reuses the code panels' title bar (`.sbar`), lit orange. A
+code panel inside a callout now keeps its own grey bar: the old `.sub.note .sbar`
+rule lit every bar in the callout, the nested panel's too.
+
+The docs chrome (sidebar, table of contents, search dialog) and the tiles' title
+bars stay hand-built CSS: they are window chrome, not controls.

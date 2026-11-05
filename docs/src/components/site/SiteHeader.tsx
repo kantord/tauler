@@ -1,12 +1,10 @@
 import Link from 'next/link'
 import type { ReactNode } from 'react'
+import { buttonVariants } from '@/components/ui/button'
 import { SearchButton, ThemeToggle } from './controls'
 import { Logo } from './Logo'
 
-const linkClass = (on: boolean) =>
-  on
-    ? 'bg-(--tu-or) px-2.5 py-1 font-semibold text-(--tu-on-or) no-underline'
-    : 'no-underline'
+const navLink = buttonVariants({ variant: 'nav', size: 'inline' })
 
 /**
  * The top bar shared by every page: the logo (it stands in for the word
@@ -40,14 +38,14 @@ export function SiteHeader({
           <Link
             href="/"
             aria-current={current === 'home' ? 'page' : undefined}
-            className={linkClass(current === 'home')}
+            className={navLink}
           >
             home
           </Link>
           <Link
             href="/docs/"
             aria-current={current === 'docs' ? 'page' : undefined}
-            className={linkClass(current === 'docs')}
+            className={navLink}
           >
             docs
           </Link>

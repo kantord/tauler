@@ -5,8 +5,9 @@ import { WorkspaceNav } from '@/components/site/desk/workspaces'
 import { ROOM_HEIGHT } from '@/components/site/whiteroom/room-size'
 
 /**
- * The home page is the logo on the background and nothing else; the landing
- * content is on the workspace slides the header's buttons link to.
+ * The home page is the logo on the background and nothing else. Under
+ * `next dev` the header also carries the buttons to the workspace slides,
+ * which are drafts and not published.
  */
 export default function HomePage() {
   return (

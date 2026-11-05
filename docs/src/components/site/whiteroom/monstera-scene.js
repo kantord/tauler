@@ -6,7 +6,7 @@
  * toward -z). Same seed, same plant. The planter is a low cylinder glazed ochre, the chairs'
  * colour (MAT.POT, a glaze in the room shader's materials) on a recessed chrome plinth (its CHROME).
  *
- * The habit follows photographs of potted plants of about 1.2 m (see the README): three rooted
+ * The habit follows photographs of potted plants of about 1.2 m: three rooted
  * cuttings, each a thick stem that leans out of the soil and curves up toward the light, ringed
  * where its leaves came from, with a few brown aerial roots. The leaves alternate sides along each
  * stem, unevenly; each petiole leaves its node in a sheath and rises in a loose, uneven S, arching

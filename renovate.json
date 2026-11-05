@@ -78,7 +78,7 @@
       "groupName": "playwright (npm package + pinned docker image)"
     },
     {
-      "description": "three is held at the revision the home page background ships (r185): it runs erichlof/THREE.js-PathTracing-Renderer's GLSL chunks and the page's own shaders, vendored by docs/scripts/vendor-whiteroom.sh, inside three's ShaderMaterial prefixes. A lone three bump can change those prefixes under the vendored shaders; move it together with re-vendoring a page built for the new revision.",
+      "description": "three is held at the revision the home page background was written for (r185): it runs erichlof/THREE.js-PathTracing-Renderer's GLSL chunks (docs/src/components/site/whiteroom/vendor/) and the room's own shaders (docs/public/whiteroom/shaders/) inside three's ShaderMaterial prefixes. A lone three bump can change those prefixes under them; bump it only after checking that the room still renders, taking the renderer's chunks for the new revision if it does not.",
       "matchPackageNames": ["three", "@types/three"],
       "enabled": false
     }
