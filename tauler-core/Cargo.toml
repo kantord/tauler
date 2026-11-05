@@ -49,7 +49,7 @@ optative-script = { version = "=0.0.13", optional = true }
 # Pinned exactly: the `wasm-bindgen` CLI refuses to process a module built against a
 # different version of the crate, so the two are one version number in two places.
 # CI installs `wasm-bindgen-cli` at this same version.
-wasm-bindgen = "=0.2.129"
+wasm-bindgen = "=0.2.130"
 serde-wasm-bindgen = "=0.6.5"
 # `taulerSha256` (web.rs): names a D3Figure's object key as the desktop names it.
 sha2 = "=0.11.1"
