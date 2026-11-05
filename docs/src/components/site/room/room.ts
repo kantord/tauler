@@ -1,13 +1,13 @@
 /**
- * "White Room, Pixel Traced": a white room path-traced live by Erich
- * Loftis's THREE.js PathTracing Renderer (CC0,
+ * The home background: a room inspired by a photo by Urban Vintage on Unsplash,
+ * path-traced live by Erich Loftis's THREE.js PathTracing Renderer (CC0,
  * https://github.com/erichlof/THREE.js-PathTracing-Renderer), as a layer of
  * the wallpaper: the wallpaper's shader (wallpaper-gl.ts) composites the
  * room's continuous colour with its own and turns the two into pixel art in
  * one quantize, on one grid, with one palette.
  *
  * It began as a standalone page ("the page" below), whose path-tracing and
- * output shaders (public/whiteroom/shaders/) and scene description
+ * output shaders (public/room/shaders/) and scene description
  * (room-scene.js) run here on the renderer's GLSL chunks and blue noise
  * (vendor/, the only third-party code) and three.js r185.
  *
@@ -102,20 +102,32 @@ declare global {
     >
     /** Stops the room at this many samples (0: none, the room not drawn); for tests. */
     taulerRoomSamples?: number
+    /**
+     * Lets the room run on software WebGL, which roomSupported() refuses; for
+     * the smoke test, which runs it in a tiny window. The wallpaper's context
+     * must be allowed there too (window.taulerWallpaperSoftwareGl).
+     */
+    taulerRoomSoftwareGl?: boolean
+    /** Appends a syntax error to the room's fragment shader; for the smoke test. */
+    taulerRoomBrokenShader?: boolean
   }
 }
 
-const ASSETS = '/whiteroom'
+const ASSETS = '/room'
 
 let chunksInstalled = false
 
 /**
  * True when the room can render in `gl`: hardware WebGL 2 with float render
  * targets. Software WebGL (SwiftShader, llvmpipe) is refused: a path tracer
- * there takes seconds per frame and freezes the page.
+ * there takes seconds per frame and freezes the page (unless a test asks,
+ * window.taulerRoomSoftwareGl).
  */
 export function roomSupported(gl: WebGL2RenderingContext): boolean {
-  return !isSoftware(gl) && !!gl.getExtension('EXT_color_buffer_float')
+  return (
+    (!!window.taulerRoomSoftwareGl || !isSoftware(gl)) &&
+    !!gl.getExtension('EXT_color_buffer_float')
+  )
 }
 
 async function loadShader(name: string) {
@@ -481,7 +493,7 @@ export async function createRoom(
     chunksInstalled = true
   }
 
-  const [[vs, fsOut, fsRoom], blue] = await Promise.all([
+  const [[vs, fsOut, fsLoaded], blue] = await Promise.all([
     shaders,
     new THREE.TextureLoader().loadAsync(`${ASSETS}/BlueNoise_R_128.png`),
   ])
@@ -490,6 +502,9 @@ export async function createRoom(
   blue.flipY = false
   blue.minFilter = blue.magFilter = THREE.NearestFilter
   blue.generateMipmaps = false
+  const fsRoom = window.taulerRoomBrokenShader
+    ? `${fsLoaded}\n#error broken for a test`
+    : fsLoaded
 
   const overrides = window.taulerRoomFade ?? {}
   const fade: Fade = {
@@ -994,6 +1009,11 @@ export async function createRoom(
 
   try {
     await Promise.all(compiling)
+    // compileAsync() only waits for the driver; three.js checks a program's
+    // link status on its first use, normally the first render. Use each
+    // program now (no draw, just its uniform lookup) so that a shader that
+    // failed to compile rejects here, and the wallpaper draws alone.
+    for (const program of renderer.info.programs ?? []) program.getUniforms()
     if (shaderError) throw new Error(`shader failed to compile: ${shaderError}`)
     signal.throwIfAborted()
   } catch (error) {

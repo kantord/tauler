@@ -2,25 +2,24 @@ import Link from 'next/link'
 import type { ReactNode } from 'react'
 import { buttonVariants } from '@/components/ui/button'
 import { SearchButton, ThemeToggle } from './controls'
+import { GitHubIcon } from './icons'
 import { Logo } from './Logo'
 
 const navLink = buttonVariants({ variant: 'nav', size: 'inline' })
 
 /**
  * The top bar shared by every page: the logo (it stands in for the word
- * "tauler"), site links, search and theme. The home page and the slides pass
- * their workspace buttons as `lead`, and the slides their "focus: …" readout
- * as `status`. The slides set no `current`: their workspace button is lit
- * instead.
+ * "tauler"), site links, search, GitHub and theme. The home page and the
+ * slides pass their workspace buttons as `lead`. The slides set no `current`:
+ * their workspace button is lit instead. The footer repeats the GitHub link
+ * as "Source", next to the changelog; the home page has no footer.
  */
 export function SiteHeader({
   current,
   lead,
-  status,
 }: {
   current?: 'home' | 'docs'
   lead?: ReactNode
-  status?: ReactNode
 }) {
   return (
     <header className="m sticky top-0 z-40 border-b-[1.5px] border-(--tu-rule) bg-(--tu-page) text-[12px] tracking-[.08em] uppercase">
@@ -51,8 +50,14 @@ export function SiteHeader({
           </Link>
         </nav>
         <span className="flex flex-wrap items-center gap-3">
-          {status}
           <SearchButton />
+          <a
+            href="https://github.com/kantord/tauler"
+            aria-label="tauler on GitHub"
+            className={buttonVariants({ variant: 'outline', size: 'icon' })}
+          >
+            <GitHubIcon />
+          </a>
           <ThemeToggle />
         </span>
       </div>

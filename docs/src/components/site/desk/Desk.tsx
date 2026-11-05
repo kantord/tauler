@@ -16,9 +16,8 @@ import {
 
 /**
  * A slide as a tiling desktop: every block is a window and exactly one window
- * has focus. Clicking a title bar focuses its window; the header's
- * "focus: …" readout follows. A focused sub-window also lights the window
- * around it.
+ * has focus, lit. Clicking a title bar focuses its window. A focused
+ * sub-window also lights the window around it.
  */
 
 type Focus = { title: string; parent?: string }
@@ -45,14 +44,7 @@ export function Desk({
   const [focus, setFocus] = useState<Focus>({ title: workspace.first })
   return (
     <FocusContext value={{ focus, setFocus }}>
-      <SiteHeader
-        lead={<WorkspaceNav current={n} />}
-        status={
-          <span className="text-(--tu-muted)" aria-live="polite">
-            focus: <span className="text-(--tu-ink)">{focus.title}</span>
-          </span>
-        }
-      />
+      <SiteHeader lead={<WorkspaceNav current={n} />} />
       <main className="on-room mx-auto w-full max-w-[1320px] px-4 pt-8 pb-16 sm:px-6">
         <div className="wslabel mt-0">
           <h1>

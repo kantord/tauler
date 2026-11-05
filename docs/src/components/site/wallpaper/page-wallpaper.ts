@@ -33,7 +33,7 @@
  * the shader where there is no GPU.
  *
  * The room (`room: true`, the home page and its slides): the path-traced
- * room of whiteroom.ts joins the shader as a layer, rendered in the same
+ * room of room.ts joins the shader as a layer, rendered in the same
  * WebGL context, over the bottom ROOM_HEIGHT of the page's first screen
  * (the host's [data-room] box, added once the room runs). It needs hardware
  * WebGL 2; anywhere else, or if it fails to load, the wallpaper is drawn
@@ -52,8 +52,8 @@ import {
   type Slice,
   type SliceRenderer,
 } from './wallpaper-gl'
-import { ROOM_HEIGHT } from '../whiteroom/room-size'
-import type { RoomLayer } from '../whiteroom/whiteroom'
+import { ROOM_HEIGHT } from '../room/room-size'
+import type { RoomLayer } from '../room/room'
 
 declare global {
   interface Window {
@@ -188,8 +188,7 @@ export function mountPageWallpaper(
   /** Adds the room to the shader's context, if it can run there. */
   async function startRoom(glRenderer: GlSliceRenderer) {
     try {
-      const { roomSupported, createRoom } =
-        await import('../whiteroom/whiteroom')
+      const { roomSupported, createRoom } = await import('../room/room')
       if (renderer !== glRenderer || !roomSupported(glRenderer.gl)) return
       const box = document.createElement('div')
       box.style.cssText = `position:absolute;left:0;right:0;top:calc(100svh - ${ROOM_HEIGHT});height:${ROOM_HEIGHT}`

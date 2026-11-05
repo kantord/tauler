@@ -1,4 +1,6 @@
+import { ArrowLeft, ArrowRight } from 'lucide-react'
 import Link from 'next/link'
+import { Icon } from '@/components/ui/icon'
 import type { ReactNode } from 'react'
 import type * as PageTree from 'fumadocs-core/page-tree'
 import { findNeighbour } from 'fumadocs-core/page-tree'
@@ -100,7 +102,10 @@ export function DocsTiles({
             <div className="mt-12 grid grid-cols-[repeat(auto-fit,minmax(min(100%,220px),1fr))] gap-2.5">
               {previous ? (
                 <Link href={previous.url} className="pn">
-                  <small>← previous</small>
+                  <small>
+                    <Icon icon={ArrowLeft} />
+                    previous
+                  </small>
                   {previous.name}
                 </Link>
               ) : (
@@ -108,7 +113,10 @@ export function DocsTiles({
               )}
               {next && (
                 <Link href={next.url} className="pn items-end text-right">
-                  <small>next →</small>
+                  <small>
+                    next
+                    <Icon icon={ArrowRight} />
+                  </small>
                   {next.name}
                 </Link>
               )}

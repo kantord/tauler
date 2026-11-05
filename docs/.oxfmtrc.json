@@ -14,7 +14,7 @@
     "node_modules/",
     ".tauler/",
     "public/tauler/",
-    "src/components/site/whiteroom/vendor/",
+    "src/components/site/room/vendor/",
     "test-results/",
     "content/",
     "*.md",

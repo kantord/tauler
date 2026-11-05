@@ -1,11 +1,12 @@
-// The scene of the home page's white room (whiteroom.ts). It began as the scene script
-// of a standalone page, hence the IIFE that sets `window.ROOM_SCENE` on a local `window`.
+// The scene of the home page's room (room.ts), inspired by a photo by Urban Vintage on
+// Unsplash. It began as the scene script of a standalone page, hence the IIFE that sets
+// `window.ROOM_SCENE` on a local `window`.
 import { addCable, addMonstera } from './monstera-scene.js'
 
 export function buildRoomScene() {
   const window = {}
 
-  /* Scene description for the white room, in centimetres.
+  /* Scene description for the room, in centimetres.
    Builds a flat list of analytic primitives grouped into transformed "groups"
    (each with a local bounding box for culling). Uploaded to the GPU as a float texture. */
   ;(function () {
@@ -175,7 +176,7 @@ export function buildRoomScene() {
     }
 
     /* ---------------- room ---------------- */
-    // The site renders the room into boxes from 0.9:1 to 12:1 and wider (whiteroom.ts keeps
+    // The site renders the room into boxes from 0.9:1 to 12:1 and wider (room.ts keeps
     // the vertical field of view and widens the horizontal one). The back wall, window band
     // and floor run on to LEFT_X (enough for about 20:1), so a wide frame never runs out of
     // room on the left; the walls rise to CEIL, more than the tallest frame (capped at 37

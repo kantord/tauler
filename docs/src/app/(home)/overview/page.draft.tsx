@@ -1,5 +1,7 @@
 import type { Metadata } from 'next'
+import { ArrowRight } from 'lucide-react'
 import Link from 'next/link'
+import { Icon } from '@/components/ui/icon'
 import { Desk, Window } from '@/components/site/desk/Desk'
 import { buttonVariants } from '@/components/ui/button'
 
@@ -29,7 +31,8 @@ export default function OverviewSlide() {
                 href="/get-started/"
                 className={buttonVariants({ size: 'lg' })}
               >
-                Get started →
+                Get started
+                <Icon icon={ArrowRight} />
               </Link>
               <Link
                 href="/docs/"
@@ -49,9 +52,10 @@ export default function OverviewSlide() {
             <Row k="theme:" v="a shipped theme, in frontmatter" last />
             <Link
               href="/docs/layout-file/"
-              className="m block border-t border-(--tu-line) pt-3.5 pb-2.5 text-[13px] font-semibold underline decoration-(--tu-or) decoration-[1.5px] underline-offset-3"
+              className="m flex items-center gap-1.5 border-t border-(--tu-line) pt-3.5 pb-2.5 text-[13px] font-semibold underline decoration-(--tu-or) decoration-[1.5px] underline-offset-3"
             >
-              the layout file →
+              the layout file
+              <Icon icon={ArrowRight} />
             </Link>
           </div>
         </Window>

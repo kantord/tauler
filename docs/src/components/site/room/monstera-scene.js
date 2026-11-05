@@ -1,5 +1,5 @@
 /* Procedural Monstera deliciosa in a mid-century planter, and the uplighter's cable, for the
- * White Room path tracer.
+ * home background's path tracer.
  *
  * addMonstera(group, { seed, KIND, MAT }) appends analytic primitives to a scene Group
  * (centimetres, y up, the planter standing on the floor at the group origin, the back wall

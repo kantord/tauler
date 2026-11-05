@@ -1,6 +1,6 @@
 /**
  * Where the room sits on the page and how it fades into the wallpaper. A
- * plain module rather than exports of whiteroom.ts: that is a client
+ * plain module rather than exports of room.ts: that is a client
  * module, and the home page, a server component, lays its logo out above the
  * room from ROOM_HEIGHT.
  *
@@ -9,7 +9,7 @@
  * the full width (these pages drop the scrollbar gutter, see
  * <Wallpaper edgeToEdge />), and scrolls away with the content. Its aspect
  * runs from about 0.9 on a phone held upright to 12 on a short, very wide
- * window; whiteroom.ts frames the camera to whatever box it gets.
+ * window; room.ts frames the camera to whatever box it gets.
  */
 
 /** Half the first screen's height; the wallpaper always shows above it. */
@@ -22,7 +22,7 @@ export const ROOM_HEIGHT = '50svh'
  * all three are still the wallpaper's, the cell is the wallpaper's own.
  * Below the first screen the room fades out the same way, so on a page that
  * scrolls its floor runs into the wallpaper rather than stopping at an edge
- * (the image runs on below the first screen for it, see whiteroom.ts).
+ * (the image runs on below the first screen for it, see room.ts).
  *
  * Lightness takes longest, the channel the eye follows; chroma and hue can
  * arrive sooner, as the wallpaper is near grey.

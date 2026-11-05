@@ -13,10 +13,7 @@ import {
 } from '../src/lib/wallpaper/tauler-wallpaper.js'
 import { WALLPAPER } from '../src/components/site/wallpaper/options'
 import { ROOM_HUE_SUB } from '../src/components/site/wallpaper/wallpaper-gl'
-import {
-  ROOM_EASE_IN,
-  ROOM_WAVE,
-} from '../src/components/site/whiteroom/room-size'
+import { ROOM_EASE_IN, ROOM_WAVE } from '../src/components/site/room/room-size'
 
 // The workspace slides are drafts: only `next dev` serves them, so their
 // tests run only with DOCS_DEV_URL set (see playwright.config.ts), and the
@@ -92,7 +89,25 @@ test('the theme toggle switches between light and dark', async ({ page }) => {
     await toggle.click()
     expect(await html.getAttribute('class')).not.toBe(before)
   }).toPass()
+  // Its name follows the mode: it now offers the mode it just left.
+  const dark = (await html.getAttribute('class'))?.includes('dark')
+  await expect(toggle).toHaveAccessibleName(
+    `Switch to ${dark ? 'light' : 'dark'} mode`,
+  )
 })
+
+for (const path of ['/', '/docs/']) {
+  test(`the header on ${path} links to GitHub, and has no focus readout`, async ({
+    page,
+  }) => {
+    await page.goto(path)
+    const header = page.getByRole('banner')
+    await expect(
+      header.getByRole('link', { name: 'tauler on GitHub' }),
+    ).toHaveAttribute('href', 'https://github.com/kantord/tauler')
+    await expect(header.getByText(/focus:/i)).toHaveCount(0)
+  })
+}
 
 test('search finds a page', async ({ page }) => {
   await page.goto('/docs/layout-file/')
@@ -138,9 +153,6 @@ test('the home page is the logo on the background, and nothing else', async ({
     'tauler',
   )
   await expect(page.locator('.tauler-wallpaper canvas')).toHaveCount(1)
-  await expect(
-    page.getByRole('link', { name: 'THREE.js PathTracing Renderer' }),
-  ).toBeVisible()
   await expect(page.getByRole('contentinfo')).toHaveCount(0)
   await expect(page.locator('.tile')).toHaveCount(0)
   await expect(page.getByText(/^focus:/i)).toHaveCount(0)
@@ -149,6 +161,27 @@ test('the home page is the logo on the background, and nothing else', async ({
       .getByRole('navigation', { name: 'Workspaces' })
       .locator('[aria-current]'),
   ).toHaveCount(0)
+})
+
+test('the home page credits the photo that inspired the room and the renderer', async ({
+  page,
+}) => {
+  await page.goto('/')
+  const utm = '?utm_source=tauler&utm_medium=referral'
+  const links = [
+    ['Urban Vintage', `https://unsplash.com/@urban_vintage${utm}`],
+    ['Unsplash', `https://unsplash.com/${utm}`],
+    [
+      'THREE.js PathTracing Renderer',
+      'https://github.com/erichlof/THREE.js-PathTracing-Renderer',
+    ],
+  ] as const
+  for (const [name, href] of links) {
+    const link = page.getByRole('link', { name, exact: true })
+    await expect(link).toBeVisible()
+    await expect(link).toHaveAttribute('href', href)
+  }
+  await expect(page.getByText(/white room/i)).toHaveCount(0)
 })
 
 const SLIDES = [
@@ -198,9 +231,8 @@ for (const slide of SLIDES) {
         .getByRole('navigation', { name: 'Workspaces' })
         .getByRole('link', { name: slide.ws }),
     ).toHaveAttribute('aria-current', 'page')
-    await expect(page.getByText(/^focus:/i)).toHaveText(
-      `focus: ${slide.windows[0]}`,
-    )
+    await expect(page.locator('.tile.on > .bar')).toHaveText(slide.windows[0])
+    await expect(page.getByRole('banner').getByText(/focus:/i)).toHaveCount(0)
     await expect(page.locator('.tauler-wallpaper canvas')).toHaveCount(1)
     await expect(page.getByRole('contentinfo')).toHaveCount(1)
   })
@@ -214,7 +246,7 @@ test('clicking a title bar on a slide moves focus to that window', async ({
   // Hydration can lag the first paint; retry the click until it takes.
   await expect(async () => {
     await page.getByRole('button', { name: 'install' }).click()
-    await expect(page.getByText(/^focus:\s*install$/i)).toBeVisible({
+    await expect(page.locator('.sub.on > .sbar')).toHaveText('install', {
       timeout: 500,
     })
   }).toPass()
@@ -241,11 +273,7 @@ test('previous and next walk the slides from home to the docs', async ({
   slidesOnly()
   await page.goto('/overview/')
   const step = (direction: 'previous' | 'next') =>
-    page.getByRole('link', {
-      name: new RegExp(
-        `^${direction === 'previous' ? '← previous' : 'next →'}`,
-      ),
-    })
+    page.getByRole('link', { name: new RegExp(`^${direction}`) })
   await step('next').click()
   await expect(page).toHaveURL(/\/principles\/$/)
   await step('next').click()
@@ -467,7 +495,7 @@ function measure(page: Page, png: Buffer, rects: number[][]) {
   )
 }
 
-test('with a GPU the home page path-traces the white room, not a black screen', async ({
+test('with a GPU the home page path-traces the room, not a black screen', async ({
   playwright,
 }, testInfo) => {
   test.skip(testInfo.project.name !== 'desktop', 'one width is enough')
@@ -633,7 +661,7 @@ for (const { dpr, scroll } of [
 // The camera never looks so high as to see the window (a light, near white in
 // both themes; at the room's top it was a hard bright band in the dark
 // theme) and the scene, built for a 3:2 frame, runs on far enough for frames
-// from about 0.9:1 to 12:1 (scripts/whiteroom-scene.patch). Where the camera
+// from about 0.9:1 to 12:1 (room-scene.js). Where the camera
 // saw past the walls, rays would escape to the sky, near white in both
 // themes, while the walls and floor take the page colour. So in the dark
 // theme the room's edges must be dark: the side columns on wide frames, the
@@ -913,7 +941,7 @@ test('with a GPU the room fades in from the wallpaper as its samples gather', as
 // most one such neighbour (so the edges of the chairs' frames and the
 // furniture, lines of bright cells, do not count). Before the room's
 // reflected and indirect light was clamped (clampFireflies() in
-// whiteroom.ts) this counted 99 in the light theme and 144 in the dark one;
+// room.ts) this counted 99 in the light theme and 144 in the dark one;
 // after, 27 and 79 (on an RTX 4060 Ti; the sampling is seeded per frame).
 const FIREFLY_STEP = 45
 for (const { theme, most } of [
@@ -1156,7 +1184,7 @@ function wallpaperPalette(background: RGB): RGB[] {
 
 // The walls and floor start from the page colour of the theme that is on: a
 // switch to the dark theme starts the image over, much darker. (The light,
-// open sky and window, stays the same; see whiteroom.ts.)
+// open sky and window, stays the same; see room.ts.)
 test('with a GPU the room follows a theme switch', async ({
   playwright,
 }, testInfo) => {

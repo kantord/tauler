@@ -2,7 +2,7 @@
  * The wallpaper as a WebGL 2 shader: computeWallpaper() (tauler-wallpaper.js)
  * on the GPU, for one horizontal slice of the page at a time, and the one
  * place the page's background becomes pixel art: a room layer (the home
- * page's path-traced room, whiteroom.ts) is composited here in continuous
+ * page's path-traced room, room.ts) is composited here in continuous
  * colour and quantized with the wallpaper, once. The JS module stays the
  * reference: for the same options, colours, device pixel ratio and page
  * position, and no room, this draws its pixels (tests/wallpaper.spec.ts
@@ -131,7 +131,7 @@ export interface RoomCells {
   /** Device px: the height the fades' shares are of. */
   height: number
   fade: Fade
-  /** The wave each fade starts along (ROOM_WAVE in whiteroom/room-size.ts). */
+  /** The wave each fade starts along (ROOM_WAVE in room/room-size.ts). */
   wave: Wave
   /** How far in from each edge (share of height) the room's mean is pulled to the wallpaper's. */
   match: number
@@ -179,7 +179,7 @@ const ROOM_MAX_CHROMA = 0.4
  * ROOM_HUE_SUB, so the wallpaper's level q is column q × ROOM_HUE_SUB, the
  * very colour it was before. Wallpaper cells are unchanged to the byte, and
  * a room cell fading into the wallpaper picks from a superset of its
- * colours. (ADR 0047, "the room's hue grid is finer".)
+ * colours. (ADR 0048, "Why one pipeline".)
  */
 export const ROOM_HUE_SUB = 4
 
@@ -557,7 +557,7 @@ export function isSoftware(gl: WebGL2RenderingContext) {
  * the fallback a fresh one.
  *
  * The context may be shared with a room layer that renders with three.js
- * (whiteroom.ts): draw() sets every piece of GL state it relies on, and the
+ * (room.ts): draw() sets every piece of GL state it relies on, and the
  * room resets three.js's view of the state before it renders.
  */
 export function createGlRenderer(

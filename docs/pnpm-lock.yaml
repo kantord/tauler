@@ -217,6 +217,9 @@ importers:
       remark-directive:
         specifier: 4.0.0
         version: 4.0.0
+      simple-icons:
+        specifier: 16.36.0
+        version: 16.36.0
       three:
         specifier: 0.185.1
         version: 0.185.1
@@ -2497,6 +2500,10 @@ packages:
   shiki@4.5.0:
     resolution: {integrity: sha512-OcRW72ngQvc+MSVWBRIovC/BTW589iUE/Vxav7VeM4RcY9MUjqB+IR6ILG1k9nuW6LiG/nct9uma4/MBtnZbmQ==}
     engines: {node: '>=20'}
+
+  simple-icons@16.36.0:
+    resolution: {integrity: sha512-+VNPPkqSOLidFeSgBKUWX4n50WPpDC09hav+BgS26anIF1oQOlGBb8LvwGR+6fYRjo+B6CiKzNBceMPkSVXANQ==}
+    engines: {node: '>=0.12.18'}
 
   sirv-cli@3.0.1:
     resolution: {integrity: sha512-ICXaF2u6IQhLZ0EXF6nqUF4YODfSQSt+mGykt4qqO5rY+oIiwdg7B8w2PVDBJlQulaS2a3J8666CUoDoAuCGvg==}
@@ -4905,6 +4912,8 @@ snapshots:
       '@shikijs/types': 4.5.0
       '@shikijs/vscode-textmate': 10.1.0
       '@types/hast': 3.0.5
+
+  simple-icons@16.36.0: {}
 
   sirv-cli@3.0.1:
     dependencies:

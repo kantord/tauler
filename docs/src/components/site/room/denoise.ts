@@ -45,9 +45,9 @@ const LUM = 'const vec3 LUM = vec3(0.2126, 0.7152, 0.0722);'
 
 /**
  * The renderer's pathtracing_main chunk with the G-buffer's outputs and
- * accumulation, for the chunk whiteroom.ts installs (only the room shader
+ * accumulation, for the chunk room.ts installs (only the room shader
  * includes it). It reads `objectNormal`, `objectColor` and `gFirstT`, which
- * withGBuffer() gives the room shader. `edit` is whiteroom.ts's editShader
+ * withGBuffer() gives the room shader. `edit` is room.ts's editShader
  * (one anchor each, throws if missing).
  */
 export function gBufferMain(

@@ -1,4 +1,6 @@
+import { ArrowLeft, ArrowRight } from 'lucide-react'
 import Link from 'next/link'
+import { Icon } from '@/components/ui/icon'
 import { buttonVariants } from '@/components/ui/button'
 import { DRAFTS } from '@/lib/drafts'
 
@@ -39,7 +41,7 @@ export function WorkspaceNav({ current }: { current?: WorkspaceNumber }) {
 }
 
 /**
- * "← previous / next →" under a slide, styled as the docs pages' pair. The
+ * "previous / next" under a slide, styled as the docs pages' pair. The
  * slides run from the home page to the docs: the first slide steps back to
  * `/`, the last one on to `/docs/`.
  */
@@ -53,11 +55,17 @@ export function SlideSteps({ n }: { n: WorkspaceNumber }) {
       className="mt-10 grid grid-cols-[repeat(auto-fit,minmax(min(100%,220px),1fr))] gap-2.5"
     >
       <Link href={previous.href} className="pn">
-        <small>← previous</small>
+        <small>
+          <Icon icon={ArrowLeft} />
+          previous
+        </small>
         {previous.name}
       </Link>
       <Link href={next.href} className="pn items-end text-right">
-        <small>next →</small>
+        <small>
+          next
+          <Icon icon={ArrowRight} />
+        </small>
         {next.name}
       </Link>
     </nav>

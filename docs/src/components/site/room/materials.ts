@@ -1,7 +1,7 @@
 /**
  * The room's materials: physically based, procedural, and different
  * everywhere, as load-time edits of the room shader (after the cove
- * and the plant's, withPlant() in whiteroom.ts), each at an anchor that must
+ * and the plant's, withPlant() in room.ts), each at an anchor that must
  * appear exactly once.
  *
  * - BSDF (BSDF_LOOP): the page's lobes (a mirror blurred toward a cosine

@@ -15,8 +15,9 @@ const breakpoints = [
 // DOCS_DEV_URL points the suite at a running `next dev` instead of the
 // production build, for the draft pages only the dev server has (the slides:
 // see src/lib/drafts.ts). Run just their tests that way, e.g.
-// `DOCS_DEV_URL=http://127.0.0.1:3000 playwright test -g slide`; the rest of
-// the suite is written against the static export.
+// `DOCS_DEV_URL=http://localhost:3000 playwright test -g slide`; the rest of
+// the suite is written against the static export. Use localhost: Next 16
+// blocks dev resources requested from 127.0.0.1, so the page never hydrates.
 const devUrl = process.env.DOCS_DEV_URL
 
 export default defineConfig({

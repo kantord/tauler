@@ -1,8 +1,10 @@
 'use client'
 import { useSearchContext } from 'fumadocs-ui/contexts/search'
+import { Moon, Sun } from 'lucide-react'
 import { useTheme } from 'next-themes'
 import { useSyncExternalStore } from 'react'
 import { Button } from '@/components/ui/button'
+import { Icon } from '@/components/ui/icon'
 
 /** Looks like the design's search field; opens Fumadocs' search dialog. */
 export function SearchButton() {
@@ -23,10 +25,11 @@ export function SearchButton() {
 
 const noopSubscribe = () => () => {}
 
+/** A square key showing the mode it switches to: a moon, or a sun. */
 export function ThemeToggle() {
   const { resolvedTheme, setTheme } = useTheme()
   // The theme is only known in the browser: the server render and the first
-  // client render both say "dark", then the real label takes over.
+  // client render both offer "dark", then the real mode takes over.
   const mounted = useSyncExternalStore(
     noopSubscribe,
     () => true,
@@ -36,11 +39,11 @@ export function ThemeToggle() {
   return (
     <Button
       variant="outline"
+      size="icon"
       onClick={() => setTheme(next)}
       aria-label={`Switch to ${next} mode`}
     >
-      <span aria-hidden="true" className="half-moon" />
-      {next}
+      <Icon icon={next === 'dark' ? Moon : Sun} />
     </Button>
   )
 }

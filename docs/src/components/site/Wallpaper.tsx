@@ -31,7 +31,7 @@ export function Wallpaper({
     let cancelled = false
     // fetched alongside the wallpaper rather than after it: three.js and the
     // room's shaders are most of the time to the room's first frame
-    if (room) void import('./whiteroom/whiteroom').catch(() => {})
+    if (room) void import('./room/room').catch(() => {})
     void import('./wallpaper/page-wallpaper').then(({ mountPageWallpaper }) => {
       if (cancelled || !host.current) return
       destroy = mountPageWallpaper(host.current, { room })
