@@ -1,7 +1,7 @@
 // The scene of "White Room, Pixel Traced": the page's scene script, unchanged,
 // inside a wrapper that gives it a local `window`. Written by
 // scripts/vendor-whiteroom.sh.
-import { addMonstera } from '../monstera-scene.js'
+import { addCable, addMonstera } from '../monstera-scene.js'
 
 export function buildRoomScene() {
   const window = {};
@@ -158,8 +158,7 @@ export function buildRoomScene() {
     room.quad([hx - 13, ey, hz - 6.5], [hx - 13, ey, hz + 6.5], [hx + 13, ey, hz + 6.5], [hx + 13, ey, hz - 6.5], MAT.UPLIGHT);
     lampInfo = { c0: [hx - 13, ey, hz - 6.5], e1: [26, 0, 0], e2: [0, 0, 13], n: [0, 1, 0] };
     // cable across the floor
-    var cab = [[bx, 0.5, bz], [bx - 20, 0.4, bz + 30], [bx - 55, 0.4, bz + 55], [bx - 70, 0.4, bz + 90], [bx - 100, 0.4, bz + 105], [bx - 150, 0.4, bz + 95], [bx - 158.6, 0.4, bz + 87.38], [bx - 164.7, 0.4, bz + 72.82], [bx - 168.9, 0.4, bz + 53.69], [bx - 172.1, 0.4, bz + 32.33], [bx - 175, 0.4, bz + 11.1], [bx - 178.3, 0.4, bz - 7.66], [bx - 182.7, 0.4, bz - 21.6], [bx - 189, 0.45, bz - 27.5], [bx - 308, 0.45, bz - 27.5], [bx - 308, 1.16, bz - 28.84], [bx - 308, 3, bz - 29.6], [bx - 308, 18, bz - 29.6]];   // tauler: runs along the cove at the wall's foot, behind the planter, up to a socket
-    for (var i = 0; i < cab.length - 1; i++) room.capsule(cab[i], cab[i + 1], 0.4, MAT.LAMPHEAD);
+    addCable(room, { KIND: KIND, mat: MAT.LAMPHEAD, r: 0.4, pts: [[bx, 0.4, bz], [bx - 13, 0.4, bz + 15], [bx - 31, 0.4, bz + 33], [bx - 52, 0.4, bz + 49], [bx - 68, 0.4, bz + 69], [bx - 83, 0.4, bz + 91], [bx - 103, 0.4, bz + 104], [bx - 128, 0.4, bz + 105], [bx - 148, 0.4, bz + 95], [bx - 158, 0.4, bz + 78], [bx - 163, 0.4, bz + 56], [bx - 164, 0.4, bz + 32], [bx - 162, 0.4, bz + 10], [bx - 159, 0.4, bz - 8], [bx - 158, 0.4, bz - 19], [bx - 164, 0.4, bz - 25.4], [bx - 177, 0.4, bz - 26.8], [bx - 195, 0.4, bz - 27], [bx - 294, 0.4, bz - 27], [bx - 302, 0.5, bz - 27.3], [bx - 306.6, 1.16, bz - 28.84], [bx - 308, 3.6, bz - 29.58], [bx - 308, 8, bz - 29.6], [bx - 308, 18, bz - 29.6]] });   // tauler: a smooth curve (../monstera-scene.js) that runs along the cove at the wall's foot, behind the planter, up to a socket
   })();
 
   /* ---------------- chrome candle lamp ---------------- */

@@ -7,9 +7,8 @@
  * one quantize, on one grid, with one palette.
  *
  * What renders runs unchanged (scripts/vendor-whiteroom.sh): the renderer's
- * GLSL chunks and blue noise, the page's path-tracing, copy and output
- * shaders, and its scene description, on the three.js revision it ships
- * (r185).
+ * GLSL chunks and blue noise, the page's path-tracing and output shaders,
+ * and its scene description, on the three.js revision it ships (r185).
  *
  * The page's main script is ported here by hand, with its defaults: the
  * "Photo match" lights and 48 samples. Kept: the uniforms, the three passes
@@ -46,6 +45,27 @@
  * and materials by load-time edits (COVE_EDITS, monstera-shader.ts,
  * withPlant()), and the leaves' maps are baked once, before the first sample
  * (bakeLeaves()).
+ *
+ * Changed: the materials (materials.ts). Every material is physically based
+ * and procedural: GGX microfacets sampled from their visible normals for
+ * metals, dielectric coats and the teak's lacquer, Fresnel's odds between the
+ * specular and diffuse lobes, measured albedos, and non-periodic hash noise in
+ * object space, seeded per object, for colour, roughness and shading normals.
+ * Applied after the plant's edits, before the firefly clamp and the G-buffer.
+ *
+ * Added: a denoise between accumulation and tone-mapping (denoise.ts), so
+ * the 48 samples' grain does not quantize into specks of the wrong hue. It
+ * is the spatial half of SVGF: the room shader also writes a G-buffer from
+ * its first hits (normal, hit distance, albedo, luminance moment),
+ * accumulated like the colour in two more attachments of its target (the
+ * copy pass is the denoise's, COPY_G, which copies all three; the page's is
+ * not used); the colour is divided by the albedo, and the linear irradiance
+ * left is smoothed by four edge-aware à-trous passes (steps 1, 2, 4, 8)
+ * before the albedo goes back in. Linear, not OKLab, because a mean of
+ * nonlinear values is biased; the normal test's exponent is 32 so the 3 cm
+ * cove is filtered too. It runs after every sample until the loop stops at
+ * 48, and the tone-mapping pass reads its result (denoiser.output) in place
+ * of the accumulated image.
  */
 import * as THREE from 'three'
 import { installPathTracingChunks } from './vendor/PathTracingCommon.js'
@@ -70,6 +90,8 @@ import {
   MONSTERA_EDITS,
   ONE_TRACE,
 } from './monstera-shader'
+import { COPY_G, createDenoiser, gBufferMain, withGBuffer } from './denoise'
+import { withMaterials } from './materials'
 
 declare global {
   interface Window {
@@ -103,7 +125,7 @@ async function loadShader(name: string) {
 
 /** The page's shaders, fetched as soon as this module loads (Wallpaper.tsx loads it early). */
 const shaders = Promise.all(
-  (['vs', 'fs-copy', 'fs-out', 'fs-room'] as const).map(loadShader),
+  (['vs', 'fs-out', 'fs-room'] as const).map(loadShader),
 )
 shaders.catch(() => {}) // reported by createRoom()
 
@@ -453,11 +475,14 @@ export async function createRoom(
   if (!chunksInstalled) {
     installPathTracingChunks(THREE)
     const chunks = THREE.ShaderChunk as Record<string, string>
-    chunks.pathtracing_main = freshStart(offCentre(chunks.pathtracing_main))
+    chunks.pathtracing_main = gBufferMain(
+      freshStart(offCentre(chunks.pathtracing_main)),
+      editShader,
+    )
     chunksInstalled = true
   }
 
-  const [[vs, fsCopy, fsOut, fsRoom], blue] = await Promise.all([
+  const [[vs, fsOut, fsRoom], blue] = await Promise.all([
     shaders,
     new THREE.TextureLoader().loadAsync(`${ASSETS}/BlueNoise_R_128.png`),
   ])
@@ -556,8 +581,10 @@ export async function createRoom(
     depthBuffer: false,
     stencilBuffer: false,
   }
-  const ptRT = new THREE.WebGLRenderTarget(W, H, rtOpts),
-    copyRT = new THREE.WebGLRenderTarget(W, H, rtOpts)
+  // two more attachments carry the denoise's G-buffer (denoise.ts)
+  const accOpts = { ...rtOpts, count: 3 }
+  const ptRT = new THREE.WebGLRenderTarget(W, H, accOpts),
+    copyRT = new THREE.WebGLRenderTarget(W, H, accOpts)
 
   const camera = new THREE.PerspectiveCamera(40, 1.5, 1, 5000)
   const target = new THREE.Vector3(5, 118, 0)
@@ -566,6 +593,8 @@ export async function createRoom(
   const vlen = Math.tan(THREE.MathUtils.degToRad(20))
   const u = {
     tPreviousTexture: { value: copyRT.texture },
+    tPreviousG0: { value: copyRT.textures[1] },
+    tPreviousG1: { value: copyRT.textures[2] },
     tBlueNoiseTexture: { value: blue },
     uCameraMatrix: { value: new THREE.Matrix4() },
     uResolution: { value: new THREE.Vector2(W, H) },
@@ -660,7 +689,12 @@ export async function createRoom(
       new THREE.ShaderMaterial({
         uniforms: u,
         vertexShader: vs,
-        fragmentShader: clampFireflies(withPlant(skyApart(fsRoom))),
+        fragmentShader: withGBuffer(
+          clampFireflies(
+            withMaterials(withPlant(skyApart(fsRoom)), editShader, replaceSpan),
+          ),
+          editShader,
+        ),
         depthTest: false,
         depthWrite: false,
       }),
@@ -669,16 +703,22 @@ export async function createRoom(
   copyScene.add(
     quadMesh(
       new THREE.ShaderMaterial({
-        uniforms: { tPathTracedImageTexture: { value: ptRT.texture } },
+        uniforms: {
+          tPathTracedImageTexture: { value: ptRT.texture },
+          tG0: { value: ptRT.textures[1] },
+          tG1: { value: ptRT.textures[2] },
+        },
         vertexShader: vs,
-        fragmentShader: fsCopy,
+        fragmentShader: COPY_G,
         depthTest: false,
         depthWrite: false,
       }),
     ),
   )
+  // the denoise's result stands in for the accumulated image
+  const denoiser = createDenoiser(renderer, ptRT, vs)
   const ou = {
-    tPathTracedImageTexture: { value: ptRT.texture },
+    tPathTracedImageTexture: { value: denoiser.output },
     uSampleCounter: { value: 0 },
     uOneOverSampleCounter: { value: 0 },
     uPixelEdgeSharpness: { value: 0.75 },
@@ -821,6 +861,7 @@ export async function createRoom(
     ptRT.setSize(W, H)
     copyRT.setSize(W, H)
     outRT.setSize(W, H)
+    denoiser.setSize(W, H)
     u.uResolution.value.set(W, H)
     // the image's top edge is the first row's, perhaps above the box's top
     frame(
@@ -890,6 +931,7 @@ export async function createRoom(
     renderer.render(ptScene, camera)
     renderer.setRenderTarget(copyRT)
     renderer.render(copyScene, ortho)
+    denoiser.run(samples)
     renderer.setRenderTarget(outRT)
     renderer.render(outScene, ortho)
     renderer.setRenderTarget(null)
@@ -928,6 +970,7 @@ export async function createRoom(
   renderer.setRenderTarget(leafRT)
   compiling.push(renderer.compileAsync(leafScene, ortho))
   renderer.setRenderTarget(null)
+  compiling.push(...denoiser.compile())
 
   const destroy = () => {
     cancelAnimationFrame(raf)
@@ -935,6 +978,7 @@ export async function createRoom(
     compiled = false
     cells = null
     renderer.resetState()
+    denoiser.dispose()
     for (const disposable of [
       ptRT,
       copyRT,

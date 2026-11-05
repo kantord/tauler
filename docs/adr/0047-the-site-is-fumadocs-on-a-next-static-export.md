@@ -261,7 +261,7 @@ top eighth, more floor at the bottom.
 ## Amendment: a Monstera in the room
 
 The room has a plant: a Monstera deliciosa in a low ochre bowl on a chrome plinth
-(the chairs' leather and steel), a little way out from the back wall at the left of
+(the chairs' colour and steel), a little way out from the back wall at the left of
 the scene (the 8th and last group the renderer takes, at x −425), where every wide
 frame shows it, clear of the logo above and of the fade, and the page's own 3:2 frame and
 phones do not reach. Its habit follows photographs of real potted plants of its size: a
@@ -297,6 +297,26 @@ of the home page at 1440 × 900: about 3.7 ms before, 4.7 ms with the first plan
 measurements' noise of the first in a side-by-side bench; the 48 frames still take about
 0.8 s, bound by the display's refresh.
 
+Follow-up, judged on 1000-sample renders against photographs: the plant read as a
+cartoon (flat, saturated leaves on straight, parallel stalks) and the cable turned
+square corners. Now each cutting is a thick stem that leans out of the soil and curves
+up, ringed at its nodes, with brown aerial roots; each petiole leaves its node in a
+sheath, rises in an uneven S of its own length, thickness and sway, and turns at a paler
+knee to meet its blade from below, so stalks cross and blades clump, droop and turn
+unevenly. The leaf maps are 256 × 256 and add asymmetric halves, a fold along the
+midrib, a rippled margin, sunk veins with the blade puffed between them (the shading
+takes that relief), secondary veins, and blemishes: a yellowing margin and a dry tip on
+the oldest leaves, a few spots. The blade picks its face from the true slope, not the
+exaggerated one, which showed a strap's upper face from below. Leaves are a darker,
+bluer, less saturated green, glossier when new. The cable is a centripetal Catmull-Rom
+spline through the old route, cut into capsules wherever a chord would leave the curve
+by more than 0.3 mm. Two things a reader might "fix": the stalks' lengthwise streaks
+read the noise off the surface normal, because fetching the capsule's axis in the
+material cost 0.6 ms a sample; and the plant and the cable are cut into nested cluster
+boxes (a few capsules each), which is why three times the primitives trace faster:
+about 4.26 → 4.10 ms a sample at 1440 × 900, 8.6 → 7.9 ms for a close view of the
+plant, and +2.3 KB gzipped.
+
 ## Amendment: the room fades in, and fireflies are clamped
 
 **The room fades in from the wallpaper as it converges.** It used to join the
@@ -326,3 +346,133 @@ value; those are the real highlights. Clamping whole samples instead turned the
 candle bulbs grey; clamping only the light after a diffuse bounce left the floor's
 reflections sparkling. `tests/docs.spec.ts` counts the isolated bright cells there:
 99 and 144 (light, dark) before, 27 and 79 after.
+
+## Amendment: the room is denoised
+
+**The room's accumulated image goes through an edge-aware à-trous filter before it is
+tone-mapped** (`whiteroom/denoise.ts`): the spatial half of SVGF (Schied et al. 2017).
+The room shader also accumulates a G-buffer from its first hits (normal, hit distance,
+albedo, a luminance moment) in two more attachments of its target; the colour is divided
+by the albedo, the linear irradiance left is smoothed by four passes of a 5 × 5 kernel at
+steps 1, 2, 4 and 8, each tap stopped by unlike normals, distances, albedos or a
+luminance difference beyond the cell's noise, and the albedo is multiplied back in. The
+page's copy shader is no longer used (the copy pass copies all three attachments), so it
+is no longer vendored.
+
+The grain it removes was path-tracing variance at 48 samples, not quantization. Measured
+as the detrended standard deviation of OKLab lightness, the raw 48-sample image against a
+render of about 1000 samples: .025 against .006 on the floor, .021 against .005 on the
+right wall. The quantize then turned that jitter into specks of the wrong hue, where it
+crossed palette thresholds: 243 on the floor unfiltered, 94 filtered, and 103 for the
+1000-sample render, so the filtered image is as clean as converging would make it.
+
+It costs about 0.45 ms per sample at 1440 × 900, and nothing once the loop stops at 48;
+the room still converges in about 0.8 s. It runs after every sample, so the room fades in
+already smooth, with no pop at the end.
+
+Cut, and why: temporal reprojection, SVGF's other half, because the camera never moves;
+object ids as an edge stop, because an id averaged over samples means nothing where a
+cell straddles two objects (the accumulated normal, distance and albedo say the same
+thing and degrade gracefully); and filtering in OKLab, because demodulation is a product
+in linear light and a weighted mean of nonlinear values is biased dark where the noise is
+worst. The normal test's exponent is 32 rather than SVGF's 128, which left the 3 cm cove
+where the walls meet the floor unfiltered.
+
+Known leftovers: the cove line is still slightly bright and dotted, and big surfaces
+keep faint low-frequency blotches, which the wallpaper's dither hides.
+
+## Amendment: the room's materials are physically based and procedural
+
+Every material in the room is now a load-time edit of the room shader
+(`whiteroom/materials.ts`, applied after the cove's and the plant's edits and
+before the firefly clamp and the G-buffer's, whose anchors it keeps). No
+textures, images or tables: the only texture is still the renderer's blue
+noise.
+
+**The BSDF.** The page's lobes (a mirror blurred toward a cosine lobe, its
+weight a Fresnel term scaled by hand per material) are replaced by GGX
+microfacets, sampled from their visible normals (Dupuy and Benyoub 2023) and
+weighted by Smith's G1, with Schlick's Fresnel on a measured F0 for metals.
+A dielectric picks its specular lobe with Schlick's probability at the
+shading normal (roughness-aware, Fdez-Agüera 2019) and its diffuse lobe
+otherwise, so the two share the light that came in; a clearcoat (the teak's
+lacquer) is one more such layer on top. Albedos come from measured or
+published values and none is above 0.85 (sources in the module); chrome is
+chromium's F0, (0.55, 0.56, 0.55), not the page's 0.9. The walls and floor
+still take their colour from the theme's page colour, and the light stays the
+same in both themes.
+
+**The leaves' sheen is a real specular lobe.** The plant's amendment made
+leaves matte with a sheen painted into the albedo, because a glossy coat's rare
+window reflections were white dots at 48 samples. With the firefly clamp and
+the denoise in place, a GGX cuticle (roughness 0.24 on new leaves to 0.34 on
+old, duller where dust lies) holds up, so the albedo trick is gone.
+
+**The noise.** Value noise on the pcg3d integer hash (Jarzynski and Olano
+2020), three channels at once, in object space, its octaves rotated so no
+lattice lines up: it has no period anywhere. Each hit evaluates the same three
+noise calls whatever its material: a one-octave warp, an fBm (four octaves on
+camera and mirror paths, two after a diffuse bounce, where only the mean albedo
+matters) and a fine detail octave on camera and mirror paths only, each at a
+frame its material picks; the materials only map those numbers. The room's
+intersection and material code is inlined at its call site and costs every
+pixel, so one call site per noise is the budget. Seeds are per group, so the
+two chairs differ, and per primitive for things made of pieces (each teak
+board, each leaf), not for surfaces built of many primitives (a sling of quads,
+a tube of capsules), where the seams would show.
+
+**What reads at 3 px cells is roughness.** Most detail is sub-cell at the
+site's scale; what survives is mid-frequency: the floor's trowelled clouds and
+its sealer's gloss, hazed along two walking paths and dusty along the walls,
+the window's reflection wavering in a slab not quite flat, each teak board's
+tone, burnished leather, smudged glass and chrome. Close-ups, rendered with a
+debug camera outside the repo, are how the materials were judged against
+photographs.
+
+**The denoise keeps it.** The G-buffer's albedo is what the material
+returns, so the procedural colour is demodulated out before filtering and
+multiplied back after: measured on the 1440 × 900 image, the 48-sample
+filtered image has the same local contrast as a 1024-sample one (sideboard,
+rug, floor), so the filter smears none of it.
+
+**Cost.** RTX 4060 Ti, home page at 1440 × 900, path-trace pass per sample,
+alternating runs, minimum of eight batches of 60: 3.96–4.06 ms before,
+3.95–4.01 ms after; within noise, no measurable cost. The denoise is
+unchanged. About 4.4 KB gzipped of shader strings added to the room's bundle.
+
+Cut to stay simple: true bump mapping from a height field's gradient (the
+shading normal is tilted by noise vectors instead), wood figure below 1 cm and
+the rug's individual fibres (sub-cell everywhere but in close-ups), and
+next-event estimation for the specular lobes (they find the lights by their
+own rays, as before).
+
+Follow-up, judged at site scale: the floor is now a little darker than the
+walls (page colour × 0.76), its trowelled clouds strong enough to read at 3 px
+cells, and its sealer near mirror in patches, so chair legs, the plant and the
+sideboard mirror softly in it; a pale floor mostly reflects the equally pale
+wall, so the clouds are what reads in the light theme. The walls drift a few
+per cent in tone over a metre or two and have touched-up, glossier patches;
+the rug is wool pile in weft-row streaks rather than flecks; the teak's rings
+are cut at a slant into cathedral arches, upright panels book-matched; the
+slings wrinkle where they sag. About +0.06 ms a sample and +0.6 KB gzipped
+over the first version (+5.0 KB in all).
+
+Second follow-up, judged on a 1000-sample render of the whole room against
+photographs: the rug, the teak and the leather read as painted. The teak
+now darkens through each ring's latewood and breaks sharply into the next,
+with long straight streaks of tone, the odd mineral line and teak's open
+pores as dark dashes along the grain (a hashed grid that follows the
+rings); its interlocked fibres tilt the oiled wood's normal in ribbons, so
+the sheen swaps with the view, and the lacquer has its own orange-peel
+normal. The arches are flatter, so most boards are near straight grain.
+The leather is tan veg-tan, not ochre: burnished darker and glossier where
+it is sat on and held, lighter where it bends, with pebbled hide grain up
+close and a saddle stitch along its edges. The rug is a knotted wool pile
+in soft tufts with heathered flecks and pile patches that change with the
+view, flat-woven green-striped ends, and a fringe of separate cords with
+the floor between them. Pebbles and tufts are 2D cellular noise, nine
+hashes, on camera and mirror paths only. About +0.14 ms a sample
+(3.96 → 4.10 ms) and +1.7 KB gzipped. Each cord is then cream or a dull cotton
+green, chosen by the vendored fringe's own hash over its 1.1 cm bars, so its
+irregular runs of green read again from across the room; the end band's
+stripes take the same green (one hash per fringe hit, +0.1 KB gzipped).

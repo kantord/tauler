@@ -160,8 +160,8 @@ const DEFINES = `// MONSTERA: material ids (must match MAT in the scene script) 
 
 const FUNCTIONS = `/* ==================== MONSTERA: primitives and materials (begin) ==================== */
 // Leaf maps (monstera-leaves.glsl, baked once): per leaf, over X in [-0.3, 1.05] along the midrib
-// and Y in [-0.65, 0.65] across (leaf lengths), (distance to the blade's edge, > 0 on it; strap
-// droop below the sheet; vein strength; maturity), filtered.
+// and Y in [-0.65, 0.65] across (leaf lengths), (distance to the blade's edge, > 0 on it; height
+// below the sheet; vein strength; freshness + blemish), filtered.
 uniform sampler2D tLeaf;
 vec4 leafMap(vec2 P, float idx)
 {
@@ -174,7 +174,8 @@ vec4 leafMap(vec2 P, float idx)
 // strap's droop, cut out where the map's distance is negative. a = base, b = base + T L,
 // c = S (1 + leaf index), d = (bend, cup, twist). The sheet is intersected analytically; a few
 // regula falsi steps from each of its roots then find the drooping straps.
-// Writes primAux = side * (2 + maturity in 1/255ths + vein * 0.99): side +1 upper face, -1 underside.
+// Writes primAux = side * (2 + 16 * freshness (0..15) + blemish (0..15) + vein * 0.99): side +1
+// upper face, -1 underside.
 float LeafIntersect(vec3 a, vec3 b, vec3 c, vec3 dd, vec3 ro, vec3 rd, out vec3 n)
 {
 	vec3 T = b - a; float L = length(T); T /= L;
@@ -224,17 +225,15 @@ float LeafIntersect(vec3 a, vec3 b, vec3 c, vec3 dd, vec3 ro, vec3 rd, out vec3 
 			P = lo.xy + tb * D.xy;
 		}
 		if (tb <= 0.004 || m.r < 0.0) continue;
-		// surface gradient: the sheet's, the strap's (from the map, exaggerated 3x to read at pixel
-		// scale), a sunken midrib channel and a slight quilting between the veins
-		const float STEP = 0.012;
+		// surface gradient: the sheet's and the map's height (the straps, the fold and ripple, the
+		// veins' relief), exaggerated 3x to read at pixel scale
+		const float STEP = 0.006;
 		vec2 dw = 3.0 * (vec2(leafMap(P + vec2(STEP, 0.0), idx).g, leafMap(P + vec2(0.0, STEP), idx).g) - m.g) / STEP;
 		vec3 g = vec3(-(2.0 * Bd * P.x + Tw * P.y) + dw.x, -(Tw * P.x + 2.0 * Cp * P.y) + dw.y, 1.0);
-		float side = dot(D, g) < 0.0 ? 1.0 : -1.0;
-		float my = P.y / 0.012;
-		g.y -= 0.3 * my * exp(-my * my);
-		g.xy += 0.015 * vec2(sin(P.x * 41.0 + P.y * 13.0 + idx), sin(P.y * 37.0 - P.x * 17.0 + idx));
+		// the side from the true slope: the exaggerated one would flip it where a strap curls
+		float side = dot(D, g - vec3(0.667 * dw, 0.0)) < 0.0 ? 1.0 : -1.0;
 		n = T * g.x + S * g.y + N * g.z;
-		primAux = side * (2.0 + floor(m.a * 255.0 + 0.5) + 0.99 * clamp(m.b, 0.0, 1.0));
+		primAux = side * (2.0 + 16.0 * floor(m.a) + floor(fract(m.a) * 17.7) + 0.99 * clamp(m.b, 0.0, 1.0));
 		return tb;
 	}
 	return INFINITY;
@@ -364,7 +363,7 @@ export const MONSTERA_EDITS: [string, string][] = [
   // per-hit leaf data
   [
     'int hitPrim;\n',
-    'int hitPrim;\nfloat primAux, hitAux;   // MONSTERA: per-hit leaf data: side * (2 + maturity * 255 + vein)\n',
+    'int hitPrim;\nfloat primAux, hitAux;   // MONSTERA: per-hit leaf data: side * (2 + 16 * freshness + blemish + vein)\n',
   ],
   // the primitives' intersections and the materials
   [
@@ -394,7 +393,7 @@ export const MONSTERA_EDITS: [string, string][] = [
 ]
 
 /** Texels per leaf map side; the target is LEAF_RES wide and LEAF_RES * leaves high. */
-export const LEAF_RES = 128
+export const LEAF_RES = 256
 
 /**
  * The leaf-map shader: a fragment shader for the room's full-screen triangle,
@@ -403,7 +402,7 @@ export const LEAF_RES = 128
 export const LEAF_MAPS = `precision highp float;
 precision highp int;
 
-/* MONSTERA leaf maps: the blades' outlines, splits, holes, veins and drooping straps, baked once
+/* MONSTERA leaf maps: the blades' outlines, splits, holes, veins, relief and blemishes, baked once
  * on the GPU into a texture the path tracer samples filtered (fs-room, LeafIntersect): a few
  * lookups per ray instead of all of this, whose code alone, inlined in the scene's intersection
  * loop, cost every pixel about 1 ms per sample.
@@ -412,12 +411,16 @@ precision highp int;
  * LEAF_RES * uLeafCount high), over the blade's own coordinates: X in [-0.3, 1.05] along the
  * midrib (0 = petiole junction, 1 = tip) and Y in [-0.65, 0.65] across, in leaf lengths. Texel:
  *   r  signed distance to the blade's edge, roughly (> 0 on the blade): outline, splits, holes
- *   g  how far the strap there hangs below the leaf's curved sheet
- *   b  vein strength, for shading
- *   a  freshness (0 old, dark .. 1 new, light), for shading
+ *   g  how far the surface there lies below the leaf's curved sheet: the straps' droop, a fold
+ *      along the midrib, the margin's ripple, and the relief of the veins (sunk into the upper
+ *      face, the blade between them puffed up), whose slope the blade's shading normal takes
+ *   b  vein strength, for shading: midrib, primary veins out to the margin, faint secondary
+ *      veins between them, the paler rim
+ *   a  freshness in 16ths (0 old, dark .. 15 new, light) plus 0.9 * blemish (0 healthy, 0.5
+ *      yellowed, 1 dry and brown), for shading
  */
-uniform float uLeafMat[16];   // each leaf's code, from the scene (ROOM_SCENE.leafMats): maturity in 64ths + 64 * freshness in 16ths + 1024 if torn
-#define LEAF_RES 128.0
+uniform float uLeafMat[16];   // each leaf's code, from the scene (ROOM_SCENE.leafMats): maturity in 64ths + 64 * freshness in 16ths + 1024 if torn + 2048 * age (0..2)
+#define LEAF_RES 256.0
 
 float hash13(vec3 p) { p = fract(p * 0.1031); p += dot(p, p.zyx + 31.32); return fract((p.x + p.y) * p.z); }
 
@@ -437,10 +440,10 @@ bool gTorn;   // this leaf is torn (set by main)
 vec2 leafSplit(float i, float side, float mat, float seed, float nv)
 {
 	float h1 = hash13(vec3(seed, i * 1.7 + side, 1.3)), h2 = hash13(vec3(seed, i * 2.3 + side, 5.9));
-	bool split = i >= 0.0 && i < nv && h1 < mat * 1.35 - 0.25;
+	bool split = i >= 0.0 && i < nv && h1 < mat * 1.4 - 0.3;
 	// a torn leaf has one more split, a ragged tear, in an interval chosen by its seed
 	bool tear = gTorn && !split && i == floor(1.0 + hash13(vec3(seed, 9.1, 2.2)) * (nv - 2.0)) && side == (hash13(vec3(seed, 4.3, 1.7)) < 0.5 ? -1.0 : 1.0);
-	return vec2(split ? 0.3 + 0.2 * h2 + 0.3 * (1.0 - mat) : tear ? -0.6 - 0.15 * h2 : 2.0, (hash13(vec3(seed, i * 3.1 + side, 4.4)) - 0.5) * 0.3);
+	return vec2(split ? 0.22 + 0.35 * h2 + 0.3 * (1.0 - mat) : tear ? -0.6 - 0.15 * h2 : 2.0, (hash13(vec3(seed, i * 3.1 + side, 4.4)) - 0.5) * 0.4);
 }
 
 void main()
@@ -449,19 +452,23 @@ void main()
 	vec2 uv = vec2(gl_FragCoord.x, gl_FragCoord.y - li * LEAF_RES) / LEAF_RES;
 	float X = -0.3 + uv.x * 1.35, Y = -0.65 + uv.y * 1.3;
 	float code = uLeafMat[int(li)], seed = 11.0 + li * 7.0;
+	float age = floor(code / 2048.0);
+	code -= age * 2048.0;
 	gTorn = code > 1023.5;
 	code -= gTorn ? 1024.0 : 0.0;
-	float mat = mod(code, 64.0) / 63.0, fresh = floor(code / 64.0) / 15.0;
+	float mat = mod(code, 64.0) / 63.0, fresh = floor(code / 64.0);
 	float nv = floor(4.0 + 3.0 * mat), ds = 0.77 / nv;
 
-	float side = Y < 0.0 ? -1.0 : 1.0;
-	float ay = abs(Y) * (1.0 + 0.08 * side * (hash13(vec3(seed, 3.1, 7.7)) - 0.5));
+	// the two halves differ: in width, and in where their veins leave the midrib
+	float side = Y < 0.0 ? -1.0 : 1.0, ha = hash13(vec3(seed, 3.1, 7.7));
+	float ay = abs(Y) * (1.0 + 0.2 * side * (ha - 0.5));
 	float s = (X - LEAF_K * ay * ay - ay * LEAF_C0) / (1.0 + ay * LEAF_C1);
 	float sc = clamp(s, 0.001, 0.999);
 	float Ym = 1.62 * pow(sc, 0.62) * pow(1.0 - sc, 1.8) * (0.92 + 0.12 * mat);   // half-width along the vein
+	Ym *= 1.0 + 0.025 * sin(s * 23.0 + seed + side) + 0.02 * sin(s * 51.0 - seed * 2.0);   // an uneven margin
 	float f = ay / Ym, c = LEAF_C0 + LEAF_C1 * s;
 	float w = ds * (1.0 + ay * LEAF_C1) * inversesqrt(1.0 + c * c);   // the interval's width across the veins
-	float u = (s - 0.03) / ds, i = floor(u), fr = u - i - 0.5;       // fr: -0.5 at vein i .. 0.5 at vein i + 1
+	float u = (s - 0.03 - (side < 0.0 ? 0.45 * ds * (ha - 0.5) : 0.0)) / ds, i = floor(u), fr = u - i - 0.5;   // fr: -0.5 at vein i .. 0.5 at vein i + 1
 
 	// distance to the edge: the outline ...
 	float dist = s <= 0.0 || s >= 1.0 ? -0.02 : (Ym - ay) * inversesqrt(1.0 + c * c) * 1.2;
@@ -474,7 +481,7 @@ void main()
 		// ... a split: a slit with a rounded inner end that opens into a wide gap at the margin
 		if (f > sp.x) {
 			float g = (f - sp.x) / (1.0 - sp.x);
-			float hw = (0.008 + 0.022 * g + 0.02 * pow(max(0.0, (f - 0.8) / 0.2), 2.0)) * sqrt(min(1.0, (f - sp.x) / 0.035));
+			float hw = (0.006 + 0.016 * g + 0.012 * pow(max(0.0, (f - 0.8) / 0.2), 2.0)) * sqrt(min(1.0, (f - sp.x) / 0.035));
 			dist = min(dist, abs(d) - hw * tw);
 		}
 		// ... and holes on the same line: an outer row of long ones inside the split (in an
@@ -483,13 +490,13 @@ void main()
 		float h3 = hash13(vec3(seed, i * 0.7 + side, 2.1)), h4 = hash13(vec3(seed, i * 1.3 + side, 8.2));
 		float hlO = (0.1 + 0.09 * h4) * (0.6 + 0.4 * mat);
 		float fcO = min(sp.x, 0.86) - 0.05 - 0.05 * h3 - hlO;
-		bool outer = h3 < mat * 1.8 - 0.4 && fcO - hlO > 0.19;
+		bool outer = h3 < mat * 2.0 - 0.9 && fcO - hlO > 0.19;
 		bool inner = fract(h3 * 7.31) < mat * 1.6 - 1.0;
 		bool isOuter = f > 0.19 || !inner;
 		if (isOuter ? outer : inner) {
 			float fc = isOuter ? fcO : 0.12 + 0.05 * h3, hl = isOuter ? hlO : 0.035 + 0.03 * h4;
 			float e = (f - fc) / hl, ec = clamp(e, -1.0, 1.0);
-			float hw = w * (isOuter ? 0.15 + 0.08 * h4 : 0.1 + 0.04 * h3) * sqrt(1.0 - ec * ec) * (0.85 + 0.25 * ec) * (1.0 + 0.12 * sin(ec * 4.0 + h3 * 20.0));
+			float hw = w * (isOuter ? 0.1 + 0.1 * h4 : 0.08 + 0.05 * h3) * sqrt(1.0 - ec * ec) * (0.85 + 0.25 * ec) * (1.0 + 0.12 * sin(ec * 4.0 + h3 * 20.0));
 			float dc = d - w * ((h4 - 0.5) * 0.12 + (h3 - 0.5) * 0.15 * ec * ec);
 			dist = min(dist, -min(hw - abs(dc), (1.0 - abs(e)) * hl * Ym));
 		}
@@ -504,10 +511,28 @@ void main()
 			droop = mat * e * ((0.04 + 0.1 * h) * e * (1.0 - f0) * Ym + (h - 0.5) * 0.25 * dv);
 		}
 	}
-	float vd = (0.5 - abs(fr)) * w;
-	float vein = max(max(exp(-pow(vd / 0.006, 2.0)) * (1.0 - min(f, 1.0) * 0.75) * 0.35,
-	                     exp(-pow(Y / 0.009, 2.0)) * (1.0 - 0.6 * max(0.0, X))),
-	                 smoothstep(0.95, 1.0, f) * 0.3);   // and a paler rim
-	gl_FragColor = vec4(clamp(dist, -0.05, 0.05), droop, vein, fresh);
+	float vd = (0.5 - abs(fr)) * w, fm = min(f, 1.0);
+	float mid = exp(-pow(Y / (0.011 * (1.0 - 0.5 * max(0.0, X))), 2.0)) * (1.0 - 0.6 * max(0.0, X));
+	float pri = exp(-pow(vd / 0.0055, 2.0)) * (1.0 - fm * 0.6);
+	float sec = pow(abs(cos(6.2832 * fr * 2.0 + 0.6 * sin(f * 9.0 + i))), 24.0) * (1.0 - fm * 0.5);
+	float vein = max(max(pri * 0.65, mid), max(sec * 0.12, smoothstep(0.95, 1.0, f) * 0.3));
+	// the relief: a fold along the midrib, the margin rippling, the midrib's channel and each
+	// vein sunk into the upper face, the blade between the veins puffed up
+	float h5 = hash13(vec3(seed, 5.5, 3.3));
+	float height = droop + (0.03 + 0.04 * h5) * ay
+	             + (0.004 + 0.008 * mat) * fm * fm * fm * (1.0 + sin(s * (30.0 + 12.0 * h5) + seed * 3.0 + side))
+	             + 0.0008 * mid + 0.0005 * pri + 0.00012 * sec + 0.0009 * (1.0 - sin(3.1416 * (fr + 0.5))) * (1.0 - 0.5 * fm);
+	// blemishes: on ageing leaves a yellowing margin, toward the tip, and on the oldest a dry,
+	// brown tip and edge; on any leaf the odd small spot
+	float blem = min(age, 1.0) * smoothstep(0.62, 1.0, f + 0.1 * sin(s * 37.0 + seed)) * smoothstep(0.15, 0.8, s) * 0.5;
+	float dry = step(1.5, age) * smoothstep(0.9, 0.97, s + 0.05 * f + 0.02 * sin(Y * 60.0 + seed))
+	          + step(1.5, age) * smoothstep(0.93, 0.99, f) * step(0.55, fract(s * 3.0 + h5));
+	for (int k = 0; k < 3; k++) {
+		vec3 hk = vec3(hash13(vec3(seed, float(k), 1.9)), hash13(vec3(seed, float(k), 2.7)), hash13(vec3(seed, float(k), 3.4)));
+		vec2 c0 = vec2(0.1 + 0.8 * hk.x, (hk.y - 0.5) * 0.6);
+		dry = max(dry, smoothstep(1.0, 0.6, length(vec2(X, Y) - c0) / (0.004 + 0.01 * hk.z)) * step(0.45, hk.z));
+	}
+	blem = dry > 0.5 ? 0.55 + 0.45 * min(dry, 1.0) : max(blem, 0.5 * dry);
+	gl_FragColor = vec4(clamp(dist, -0.05, 0.05), height, vein, fresh + 0.9 * blem);
 }
 `

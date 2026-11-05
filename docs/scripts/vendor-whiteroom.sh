@@ -63,7 +63,7 @@ import re, sys
 html, shaders, scene = sys.argv[1:4]
 page = open(html, encoding='utf-8').read()
 # A <script>'s textContent is its raw text: no entity decoding happens.
-for name in ['vs', 'fs-copy', 'fs-out', 'fs-room']:
+for name in ['vs', 'fs-out', 'fs-room']:
     match = re.search(r'<script id="%s"[^>]*>(.*?)</script>' % re.escape(name), page, re.S)
     if not match:
         sys.exit('shader %s not found' % name)
