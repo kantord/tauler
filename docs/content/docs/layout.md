@@ -1,6 +1,6 @@
 ---
 title: Screen layout
-description: Placing panels around a screen, and reserving the space they occupy.
+description: Placing panels on an output, and reserving the space they occupy.
 ---
 
 A `<panel>` is a window at a position. Nothing about creating one tells the window
@@ -20,7 +20,7 @@ struts are never read.
 
 And i3 would not honour them anyway. It recognises only `W_DOCK_TOP` and `W_DOCK_BOTTOM`
 (`include/data.h`), and classifies a dock by its top/bottom struts alone (`src/manage.c`).
-There is no left or right dock. A full-height sidebar — the most common bar there is —
+There is no left or right dock. A full-height sidebar — the most common panel there is —
 cannot reserve space this way even in principle.
 
 So on i3, space is reserved by **telling i3 directly**, via its gaps. That is a decision
@@ -29,8 +29,8 @@ you make, not something tauler can infer from a panel's size.
 ## `<I3Layout>`
 
 Writing the sizes twice — once as panel geometry, once as gaps — is easy to get wrong and
-hard to notice, because a stale gap just leaves dead space or lets windows slide under the
-bar. `<I3Layout>` derives one from the other:
+hard to notice, because a stale gap just leaves dead space or lets windows slide under a
+panel. `<I3Layout>` derives one from the other:
 
 ```jsx
 <I3Layout module="~/.cargo/bin/tauler-i3">
@@ -53,13 +53,13 @@ Declaration order decides who owns each corner:
 <Panel id="topbar"  anchor="top"  size={50}>…</Panel>
 ```
 
-Here the sidebar is full height, and the top bar starts 300px in — it spans the space
-*beside* the sidebar. Swap the two lines and the top bar spans the full width instead,
+Here the sidebar is full height, and the top panel starts 300px in — it spans the space
+*beside* the sidebar. Swap the two lines and the top panel spans the full width instead,
 with the sidebar starting 50px down. Neither is more correct; pick the corner you want.
 
 Panels can stack on the same edge. A second `anchor="left"` sits beside the first, and
-below any top bar declared before it — which is how you get a sidebar that starts under a
-bar rather than beside it.
+below any top panel declared before it — which is how you get a sidebar that starts under a
+top panel rather than beside it.
 
 ### Props
 
@@ -130,12 +130,12 @@ correspond to any panel, say. An omitted side reserves nothing.
 
 i3 has no "set this gap on every workspace on this output" command — only
 `gaps <side> current set <px>`, which always targets whichever workspace is
-focused *right now*. So when a bar's gaps change (an output is plugged in, a
+focused *right now*. So when the gaps change (an output is plugged in, a
 layout reloads, tauler restarts), only the currently-focused workspace is
 corrected immediately.
 
 A workspace that was not focused at that moment keeps its old gaps — dead
-space, or windows sliding under the bar — until it is next focused. Focusing
+space, or windows sliding under a panel — until it is next focused. Focusing
 it then applies the correct gaps and i3 visibly resizes the tiled windows to
 fit: a real, one-time resize flash, not a glitch to work around.
 

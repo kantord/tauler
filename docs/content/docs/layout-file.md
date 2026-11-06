@@ -200,4 +200,4 @@ several absolutely-positioned siblings.
 
 The pixels come from tauler's own `<wallpaper>` node, matched by output. A wallpaper set
 by another program — `feh`, `xwallpaper` — is not visible here. A panel on an output with
-no `<wallpaper>` gets no backdrop at all, rather than borrowing its neighbour's.
+no `<wallpaper>` gets no wallpaper behind it at all, rather than borrowing its neighbour's.

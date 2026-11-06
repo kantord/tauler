@@ -8,7 +8,7 @@ import { buttonVariants } from '@/components/ui/button'
 export const metadata: Metadata = {
   title: 'Overview',
   description:
-    'tauler draws status bars and panels on Linux from one layout file.',
+    'Tauler draws status bars and panels on Linux from one layout file.',
 }
 
 export default function OverviewSlide() {
@@ -21,10 +21,10 @@ export default function OverviewSlide() {
               Declare your <span className="text-(--tu-or)">workspace.</span>
             </h2>
             <p className="m-0 max-w-[30em] text-[19px] leading-[1.55]">
-              tauler draws status bars and panels on Linux from one layout file.
+              Tauler draws status bars and panels on Linux from one layout file.
               The file is JSX: on every tick it reads the latest values from its
-              streams and returns the tree to draw. Save it and the bar
-              re-renders, no restart.
+              streams and returns the tree to draw. Save it and Tauler reloads
+              it, no restart.
             </p>
             <div className="flex flex-wrap gap-3">
               <Link
@@ -45,7 +45,7 @@ export default function OverviewSlide() {
         </Window>
         <Window title="file" style={{ flex: '2 1 320px' }}>
           <div className="tb">
-            <Row k="<panel>" v="a window docked to a screen edge" />
+            <Row k="<panel>" v="a desktop window of its own" />
             <Row k="useStringStream" v="a subprocess's latest line" />
             <Row k="useJSONStream" v="the same, parsed as JSON" />
             <Row k="<Card />" v="a component: a plain function" />

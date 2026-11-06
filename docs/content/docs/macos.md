@@ -104,13 +104,13 @@ tauler should report the usable area itself and delete this whole step:
 **The top inset is usually not the menu bar.** On a notched Mac it is the camera housing,
 and it is reserved whether the menu bar is hidden or not — auto-hiding buys you almost
 nothing there. `gaps.outer.top` stays `0` because the inset is already outside
-`visibleFrame`; a value there is added to it and doubles the top margin.
+`visibleFrame`; a value there is added to it and doubles the top gap.
 
 **The left reservation subtracts the rail's padding.** The rail has no background of its
 own, so it appears to end where the pills end rather than at its true edge. Reserving the
 full width would read as a wider margin on the left than on the other three sides.
 
-**The bar is never tiled, and needs no rule to make that true.** AeroSpace decides what to
+**The rail is never tiled, and needs no rule to make that true.** AeroSpace decides what to
 manage from the window itself — it wants a close, fullscreen, zoom or minimize button, or a
 standard accessibility subrole. tauler runs as an *accessory* application with no Dock icon,
 so AeroSpace never sees its windows and never moves them. An `[[on-window-detected]]` rule
@@ -144,7 +144,7 @@ const aero = useEvents("~/.cargo/bin/tauler-aerospace");
 <div on_click={[aero.switchWorkspace({ workspace: ws.name })]}>…</div>
 ```
 
-See [Data sources](/docs/data/) for how intents and modules work in general.
+See [Data and events](/docs/data/) for how intents and modules work in general.
 
 ## Making it look like one application
 
@@ -156,7 +156,7 @@ straight on the desktop and the tiled windows read as the main pane of a single 
 the left](../../src/assets/macos-browser.png)
 
 The offset is necessary rather than clever: the macOS backend presents opaque pixels, so a
-panel cannot truly be transparent. Painting the backdrop it would have shown through is
+panel cannot truly be transparent. Painting the wallpaper it would have shown through is
 exact for a gradient, because the same declaration produces the same pixels.
 
 ```jsx

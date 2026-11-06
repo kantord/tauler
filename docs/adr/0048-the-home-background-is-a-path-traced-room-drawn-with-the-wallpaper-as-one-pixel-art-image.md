@@ -6,7 +6,8 @@ live in the browser, inspired by a photo by Urban Vintage on Unsplash (see "Cred
 ownership"), in the bottom of the first screen, turned into the same dithered pixel art
 as the wallpaper above it. It is not a picture
 laid over the wallpaper. The room is a layer of the wallpaper's own WebGL 2 shader
-(`src/components/site/wallpaper/wallpaper-gl.ts`): three.js renders it into the
+(`src/components/site/wallpaper/wallpaper-gl.ts`, its GLSL in `wallpaper-shaders.ts`, its
+palette and lattices in `wallpaper-grid.ts`): three.js renders it into the
 wallpaper's context, one texel per wallpaper cell, up to continuous colour (path trace,
 accumulate, denoise, filmic tone map), and the wallpaper's cells pass mixes it with its
 own colour and quantizes both **once**.
@@ -168,7 +169,7 @@ grid each came in within or near measurement noise; that is what bought them a p
 
 CI has no GPU, and the room refuses software WebGL, so the room's GPU tests skip there.
 One smoke test, `tests/room-smoke.spec.ts`, covers the room code in CI anyway: it sets
-the test hooks `window.taulerRoomSoftwareGl` and `taulerWallpaperSoftwareGl` so the room
+the test hooks `roomSoftwareGl` and `wallpaperSoftwareGl` so the room
 runs on SwiftShader, in a 192×120 window (a 64×38-cell image), and stops it at
 `ROOM_EASE_IN` (32) samples, the fewest at which the room shows at full weight. It checks
 that every shader compiles and every load-time edit finds its anchor (the room joins,
@@ -177,6 +178,15 @@ varied, not black, the wall lighter than the plant. The last check also covers t
 denoise, because the tone-map pass reads only its output, and shader compile failures,
 which three.js reports only on first use and so draw black. It takes about 5–10 s and
 does not judge how the picture looks; that stays with the GPU-only tests.
+
+**The test hooks ship in production, behind one seam.** CI's Playwright tests run against
+the production static build (`DOCS_PREBUILT`), so the hooks the tests set (software
+WebGL, a sample cap, fades off, a broken shader) are in the production bundle. Stripping
+them would mean testing a different artifact than the one deployed, or a second build in
+CI. Instead every hook is a field of one object, `window.__taulerTest`, typed and read
+only in `src/components/site/test-hooks.ts`, whose doc lists them. Nothing on the page
+writes it and no URL or user input reaches it; absent, every hook is off at the cost of
+one property lookup.
 
 ## Credit and ownership
 
@@ -196,4 +206,4 @@ is first-party: it began as a standalone page made for this site by its author, 
 shaders (`public/room/shaders/`), scene description (`room/room-scene.js`),
 the plant, the materials and the denoise are the site's own code. The renderer's page
 loop is ported into `room/room.ts`; every change to its shaders is a load-time
-edit at an anchor that must appear exactly once, so an upstream change fails loudly.
+edit (`room/room-shader.ts`) at an anchor that must appear exactly once, so an upstream change fails loudly.

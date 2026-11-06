@@ -36,7 +36,7 @@ cleanup code to write.
 ### Joining streams is just closures
 
 Every stream value is computed at the top of the render function, which puts it
-in scope everywhere below — including inside a `Module` render-prop callback.
+in scope everywhere below — including inside a `Module` render prop.
 Sharing data between unrelated parts of the tree needs no context provider and
 no prop drilling:
 
@@ -77,7 +77,7 @@ itself, in a module process that tracks it, rather than in the render function.
 
 ## Screen layout
 
-Panels are placed around a screen, and the space they occupy has to be reserved from
+Panels are placed on an output, and the space they occupy has to be reserved from
 the window manager explicitly — `anchor` alone does not do it. The
 [layout page](./layout/) covers `<I3Layout>`, which derives the reservation from the
 panels themselves.

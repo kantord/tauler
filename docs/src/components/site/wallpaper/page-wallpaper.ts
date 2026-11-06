@@ -28,8 +28,8 @@
  * way; both draw the same pixels. Software WebGL (SwiftShader, what headless
  * Chromium and so CI have) is refused because it is slower than the CPU
  * path: measured while scrolling, its redraws held frames for 100 ms and more
- * at 1440 x 900, the CPU path's mostly for none. Tests turn it back on with
- * `window.taulerWallpaperSoftwareGl = true` before the page loads, to check
+ * at 1440 x 900, the CPU path's mostly for none. Tests turn it back on
+ * (wallpaperSoftwareGl in test-hooks.ts) before the page loads, to check
  * the shader where there is no GPU.
  *
  * The room (`room: true`, the home page and its slides): the path-traced
@@ -54,13 +54,7 @@ import {
 } from './wallpaper-gl'
 import { ROOM_HEIGHT } from '../room/room-size'
 import type { RoomLayer } from '../room/room'
-
-declare global {
-  interface Window {
-    /** Lets the shader run on software WebGL (see above); for tests. */
-    taulerWallpaperSoftwareGl?: boolean
-  }
-}
+import { testHooks } from '../test-hooks'
 
 /** CSS px drawn above and below the window: half its height, 200-400. */
 function overscan() {
@@ -159,7 +153,7 @@ export function mountPageWallpaper(
       'position:absolute;left:0;top:0;width:100%;height:0;display:block'
     const glRenderer = gl
       ? createGlRenderer(canvas, {
-          software: !!window.taulerWallpaperSoftwareGl,
+          software: !!testHooks().wallpaperSoftwareGl,
           powerPreference: withRoom ? 'default' : 'low-power',
         })
       : null

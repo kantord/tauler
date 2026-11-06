@@ -52,7 +52,7 @@ const data = useJSONStream("/usr/bin/myscript");
 
 ## History: `tauler-accumulate`
 
-tauler keeps exactly one value per stream — the latest line. A widget that needs to show
+tauler keeps exactly one value per stream — the latest line. A layout that needs to show
 what happened *before* now gets it by piping the stream through `tauler-accumulate`, inside
 the script you are already writing:
 
@@ -64,9 +64,9 @@ const recent = useJSONStream("/bin/sh", `
 
 `recent` is an array of the last five lines, **oldest first**. One array is written per
 input line, starting from the first one — the window grows to `-n` rather than staying
-blank until it fills, so the widget appears immediately.
+blank until it fills, so the layout has something to show immediately.
 
-It is a ring buffer and nothing more. Each line is parsed as JSON if it parses, and kept as
+It keeps the last `-n` lines and nothing more. Each line is parsed as JSON if it parses, and kept as
 a string if it does not, so a bare number arrives as a number and an error message arrives
 as a string:
 
@@ -100,7 +100,7 @@ strings if the exact text matters. And a stream is never restarted once its subp
 exits, which a pipe makes twice as likely, so a dead source keeps rendering its last window
 indefinitely.
 
-### A complete widget
+### A complete component
 
 The window is an ordinary array, so an existing component consumes it with no glue:
 
@@ -282,8 +282,8 @@ Injected by Rust before each evaluation. Read-only.
 
 | field | description |
 |---|---|
-| `ctx.screen_width` | monitor width in logical pixels |
-| `ctx.screen_height` | monitor height in logical pixels |
+| `ctx.screen_width` | primary output width in logical pixels |
+| `ctx.screen_height` | primary output height in logical pixels |
 | `ctx.outputs` | array of `{ name, screen_width, screen_height }` for every connected output |
 | `ctx.dpi` | display DPI |
 | `ctx.theme` | the active theme: `{ name, mode, colors }` — see [Colours as values](/docs/themes/#colours-as-values), and `themeColor` for a colour at an alpha |

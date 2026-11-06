@@ -21,7 +21,7 @@ export const metadata: Metadata = {
   metadataBase: new URL('https://tauler.dev'),
   title: { template: '%s | tauler', default: 'tauler' },
   description:
-    'Declare your Linux workspace — status bars, automations, smart-home controls, data dashboards — in one file, and tauler keeps reality matching it.',
+    'Declare your Linux workspace — status bars, automations, smart-home controls, data dashboards — in one file, and Tauler keeps reality matching it.',
   icons: { icon: { url: '/favicon.svg', type: 'image/svg+xml' } },
 }
 

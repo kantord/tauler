@@ -11,6 +11,7 @@
  * runs from about 0.9 on a phone held upright to 12 on a short, very wide
  * window; room.ts frames the camera to whatever box it gets.
  */
+import type { Fade } from '../wallpaper/wallpaper-gl'
 
 /** Half the first screen's height; the wallpaper always shows above it. */
 export const ROOM_HEIGHT = '50svh'
@@ -40,11 +41,11 @@ export const ROOM_FADE = { L: 0.55, C: 0.4, h: 0.3 } as const
  * other scales its amplitude by 1 ± `ampWarp`, so no stretch looks regular.
  * The sum is soft-limited to `depth` (share of ROOM_HEIGHT) peak to peak,
  * `rise` of it above the room's top and the rest below (above the box the
- * room is its top row's wide mean, wallpaper-gl.ts);
+ * room is its top row's wide mean, wallpaper-shaders.ts);
  * below the
  * first screen the bottom fade's start runs from the box's bottom down, on
  * a wave of its own. All randomness is the wallpaper's own seeded hash
- * (wallpaper-gl.ts).
+ * (wallpaper-shaders.ts).
  *
  * Mostly above the box: the lamp's head is about a fifth of the way down a
  * wide room, so the wave's lowest dips (depth × (1 - rise) below the top)
@@ -94,3 +95,18 @@ export const ROOM_DETAIL = 0.15
  * thinned out before the room has much weight.
  */
 export const ROOM_EASE_IN = 32
+
+/**
+ * How much of the room shows after `samples` samples, per OKLCH channel: each
+ * rises along a smootherstep, from 0 with no samples to 1 at ROOM_EASE_IN
+ * samples for the slowest channel, the others sooner in the ratio of their
+ * shares of the fade (lightness last, the channel the eye follows).
+ */
+export function presence(samples: number, fade: Fade): Fade {
+  const slowest = Math.max(fade.L, fade.C, fade.h)
+  const ease = (share: number) => {
+    const t = Math.min(1, (samples * slowest) / (ROOM_EASE_IN * share))
+    return t * t * t * (t * (t * 6 - 15) + 10)
+  }
+  return { L: ease(fade.L), C: ease(fade.C), h: ease(fade.h) }
+}

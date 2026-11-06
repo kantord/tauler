@@ -10,7 +10,7 @@ import { WALLPAPER } from '../src/components/site/wallpaper/options'
 import {
   ROOM_HUE_SUB,
   wallpaperGrid,
-} from '../src/components/site/wallpaper/wallpaper-gl'
+} from '../src/components/site/wallpaper/wallpaper-grid'
 import {
   THRESHOLDS,
   oklchToRgb,
@@ -47,7 +47,7 @@ type Options = {
   args?: string[]
   /** Hides WebGL 2 from the page, for the CPU fallback. */
   noWebgl2?: boolean
-  /** Lets the shader run on software WebGL (window.taulerWallpaperSoftwareGl). */
+  /** Lets the shader run on software WebGL (wallpaperSoftwareGl in test-hooks.ts). */
   softwareGl?: boolean
 }
 
@@ -88,7 +88,7 @@ async function withWallpaper(
     await page.addInitScript(
       ({ theme, noWebgl2, softwareGl }) => {
         localStorage.setItem('theme', theme)
-        window.taulerWallpaperSoftwareGl = softwareGl
+        window.__taulerTest = { wallpaperSoftwareGl: softwareGl }
         if (noWebgl2) {
           const getContext = HTMLCanvasElement.prototype.getContext
           // @ts-expect-error -- the overloads cannot be restated here
@@ -481,7 +481,7 @@ for (const softwareGl of [true, false]) {
 }
 
 // The room's hue grid is ROOM_HUE_SUB times finer than the wallpaper's (see
-// wallpaper-gl.ts): the palette holds both, and the wallpaper's level q is
+// wallpaper-grid.ts): the palette holds both, and the wallpaper's level q is
 // column q * ROOM_HUE_SUB. CI's software WebGL draws no room, so these check
 // the grid on the CPU, where wallpaperGrid() builds the palette the shader
 // uploads; the wallpaper's own pixels are held to the module's above.

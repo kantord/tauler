@@ -19,7 +19,7 @@ export default function PrinciplesSlide() {
             a spreadsheet than to React.
           </Principle>
           <Principle title="streams" n="2" heading="Streams, not effects">
-            A stream names a program and hands you its latest output. tauler
+            A stream names a program and hands you its latest output. Tauler
             owns the subprocess, so there is no subscription or cleanup code to
             write.
           </Principle>

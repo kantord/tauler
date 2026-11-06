@@ -5,15 +5,16 @@ import {
   type TestInfo,
 } from '@playwright/test'
 import { ROOM_EASE_IN } from '../src/components/site/room/room-size'
+import type { TaulerTestHooks } from '../src/components/site/test-hooks'
 
 // The room's smoke test, the one room test CI runs. Every other room test
 // needs a GPU and skips without one (docs.spec.ts, withConvergedRoom()); CI
 // has only software WebGL (SwiftShader), which the room refuses
 // (roomSupported() in room.ts). Here the test lets it run there
-// (window.taulerRoomSoftwareGl, with window.taulerWallpaperSoftwareGl for the
+// (roomSoftwareGl in test-hooks.ts, with wallpaperSoftwareGl for the
 // context it shares) in a window so small the image is 64 x 38 cells, and
-// stops it at ROOM_EASE_IN samples (window.taulerRoomSamples): the fewest at
-// which the room shows at full weight (presence() in room.ts), which
+// stops it at ROOM_EASE_IN samples (roomSamples): the fewest at
+// which the room shows at full weight (presence() in room-size.ts), which
 // the pixel checks need. The test takes 5-10 s there. That still compiles every
 // shader, applies every load-time shader edit (each throws on a missing
 // anchor), bakes the leaves, path-traces, denoises and tone-maps: what breaks
@@ -27,7 +28,7 @@ const SAMPLES = ROOM_EASE_IN
 async function softwarePage(
   playwright: PlaywrightWorkerArgs['playwright'],
   testInfo: TestInfo,
-  hooks: Pick<Window, 'taulerRoomBrokenShader'> = {},
+  hooks: Pick<TaulerTestHooks, 'roomBrokenShader'> = {},
 ) {
   const browser = await playwright.chromium.launch({
     args: ['--use-angle=swiftshader', '--force-device-scale-factor=1'],
@@ -49,19 +50,21 @@ async function softwarePage(
   await page.addInitScript(
     ({ samples, hooks }) => {
       localStorage.setItem('theme', 'light')
-      window.taulerWallpaperSoftwareGl = true
-      window.taulerRoomSoftwareGl = true
-      window.taulerRoomSamples = samples
-      // the room's fades into the wallpaper off: the box shows the room alone
-      window.taulerRoomFade = {
-        L: 1e-4,
-        C: 1e-4,
-        h: 1e-4,
-        depth: 0,
-        match: 1e-4,
-        detail: 1e-4,
+      window.__taulerTest = {
+        wallpaperSoftwareGl: true,
+        roomSoftwareGl: true,
+        roomSamples: samples,
+        // the room's fades into the wallpaper off: the box shows the room alone
+        roomFade: {
+          L: 1e-4,
+          C: 1e-4,
+          h: 1e-4,
+          depth: 0,
+          match: 1e-4,
+          detail: 1e-4,
+        },
+        ...hooks,
       }
-      Object.assign(window, hooks)
     },
     { samples: SAMPLES, hooks },
   )
@@ -167,7 +170,7 @@ test('a room shader that fails to compile leaves the wallpaper alone', async ({
 }, testInfo) => {
   test.skip(testInfo.project.name !== 'desktop', 'the window is set here')
   const { browser, page, problems } = await softwarePage(playwright, testInfo, {
-    taulerRoomBrokenShader: true,
+    roomBrokenShader: true,
   })
   try {
     await page.goto('/')

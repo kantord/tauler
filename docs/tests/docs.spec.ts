@@ -12,7 +12,7 @@ import {
   rgbToOklab,
 } from '../src/lib/wallpaper/tauler-wallpaper.js'
 import { WALLPAPER } from '../src/components/site/wallpaper/options'
-import { ROOM_HUE_SUB } from '../src/components/site/wallpaper/wallpaper-gl'
+import { ROOM_HUE_SUB } from '../src/components/site/wallpaper/wallpaper-grid'
 import { ROOM_EASE_IN, ROOM_WAVE } from '../src/components/site/room/room-size'
 
 // The workspace slides are drafts: only `next dev` serves them, so their
@@ -327,9 +327,9 @@ type Box = { x: number; y: number; width: number; height: number }
  * line: Playwright's deviceScaleFactor does not reach the
  * device-pixel-content-box sizes the wallpaper lays its pixels out by.
  * `fade: false` turns the room's fades into the wallpaper off
- * (window.taulerRoomFade), so a test sees the room's own edges. `samples`
- * stops the image at that many samples (window.taulerRoomSamples), so a
- * test sees the room as it fades in.
+ * (roomFade in test-hooks.ts), so a test sees the room's own edges. `samples`
+ * stops the image at that many samples (roomSamples), so a test sees the
+ * room as it fades in.
  */
 async function withConvergedRoom(
   playwright: PlaywrightWorkerArgs['playwright'],
@@ -374,16 +374,19 @@ async function withConvergedRoom(
     await page.addInitScript(
       ({ theme, fade, samples }) => {
         localStorage.setItem('theme', theme)
-        if (samples !== undefined) window.taulerRoomSamples = samples
-        if (!fade)
-          window.taulerRoomFade = {
-            L: 1e-4,
-            C: 1e-4,
-            h: 1e-4,
-            depth: 0,
-            match: 1e-4,
-            detail: 1e-4,
-          }
+        window.__taulerTest = {
+          roomSamples: samples,
+          roomFade: fade
+            ? undefined
+            : {
+                L: 1e-4,
+                C: 1e-4,
+                h: 1e-4,
+                depth: 0,
+                match: 1e-4,
+                detail: 1e-4,
+              },
+        }
       },
       { theme, fade, samples },
     )

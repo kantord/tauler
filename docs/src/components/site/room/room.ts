@@ -27,15 +27,15 @@
  * Changed for a background: once the image has its samples the loop stops
  * instead of idling on requestAnimationFrame, and shaders compile
  * asynchronously before the layer joins the wallpaper. The room fades in
- * from the wallpaper as its samples gather (presence(), ROOM_EASE_IN), each
- * new image starts from nothing rather than from half the old one
- * (freshStart()), and reflected and indirect light is clamped against
- * fireflies (clampFireflies()).
+ * from the wallpaper as its samples gather (presence() and ROOM_EASE_IN, in
+ * room-size.ts), each new image starts from nothing rather than from half
+ * the old one (freshStart()), and reflected and indirect light is clamped
+ * against fireflies (clampFireflies(); both in room-shader.ts).
  *
  * Changed to follow the site's theme: the walls and floor start from the
  * page colour of the theme that is on, with the page's "Tauler light" or
  * "Tauler dark" backdrop preset, while the light stays the same (see
- * BACKDROP, SKY); a theme switch starts the image over.
+ * BACKDROP, SKY in room-light.ts); a theme switch starts the image over.
  *
  * Changed to frame any box: see frame().
  *
@@ -43,8 +43,8 @@
  * 8th group (monstera-scene.js, added in room-scene.js), which wide frames
  * show, and a small cove where the walls meet the floor (room-scene.js).
  * The room shader learns their primitives
- * and materials by load-time edits (COVE_EDITS, monstera-shader.ts,
- * withPlant()), and the leaves' maps are baked once, before the first sample
+ * and materials by load-time edits (COVE_EDITS and withPlant() in
+ * room-shader.ts, monstera-shader.ts), and the leaves' maps are baked once, before the first sample
  * (bakeLeaves()).
  *
  * Changed: the materials (materials.ts). Every material is physically based
@@ -67,9 +67,15 @@
  * cove is filtered too. It runs after every sample until the loop stops at
  * 48, and the tone-mapping pass reads its result (denoiser.output) in place
  * of the accumulated image.
+ *
+ * Where the code is: this module is the layer (createRoom(): the scene's
+ * data, render targets, passes, framing, layout and the sampling loop) and
+ * the check for whether it can run (roomSupported()). The shaders and every
+ * load-time edit to them are room-shader.ts (roomShaders()); the lights and
+ * per-theme backdrop are room-light.ts; where the room sits and how it fades
+ * in, room-size.ts. Tests change its behaviour only through test-hooks.ts.
  */
 import * as THREE from 'three'
-import { installPathTracingChunks } from './vendor/PathTracingCommon.js'
 import { buildRoomScene } from './room-scene.js'
 import { rgbToOklab } from '@/lib/wallpaper/tauler-wallpaper.js'
 import { ditherPixel, type WallpaperColours } from '../wallpaper/options'
@@ -80,374 +86,32 @@ import {
 } from '../wallpaper/wallpaper-gl'
 import {
   ROOM_DETAIL,
-  ROOM_EASE_IN,
   ROOM_FADE,
   ROOM_MATCH,
   ROOM_WAVE,
+  presence,
 } from './room-size'
-import {
-  LEAF_MAPS,
-  LEAF_RES,
-  MONSTERA_EDITS,
-  ONE_TRACE,
-} from './monstera-shader'
-import { COPY_G, createDenoiser, gBufferMain, withGBuffer } from './denoise'
-import { withMaterials } from './materials'
-
-declare global {
-  interface Window {
-    /** Replaces ROOM_FADE, ROOM_WAVE's depth, ROOM_MATCH and ROOM_DETAIL before the room starts; for tests. */
-    taulerRoomFade?: Partial<
-      Fade & { depth: number; match: number; detail: number }
-    >
-    /** Stops the room at this many samples (0: none, the room not drawn); for tests. */
-    taulerRoomSamples?: number
-    /**
-     * Lets the room run on software WebGL, which roomSupported() refuses; for
-     * the smoke test, which runs it in a tiny window. The wallpaper's context
-     * must be allowed there too (window.taulerWallpaperSoftwareGl).
-     */
-    taulerRoomSoftwareGl?: boolean
-    /** Appends a syntax error to the room's fragment shader; for the smoke test. */
-    taulerRoomBrokenShader?: boolean
-  }
-}
-
-const ASSETS = '/room'
-
-let chunksInstalled = false
+import { LEAF_MAPS, LEAF_RES } from './monstera-shader'
+import { COPY_G, createDenoiser } from './denoise'
+import { ASSETS, roomShaders } from './room-shader'
+import { BACKDROP, FIREFLY_MAX, P0, SKY, siteTheme } from './room-light'
+import { testHooks } from '../test-hooks'
 
 /**
  * True when the room can render in `gl`: hardware WebGL 2 with float render
  * targets. Software WebGL (SwiftShader, llvmpipe) is refused: a path tracer
  * there takes seconds per frame and freezes the page (unless a test asks,
- * window.taulerRoomSoftwareGl).
+ * testHooks().roomSoftwareGl).
  */
 export function roomSupported(gl: WebGL2RenderingContext): boolean {
   return (
-    (!!window.taulerRoomSoftwareGl || !isSoftware(gl)) &&
+    (!!testHooks().roomSoftwareGl || !isSoftware(gl)) &&
     !!gl.getExtension('EXT_color_buffer_float')
   )
 }
 
-async function loadShader(name: string) {
-  const response = await fetch(`${ASSETS}/shaders/${name}.glsl`)
-  if (!response.ok) throw new Error(`${name}: HTTP ${response.status}`)
-  return response.text()
-}
-
-/** The page's shaders, fetched as soon as this module loads (Wallpaper.tsx loads it early). */
-const shaders = Promise.all(
-  (['vs', 'fs-out', 'fs-room'] as const).map(loadShader),
-)
-shaders.catch(() => {}) // reported by createRoom()
-
-/** Applies each edit to its single anchor; throws if the anchor is missing or repeated. */
-function editShader(shader: string, edits: [string, string][]) {
-  for (const [from, to] of edits) {
-    if (shader.split(from).length !== 2)
-      throw new Error(`shader edit: no single "${from}"`)
-    shader = shader.replace(from, to)
-  }
-  return shader
-}
-
-/** Replaces the span from `start` up to (not including) `end`; throws unless each appears once. */
-function replaceSpan(
-  shader: string,
-  { start, end, text }: { start: string; end: string; text: string },
-) {
-  for (const anchor of [start, end])
-    if (shader.split(anchor).length !== 2)
-      throw new Error(`shader edit: no single "${anchor}"`)
-  return (
-    shader.slice(0, shader.indexOf(start)) +
-    text +
-    shader.slice(shader.indexOf(end))
-  )
-}
-
-/**
- * The cove where the walls meet the floor and each other (KIND.COVE, from
- * room-scene.js): the inside of a cylinder, between its axis
- * and the corner, which meets both planes tangentially. Its branch goes in
- * before the Monstera's, which takes every kind from K_LEAF up. The walls'
- * paint takes its colour from the wall's coordinates on the cove as well, so
- * the backdrop's cells do not change colour half way round it.
- */
-const COVE_EDITS: [string, string][] = [
-  [
-    '/* ---------------- scene ---------------- */',
-    `// COVE: a concave fillet where two planes meet: the inside of the cylinder of radius r around
-// the axis a -> b, only between the axis and the corner (the planes lie along e1 and e2 from
-// the axis). The far root is the inside; the normal faces the axis.
-#define K_COVE 8
-float CoveIntersect(vec3 a, vec3 b, float r, vec3 e1, vec3 e2, vec3 ro, vec3 rd, out vec3 n)
-{
-	vec3 w = b - a; float h = length(w); w /= h;
-	vec3 o = ro - a;
-	float od = dot(o, w), dw = dot(rd, w);
-	vec3 op = o - w * od, dp = rd - w * dw;
-	float A = dot(dp, dp), B = dot(op, dp), disc = B * B - A * (dot(op, op) - r * r);
-	if (disc < 0.0 || A < 1e-9) return INFINITY;
-	float t = (-B + sqrt(disc)) / A, y = od + t * dw;
-	vec3 q = op + t * dp;
-	if (t <= 0.004 || y < 0.0 || y > h || dot(q, e1) < 0.0 || dot(q, e2) < 0.0) return INFINITY;
-	n = -q;
-	return t;
-}
-` + '\n/* ---------------- scene ---------------- */',
-  ],
-  [
-    '\t\t\telse { d = SphereIntersect(a1.w, a1.xyz, lro, lrd); n = (lro + lrd * d) - a1.xyz; }',
-    `			else if (k == K_COVE) {   // COVE
-				vec3 a3 = texelFetch(tPrims, ivec2(3, i), 0).xyz;
-				vec3 a4 = texelFetch(tPrims, ivec2(4, i), 0).xyz;
-				d = CoveIntersect(a1.xyz, a2.xyz, a1.w, a3, a4, lro, lrd, n);
-			}
-` +
-      '\t\t\telse { d = SphereIntersect(a1.w, a1.xyz, lro, lrd); n = (lro + lrd * d) - a1.xyz; }',
-  ],
-  [
-    '\tif (id == M_WALL) { albedo = backdropAlbedo(backdropCoord(p, n))',
-    '\tif (id == M_WALL) { albedo = backdropAlbedo(backdropCoord(p, abs(n.y) > 0.999 ? n : vec3(n.x, 0.0, n.z) / length(n.xz)))',
-  ],
-]
-
-/**
- * The room shader with the cove, and the Monstera's primitives and materials,
- * traced from one intersection call site (see monstera-shader.ts).
- */
-function withPlant(fsRoom: string) {
-  return editShader(
-    editShader(replaceSpan(fsRoom, ONE_TRACE), COVE_EDITS),
-    MONSTERA_EDITS,
-  )
-}
-
-/**
- * Fireflies: lone cells far brighter than their neighbours, in clusters
- * that 48 samples never average away (around the candle lamp, on the wall
- * behind it and in the glossy floor under it, along the chrome chairs). They
- * are the rare paths that reach a small, bright light (a candle bulb, the
- * uplight, the window) by way of a rough reflection or after bouncing off a
- * surface: one such sample, at up to 24 times the scene's light, outweighs
- * the other 47 of its pixel.
- *
- * So each of those contributions is clamped to FIREFLY_MAX in luminance
- * before it joins the sample: light reaching the camera by any reflection
- * (paths with a bounce before the light) and all light after the first
- * diffuse hit. Two kinds keep their full value, the real highlights: lights
- * the camera sees directly (the uplight's head, the candle bulbs) and the
- * direct light at the first surface hit (next-event estimation, already
- * capped at 14 by the renderer). Clamping the whole sample instead turned the
- * candle bulbs grey, and clamping the indirect light alone left the floor's
- * reflections sparkling.
- */
-function clampFireflies(fsRoom: string) {
-  return editShader(fsRoom, [
-    [
-      'vec3 CalculateRadiance(out vec3 objectNormal',
-      `uniform float uFireflyMax;
-// [tauler] fireflies: scales c down to uFireflyMax in luminance
-vec3 fireflyClamp(vec3 c) {
-	float l = dot(c, vec3(0.2126, 0.7152, 0.0722));
-	return l > uFireflyMax ? c * (uFireflyMax / l) : c;
-}
-vec3 CalculateRadiance(out vec3 objectNormal`,
-    ],
-    [
-      '\tint bounces = 0;\n',
-      '\tint bounces = 0;\n\tbool indirect = false, shadowIndirect = false;   // [tauler] past the first diffuse hit\n',
-    ],
-    [
-      'if (hitMat == shadowTarget && t < INFINITY) acc += shadowW;',
-      'if (hitMat == shadowTarget && t < INFINITY) acc += shadowIndirect ? fireflyClamp(shadowW) : shadowW;',
-    ],
-    [
-      'acc += mask * sky(rayDirection);',
-      'acc += b > 0 ? fireflyClamp(mask * sky(rayDirection)) : mask * sky(rayDirection);',
-    ],
-    [
-      'if (lastSpec) acc += mask * emission;',
-      'if (lastSpec) acc += b > 0 ? fireflyClamp(mask * emission) : mask * emission;',
-    ],
-    [
-      'shadowW = mask * min(w, vec3(14.0)); }',
-      'shadowW = mask * min(w, vec3(14.0)); shadowIndirect = indirect; }',
-    ],
-    ['\t\trayOrigin = xo;\n', '\t\trayOrigin = xo;\n\t\tindirect = true;\n'],
-  ])
-}
-
-// ── Colour helpers, from the page ──────────────────────────────────────
-type RGB = [number, number, number]
-function linToLab(c: RGB): RGB {
-  const l = Math.cbrt(
-    0.4122214708 * c[0] + 0.5363325363 * c[1] + 0.0514459929 * c[2],
-  )
-  const m = Math.cbrt(
-    0.2119034982 * c[0] + 0.6806995451 * c[1] + 0.1073969566 * c[2],
-  )
-  const s = Math.cbrt(
-    0.0883024619 * c[0] + 0.2817188376 * c[1] + 0.6299787005 * c[2],
-  )
-  return [
-    0.2104542553 * l + 0.793617785 * m - 0.0040720468 * s,
-    1.9779984951 * l - 2.428592205 * m + 0.4505937099 * s,
-    0.0259040371 * l + 0.7827717662 * m - 0.808675766 * s,
-  ]
-}
-
-function oklchToLin(L: number, C: number, hDeg: number): RGB {
-  const h = (hDeg * Math.PI) / 180,
-    a = C * Math.cos(h),
-    b = C * Math.sin(h)
-  let l = L + 0.3963377774 * a + 0.2158037573 * b,
-    m = L - 0.1055613458 * a - 0.0638541728 * b,
-    s = L - 0.0894841775 * a - 1.291485548 * b
-  l = l * l * l
-  m = m * m * m
-  s = s * s * s
-  return [
-    4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s,
-    -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s,
-    -0.0041960863 * l - 0.7034186147 * m + 1.707614701 * s,
-  ]
-}
-
-// ── The page's defaults ─────────────────────────────────────────────────
-/** Lights: the "Photo match" preset. */
-const P0 = {
-  exposure: 1.9, // the light theme's; see BACKDROP
-  sky: 1.0,
-  window: 1.0,
-  uplight: 1.0,
-  candles: 1.0,
-  warmth: 0.5,
-}
 /** The page's sample count. */
 const MAX_SAMPLES = 48
-
-/**
- * The most luminance one reflected or indirect contribution brings to a
- * sample (see clampFireflies()), after exposure: the shader's limit is this
- * over the theme's exposure, so it bites at the same displayed brightness in
- * both themes. 2 is about 92% of white after the filmic curve. At 3 the
- * dark theme's floor still sparkled under the candle lamp; at 1 the glossy
- * floor's reflections and the walls lost a few percent of their light.
- */
-const FIREFLY_MAX = 2
-
-/**
- * Backdrop: the page's "Tauler light" and "Tauler dark" presets, one per site
- * theme, in place of its "Full colour" default. Their colour (the page's
- * `bg`), ring lightness and ring chroma are not here: they are the
- * wallpaper's, so the room's walls start from the page colour of whichever
- * theme is on.
- *
- * Exposure is per theme too: the light is the same in both (see SKY), but
- * dark walls and floor bounce far less of it, so at the light theme's
- * exposure the dark room is near black. 3.5 keeps it dark but legible.
- */
-const BACKDROP = {
-  light: {
-    cellI: 0.35,
-    cellHues: 3,
-    cellSize: 300,
-    wash: 1,
-    seed: 18,
-    exposure: P0.exposure,
-  },
-  dark: {
-    cellI: 0.5,
-    cellHues: 3,
-    cellSize: 300,
-    wash: 1,
-    seed: 18,
-    exposure: 3.5,
-  },
-}
-
-/**
- * The sky: the colour rays that escape the room pick up, the light that
- * fills most of it. The page takes it from the backdrop; here it stays the
- * page's "Full colour" backdrop in both themes (see skyApart()), so a dark
- * theme darkens the walls and floor, not the light falling on them.
- */
-const SKY = linToLab(oklchToLin(0.971, 0.01, 87.5))
-
-/**
- * The page's room shader lights the room with its backdrop colour: escaping
- * rays return it (sky()). Give the sky a colour of its own, uSkyLab, so the
- * backdrop is the walls' and floor's base colour only. And declare uVShift
- * and uVMin, for offCentre().
- */
-function skyApart(fsRoom: string) {
-  return editShader(fsRoom, [
-    [
-      'uniform vec3 uBgLab;',
-      'uniform vec3 uBgLab;\nuniform vec3 uSkyLab;\nuniform float uVShift, uVMin;',
-    ],
-    [
-      'vec3 sky(vec3 d) { return clamp(okToLin(uBgLab), 0.0, 1.0) * uSky; }',
-      'vec3 sky(vec3 d) { return clamp(okToLin(uSkyLab), 0.0, 1.0) * uSky; }',
-    ],
-  ])
-}
-
-/**
- * The renderer's camera looks through the middle of its image plane. Shift
- * the plane vertically by uVShift (in the plane's units, tangents of the
- * vertical angle), so the image can run on below the view the framing asks
- * for and its top can stay below the window; and look no lower than uVMin:
- * rows below it repeat the floor seen there (see frame()).
- */
-function offCentre(main: string) {
-  return editShader(main, [
-    [
-      '(camUp * pixelPos.y * uVLen) + camForward',
-      '(camUp * max(pixelPos.y * uVLen + uVShift, uVMin)) + camForward',
-    ],
-  ])
-}
-
-/**
- * The renderer starts an image over (its first frame, uFrameCounter 1) by
- * keeping half of the old one as a motion trail and halving the new sample,
- * for a camera being dragged. Here nothing moves: a new image follows a
- * resize or a theme switch, where the old one is the wrong size or colour.
- * So start from nothing, with the whole first sample; otherwise the first
- * frame is half as bright, and every later one darker by that half sample.
- */
-function freshStart(main: string) {
-  return editShader(main, [
-    [
-      'if (uFrameCounter == 1.0) // camera just moved after being still',
-      'if (uFrameCounter == 1.0) previousPixel = vec4(0); // [tauler] a fresh start\n\telse if (false)',
-    ],
-  ])
-}
-
-/**
- * How much of the room shows after `samples` samples, per OKLCH channel: each
- * rises along a smootherstep, from 0 with no samples to 1 at ROOM_EASE_IN
- * samples for the slowest channel, the others sooner in the ratio of their
- * shares of the fade (lightness last, the channel the eye follows).
- */
-function presence(samples: number, fade: Fade): Fade {
-  const slowest = Math.max(fade.L, fade.C, fade.h)
-  const ease = (share: number) => {
-    const t = Math.min(1, (samples * slowest) / (ROOM_EASE_IN * share))
-    return t * t * t * (t * (t * 6 - 15) + 10)
-  }
-  return { L: ease(fade.L), C: ease(fade.C), h: ease(fade.h) }
-}
-
-/** The site's theme: next-themes puts `.dark` on <html>. */
-function siteTheme(): keyof typeof BACKDROP {
-  return document.documentElement.classList.contains('dark') ? 'dark' : 'light'
-}
 
 /** The room's visible box on the page, in device px from the page's top-left. */
 export interface RoomRegion {
@@ -483,18 +147,8 @@ export async function createRoom(
     onFrame,
   }: { signal: AbortSignal; element: HTMLElement; onFrame: () => void },
 ): Promise<RoomLayer> {
-  if (!chunksInstalled) {
-    installPathTracingChunks(THREE)
-    const chunks = THREE.ShaderChunk as Record<string, string>
-    chunks.pathtracing_main = gBufferMain(
-      freshStart(offCentre(chunks.pathtracing_main)),
-      editShader,
-    )
-    chunksInstalled = true
-  }
-
-  const [[vs, fsOut, fsLoaded], blue] = await Promise.all([
-    shaders,
+  const [{ vs, fsRoom, outFrag }, blue] = await Promise.all([
+    roomShaders(),
     new THREE.TextureLoader().loadAsync(`${ASSETS}/BlueNoise_R_128.png`),
   ])
   signal.throwIfAborted()
@@ -502,11 +156,8 @@ export async function createRoom(
   blue.flipY = false
   blue.minFilter = blue.magFilter = THREE.NearestFilter
   blue.generateMipmaps = false
-  const fsRoom = window.taulerRoomBrokenShader
-    ? `${fsLoaded}\n#error broken for a test`
-    : fsLoaded
 
-  const overrides = window.taulerRoomFade ?? {}
+  const overrides = testHooks().roomFade ?? {}
   const fade: Fade = {
     L: overrides.L ?? ROOM_FADE.L,
     C: overrides.C ?? ROOM_FADE.C,
@@ -703,12 +354,7 @@ export async function createRoom(
       new THREE.ShaderMaterial({
         uniforms: u,
         vertexShader: vs,
-        fragmentShader: withGBuffer(
-          clampFireflies(
-            withMaterials(withPlant(skyApart(fsRoom)), editShader, replaceSpan),
-          ),
-          editShader,
-        ),
+        fragmentShader: fsRoom,
         depthTest: false,
         depthWrite: false,
       }),
@@ -742,14 +388,6 @@ export async function createRoom(
     uUseToneMapping: { value: true },
     uExposure: { value: 1 },
   }
-  // filmic curve in place of the demo's plain Reinhard; the output shader
-  // applies sqrt() for display gamma, and the wallpaper reads the result as
-  // display sRGB
-  const outFrag = fsOut.replace(
-    'void main()',
-    'uniform float uExposure;\nvec3 ReinhardToneMapping(vec3 c) { c *= uExposure; vec3 x = max(vec3(0.0), c);\n' +
-      '  vec3 m = (x * (2.51 * x + 0.03)) / (x * (2.43 * x + 0.59) + 0.14); return clamp(m * m, 0.0, 1.0); }\n\nvoid main()',
-  )
   outScene.add(
     quadMesh(
       new THREE.ShaderMaterial({
@@ -914,7 +552,7 @@ export async function createRoom(
 
   const maxSamples = Math.min(
     MAX_SAMPLES,
-    window.taulerRoomSamples ?? MAX_SAMPLES,
+    testHooks().roomSamples ?? MAX_SAMPLES,
   )
   let samples = 0,
     frameCount = 1,

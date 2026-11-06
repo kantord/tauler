@@ -8,7 +8,7 @@ import { Terminal } from './Terminal'
 export const metadata: Metadata = {
   title: 'Get started',
   description:
-    'Install tauler, write ~/.config/tauler/layout.op.mdx, and run tauler.',
+    'Install Tauler, write ~/.config/tauler/layout.op.mdx, and run tauler.',
 }
 
 // Built only from APIs the docs describe: the layout file's shape
@@ -51,7 +51,7 @@ export default async function GetStartedSlide() {
                 Three steps.
               </h2>
               <ol className="m-0 flex list-none flex-col gap-3.5 p-0 text-base leading-normal">
-                <Step n={1}>Install tauler from the terminal.</Step>
+                <Step n={1}>Install Tauler from the terminal.</Step>
                 <Step n={2}>
                   Write your layout in{' '}
                   <span className="m [overflow-wrap:anywhere]">
@@ -60,8 +60,8 @@ export default async function GetStartedSlide() {
                   , or start from the example.
                 </Step>
                 <Step n={3}>
-                  Run <span className="m">tauler</span>. Editing the file
-                  re-renders the bar.
+                  Run <span className="m">tauler</span>. Tauler reloads the file
+                  on every save.
                 </Step>
               </ol>
               <Terminal />
