@@ -199,11 +199,12 @@ page credits it anyway, in Unsplash's recommended form, its links tagged
 
 The path tracer is Erich Loftis's [THREE.js PathTracing
 Renderer](https://github.com/erichlof/THREE.js-PathTracing-Renderer), CC0, credited on
-the page anyway. The only third-party code is its GLSL chunks and blue-noise texture,
-taken at a pinned commit (`room/vendor/PathTracingCommon.js` with the licence
-beside it, `public/room/BlueNoise_R_128.png`), on three.js r185 from npm. The scene
+the page anyway. The only third-party code is its GLSL chunks, two of its shaders and its blue-noise
+texture, taken at a pinned commit (`room/vendor/PathTracingCommon.js` with the licence
+beside it, `public/room/shaders/vs.glsl` and `fs-out.glsl`, `public/room/BlueNoise_R_128.png`),
+on three.js r185 from npm. The scene
 is first-party: it began as a standalone page made for this site by its author, and its
-shaders (`public/room/shaders/`), scene description (`room/room-scene.js`),
+path-tracing shader (`public/room/shaders/fs-room.glsl`), scene description (`room/room-scene.js`),
 the plant, the materials and the denoise are the site's own code. The renderer's page
 loop is ported into `room/room.ts`; every change to its shaders is a load-time
 edit (`room/room-shader.ts`) at an anchor that must appear exactly once, so an upstream change fails loudly.
