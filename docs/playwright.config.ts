@@ -23,6 +23,10 @@ const devUrl = process.env.DOCS_DEV_URL
 export default defineConfig({
   testDir: './tests',
   fullyParallel: true,
+  // Two locally: the room and wallpaper tests drive the GPU, and the default
+  // (half the cores) makes a desktop machine unusable while they run. CI keeps
+  // the default for its own runner.
+  workers: process.env.CI ? undefined : 2,
   forbidOnly: !!process.env.CI,
   use: {
     baseURL: devUrl ?? 'http://127.0.0.1:4321',
