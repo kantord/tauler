@@ -1,11 +1,14 @@
 /**
- * The room's shaders: the page's three (public/room/shaders/), fetched as
- * soon as this module loads, and every load-time edit the site makes to them
- * and to the renderer's GLSL chunks (room.ts's module doc lists the changes
- * and why). Each edit goes in at an anchor that must appear exactly once
- * (editShader(), replaceSpan()), so an upstream change fails loudly. The
- * edits of the other room modules (monstera-shader.ts, materials.ts,
- * denoise.ts) are applied here too, in their order.
+ * The room's shaders: the page's three (shaders/), and every load-time edit
+ * the site makes to them and to the renderer's GLSL chunks (room.ts's module
+ * doc lists the changes and why). Each edit goes in at an anchor that must
+ * appear exactly once (editShader(), replaceSpan()), so an upstream change
+ * fails loudly. The edits of the other room modules (monstera-shader.ts,
+ * materials.ts, denoise.ts) are applied here too, in their order.
+ *
+ * The GLSL ships without its comments: a build loader strips them from the
+ * .glsl files and the vendored chunks (scripts/strip-glsl-comments.cjs,
+ * wired in next.config.mjs), so every anchor here is code, never a comment.
  *
  * The interface is roomShaders(): the finished sources, ready to compile.
  */
@@ -15,23 +18,11 @@ import { MONSTERA_EDITS, ONE_TRACE } from './monstera-shader'
 import { gBufferMain, withGBuffer } from './denoise'
 import { withMaterials } from './materials'
 import { testHooks } from '../test-hooks'
-
-/** Where the room's assets are served (public/room/). */
-export const ASSETS = '/room'
+import VS from './shaders/vs.glsl'
+import FS_OUT from './shaders/fs-out.glsl'
+import FS_ROOM from './shaders/fs-room.glsl'
 
 let chunksInstalled = false
-
-async function loadShader(name: string) {
-  const response = await fetch(`${ASSETS}/shaders/${name}.glsl`)
-  if (!response.ok) throw new Error(`${name}: HTTP ${response.status}`)
-  return response.text()
-}
-
-/** The page's shaders, fetched as soon as this module loads (Wallpaper.tsx loads room.ts early). */
-const shaders = Promise.all(
-  (['vs', 'fs-out', 'fs-room'] as const).map(loadShader),
-)
-shaders.catch(() => {}) // reported by createRoom()
 
 /** Applies each edit to its single anchor; throws if the anchor is missing or repeated. */
 function editShader(shader: string, edits: [string, string][]) {
@@ -68,7 +59,7 @@ function replaceSpan(
  */
 const COVE_EDITS: [string, string][] = [
   [
-    '/* ---------------- scene ---------------- */',
+    'float SceneIntersect(vec3 ro, vec3 rd)',
     `// COVE: a concave fillet where two planes meet: the inside of the cylinder of radius r around
 // the axis a -> b, only between the axis and the corner (the planes lie along e1 and e2 from
 // the axis). The far root is the inside; the normal faces the axis.
@@ -87,7 +78,7 @@ float CoveIntersect(vec3 a, vec3 b, float r, vec3 e1, vec3 e2, vec3 ro, vec3 rd,
 	n = -q;
 	return t;
 }
-` + '\n/* ---------------- scene ---------------- */',
+` + '\nfloat SceneIntersect(vec3 ro, vec3 rd)',
   ],
   [
     '\t\t\telse { d = SphereIntersect(a1.w, a1.xyz, lro, lrd); n = (lro + lrd * d) - a1.xyz; }',
@@ -217,8 +208,25 @@ function offCentre(main: string) {
 function freshStart(main: string) {
   return editShader(main, [
     [
-      'if (uFrameCounter == 1.0) // camera just moved after being still',
+      'if (uFrameCounter == 1.0)',
       'if (uFrameCounter == 1.0) previousPixel = vec4(0); // [tauler] a fresh start\n\telse if (false)',
+    ],
+  ])
+}
+
+/**
+ * The renderer jitters each sample within its pixel by a sequence offset per
+ * pixel by a 128 × 128 blue-noise texture (BlueNoise_R_128.png, 40 KB). Here
+ * that offset is Jimenez's interleaved gradient noise, computed from the
+ * pixel's position, so the room downloads no image. The jitter only
+ * antialiases edges, and at 48 samples under a 3 px pixel-art cell the two
+ * render alike. The texture's sampler goes too.
+ */
+function proceduralNoise(main: string) {
+  return editShader(main, [
+    [
+      'texelFetch(tBlueNoiseTexture, ivec2(mod(floor(gl_FragCoord.xy), 128.0)), 0).r',
+      'fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715))))',
     ],
   ])
 }
@@ -235,37 +243,40 @@ export interface RoomShaders {
 
 /**
  * The room's shaders, ready to compile. The first call installs the
- * renderer's GLSL chunks, edited, into THREE.ShaderChunk, before it waits
- * for anything. Rejects if a shader fails to load or an edit misses its
- * anchor.
+ * renderer's GLSL chunks, edited, into THREE.ShaderChunk. Rejects if an
+ * edit misses its anchor.
  */
 export async function roomShaders(): Promise<RoomShaders> {
   if (!chunksInstalled) {
-    installPathTracingChunks(THREE)
+    // only ShaderChunk, not the namespace, so the bundler can drop the rest of three
+    installPathTracingChunks({ ShaderChunk: THREE.ShaderChunk })
     const chunks = THREE.ShaderChunk as Record<string, string>
+    chunks.pathtracing_uniforms_and_defines = editShader(
+      chunks.pathtracing_uniforms_and_defines,
+      [['uniform sampler2D tBlueNoiseTexture;', '']],
+    )
     chunks.pathtracing_main = gBufferMain(
-      freshStart(offCentre(chunks.pathtracing_main)),
+      freshStart(offCentre(proceduralNoise(chunks.pathtracing_main))),
       editShader,
     )
     chunksInstalled = true
   }
 
-  const [vs, fsOut, fsLoaded] = await shaders
   const fsRoom = testHooks().roomBrokenShader
-    ? `${fsLoaded}\n#error broken for a test`
-    : fsLoaded
+    ? `${FS_ROOM}\n#error broken for a test`
+    : FS_ROOM
 
   // filmic curve in place of the demo's plain Reinhard; the output shader
   // applies sqrt() for display gamma, and the wallpaper reads the result as
   // display sRGB
-  const outFrag = fsOut.replace(
+  const outFrag = FS_OUT.replace(
     'void main()',
     'uniform float uExposure;\nvec3 ReinhardToneMapping(vec3 c) { c *= uExposure; vec3 x = max(vec3(0.0), c);\n' +
       '  vec3 m = (x * (2.51 * x + 0.03)) / (x * (2.43 * x + 0.59) + 0.14); return clamp(m * m, 0.0, 1.0); }\n\nvoid main()',
   )
 
   return {
-    vs,
+    vs: VS,
     fsRoom: withGBuffer(
       clampFireflies(
         withMaterials(withPlant(skyApart(fsRoom)), editShader, replaceSpan),

@@ -20,7 +20,7 @@
 
 /** Light sampling and the path loop with one SceneIntersect call site: replaces the span from `start` up to `end`. */
 export const ONE_TRACE = {
-  start: '/* next-event estimation toward one randomly chosen light */',
+  start: 'vec3 sampleLights(vec3 x, vec3 nl)',
   end: 'void SetupScene(void) {}',
   text: `/* next-event estimation toward one randomly chosen light: returns what the light adds if the
    shadow ray (from x along dir) reaches it, hitting material target; zero when there is nothing
@@ -364,8 +364,8 @@ export const MONSTERA_EDITS: [string, string][] = [
   ],
   // the primitives' intersections and the materials
   [
-    '/* ---------------- scene ---------------- */',
-    FUNCTIONS + '\n/* ---------------- scene ---------------- */',
+    'float SceneIntersect(vec3 ro, vec3 rd)',
+    FUNCTIONS + '\nfloat SceneIntersect(vec3 ro, vec3 rd)',
   ],
   // the new kinds in the intersection loop, and the leaf data of the closest hit
   [

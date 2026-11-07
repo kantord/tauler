@@ -1,9 +1,12 @@
 // js/PathTracingCommon.js from Erich Loftis's THREE.js PathTracing Renderer,
 // https://github.com/erichlof/THREE.js-PathTracing-Renderer at
 // f8ded116a3c674db552d4481e59c61d28cf81833, CC0 (LICENSE, beside this file; it also covers
-// public/room/BlueNoise_R_128.png and public/room/shaders/{vs,fs-out}.glsl, from the same
-// commit). The body is the upstream
-// file as it is; only the exported wrapper that takes THREE is added.
+// ../shaders/{vs,fs-out}.glsl, from the same commit). The body is the upstream file as it
+// is; only the exported wrapper is added. The site does not ship the renderer's blue-noise
+// texture: room-shader.ts swaps its lookup for a noise computed in the shader. Its
+// parameter is still named THREE, but the caller passes only { ShaderChunk }, so the bundler
+// can drop the rest of three. The build strips the GLSL's comments from what ships
+// (scripts/strip-glsl-comments.cjs); this file keeps them.
 export function installPathTracingChunks(THREE) {
 THREE.ShaderChunk[ 'pathtracing_uniforms_and_defines' ] = `
 uniform sampler2D tPreviousTexture;

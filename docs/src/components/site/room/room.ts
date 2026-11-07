@@ -7,9 +7,9 @@
  * one quantize, on one grid, with one palette.
  *
  * It began as a standalone page ("the page" below), whose path-tracing and
- * output shaders (public/room/shaders/) and scene description
- * (room-scene.js) run here on the renderer's GLSL chunks and blue noise
- * (vendor/, the only third-party code) and three.js r185.
+ * output shaders (shaders/) and scene description
+ * (room-scene.js) run here on the renderer's GLSL chunks (vendor/, the
+ * only third-party code) and three.js r185.
  *
  * The page's main script is ported here, with its defaults: the
  * "Photo match" lights and 48 samples. Kept: the uniforms, the three passes
@@ -38,6 +38,10 @@
  * BACKDROP, SKY in room-light.ts); a theme switch starts the image over.
  *
  * Changed to frame any box: see frame().
+ *
+ * Changed to load no image: each sample's jitter within its pixel is offset
+ * by a noise computed in the shader, not read from the renderer's blue-noise
+ * texture (proceduralNoise() in room-shader.ts).
  *
  * Added: a Monstera in an ochre bowl at the left of the room, the scene's
  * 8th group (monstera-scene.js, added in room-scene.js), which wide frames
@@ -69,8 +73,8 @@
  * of the accumulated image.
  *
  * Where the code is: this module is the layer (createRoom(): the scene's
- * data, render targets, passes, framing, layout and the sampling loop) and
- * the check for whether it can run (roomSupported()). The shaders and every
+ * data, render targets, passes, framing, layout and the sampling loop); the
+ * check for whether it can run is room-support.ts. The shaders and every
  * load-time edit to them are room-shader.ts (roomShaders()); the lights and
  * per-theme backdrop are room-light.ts; where the room sits and how it fades
  * in, room-size.ts. Tests change its behaviour only through test-hooks.ts.
@@ -79,11 +83,7 @@ import * as THREE from 'three'
 import { buildRoomScene } from './room-scene.js'
 import { rgbToOklab } from '@/lib/wallpaper/tauler-wallpaper.js'
 import { ditherPixel, type WallpaperColours } from '../wallpaper/options'
-import {
-  isSoftware,
-  type Fade,
-  type RoomCells,
-} from '../wallpaper/wallpaper-gl'
+import type { Fade, RoomCells } from '../wallpaper/wallpaper-gl'
 import {
   ROOM_DETAIL,
   ROOM_FADE,
@@ -93,22 +93,9 @@ import {
 } from './room-size'
 import { LEAF_MAPS, LEAF_RES } from './monstera-shader'
 import { COPY_G, createDenoiser } from './denoise'
-import { ASSETS, roomShaders } from './room-shader'
+import { roomShaders } from './room-shader'
 import { BACKDROP, FIREFLY_MAX, P0, SKY, siteTheme } from './room-light'
 import { testHooks } from '../test-hooks'
-
-/**
- * True when the room can render in `gl`: hardware WebGL 2 with float render
- * targets. Software WebGL (SwiftShader, llvmpipe) is refused: a path tracer
- * there takes seconds per frame and freezes the page (unless a test asks,
- * testHooks().roomSoftwareGl).
- */
-export function roomSupported(gl: WebGL2RenderingContext): boolean {
-  return (
-    (!!testHooks().roomSoftwareGl || !isSoftware(gl)) &&
-    !!gl.getExtension('EXT_color_buffer_float')
-  )
-}
 
 /** The page's sample count. */
 const MAX_SAMPLES = 48
@@ -134,7 +121,7 @@ export interface RoomLayer {
 
 /**
  * Starts the room in `gl`, the wallpaper's context, which must be hardware
- * (roomSupported()). Rejects if the assets fail to load or a shader fails to
+ * (roomSupported(), room-support.ts). Rejects if the assets fail to load or a shader fails to
  * compile. `onFrame` runs after every new sample, for the wallpaper to draw
  * it; `element.dataset.converged` is the sample count once the image has
  * all its samples, and absent while it renders.
@@ -147,15 +134,8 @@ export async function createRoom(
     onFrame,
   }: { signal: AbortSignal; element: HTMLElement; onFrame: () => void },
 ): Promise<RoomLayer> {
-  const [{ vs, fsRoom, outFrag }, blue] = await Promise.all([
-    roomShaders(),
-    new THREE.TextureLoader().loadAsync(`${ASSETS}/BlueNoise_R_128.png`),
-  ])
+  const { vs, fsRoom, outFrag } = await roomShaders()
   signal.throwIfAborted()
-  blue.wrapS = blue.wrapT = THREE.RepeatWrapping
-  blue.flipY = false
-  blue.minFilter = blue.magFilter = THREE.NearestFilter
-  blue.generateMipmaps = false
 
   const overrides = testHooks().roomFade ?? {}
   const fade: Fade = {
@@ -260,7 +240,6 @@ export async function createRoom(
     tPreviousTexture: { value: copyRT.texture },
     tPreviousG0: { value: copyRT.textures[1] },
     tPreviousG1: { value: copyRT.textures[2] },
-    tBlueNoiseTexture: { value: blue },
     uCameraMatrix: { value: new THREE.Matrix4() },
     uResolution: { value: new THREE.Vector2(W, H) },
     uRandomVec2: { value: new THREE.Vector2() },
@@ -638,7 +617,6 @@ export async function createRoom(
       leafRT,
       tri,
       primTex,
-      blue,
       ...materials,
       renderer,
     ])

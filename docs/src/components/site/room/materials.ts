@@ -183,7 +183,7 @@ vec3 ggxHalf(vec3 n, vec3 v, float a) {
  *   bark chips, perlite.
  */
 const MATERIAL: Span = {
-  start: '// material: type, albedo, emission, roughness, specular scale',
+  start: 'void getMaterial(int id, vec3 p, vec3 n, out int type',
   end: '/* next-event estimation toward one randomly chosen light: returns',
   text: `// [tauler] material
 void getMaterial(int id, vec3 p, vec3 n, out int type, out vec3 albedo, out vec3 emission, out float rough, out float specK)
@@ -483,8 +483,8 @@ const BSDF_LOOP: Span = {
 const EDITS: Edit[] = [
   // the globals and helpers, before the scene's intersection code
   [
-    '/* ---------------- scene ---------------- */',
-    HELPERS + '\n/* ---------------- scene ---------------- */',
+    'float SceneIntersect(vec3 ro, vec3 rd)',
+    HELPERS + '\nfloat SceneIntersect(vec3 ro, vec3 rd)',
   ],
   // the hit's group, for per-object seeds
   [

@@ -10,7 +10,7 @@ import type { TaulerTestHooks } from '../src/components/site/test-hooks'
 // The room's smoke test, the one room test CI runs. Every other room test
 // needs a GPU and skips without one (docs.spec.ts, withConvergedRoom()); CI
 // has only software WebGL (SwiftShader), which the room refuses
-// (roomSupported() in room.ts). Here the test lets it run there
+// (roomSupported() in room-support.ts). Here the test lets it run there
 // (roomSoftwareGl in test-hooks.ts, with wallpaperSoftwareGl for the
 // context it shares) in a window so small the image is 64 x 38 cells, and
 // stops it at ROOM_EASE_IN samples (roomSamples): the fewest at

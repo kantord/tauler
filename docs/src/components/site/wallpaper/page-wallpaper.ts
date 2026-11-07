@@ -54,7 +54,15 @@ import {
 } from './wallpaper-gl'
 import { ROOM_HEIGHT } from '../room/room-size'
 import type { RoomLayer } from '../room/room'
+import { roomSupported } from '../room/room-support'
 import { testHooks } from '../test-hooks'
+
+/** Resolves after the next frame is painted (rAF runs before it, a task after). */
+function afterPaint() {
+  return new Promise<void>((resolve) =>
+    requestAnimationFrame(() => setTimeout(resolve)),
+  )
+}
 
 /** CSS px drawn above and below the window: half its height, 200-400. */
 function overscan() {
@@ -179,11 +187,19 @@ export function mountPageWallpaper(
     startCanvas(false)
   }
 
-  /** Adds the room to the shader's context, if it can run there. */
+  /**
+   * Adds the room to the shader's context, if it can run there. room.ts
+   * (three.js and the renderer's GLSL, most of the page's script by size) is
+   * fetched only then, and only once the wallpaper has painted: the room is
+   * decoration, and fades in over the wallpaper when it is ready.
+   */
   async function startRoom(glRenderer: GlSliceRenderer) {
     try {
-      const { roomSupported, createRoom } = await import('../room/room')
-      if (renderer !== glRenderer || !roomSupported(glRenderer.gl)) return
+      if (!roomSupported(glRenderer.gl)) return
+      await afterPaint()
+      if (renderer !== glRenderer || destroyed) return
+      const { createRoom } = await import('../room/room')
+      if (renderer !== glRenderer) return
       const box = document.createElement('div')
       box.style.cssText = `position:absolute;left:0;right:0;top:calc(100svh - ${ROOM_HEIGHT});height:${ROOM_HEIGHT}`
       const layer = await createRoom(glRenderer.gl, {

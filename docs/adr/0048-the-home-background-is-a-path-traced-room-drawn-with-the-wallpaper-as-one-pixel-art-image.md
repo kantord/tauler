@@ -76,7 +76,7 @@ it:
 ## Hardware WebGL only
 
 `page-wallpaper.ts` adds the room only on hardware WebGL 2 with float render targets
-(`roomSupported()`). Software WebGL (SwiftShader, llvmpipe) is refused by renderer name:
+(`roomSupported()`, in `room/room-support.ts` so that asking costs no download). Software WebGL (SwiftShader, llvmpipe) is refused by renderer name:
 a path tracer there takes seconds per frame and froze the page in testing. Everywhere
 else (no WebGL 2, software WebGL, a lost context, an asset or shader that fails) the
 wallpaper is drawn alone, by the shader or the CPU module, with no empty box. A shader
@@ -84,6 +84,12 @@ that fails to compile counts too: three.js checks a program's link status only o
 first use, so `createRoom()` uses every compiled program once (`getUniforms()`, no draw)
 before it resolves, and a broken shader rejects with a `tauler:` warning instead of
 fading in a black room. CI has no GPU; see "Testing without a GPU" for what it checks.
+
+The room's code (`room/room.ts`: three.js and the renderer's GLSL, most of the page's
+script by size) is fetched only after that check says yes, and only once the wallpaper has
+painted. It used to be fetched alongside the wallpaper, to bring the room's first frame
+sooner, which put it on every device's load, phones and software WebGL included, where it
+was never run. The room fades in anyway, so a later start does not show as a pop.
 
 ## How an image is made
 
@@ -117,7 +123,7 @@ Every material is a load-time edit of the room shader (`room/materials.ts`): GGX
 microfacets sampled from their visible normals, Schlick's Fresnel on measured F0 for
 metals, dielectrics choosing specular or diffuse by Fresnel's odds, a clearcoat for the
 lacquered teak, albedos from measured values and none above 0.85. There are no textures
-or images; the only texture is the renderer's blue-noise sampling texture. Colour,
+or images, not even the renderer's blue-noise texture (see "Cost"). Colour,
 roughness and shading normals come from non-periodic value noise on a pcg3d hash, in
 object space, seeded per group and per piece, so the two chairs and every teak board
 differ. Roughness matters most: at 3 px cells most detail is sub-cell, and what reads
@@ -143,7 +149,10 @@ plant. Two choices a reader might "fix", both for cost:
   site instead of three, since every call site inlines the whole scene;
 - each leaf's outline, splits, holes and veins are baked once into a 256 × 256 map per
   leaf before the first sample, not computed per ray; and the plant and cable sit in
-  nested cluster boxes, which is why they trace faster with more primitives.
+  nested cluster boxes, which is why they trace faster with more primitives. The furniture
+  uses the same boxes (`cluster()`): each chair's tubes and its sling (three rows of quads
+  per box), the table's tubes, each candle, the framed print, and one box around the
+  cable's. They cut the path trace by about 40% with no visible change.
 
 Walls meet the floor and each other in a 3 cm cove (`KIND.COVE`: the inside of a
 cylinder), which meets both planes tangentially, so the junction reads as a soft change
@@ -160,10 +169,23 @@ it back. The furniture and the plant have fixed albedos.
 
 ## Cost
 
-Measured on an RTX 4060 Ti, home page at 1440 × 900: about 4.1 ms a sample for the path
-trace (3.7 ms before the plant and materials), 0.45 ms for the denoise, 0.1 ms for the
-wallpaper's cells pass; nothing once the loop has stopped. The materials, plant and hue
-grid each came in within or near measurement noise; that is what bought them a place.
+Measured on an RTX 4060 Ti, home page at 1440 × 900: about 2.4 ms a sample for the path
+trace (4.0 ms before the furniture's cluster boxes, 3.7 ms before the plant and
+materials), 0.45 ms for the denoise, 0.1 ms for the wallpaper's cells pass; nothing once
+the loop has stopped. The materials, plant and hue grid each came in within or near
+measurement noise; that is what bought them a place.
+
+The room's script is about 680 KiB, 171 KiB gzipped. It was 871 KiB (223 KiB) while the
+renderer's chunk installer was handed the whole three namespace, which kept all of three in
+the bundle; it is handed only `{ ShaderChunk }`.
+
+The room downloads no image. The renderer offset each sample's jitter within its pixel by
+a 128 × 128 blue-noise PNG (40 KB, a request of its own); a load-time edit computes the
+offset instead, as interleaved gradient noise (Jimenez's, from the pixel's position). The
+jitter only antialiases edges: the path's own random numbers come from a hash. Rendered
+side by side, at 48 samples and at 8, raw and as the site's pixel art, in both themes, it
+differs from the PNG's image no more than the PNG does from itself shifted by 37 pixels,
+and shows no pattern.
 
 ## Testing without a GPU
 
@@ -199,12 +221,15 @@ page credits it anyway, in Unsplash's recommended form, its links tagged
 
 The path tracer is Erich Loftis's [THREE.js PathTracing
 Renderer](https://github.com/erichlof/THREE.js-PathTracing-Renderer), CC0, credited on
-the page anyway. The only third-party code is its GLSL chunks, two of its shaders and its blue-noise
-texture, taken at a pinned commit (`room/vendor/PathTracingCommon.js` with the licence
-beside it, `public/room/shaders/vs.glsl` and `fs-out.glsl`, `public/room/BlueNoise_R_128.png`),
-on three.js r185 from npm. The scene
+the page anyway. The only third-party code is its GLSL chunks and two of its shaders,
+taken at a pinned commit (`room/vendor/PathTracingCommon.js` with the licence
+beside it, `room/shaders/vs.glsl` and `fs-out.glsl`), on three.js r185 from npm; its
+blue-noise texture is replaced (see "Cost"). The scene
 is first-party: it began as a standalone page made for this site by its author, and its
-path-tracing shader (`public/room/shaders/fs-room.glsl`), scene description (`room/room-scene.js`),
+path-tracing shader (`room/shaders/fs-room.glsl`), scene description (`room/room-scene.js`),
 the plant, the materials and the denoise are the site's own code. The renderer's page
 loop is ported into `room/room.ts`; every change to its shaders is a load-time
 edit (`room/room-shader.ts`) at an anchor that must appear exactly once, so an upstream change fails loudly.
+The GLSL ships without its comments (a build loader, `scripts/strip-glsl-comments.cjs`,
+removes about a third of the renderer's chunks), and the edits run on what ships, so every
+anchor is code: an anchor on a comment would match in the source and miss on the page.
