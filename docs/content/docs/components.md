@@ -258,7 +258,7 @@ const load = useJSONStream("/bin/sh", `
 `svg` is a d3 selection of an `<svg>` with that `width` and `height`, a `viewBox` of
 `0 0 width height` and `font-family: sans-serif`. `d3` is d3 7.9.0.
 
-`name` is the name tauler gives this drawing. It is different for each key and size, so use
+`name` is the name Tauler gives this drawing. It is different for each key and size, so use
 it for ids inside the drawing, such as a clip-path's. A page has a single DOM, so two
 figures that both use a fixed id such as `"clip"` can take each other's.
 
@@ -268,16 +268,16 @@ error that names them.
 ### Change the key when the drawing should change
 
 A figure whose key does not change is not drawn again until the layout file is saved or
-its `width` or `height` changes: tauler does not run `draw` to see whether its output
+its `width` or `height` changes: Tauler does not run `draw` to see whether its output
 changed. Give the figure a new key when what it shows changes,
 and the simplest way to get one is to derive it from the data, as `LoadChart` does from its
 newest sample. A figure with no `key` fails with an error that names it.
 
 A key must follow from what the render sees: the data, the streams and the globals. A key
 built from `Math.random()`, `Date.now()` or state kept
-at module scope is not drawn on the desktop, and tauler logs a warning.
+at module scope is not drawn on the desktop, and Tauler logs a warning.
 
-A key can also be an object or an array. tauler names it by a hash of its JSON, so you can
+A key can also be an object or an array. Tauler names it by a hash of its JSON, so you can
 pass the figure's inputs directly:
 
 ```jsx
@@ -292,18 +292,18 @@ fails with an error that names where in the key it is. JSON would drop or change
 value, so two different keys could name the same drawing. A key that is itself a function,
 a symbol, a `BigInt`, a `Date` or another object that is not plain fails the same way.
 
-An object key is checked and turned into JSON on every tick, on the desktop twice: once in
-the bar and once where the figure is drawn. For 500 rows of 3 fields, that is about 1.5 ms
+An object key is checked and turned into JSON on every tick, on the desktop twice: once for
+your layout and once where the figure is drawn. For 500 rows of 3 fields, that is about 1.5 ms
 per figure each time. For large data, a string key you make yourself, such as the newest
 timestamp, is cheaper.
 
-The key is the only thing tauler compares. A `draw` that reads anything not in the key still
+The key is the only thing Tauler compares. A `draw` that reads anything not in the key still
 draws a stale picture when that thing changes.
 
 ### What a slow drawing looks like
 
-On the desktop, `draw` runs off the bar's own loop. A slow drawing shows up a little later;
-the bar does not freeze while it is drawn. Until a figure's drawing arrives, the figure
+On the desktop, `draw` runs off Tauler's own loop. A slow drawing shows up a little later;
+your layout does not freeze while it is drawn. Until a figure's drawing arrives, the figure
 shows its previous drawing, or nothing.
 
 A `draw` that runs longer than 5 seconds is stopped. A `draw` that throws leaves the
@@ -329,13 +329,13 @@ simulation.tick(300);
 
 ### SVG in figures
 
-On the desktop, tauler draws the figure's SVG itself. Shapes, paths, groups, `<use>`,
+On the desktop, Tauler draws the figure's SVG itself. Shapes, paths, groups, `<use>`,
 `<symbol>`, `<switch>`, `<image>`, text with `<tspan>` and `<textPath>`, linear and radial
 gradients, patterns, clip paths, masks, markers, filters and `<style>` rules all draw.
 `<foreignObject>` draws nothing. An `<image>` draws only from a `data:` URL; an `href` that
 names a file or a web address draws nothing.
 
-Text is drawn with the fonts the bar has: `sans-serif` (your `fonts.primary`, if you set
+Text is drawn with the fonts your layout has: `sans-serif` (your `fonts.primary`, if you set
 one), `monospace`, and the families you registered in `fonts.primary` or `fonts.extra` (see
 [Fonts](/docs/elements/#fonts)). A `font-family` list is tried left to right. Text whose
 families are all unknown still draws, but in a fallback face, possibly not at the weight
@@ -350,7 +350,7 @@ family, so prefer `sans-serif` or `monospace`.
 
 On the desktop, `getBBox`, `getComputedTextLength` and `getBoundingClientRect` measure
 nothing. Call [`measureText`](/docs/elements/#measure-text-measuretext) instead, in `draw`
-or anywhere else in the layout file. It returns the width tauler draws the text at.
+or anywhere else in the layout file. It returns the width Tauler draws the text at.
 
 ### The first figure downloads d3
 

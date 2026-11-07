@@ -1,11 +1,11 @@
 ---
 title: Units
-description: Declaring things outside the bar — lights, themes, modes — and letting tauler make the world match.
+description: Declaring things outside Tauler — lights, themes, modes — and letting Tauler make the world match.
 ---
 
-A layout file usually describes a bar. A **Unit** lets it describe something else: which
+A layout file usually describes what Tauler draws. A **Unit** lets it describe something else: which
 workspace an app belongs on, a theme a program should be using, a light that should be on.
-You say what should be true. tauler keeps looking at the world and does what it takes.
+You say what should be true. Tauler keeps looking at the world and does what it takes.
 
 ```jsx
 const WindowPlacement = unit({
@@ -35,11 +35,11 @@ nothing.
 ## The four parts
 
 `key` names an Item. Two Items with the same key are the same thing. The key is what lets
-tauler match what it sees in the world against what you asked for.
+Tauler match what it sees in the world against what you asked for.
 
 A key can be any JSON value: a string, a number, or an object or array, compared by its JSON.
 A Unit key is not checked the way a [`<D3Figure>` key](/docs/components/#d3figure) is.
-Whatever `JSON.stringify` does to the value is what tauler compares, so `NaN` and `Infinity`
+Whatever `JSON.stringify` does to the value is what Tauler compares, so `NaN` and `Infinity`
 become `null`, a `Date` becomes its date string, a `Map` or a `Set` becomes `{}`, and a
 function or `undefined` inside an object is left out. A key that `JSON.stringify` cannot
 write at all (`undefined`, a function, a `BigInt`, a cycle) leaves that Item out of the
@@ -50,7 +50,7 @@ Item needs an `update`. Return whatever you want to compare — a string, a numb
 object.
 
 `observe` reports what the world actually holds, as an array of Items in the same shape you
-declare them. This is the only thing tauler believes. A hook that says it succeeded proves
+declare them. This is the only thing Tauler believes. A hook that says it succeeded proves
 nothing. The next `observe` does.
 
 The hooks act. Each comes in two spellings and you pick one:
@@ -106,7 +106,7 @@ const WindowPlacement = unit({
 })
 ```
 
-That interval is how quickly a change made outside tauler — you dragging the window
+That interval is how quickly a change made outside Tauler — you dragging the window
 somewhere else — gets undone. It is also your blast radius: a Unit that can never converge,
 because its hook is failing or because it declares `state: true` where the world says
 `"on"`, retries exactly this often and no faster. Short enough to feel immediate, long
@@ -128,7 +128,7 @@ observe: () => JSON.parse(sh`some-command --json`)
 ```
 
 `sh`, `read`, `ls`, `exists` and `hash` exist there and **do not exist** while your layout
-is being rendered. That is deliberate: a shell command during a render would block the bar
+is being rendered. That is deliberate: a shell command during a render would block Tauler
 for as long as the command takes. If you reach for `sh` outside a hook, you get
 `sh is not defined`.
 
@@ -181,7 +181,7 @@ have compared an arbitrary one of the five.
 
 **There is no `enterOne`.** An app that is not running is declared but not observed, which is
 an `enter` — and a Unit that defines no `enter` is a Unit that does not manage that
-transition. Without this, quitting Spotify would make tauler relaunch it five seconds later.
+transition. Without this, quitting Spotify would make Tauler relaunch it five seconds later.
 A missing hook is a design decision you can make.
 
 **`timeout 5` on both commands.** i3's IPC can fail to answer, and a hook that never returns
@@ -191,7 +191,7 @@ talks to something else.
 ### A nicer way to say it
 
 `unit()` returns a component, so the readable spelling is a component too — and it needs
-nothing from tauler:
+nothing from Tauler:
 
 ```jsx
 const App = (p) => p
@@ -289,7 +289,7 @@ Used:
 `MINE` is what keeps `observe` honest — without it every other light in the house shows up
 as an Item nobody declared.
 
-Note there is no `exit`. Dropping `<Light>` from the layout means tauler stops managing that
+Note there is no `exit`. Dropping `<Light>` from the layout means Tauler stops managing that
 light, not that it turns it off. If you want it off, declare it off.
 
 That's true regardless of whether an `exit` hook is defined, because of how it would fire:
@@ -372,7 +372,7 @@ nothing when `apply` isn't given: the marker is skipped entirely.
 
 ### How it's built
 
-`ConfigFile` is not a new tauler primitive; it is `unit()`, `optativeSet`, `sh`, `read`,
+`ConfigFile` is not a new Tauler primitive; it is `unit()`, `optativeSet`, `sh`, `read`,
 `exists` and `hash` — every one of them a builtin this page has already used or just met
 above — composed once so you do not have to compose them again for the next file. Its
 whole body:
@@ -413,7 +413,7 @@ A few things are worth pulling out:
 
 **There is no `write` builtin.** `sh`'s tagged template already quotes `${rendered}` as
 a single shell argument, so `printf '%s' ARG > PATH` writes it byte-for-byte — quotes,
-newlines and all — with what tauler already ships.
+newlines and all — with what Tauler already ships.
 
 **The write goes to a temp file, then `mv`s into place.** `mv -f` within the same
 directory is a `rename(2)`, which is atomic — a reader that opens `path` mid-write always
@@ -506,7 +506,7 @@ and again later once it catches up — torn state between two independent Sweep 
 shared closure only removes the *redundant-signal* half of that problem, not the
 *out-of-order* half.
 
-## Driving a Unit from the bar
+## Driving a Unit from your layout
 
 A Unit reads the same `globals` your layout does, so a button can change what a Unit
 declares:
@@ -522,7 +522,7 @@ declares:
 
 The click updates `globals`. The next Sweep sees the new declaration and acts.
 
-`globals` is **read-only inside a hook**. The bar owns it. A hook that assigns to it throws.
+`globals` is **read-only inside a hook**. Your layout owns it. A hook that assigns to it throws.
 If a hook needs to record something, the thing to record it in is the world — and `observe`
 is what reads it back.
 
@@ -555,6 +555,6 @@ from any hook that threw.
 
 ## What survives a restart
 
-Nothing is torn down when tauler exits or re-execs. The next Sweep after it comes back runs
+Nothing is torn down when Tauler exits or re-execs. The next Sweep after it comes back runs
 `observe`, sees the world as it is, and carries on from there — which is the same thing it
 does on the very first Sweep. A Unit does not need to know whether it has run before.

@@ -18,7 +18,7 @@ theme:
 ---
 ```
 
-With no `theme:` block at all, tauler draws with `default-dark`.
+With no `theme:` block at all, Tauler draws with `default-dark`.
 
 | Theme                                                                    | Mode        | Notes                                              |
 | ------------------------------------------------------------------------ | ----------- | -------------------------------------------------- |
@@ -34,7 +34,7 @@ With no `theme:` block at all, tauler draws with `default-dark`.
 | `everforest-dark`                                                        | dark        | Everforest, default contrast.                      |
 | `gruvbox-material-dark`                                                  | dark        | Gruvbox Material, default contrast.                |
 
-An unknown name stops tauler at startup and lists the names it knows. If you reload a layout
+An unknown name stops Tauler at startup and lists the names it knows. If you reload a layout
 file whose theme can't be loaded, the theme already on screen stays and the reason is logged.
 
 The built-in themes are made from these Neovim colour schemes, each under its own licence, which
@@ -69,7 +69,7 @@ theme:
 ---
 ```
 
-Name a built-in **or** a file, never both: that stops tauler rather than choosing one.
+Name a built-in **or** a file, never both: that stops Tauler rather than choosing one.
 
 ## Writing a theme file
 
@@ -92,7 +92,7 @@ fonts:
 `radius` and `fonts` are optional.
 
 A theme that leaves a required colour out, or gives any colour a value that is not one, does not
-load — tauler stops at startup and says which, instead of drawing elements with no colour.
+load — Tauler stops at startup and says which, instead of drawing elements with no colour.
 
 ### Colours every theme defines
 
@@ -122,7 +122,7 @@ and accents). A layout using one a theme doesn't define gets no colour from it.
 
 For each text colour and the surface it is drawn on — `foreground` on `background`,
 `card-foreground` on `card`, `primary-foreground` on `primary`, and so on — aim for at least
-**3:1**. A theme file with a pair below that still loads; tauler logs a warning naming the
+**3:1**. A theme file with a pair below that still loads; Tauler logs a warning naming the
 pair. Every built-in theme clears it.
 
 ## Using theme colours in a layout

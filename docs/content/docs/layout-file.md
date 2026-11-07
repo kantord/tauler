@@ -3,7 +3,7 @@ title: The layout file
 description: The shape of a layout file, the nodes it can contain, and the props each one takes.
 ---
 
-A bar is one file at `~/.config/tauler/layout.op.mdx`. It is an ES module, and its
+Your layout is one file at `~/.config/tauler/layout.op.mdx`. It is an ES module, and its
 **default export is the render function**:
 
 ```jsx
@@ -29,7 +29,7 @@ stream values are cleared, so a reload is a cold start, not a refresh.
 Components are plain JS functions that take props and return a tree. There is nothing to
 register: JSX handles `<Card />` as a function call already.
 
-Every file a bar loads, the layout file and everything it imports, can read where it
+Every file your layout loads, the layout file and everything it imports, can read where it
 lives: `import.meta.dirname` (its directory), `import.meta.filename` (its absolute path)
 and `import.meta.url` (the same path as a `file://` URL). They are plain strings and
 open nothing. In a browser preview there is no file on disk: `dirname` and `filename`
@@ -57,7 +57,7 @@ export default function render() {
 }
 ```
 
-Everything about *what* a bar contains lives in the layout file's body, never its
+Everything about *what* Tauler draws lives in the layout file's body, never its
 frontmatter — the same distinction a `_layout.jsx` vs `config.yaml` split used to make
 across two files now lives inside one.
 
@@ -70,7 +70,7 @@ closing `---` line is ordinary JSX, passed through exactly as written. A bare he
 paragraph at flow position is a JS syntax error, not content: markdown syntax is only
 safe inside a comment, where it's just text nobody renders. You can still *write* it in
 markdown format there, for a person reading the file — headings, bold, lists all work as
-markdown once you're reading the comment as markdown, tauler just never converts it to
+markdown once you're reading the comment as markdown, Tauler just never converts it to
 HTML:
 
 ```jsx
@@ -167,9 +167,9 @@ warning.
 ## Seeing through a panel
 
 Each panel is rasterized into its own buffer, so there is nothing behind it to show
-through — a translucent background paints onto nothing. To give it something, tauler binds
+through — a translucent background paints onto nothing. To give it something, Tauler binds
 the slice of wallpaper that panel covers as an image named `tauler:root-bg`, for the
-duration of one render. The `tauler:` scheme marks it as a resource tauler binds rather
+duration of one render. The `tauler:` scheme marks it as a resource Tauler binds rather
 than a file to read, so no file on disk can shadow it:
 
 ```jsx
@@ -198,6 +198,6 @@ hoists that work and costs about 5ms.
 sibling still paints above the image and avoids a family of layout bugs that appear with
 several absolutely-positioned siblings.
 
-The pixels come from tauler's own `<wallpaper>` node, matched by output. A wallpaper set
+The pixels come from Tauler's own `<wallpaper>` node, matched by output. A wallpaper set
 by another program — `feh`, `xwallpaper` — is not visible here. A panel on an output with
 no `<wallpaper>` gets no wallpaper behind it at all, rather than borrowing its neighbour's.

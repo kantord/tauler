@@ -1,17 +1,18 @@
 ---
 title: tauler
-description: A JSX-based Linux status bar renderer.
+description: Declare panels, wallpapers and Units for a Linux desktop in one layout file.
 ---
 
-Tauler is a status bar for Linux whose layout is written as a `.jsx` file. The
-file returns a tree of `<panel>` nodes; tauler evaluates it on every data tick
-and renders the result into X11 or Wayland windows.
+Tauler draws status bars and panels on Linux from one file,
+`~/.config/tauler/layout.op.mdx`. Its render function returns a `<root>` element
+holding `<panel>` and `<wallpaper>` nodes; Tauler evaluates it on every data tick and
+renders each panel into an X11 window or a Wayland layer surface.
 
 ## The rendering model
 
 Tauler borrows JSX syntax, but the execution model is deliberately simpler than
 React's. Rather than tracking state and re-rendering the subtrees that changed,
-tauler is a pure function called on every tick:
+Tauler is a pure function called on every tick:
 
 ```
 (all stream values) → UI tree
@@ -23,7 +24,7 @@ produces a fresh layout tree — closer to a spreadsheet than to React.
 
 ### Streams replace useState and useEffect
 
-Where React subscribes to external data with `useEffect` and `useState`, tauler
+Where React subscribes to external data with `useEffect` and `useState`, Tauler
 declares the data source inline and hands you the latest value synchronously:
 
 ```jsx
@@ -54,7 +55,7 @@ const notifications = useJSONStream("...tauler-notify")?.notifications ?? [];
 
 ### History comes from a pipe
 
-tauler keeps one value per stream, the latest line, so nothing in the render
+Tauler keeps one value per stream, the latest line, so nothing in the render
 function can look backwards. History is added by piping the source through
 `tauler-accumulate`, which hands you a window instead of a value:
 

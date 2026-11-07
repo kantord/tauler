@@ -12,9 +12,9 @@ import { WeatherCard } from "@gh/someone/tauler-weather";
 <WeatherCard city="Budapest" />
 ```
 
-The first time a layout imports `@gh/owner/repo`, tauler clones it, pins it to whatever
+The first time a layout imports `@gh/owner/repo`, Tauler clones it, pins it to whatever
 commit is current, and writes that pin to a lockfile next to the layout file —
-`tauler-pkg.lock`. Every later run reads the same pin, so the bar never silently changes
+`tauler-pkg.lock`. Every later run reads the same pin, so your layout never silently changes
 because upstream pushed a new commit.
 
 The lockfile is plain YAML. Commit it to your dotfiles repo alongside `layout.op.mdx`:
@@ -37,7 +37,7 @@ when you run this.
 ## Working on a Package yourself
 
 If you're the one maintaining `someone/tauler-weather`, pinning to a commit gets in the
-way — you want tauler to use your working checkout as you edit it, not a locked
+way — you want Tauler to use your working checkout as you edit it, not a locked
 snapshot. Mark the entry `development: true` by hand:
 
 ```yaml
@@ -46,7 +46,7 @@ someone/tauler-weather:
   development: true
 ```
 
-tauler clones it once and leaves it alone from then on — no pin enforced, never
+Tauler clones it once and leaves it alone from then on — no pin enforced, never
 touched by `tauler pkg update`.
 
 ## What importing a Package means
@@ -81,8 +81,8 @@ export function Volume({ bin = DEFAULT_BIN }) {
 ```
 
 `import.meta.dirname` points into the checkout of the pinned commit, so the program
-always matches the component that runs it. Nobody has to copy anything out of tauler's
-cache. `tauler pkg update` does not touch a running bar: the new commit, and the
+always matches the component that runs it. Nobody has to copy anything out of Tauler's
+cache. `tauler pkg update` does not touch a running Tauler: the new commit, and the
 program from it, start on the next reload, such as saving the layout file.
 
 Commit the program with its executable bit set (`chmod +x bin/tauler-volume`, then

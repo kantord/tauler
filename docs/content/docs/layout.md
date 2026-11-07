@@ -24,7 +24,7 @@ There is no left or right dock. A full-height sidebar — the most common panel 
 cannot reserve space this way even in principle.
 
 So on i3, space is reserved by **telling i3 directly**, via its gaps. That is a decision
-you make, not something tauler can infer from a panel's size.
+you make, not something Tauler can infer from a panel's size.
 
 ## `<I3Layout>`
 
@@ -96,7 +96,7 @@ thickness is whatever a wrapper's own CSS already says, not a number restated be
 Design one wrapper as if it fully surrounded the workspace area — border, padding,
 rounded corners, whatever a frame needs — with `<Contents/>` marking where that area is.
 `<Contents/>` is a real, ordinary `<div>`; nothing about it needs to be invisible,
-because nothing ever paints over it either way — tauler never places a panel there, so
+because nothing ever paints over it either way — Tauler never places a panel there, so
 whatever `<Contents/>` itself would have looked like never reaches the screen.
 `<Workspaces>` renders the wrapper once to find out where `<Contents/>` actually landed,
 then turns whichever edges it doesn't already touch into real `<panel>`s: a `p-3`
@@ -111,7 +111,7 @@ Usable once, as the last child of `<I3Layout>` — it takes whatever rectangle i
 after every `<Panel>` before it, the same way an unanchored `<Panel>` would, except it
 frames that rectangle instead of covering it. A repeated or misplaced `<Workspaces>`
 degrades the same way an unknown `<Panel>` anchor does: only the last one declared is
-used, nothing crashes — but tauler's own log gets a warning either way, since this one
+used, nothing crashes — but Tauler's own log gets a warning either way, since this one
 is a constraint rather than a typo tolerance.
 
 ## Doing it by hand
@@ -131,7 +131,7 @@ correspond to any panel, say. An omitted side reserves nothing.
 i3 has no "set this gap on every workspace on this output" command — only
 `gaps <side> current set <px>`, which always targets whichever workspace is
 focused *right now*. So when the gaps change (an output is plugged in, a
-layout reloads, tauler restarts), only the currently-focused workspace is
+layout reloads, Tauler restarts), only the currently-focused workspace is
 corrected immediately.
 
 A workspace that was not focused at that moment keeps its old gaps — dead
@@ -147,7 +147,7 @@ config directive instead:
 workspace 3 gaps inner 12
 ```
 
-That reserves space immediately, with no round-trip through tauler or i3's
+That reserves space immediately, with no round-trip through Tauler or i3's
 IPC at all.
 
 ## A note on units

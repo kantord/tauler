@@ -3,8 +3,8 @@ title: Data and events
 description: Reading from subprocesses, sending them messages, and the state a layout can keep.
 ---
 
-Every piece of external data a bar shows comes from a subprocess. A layout declares what it
-wants to read from — on every tick, unconditionally — and tauler decides what to spawn,
+Every piece of external data your layout shows comes from a subprocess. A layout declares what it
+wants to read from — on every tick, unconditionally — and Tauler decides what to spawn,
 keep, or kill.
 
 ## Declare subprocesses unconditionally
@@ -52,7 +52,7 @@ const data = useJSONStream("/usr/bin/myscript");
 
 ## History: `tauler-accumulate`
 
-tauler keeps exactly one value per stream — the latest line. A layout that needs to show
+Tauler keeps exactly one value per stream — the latest line. A layout that needs to show
 what happened *before* now gets it by piping the stream through `tauler-accumulate`, inside
 the script you are already writing:
 
@@ -188,7 +188,7 @@ Reach for the array unless you need the pointer. The function form exists becaus
 has to turn a position into a number, and it receives the same argument everywhere for
 consistency. A handler that throws is logged once and dispatches nothing.
 
-On a click, tauler finds the **topmost element painted over that point** that carries a
+On a click, Tauler finds the **topmost element painted over that point** that carries a
 handler, then delivers each intent's `event` object verbatim to that intent's channel over
 stdin — one JSON object per line, no wrapping envelope. A handler written as an array is
 sent as it stands; one written as a function is called first, and what it returns is sent.

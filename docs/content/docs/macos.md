@@ -1,6 +1,6 @@
 ---
 title: macOS
-description: Running tauler on macOS with AeroSpace — experimental, and what to expect.
+description: Running Tauler on macOS with AeroSpace — experimental, and what to expect.
 ---
 
 :::danger[Experimental]
@@ -11,28 +11,28 @@ with it. If you want a status bar that simply works, use
 
 - **One measurement is manual.** You read the screen's top inset and paste the values it
   implies into two files.
-  Under i3, tauler works this out for you.
+  Under i3, Tauler works this out for you.
 - **Native fullscreen is unhandled.** A window sent to its own Space with
-  `macos-native-fullscreen` may not behave sensibly with the bar.
+  `macos-native-fullscreen` may not behave sensibly with Tauler.
 - **No CI coverage.** The Linux backend is tested end-to-end on every pull request. macOS
   is not, so regressions here are found by you.
 - **AeroSpace is pre-1.0** and ships beta builds only.
 :::
 
-You get a bar drawn by the same renderer as every other platform, with live AeroSpace
+You get your layout drawn by the same renderer as every other platform, with live AeroSpace
 workspaces and click-to-switch. It stays put across workspace switches and is never tiled.
 
 ![A macOS desktop under AeroSpace: a workspace rail down the left with pills for main, code,
 web, chat and files, a clock at the bottom, and two terminal windows tiled side by side over
 a purple gradient](../../src/assets/macos-split-terminals.png)
 
-The rail is a tauler panel; the gradient behind it is a tauler `<wallpaper>`. Everything
+The rail is a Tauler panel; the gradient behind it is a Tauler `<wallpaper>`. Everything
 between them is AeroSpace tiling ordinary windows.
 
 ## 1. Install
 
 AeroSpace must be **0.21.0-Beta or newer** — older builds have no `aerospace subscribe`,
-which is what drives the bar.
+which is what drives Tauler.
 
 ```sh
 brew install --cask aerospace
@@ -48,7 +48,7 @@ If `subscribe` prints `Unrecognized subcommand`, run `brew upgrade --cask aerosp
 
 [`examples/macos-aerospace`](https://github.com/kantord/tauler/tree/main/examples/macos-aerospace)
 is a small dotfiles repo — a `home/` tree you copy over your own. It configures both halves,
-because a desktop is more than a bar.
+because a desktop is more than Tauler.
 
 ```
 home/.config/tauler/layout.op.mdx       the rail, theme and font
@@ -95,7 +95,7 @@ Re-run that command whenever you change display scaling. The inset is measured i
 and on a notched Mac the notch is a fixed physical size — so a denser scaling fits *more*
 points inside it, and every one of those numbers moves.
 
-tauler should report the usable area itself and delete this whole step:
+Tauler should report the usable area itself and delete this whole step:
 [#416](https://github.com/kantord/tauler/issues/416).
 :::
 
@@ -112,7 +112,7 @@ full width would read as a wider margin on the left than on the other three side
 
 **The rail is never tiled, and needs no rule to make that true.** AeroSpace decides what to
 manage from the window itself — it wants a close, fullscreen, zoom or minimize button, or a
-standard accessibility subrole. tauler runs as an *accessory* application with no Dock icon,
+standard accessibility subrole. Tauler runs as an *accessory* application with no Dock icon,
 so AeroSpace never sees its windows and never moves them. An `[[on-window-detected]]` rule
 with `layout floating` looks like the fix and is not: floating windows still belong to a
 workspace, and still vanish when you leave it.

@@ -25,7 +25,8 @@ export default function PrinciplesSlide() {
           </Principle>
           <Principle title="reload" n="3" heading="Save, and it reloads">
             The file is watched. A reload restarts every subprocess and clears
-            every stream: each save is a clean start, never a half-updated bar.
+            every stream: each save is a clean start, never a half-updated
+            layout.
           </Principle>
         </div>
       </Window>

@@ -72,7 +72,7 @@ contents — a `<style>` body would otherwise render as visible text.
   `<img src="data:image/svg+xml,<svg …>" />`
 - **`display: table`** does not exist, so `<table>`, `<tr>` and `<td>` lay out as plain
   blocks. Use flex or grid for columns.
-- **Nesting deeper than 32 elements** is a parse error rather than a crash. No real bar
+- **Nesting deeper than 32 elements** is a parse error rather than a crash. No real layout
   comes close.
 
 ## Styling: `class` and `style`
@@ -83,7 +83,7 @@ contents — a `<style>` body would otherwise render as visible text.
 <div class="flex flex-row items-center gap-2 rounded-lg bg-card px-3 py-2">
 ```
 
-Utilities neither tauler's theme layer nor the renderer recognizes pass straight through,
+Utilities neither Tauler's theme layer nor the renderer recognizes pass straight through,
 so an unknown class is inert rather than an error. Theme tokens — `bg-card`,
 `text-muted-foreground`, `border-border`, `rounded-lg` — are substituted for the values in
 the active theme before rendering. See [Themes](/docs/themes/) for the names and for how
@@ -132,7 +132,7 @@ multi-word family become underscores:
 ```
 
 This is takumi's own arbitrary-class parsing, the same mechanism behind `text-[10px]`;
-tauler's part is only registering the font so the class has something to resolve to.
+Tauler's part is only registering the font so the class has something to resolve to.
 
 ### Font roles
 
@@ -160,7 +160,7 @@ doesn't, they still resolve through takumi's built-in font handling, exactly as 
 
 ### Measure text: `measureText`
 
-`measureText(text, { family, size, weight, style })` returns how wide tauler draws `text`,
+`measureText(text, { family, size, weight, style })` returns how wide Tauler draws `text`,
 in logical pixels. Use it to size a margin to its widest label, to drop labels that would
 overlap, or to shorten a label that does not fit:
 
@@ -183,7 +183,7 @@ The text is measured as one line, exactly as written: spaces are kept, and each 
 line-break character counts as a space.
 
 `family` is resolved the way a `fontFamily` style is, so the width is the width of what
-appears. A family that is not installed is measured in the font tauler falls back to, so
+appears. A family that is not installed is measured in the font Tauler falls back to, so
 it does not fail. An empty `family`, a `family` that is not a CSS family list (such as
 `"a;b"`), a `size` that is not a positive number, or a `text` that is not a string throws a
 `TypeError`.

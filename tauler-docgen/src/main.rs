@@ -653,7 +653,7 @@ fn render_markdown(components: &[Component], rendered: &[Option<Rendered>]) -> S
     // Boots the wasm module and mounts every live example; see its own module docs.
     out.push_str("<TaulerExamples />\n\n");
     out.push_str(
-        "Every component tauler ships, grouped by kind. The [components page](/docs/components/) says what the kinds mean and how to choose between them.\n\n",
+        "Every component Tauler ships, grouped by kind. The [components page](/docs/components/) says what the kinds mean and how to choose between them.\n\n",
     );
     let listed = top_level(components);
     for (kind, heading) in [
