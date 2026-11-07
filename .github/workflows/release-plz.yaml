@@ -34,9 +34,11 @@ jobs:
         uses: release-plz/action@66b324fd6c72d05d2a08568492ecdd62bfb8a62b # v0.5
         with:
           command: release
+        # No CARGO_REGISTRY_TOKEN: `publish = false` in release-plz.toml means this
+        # step never uploads, so the only step holding a crates.io credential is the
+        # publish step below.
         env:
           GITHUB_TOKEN: ${{ secrets.RELEASE_PLZ_TOKEN }}
-          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
       - name: Publish to crates.io
         run: |
           set -o pipefail
@@ -123,9 +125,11 @@ jobs:
         uses: release-plz/action@66b324fd6c72d05d2a08568492ecdd62bfb8a62b # v0.5
         with:
           command: release-pr
+        # No CARGO_REGISTRY_TOKEN: release-pr only reads from crates.io, which needs
+        # no token, and cargo-semver-checks compiles every dependency's build script
+        # in this step -- a publish credential here would be reachable by all of them.
         env:
           GITHUB_TOKEN: ${{ secrets.RELEASE_PLZ_TOKEN }}
-          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
       # release-plz rewrites a path dependency's version requirement only for the
       # crates it releases, but `version.workspace = true` bumps every member. Any
       # cycle where a sibling crate has no commits of its own therefore produces a
