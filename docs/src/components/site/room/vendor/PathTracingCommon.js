@@ -1,7 +1,8 @@
 // js/PathTracingCommon.js from Erich Loftis's THREE.js PathTracing Renderer,
 // https://github.com/erichlof/THREE.js-PathTracing-Renderer at
 // f8ded116a3c674db552d4481e59c61d28cf81833, CC0 (LICENSE, beside this file; it also covers
-// public/room/BlueNoise_R_128.png, from the same commit). The body is the upstream
+// public/room/BlueNoise_R_128.png and public/room/shaders/{vs,fs-out}.glsl, from the same
+// commit). The body is the upstream
 // file as it is; only the exported wrapper that takes THREE is added.
 export function installPathTracingChunks(THREE) {
 THREE.ShaderChunk[ 'pathtracing_uniforms_and_defines' ] = `
