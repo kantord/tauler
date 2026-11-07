@@ -10,8 +10,17 @@ jobs:
     name: Release-plz release
     runs-on: ubuntu-latest
     if: ${{ github.repository_owner == 'kantord' }}
+    # The crates.io trusted publishers name this environment, and the environment
+    # only deploys from `main` -- so a branch that edits this workflow to run on
+    # itself still cannot publish.
+    environment: crates-io
     permissions:
       contents: write
+      # crates.io trusted publishing: release-plz exchanges the job's OIDC token for
+      # a 30-minute crates.io token. Each crate needs a trusted publisher configured
+      # on crates.io (repo kantord/tauler, workflow release-plz.yaml), and a crate's
+      # very first version must be published by hand.
+      id-token: write
     # Deliberately no `concurrency` block, per the official workflow
     # (https://release-plz.dev/docs/github/quickstart): GitHub keeps only the newest
     # pending run per group and cancels the rest, and a cancelled run here is a
@@ -30,50 +39,35 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y libwayland-dev libxkbcommon-dev libfontconfig-dev libxcb1-dev pkg-config
-      - name: Create git tags and GitHub releases
+      # A GitHub App token, not the default GITHUB_TOKEN: releases created with
+      # GITHUB_TOKEN start no workflows, and binary-release.yaml runs on
+      # `release: published`. The token expires after an hour and is revoked when
+      # the job ends.
+      - name: Generate GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        with:
+          client-id: ${{ secrets.RELEASE_APP_CLIENT_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+          # Tags and GitHub releases; PR reads are for the release notes.
+          permission-contents: write
+          permission-pull-requests: read
+      # Per crate, in dependency order: publish to crates.io, then tag, then create
+      # the GitHub release (which starts binary-release.yaml).
+      #
+      # If a crate uploads but its tag or release then fails (a GitHub API
+      # outage, say), later runs see it on crates.io and never tag it
+      # (release-plz/release-plz#2578), so its binaries never build. Recover by hand
+      # from your own `gh` login (not GITHUB_TOKEN, whose releases start no workflows):
+      #   gh release create <crate>-v<version> --target <sha of the release commit>
+      - name: Publish, tag and create GitHub releases
         uses: release-plz/action@66b324fd6c72d05d2a08568492ecdd62bfb8a62b # v0.5
         with:
           command: release
-        # No CARGO_REGISTRY_TOKEN: `publish = false` in release-plz.toml means this
-        # step never uploads, so the only step holding a crates.io credential is the
-        # publish step below.
+        # No CARGO_REGISTRY_TOKEN, not even an empty one: release-plz falls back to
+        # trusted publishing only when that variable is absent.
         env:
-          GITHUB_TOKEN: ${{ secrets.RELEASE_PLZ_TOKEN }}
-      - name: Publish to crates.io
-        run: |
-          set -o pipefail
-          order=$(cargo metadata --format-version 1 | jq -r '
-            . as $m
-            | [ $m.workspace_members[] as $id
-                | $m.packages[] | select(.id == $id) | select(.publish != []) | .name ] as $ws
-            | $m.packages[]
-            | select(.name as $n | $ws | index($n))
-            | . as $p
-            | "\($p.name) \($p.name)",
-              # Dev-dependencies do not gate publishing, and a dev-dep pointing back
-              # at its own dependent (crate <-> its test helper, say) would read as a
-              # cycle and make `tsort` emit a partial order without failing the step.
-              (.dependencies[] | select(.kind != "dev")
-                | select(.name as $d | $ws | index($d)) | "\(.name) \($p.name)")
-          ' | tsort)
-          for pkg in $order; do
-            echo "Publishing $pkg..."
-            if cargo publish -p "$pkg" 2>&1 | tee /tmp/publish.log; then
-              continue
-            fi
-            # Two messages for the same state: the first is cargo's pre-check against
-            # the index; the second is crates.io rejecting the upload because a
-            # concurrent run of this workflow (one per push, no concurrency group)
-            # uploaded the same version while this one was still compiling.
-            if grep -qE 'already exists on crates.io|is already uploaded' /tmp/publish.log; then
-              echo "$pkg already published, skipping."
-            else
-              echo "$pkg failed to publish."
-              exit 1
-            fi
-          done
-        env:
-          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+          GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
 
   release-plz-pr:
     name: Release-plz PR
@@ -94,7 +88,7 @@ jobs:
       cancel-in-progress: false
     steps:
       # Runs before checkout, deliberately: the checkout step below persists a
-      # repo-write PAT to disk (needed for the push in the fixup step further
+      # repo-write token to disk (needed for the push in the fixup step further
       # down), and apt installing from the Ubuntu archive runs postinst
       # scripts as root. Installing system deps first keeps that install off
       # the same disk state as a live write credential.
@@ -107,15 +101,23 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y libwayland-dev libxkbcommon-dev libfontconfig-dev libxcb1-dev pkg-config
+      - name: Generate GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        with:
+          client-id: ${{ secrets.RELEASE_APP_CLIENT_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+          # Pushes the release branch and opens/edits the release PR.
+          permission-contents: write
+          permission-pull-requests: write
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
-          # The fixup step below pushes to the release branch. A PAT, not the
-          # default GITHUB_TOKEN: pushes made with GITHUB_TOKEN do not start
-          # workflow runs, so the release PR would keep showing the failed CI
-          # from the commit the fixup corrects.
-          token: ${{ secrets.RELEASE_PLZ_TOKEN }}
+          # The fixup step below pushes to the release branch. An App token, not
+          # the default GITHUB_TOKEN: pushes made with GITHUB_TOKEN do not start
+          # workflow runs, so CI would never run on the release PR.
+          token: ${{ steps.app-token.outputs.token }}
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
         with:
@@ -129,7 +131,7 @@ jobs:
         # no token, and cargo-semver-checks compiles every dependency's build script
         # in this step -- a publish credential here would be reachable by all of them.
         env:
-          GITHUB_TOKEN: ${{ secrets.RELEASE_PLZ_TOKEN }}
+          GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
       # release-plz rewrites a path dependency's version requirement only for the
       # crates it releases, but `version.workspace = true` bumps every member. Any
       # cycle where a sibling crate has no commits of its own therefore produces a
