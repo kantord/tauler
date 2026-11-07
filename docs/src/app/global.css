@@ -7,58 +7,64 @@
 @source not '../../content';
 
 /* ── Design tokens ─────────────────────────────────────────────────────────
-   From the "tauler — website" design. Light on :root, dark on .dark (the
-   class next-themes puts on <html>). The fonts are @fontsource packages,
-   imported in src/app/layout.tsx; the --font-tu-* variables name them. */
+   The tauler design system: twelve base colours in OKLCH, light on :root and
+   dark on .dark (the class next-themes puts on <html>). Anchors (page, raised,
+   ink, orange, ...) are exact brand values; ink-muted, rule, line and red are
+   generated with Leonardo against the page. Components use only the shadcn
+   slots below, which alias these. Fonts are @fontsource packages, imported in
+   src/app/layout.tsx; the --font-tu-* variables name them. */
 
 :root {
   /* The packages imported in src/app/layout.tsx. */
   --font-tu-display: 'Archivo Variable', sans-serif;
   --font-tu-text: 'DM Sans Variable', sans-serif;
   --font-tu-mono: 'IBM Plex Mono', monospace;
-  --font-tu-ws: 'Oswald', sans-serif;
   /* Height of the sticky site header on a wide screen (one row: 40px
      controls, 8px padding top and bottom, 1.5px rule). */
   --tu-header-h: 58px;
-  --tu-page: #e6e4de;
-  --tu-body: #f3f2ee;
-  --tu-ink: #111111;
-  --tu-muted: #5d5b55;
-  --tu-line: #c9c7bf;
-  --tu-or: #e2561f;
-  --tu-ord: #b8441a;
-  --tu-rule: #111111;
-  --tu-t2: #c9c7bf;
-  --tu-code: #1c1c1b;
-  --tu-codeink: #f4f2ec;
-  --tu-key: #111111;
-  /* Text on an orange fill is always this, in both themes. */
-  --tu-on-or: #111111;
-  /* Errors and destructive actions; 4.5:1 or more on page and body. */
-  --tu-red: #a61b1b;
+  --page: oklch(0.919 0.008 91.5);
+  --raised: oklch(0.961 0.005 95.1);
+  --ink: oklch(0.178 0 0);
+  --ink-muted: oklch(0.435 0.008 88.7);
+  --line: oklch(0.805 0.003 84.6);
+  --rule: oklch(0.178 0 0);
+  --orange: oklch(0.632 0.186 39.2);
+  --orange-deep: oklch(0.541 0.159 38.5);
+  /* Orange as text or a focus ring: 5.2:1 on page and 5.9:1 on raised. */
+  --orange-ink: oklch(0.5 0.181 33.9);
+  --on-orange: oklch(0.178 0 0);
+  --red: oklch(0.491 0.166 27.2);
+  --code: oklch(0.226 0.002 106.6);
+  --code-ink: oklch(0.961 0.008 91.5);
+  /* Syntax colours for the code panel, which is dark in both themes, so they
+     do not change. All hold 4.5:1 or more on --code. */
+  --code-muted: oklch(0.624 0.012 89.8);
+  --code-soft: oklch(0.776 0.013 91.5);
+  --code-orange: oklch(0.703 0.195 40.2);
+  --code-orange-soft: oklch(0.762 0.15 43.6);
+  --code-yellow: oklch(0.846 0.169 84.9);
   /* Read by the wallpaper (src/components/site/wallpaper). Its background
-     pixels are exactly --wallpaper-bg, so it must equal --tu-page, or the
+     pixels are exactly --wallpaper-bg, so it must equal --page, or the
      gaps between windows show a seam. */
-  --wallpaper-bg: #e6e4de;
+  --wallpaper-bg: var(--page);
   --wallpaper-ring-l: 0.66;
   --wallpaper-ring-c: 0.12;
 }
 
 .dark {
-  --tu-page: #111110;
-  --tu-body: #1c1c1a;
-  --tu-ink: #ecebe6;
-  --tu-muted: #9b988f;
-  --tu-line: #34332f;
-  --tu-or: #ff6a2e;
-  --tu-ord: #c4501f;
-  --tu-rule: #6b6962;
-  --tu-t2: #57554f;
-  --tu-code: #161615;
-  --tu-codeink: #ecebe6;
-  --tu-key: #9b988f;
-  --tu-red: #ff6b6b;
-  --wallpaper-bg: #111110;
+  --page: oklch(0.177 0.002 106.6);
+  --raised: oklch(0.226 0.004 106.7);
+  --ink: oklch(0.939 0.007 97.4);
+  --ink-muted: oklch(0.666 0.007 97.4);
+  --line: oklch(0.313 0.005 91.6);
+  --rule: oklch(0.525 0.008 88.7);
+  --orange: oklch(0.703 0.195 40.2);
+  --orange-deep: oklch(0.577 0.16 40.8);
+  --orange-ink: var(--orange);
+  --on-orange: oklch(0.178 0 0);
+  --red: oklch(0.661 0.112 26.7);
+  --code: oklch(0.2 0.002 106.6);
+  --code-ink: oklch(0.939 0.007 97.4);
   --wallpaper-ring-l: 0.72;
   --wallpaper-ring-c: 0.11;
 }
@@ -66,64 +72,77 @@
 /* Fumadocs' own components (the search dialog) read these slots. */
 :root,
 .dark {
-  --color-fd-background: var(--tu-page);
-  --color-fd-foreground: var(--tu-ink);
-  --color-fd-muted: var(--tu-page);
-  --color-fd-muted-foreground: var(--tu-muted);
-  --color-fd-popover: var(--tu-body);
-  --color-fd-popover-foreground: var(--tu-ink);
-  --color-fd-card: var(--tu-body);
-  --color-fd-card-foreground: var(--tu-ink);
-  --color-fd-border: var(--tu-rule);
-  --color-fd-primary: var(--tu-or);
-  --color-fd-primary-foreground: var(--tu-on-or);
-  --color-fd-secondary: var(--tu-page);
-  --color-fd-secondary-foreground: var(--tu-ink);
-  --color-fd-accent: var(--tu-page);
-  --color-fd-accent-foreground: var(--tu-ink);
-  --color-fd-ring: var(--tu-or);
+  --color-fd-background: var(--page);
+  --color-fd-foreground: var(--ink);
+  --color-fd-muted: var(--page);
+  --color-fd-muted-foreground: var(--ink-muted);
+  --color-fd-popover: var(--raised);
+  --color-fd-popover-foreground: var(--ink);
+  --color-fd-card: var(--raised);
+  --color-fd-card-foreground: var(--ink);
+  --color-fd-border: var(--rule);
+  --color-fd-primary: var(--orange);
+  --color-fd-primary-foreground: var(--on-orange);
+  --color-fd-secondary: var(--page);
+  --color-fd-secondary-foreground: var(--ink);
+  --color-fd-accent: var(--page);
+  --color-fd-accent-foreground: var(--ink);
+  --color-fd-ring: var(--orange-ink);
 }
 
 /* shadcn/ui components (components.json) read these slots. */
 :root,
 .dark {
-  --background: var(--tu-page);
-  --foreground: var(--tu-ink);
-  --card: var(--tu-body);
-  --card-foreground: var(--tu-ink);
-  --popover: var(--tu-body);
-  --popover-foreground: var(--tu-ink);
-  --primary: var(--tu-or);
-  --primary-foreground: var(--tu-on-or);
-  --secondary: var(--tu-page);
-  --secondary-foreground: var(--tu-ink);
-  --muted: var(--tu-page);
-  --muted-foreground: var(--tu-muted);
-  --accent: var(--tu-page);
-  --accent-foreground: var(--tu-ink);
-  --destructive: var(--tu-red);
+  --background: var(--page);
+  --foreground: var(--ink);
+  --card: var(--raised);
+  --card-foreground: var(--ink);
+  --popover: var(--raised);
+  --popover-foreground: var(--ink);
+  --primary: var(--orange);
+  --primary-foreground: var(--on-orange);
+  --secondary: var(--page);
+  --secondary-foreground: var(--ink);
+  --muted: var(--page);
+  --muted-foreground: var(--ink-muted);
+  --accent: var(--page);
+  --accent-foreground: var(--ink);
+  --destructive: var(--red);
   /* Panels and separators take the thin line; controls the heavy rule. */
-  --border: var(--tu-line);
-  --input: var(--tu-rule);
-  --ring: var(--tu-or);
-  --chart-1: var(--tu-or);
-  --chart-2: var(--tu-ink);
-  --chart-3: var(--tu-muted);
-  --chart-4: var(--tu-ord);
-  --chart-5: var(--tu-line);
+  --border: var(--line);
+  --input: var(--rule);
+  --ring: var(--orange-ink);
+  --chart-1: var(--orange);
+  --chart-2: var(--ink);
+  --chart-3: var(--ink-muted);
+  --chart-4: var(--orange-deep);
+  --chart-5: var(--line);
   --radius: 0;
-  --sidebar: var(--tu-body);
-  --sidebar-foreground: var(--tu-ink);
-  --sidebar-primary: var(--tu-or);
-  --sidebar-primary-foreground: var(--tu-on-or);
-  --sidebar-accent: var(--tu-page);
-  --sidebar-accent-foreground: var(--tu-ink);
-  --sidebar-border: var(--tu-line);
-  --sidebar-ring: var(--tu-or);
+  --sidebar: var(--raised);
+  --sidebar-foreground: var(--ink);
+  --sidebar-primary: var(--orange);
+  --sidebar-primary-foreground: var(--on-orange);
+  --sidebar-accent: var(--page);
+  --sidebar-accent-foreground: var(--ink);
+  --sidebar-border: var(--line);
+  --sidebar-ring: var(--orange-ink);
 }
 
 @theme inline {
-  --font-ws: var(--font-tu-ws);
+  /* The design system's base colours as utilities: bg-raised, text-ink-muted,
+     border-rule, ... Prefer the shadcn slots below; use these for the
+     title-bar hatch and other design-only marks. */
+  --color-page: var(--page);
+  --color-raised: var(--raised);
+  --color-ink: var(--ink);
+  --color-ink-muted: var(--ink-muted);
+  --color-line: var(--line);
+  --color-rule: var(--rule);
+  --color-orange: var(--orange);
+  --color-orange-deep: var(--orange-deep);
+  --color-orange-ink: var(--orange-ink);
+  --color-on-orange: var(--on-orange);
+  --color-red: var(--red);
   --font-sans: var(--font-tu-text);
   --font-mono: var(--font-tu-mono);
   --color-background: var(--background);
@@ -179,8 +198,8 @@
     scrollbar-gutter: auto;
   }
   body {
-    background: var(--tu-page);
-    color: var(--tu-ink);
+    background: var(--page);
+    color: var(--ink);
     font-family: var(--font-tu-text);
   }
 }
@@ -227,43 +246,43 @@ html > body[data-scroll-locked] {
     font-weight: 600;
     display: inline-block;
     padding: 3px 7px;
-    border: 1.5px solid var(--tu-key);
+    border: 1.5px solid var(--rule);
     border-bottom-width: 3px;
-    background: var(--tu-body);
-    color: var(--tu-ink);
+    background: var(--raised);
+    color: var(--ink);
     white-space: nowrap;
     line-height: 1.4;
   }
   .tu a {
-    color: var(--tu-ink);
+    color: var(--ink);
   }
   .tu a:hover {
-    color: var(--tu-or);
+    color: var(--orange-ink);
   }
 
   /* The wordmark's hatched square. */
   .tu .mark {
     width: 16px;
     height: 16px;
-    border: 1.5px solid var(--tu-rule);
+    border: 1.5px solid var(--rule);
     background:
-      repeating-conic-gradient(var(--tu-or) 0 25%, transparent 0 50%) 0 0/4px
+      repeating-conic-gradient(var(--orange) 0 25%, transparent 0 50%) 0 0/4px
         4px,
-      var(--tu-body);
+      var(--raised);
   }
 
   /* ── Tiles: framed panels with a hatched title bar ─────────────────────── */
 
   .tu .tile {
-    border: 1.5px solid var(--tu-rule);
-    background: var(--tu-body);
+    border: 1.5px solid var(--rule);
+    background: var(--raised);
     display: flex;
     flex-direction: column;
     min-width: 0;
   }
   .tu .tile.on {
-    border-color: var(--tu-or);
-    box-shadow: 0 0 0 1.5px var(--tu-or);
+    border-color: var(--orange);
+    box-shadow: 0 0 0 1.5px var(--orange);
   }
   .tu .bar {
     display: flex;
@@ -271,12 +290,11 @@ html > body[data-scroll-locked] {
     align-items: center;
     min-height: 42px;
     padding: 6px 12px;
-    border-bottom: 1.5px solid var(--tu-rule);
+    border-bottom: 1.5px solid var(--rule);
     background:
-      repeating-conic-gradient(var(--tu-t2) 0 25%, transparent 0 50%) 0 0/4px
-        4px,
-      var(--tu-page);
-    color: var(--tu-muted);
+      repeating-conic-gradient(var(--line) 0 25%, transparent 0 50%) 0 0/4px 4px,
+      var(--page);
+    color: var(--ink-muted);
     font-family: var(--font-tu-mono);
     font-size: 13px;
     font-weight: 600;
@@ -285,33 +303,33 @@ html > body[data-scroll-locked] {
     flex: none;
   }
   .tu .tt {
-    background: var(--tu-page);
+    background: var(--page);
     padding: 3px 14px;
   }
   .tu .tile.on > .bar {
     background:
-      repeating-conic-gradient(var(--tu-ord) 0 25%, transparent 0 50%) 0 0/4px
-        4px,
-      var(--tu-or);
-    color: var(--tu-on-or);
-    border-bottom-color: var(--tu-or);
+      repeating-conic-gradient(var(--orange-deep) 0 25%, transparent 0 50%) 0
+        0/4px 4px,
+      var(--orange);
+    color: var(--on-orange);
+    border-bottom-color: var(--orange);
   }
   .tu .tile.on > .bar .tt {
-    background: var(--tu-or);
+    background: var(--orange);
   }
 
   /* A title bar that focuses its window is a button (home page). */
   .tu button.bar {
     width: 100%;
     border: 0;
-    border-bottom: 1.5px solid var(--tu-rule);
+    border-bottom: 1.5px solid var(--rule);
     cursor: pointer;
   }
   .tu button.sbar,
   .tu button.wbar {
     width: 100%;
     border: 0;
-    border-bottom: 1px solid var(--tu-line);
+    border-bottom: 1px solid var(--line);
     cursor: pointer;
   }
   .tu .tb {
@@ -328,42 +346,42 @@ html > body[data-scroll-locked] {
     grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr));
     gap: 10px;
     padding: 10px;
-    background: var(--tu-page);
+    background: var(--page);
     flex: 1;
   }
   .tu .subs > .sub {
     margin: 0;
   }
   .tu .sub.on {
-    border-color: var(--tu-or);
+    border-color: var(--orange);
   }
   .tu .sub.on > .sbar {
-    color: var(--tu-or);
+    color: var(--orange-ink);
     font-weight: 600;
-    border-bottom-color: var(--tu-or);
+    border-bottom-color: var(--orange);
     background:
-      repeating-conic-gradient(var(--tu-or) 0 25%, transparent 0 50%) left
+      repeating-conic-gradient(var(--orange) 0 25%, transparent 0 50%) left
         bottom/4px 4px repeat-x,
-      var(--tu-body);
+      var(--raised);
   }
 
   /* Mini app windows (the install terminal). */
   .tu .win {
-    border: 1px solid var(--tu-line);
+    border: 1px solid var(--line);
     display: flex;
     flex-direction: column;
     min-width: 0;
-    background: var(--tu-body);
+    background: var(--raised);
   }
   .tu .wbar {
     min-height: 32px;
     padding: 6px 10px 9px;
-    border-bottom: 1px solid var(--tu-line);
+    border-bottom: 1px solid var(--line);
     background:
-      repeating-conic-gradient(var(--tu-t2) 0 25%, transparent 0 50%) left
+      repeating-conic-gradient(var(--line) 0 25%, transparent 0 50%) left
         bottom/4px 4px repeat-x,
-      var(--tu-body);
-    color: var(--tu-muted);
+      var(--raised);
+    color: var(--ink-muted);
     font-family: var(--font-tu-mono);
     font-size: 12px;
     font-weight: 500;
@@ -379,21 +397,21 @@ html > body[data-scroll-locked] {
     font-size: 12px;
     text-transform: uppercase;
     letter-spacing: 0.1em;
-    color: var(--tu-muted);
+    color: var(--ink-muted);
     margin: 44px 0 12px;
     scroll-margin-top: calc(var(--tu-header-h) + 12px);
   }
   .tu .wslabel h1 {
     margin: 0;
     font: inherit;
-    color: var(--tu-ink);
+    color: var(--ink);
     font-weight: 600;
   }
   .tu .wslabel::after {
     content: '';
     flex: 1;
     height: 1.5px;
-    background: var(--tu-line);
+    background: var(--line);
     order: 1;
   }
   .tu .wslabel span {
@@ -404,31 +422,31 @@ html > body[data-scroll-locked] {
   .tu .ic {
     font-family: var(--font-tu-mono);
     font-size: 0.86em;
-    background: var(--tu-page);
-    border: 1px solid var(--tu-line);
+    background: var(--page);
+    border: 1px solid var(--line);
     padding: 1px 5px;
     white-space: nowrap;
   }
   .tu .hero-strip {
-    border: 1.5px solid var(--tu-rule);
+    border: 1.5px solid var(--rule);
     background:
-      repeating-conic-gradient(var(--tu-or) 0 25%, transparent 0 50%) 0 0/8px
+      repeating-conic-gradient(var(--orange) 0 25%, transparent 0 50%) 0 0/8px
         8px,
-      var(--tu-body);
+      var(--raised);
   }
   .tu .outline-num {
-    -webkit-text-stroke: 2px var(--tu-ink);
+    -webkit-text-stroke: 2px var(--ink);
     color: transparent;
   }
   .tu .home-code {
     display: flex;
-    background: var(--tu-code);
+    background: var(--code);
   }
   .tu .home-code pre {
     flex: 1;
     margin: 0;
     padding: 28px;
-    background: var(--tu-code) !important;
+    background: var(--code) !important;
     font-family: var(--font-tu-mono);
     font-size: 14px;
     line-height: 1.7;
@@ -452,8 +470,8 @@ html > body[data-scroll-locked] {
 
   /* Sub-panels: code blocks (callouts are components/ui/alert.tsx) */
   .tu .sub {
-    border: 1px solid var(--tu-line);
-    background: var(--tu-body);
+    border: 1px solid var(--line);
+    background: var(--raised);
     display: flex;
     flex-direction: column;
     min-width: 0;
@@ -462,12 +480,12 @@ html > body[data-scroll-locked] {
   .tu .sbar {
     min-height: 32px;
     padding: 6px 12px 9px;
-    border-bottom: 1px solid var(--tu-line);
+    border-bottom: 1px solid var(--line);
     background:
-      repeating-conic-gradient(var(--tu-t2) 0 25%, transparent 0 50%) left
+      repeating-conic-gradient(var(--line) 0 25%, transparent 0 50%) left
         bottom/4px 4px repeat-x,
-      var(--tu-body);
-    color: var(--tu-muted);
+      var(--raised);
+    color: var(--ink-muted);
     font-family: var(--font-tu-mono);
     font-size: 12px;
     font-weight: 500;
@@ -482,18 +500,18 @@ html > body[data-scroll-locked] {
     width: 100%;
     min-height: 38px;
     padding: 6px 12px;
-    color: var(--tu-ink);
+    color: var(--ink);
     font-family: var(--font-tu-text);
     font-size: 15px;
     font-weight: 500;
     text-decoration: none;
   }
   .tu .nav:hover {
-    color: var(--tu-or);
+    color: var(--orange-ink);
   }
   .tu .nav.on {
-    background: var(--tu-or);
-    color: var(--tu-on-or);
+    background: var(--orange);
+    color: var(--on-orange);
     font-weight: 700;
   }
   .tu .grp {
@@ -501,7 +519,7 @@ html > body[data-scroll-locked] {
     font-size: 11px;
     text-transform: uppercase;
     letter-spacing: 0.12em;
-    color: var(--tu-muted);
+    color: var(--ink-muted);
     padding: 18px 12px 6px;
   }
   .tu .toc a {
@@ -510,15 +528,15 @@ html > body[data-scroll-locked] {
     font-family: var(--font-tu-mono);
     font-size: 13px;
     text-decoration: none;
-    color: var(--tu-muted);
+    color: var(--ink-muted);
     border-left: 2px solid transparent;
   }
   .tu .toc a.depth-3 {
     padding-left: 26px;
   }
   .tu .toc a:hover {
-    color: var(--tu-or);
-    border-left-color: var(--tu-or);
+    color: var(--orange-ink);
+    border-left-color: var(--orange);
   }
   .tu .pn {
     display: flex;
@@ -528,9 +546,9 @@ html > body[data-scroll-locked] {
     width: 100%;
     min-height: 72px;
     padding: 14px 16px;
-    border: 1px solid var(--tu-line);
-    background: var(--tu-body);
-    color: var(--tu-ink);
+    border: 1px solid var(--line);
+    background: var(--raised);
+    color: var(--ink);
     text-align: left;
     font-family: var(--font-tu-text);
     font-size: 17px;
@@ -538,8 +556,8 @@ html > body[data-scroll-locked] {
     text-decoration: none;
   }
   .tu .pn:hover {
-    border-color: var(--tu-or);
-    color: var(--tu-ink);
+    border-color: var(--orange);
+    color: var(--ink);
   }
   .tu .pn small {
     display: inline-flex;
@@ -550,7 +568,7 @@ html > body[data-scroll-locked] {
     font-weight: 500;
     text-transform: uppercase;
     letter-spacing: 0.1em;
-    color: var(--tu-muted);
+    color: var(--ink-muted);
   }
 
   /* ── Article ───────────────────────────────────────────────────────────── */
@@ -589,7 +607,7 @@ html > body[data-scroll-locked] {
   .tu .art .lead {
     font-size: 20px;
     line-height: 1.55;
-    color: var(--tu-muted);
+    color: var(--ink-muted);
     margin-bottom: 28px;
   }
   .tu .art ul,
@@ -612,14 +630,14 @@ html > body[data-scroll-locked] {
     margin: 0;
   }
   .tu .art blockquote {
-    border-left: 3px solid var(--tu-line);
+    border-left: 3px solid var(--line);
     padding-left: 16px;
-    color: var(--tu-muted);
+    color: var(--ink-muted);
     margin: 0 0 16px;
   }
   .tu .art hr {
     border: 0;
-    border-top: 1px solid var(--tu-line);
+    border-top: 1px solid var(--line);
     margin: 32px 0;
   }
   .tu .art img {
@@ -629,14 +647,14 @@ html > body[data-scroll-locked] {
   .tu .art :not(pre) > code {
     font-family: var(--font-tu-mono);
     font-size: 0.86em;
-    background: var(--tu-page);
-    border: 1px solid var(--tu-line);
+    background: var(--page);
+    border: 1px solid var(--line);
     padding: 1px 5px;
     overflow-wrap: anywhere;
   }
   .tu .art a {
     text-decoration: underline;
-    text-decoration-color: var(--tu-or);
+    text-decoration-color: var(--orange);
     text-decoration-thickness: 1.5px;
     text-underline-offset: 3px;
   }
@@ -655,8 +673,8 @@ html > body[data-scroll-locked] {
   .tu pre.code {
     margin: 0;
     padding: 18px 20px;
-    background: var(--tu-code) !important;
-    color: var(--tu-codeink);
+    background: var(--code) !important;
+    color: var(--code-ink);
     font-family: var(--font-tu-mono);
     font-size: 14px;
     line-height: 1.7;
@@ -675,14 +693,14 @@ html > body[data-scroll-locked] {
   .tu .tbl {
     overflow-x: auto;
     margin: 0 0 20px;
-    border: 1px solid var(--tu-line);
+    border: 1px solid var(--line);
   }
   .tu table {
     width: 100%;
     min-width: 520px;
     border-collapse: collapse;
     font-size: 14px;
-    background: var(--tu-body);
+    background: var(--raised);
   }
   .tu th {
     font-family: var(--font-tu-mono);
@@ -690,15 +708,15 @@ html > body[data-scroll-locked] {
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.1em;
-    color: var(--tu-muted);
+    color: var(--ink-muted);
     text-align: left;
     padding: 10px 14px;
-    border-bottom: 1px solid var(--tu-line);
-    background: var(--tu-page);
+    border-bottom: 1px solid var(--line);
+    background: var(--page);
   }
   .tu td {
     padding: 11px 14px;
-    border-bottom: 1px solid var(--tu-line);
+    border-bottom: 1px solid var(--line);
     vertical-align: top;
     line-height: 1.5;
   }
@@ -724,7 +742,7 @@ html > body[data-scroll-locked] {
      busy where the wallpaper was pale and quiet, so text that sat straight on
      the wallpaper gets a solid patch of page colour behind it. */
   .tu .on-room .wslabel {
-    background: var(--tu-page);
+    background: var(--page);
     padding: 8px 12px;
   }
 }

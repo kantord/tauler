@@ -2,9 +2,9 @@ import type { CSSProperties } from 'react'
 import { LOGO_LETTERS } from './logo-letters'
 
 /**
- * The tauler logo, inline so it follows the theme: the ground is `--tu-ink`,
- * the letters, rules and light dither squares are `--tu-page`, and the
- * focused cell is `--tu-or`. In dark mode the whole mark inverts.
+ * The tauler logo, inline so it follows the theme: the ground is `--ink`,
+ * the letters, rules and light dither squares are `--page`, and the
+ * focused cell is `--orange`. In dark mode the whole mark inverts.
  *
  * `dither` is the side of one dither square in viewBox units. It should come
  * out at about one screen pixel (100 ÷ the rendered size): 3.6 at 36px, 4.5
@@ -43,22 +43,22 @@ export function Logo({
           height={cell}
           patternUnits="userSpaceOnUse"
         >
-          <rect width={cell} height={cell} fill="var(--tu-ink)" />
-          <rect width={dither} height={dither} fill="var(--tu-page)" />
+          <rect width={cell} height={cell} fill="var(--ink)" />
+          <rect width={dither} height={dither} fill="var(--page)" />
           <rect
             x={dither}
             y={dither}
             width={dither}
             height={dither}
-            fill="var(--tu-page)"
+            fill="var(--page)"
           />
         </pattern>
       </defs>
-      <rect width="100" height="100" fill="var(--tu-ink)" />
+      <rect width="100" height="100" fill="var(--ink)" />
       <rect y="80" width="66.667" height="20" fill={`url(#${id})`} />
-      <rect x="66.667" y="80" width="33.333" height="20" fill="var(--tu-or)" />
-      <path fill="var(--tu-page)" d={LOGO_LETTERS} />
-      <g fill="var(--tu-page)">
+      <rect x="66.667" y="80" width="33.333" height="20" fill="var(--orange)" />
+      <path fill="var(--page)" d={LOGO_LETTERS} />
+      <g fill="var(--page)">
         <rect x="32.083" width="2.5" height="100" />
         <rect x="65.417" width="2.5" height="100" />
         <rect y="38.75" width="100" height="2.5" />

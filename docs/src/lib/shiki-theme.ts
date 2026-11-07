@@ -1,20 +1,20 @@
 import type { ThemeRegistration } from 'shiki'
 
 /**
- * The design's code palette. Code panels are dark in both site themes, so
- * one theme serves both. Colours are the design's `sx-*` tokens.
+ * The design system's code palette: the --code-* variables in global.css.
+ * Code panels are dark in both site themes, so one theme serves both.
  */
 export const taulerCodeTheme: ThemeRegistration = {
   name: 'tauler',
   type: 'dark',
   colors: {
-    'editor.background': '#1c1c1b',
-    'editor.foreground': '#f4f2ec',
+    'editor.background': 'var(--code)',
+    'editor.foreground': 'var(--code-ink)',
   },
   tokenColors: [
     {
       scope: ['comment', 'punctuation.definition.comment'],
-      settings: { foreground: '#8a877f', fontStyle: 'italic' },
+      settings: { foreground: 'var(--code-muted)', fontStyle: 'italic' },
     },
     {
       scope: [
@@ -27,7 +27,7 @@ export const taulerCodeTheme: ThemeRegistration = {
         'variable.language',
         'punctuation.definition.variable.shell',
       ],
-      settings: { foreground: '#ff6a2e', fontStyle: 'bold' },
+      settings: { foreground: 'var(--code-orange)', fontStyle: 'bold' },
     },
     {
       scope: [
@@ -37,7 +37,7 @@ export const taulerCodeTheme: ThemeRegistration = {
         'support.function',
         'entity.name.type',
       ],
-      settings: { foreground: '#f4f2ec', fontStyle: 'bold' },
+      settings: { foreground: 'var(--code-ink)', fontStyle: 'bold' },
     },
     {
       scope: [
@@ -45,15 +45,15 @@ export const taulerCodeTheme: ThemeRegistration = {
         'variable.parameter',
         'meta.object-literal.key',
       ],
-      settings: { foreground: '#b9b6ad' },
+      settings: { foreground: 'var(--code-soft)' },
     },
     {
       scope: ['string', 'string.quoted', 'string.template'],
-      settings: { foreground: '#ffc21a' },
+      settings: { foreground: 'var(--code-yellow)' },
     },
     {
       scope: ['constant.numeric', 'constant.language', 'constant.character'],
-      settings: { foreground: '#ff8f5e' },
+      settings: { foreground: 'var(--code-orange-soft)' },
     },
     {
       scope: [
@@ -62,8 +62,11 @@ export const taulerCodeTheme: ThemeRegistration = {
         'meta.brace',
         'punctuation.section.embedded',
       ],
-      settings: { foreground: '#8a877f' },
+      settings: { foreground: 'var(--code-muted)' },
     },
-    { scope: ['keyword.operator'], settings: { foreground: '#b9b6ad' } },
+    {
+      scope: ['keyword.operator'],
+      settings: { foreground: 'var(--code-soft)' },
+    },
   ],
 }

@@ -18,7 +18,7 @@ export default function OverviewSlide() {
         <Window title="about" style={{ flex: '3 1 520px' }}>
           <div className="tb justify-center">
             <h2 className="h m-0 text-[clamp(30px,8.5vw,76px)]">
-              Declare your <span className="text-(--tu-or)">workspace.</span>
+              Declare your <span className="text-orange">workspace.</span>
             </h2>
             <p className="m-0 max-w-[30em] text-[19px] leading-[1.55]">
               Tauler draws status bars and panels on Linux from one layout file.
@@ -52,7 +52,7 @@ export default function OverviewSlide() {
             <Row k="theme:" v="a shipped theme, in frontmatter" last />
             <Link
               href="/docs/layout-file/"
-              className="m flex items-center gap-1.5 border-t border-(--tu-line) pt-3.5 pb-2.5 text-[13px] font-semibold underline decoration-(--tu-or) decoration-[1.5px] underline-offset-3"
+              className="m flex items-center gap-1.5 border-t border-line pt-3.5 pb-2.5 text-[13px] font-semibold underline decoration-orange decoration-[1.5px] underline-offset-3"
             >
               the layout file
               <Icon icon={ArrowRight} />
@@ -67,10 +67,10 @@ export default function OverviewSlide() {
 function Row({ k, v, last }: { k: string; v: string; last?: boolean }) {
   return (
     <div
-      className={`flex items-center justify-between gap-3 py-3.5 ${last ? '' : 'border-b border-(--tu-line)'}`}
+      className={`flex items-center justify-between gap-3 py-3.5 ${last ? '' : 'border-b border-line'}`}
     >
       <code className="ic">{k}</code>
-      <span className="m text-right text-[13px] text-(--tu-muted)">{v}</span>
+      <span className="m text-right text-[13px] text-ink-muted">{v}</span>
     </div>
   )
 }

@@ -76,7 +76,7 @@ export default async function GetStartedSlide() {
 function Step({ n, children }: { n: number; children: ReactNode }) {
   return (
     <li className="flex gap-3.5">
-      <span className="m font-semibold text-(--tu-or)">{n}</span>
+      <span className="m font-semibold text-orange-ink">{n}</span>
       <span>{children}</span>
     </li>
   )

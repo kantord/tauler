@@ -78,7 +78,7 @@ The home page background is decided in ADR
 other's primitives, on the Base UI that Fumadocs already ships rather than a second
 primitives library. A component is copied in only when a page needs it (the first were
 `Button` and `Alert`, in "the site's controls are themed shadcn components" below).
-shadcn's theme variables in `global.css` all point at the `--tu-*` tokens and
+shadcn's theme variables in `global.css` all alias the base tokens (ADR 0049) and
 `--radius` is 0, so whatever is added comes out in the design's colours, fonts and square
 corners. Two of the init's additions are left out on purpose: the `@layer base` rule
 (it would restyle every border and the body) and `shadcn/tailwind.css` (it redefines
@@ -154,8 +154,8 @@ Rejected:
 The site's buttons, button-styled links and callouts are shadcn's `Button` and
 `Alert` (base-lyra, added with `shadcn add`), in `src/components/ui/`. They used
 to be hand-built, each repeating the same inline classes. The look lives in two
-places. The colours are the shadcn slots in `global.css`, which point at the
-`--tu-*` tokens (above). The shape is the components' own `cva` classes, edited
+places. The colours are the shadcn slots in `global.css`, which alias the
+base tokens (ADR 0049). The shape is the components' own `cva` classes, edited
 to the design: a 1.5px rule, square corners, 12px uppercase mono with wide
 tracking, and an orange `focus-visible` outline. The variants are `default`
 (orange fill), `outline`, `outline-primary` (the terminal's copy button) and

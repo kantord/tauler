@@ -39,7 +39,7 @@ function AlertTitle({ className, ...props }: React.ComponentProps<'div'>) {
     <div
       data-slot="alert-title"
       className={cn(
-        'sbar border-b-primary font-semibold text-primary [background:repeating-conic-gradient(var(--primary)_0_25%,transparent_0_50%)_left_bottom/4px_4px_repeat-x,var(--card)]',
+        'sbar border-b-primary font-semibold text-orange-ink [background:repeating-conic-gradient(var(--primary)_0_25%,transparent_0_50%)_left_bottom/4px_4px_repeat-x,var(--card)]',
         className,
       )}
       {...props}
