@@ -13,7 +13,8 @@ import { useEffect, useRef } from 'react'
  * (next-themes puts `.dark` on <html>).
  *
  * `room` adds the path-traced room over the bottom of the first screen,
- * drawn with the wallpaper as one image where the GPU allows (see
+ * drawn with the wallpaper as one image where the GPU allows, its code
+ * fetched only there and only after the wallpaper's first paint (see
  * page-wallpaper.ts); `edgeToEdge` drops the scrollbar gutter the site
  * otherwise reserves (see global.css), so the two run to the window's right
  * edge: the body stops at the gutter.
@@ -29,9 +30,6 @@ export function Wallpaper({
   useEffect(() => {
     let destroy: (() => void) | undefined
     let cancelled = false
-    // fetched alongside the wallpaper rather than after it: three.js and the
-    // room's shaders are most of the time to the room's first frame
-    if (room) void import('./room/room').catch(() => {})
     void import('./wallpaper/page-wallpaper').then(({ mountPageWallpaper }) => {
       if (cancelled || !host.current) return
       destroy = mountPageWallpaper(host.current, { room })

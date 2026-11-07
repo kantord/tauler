@@ -1,3 +1,4 @@
+import { fileURLToPath } from 'node:url'
 import { createMDX } from 'fumadocs-mdx/next'
 
 const withMDX = createMDX()
@@ -6,6 +7,11 @@ const withMDX = createMDX()
 // never sees them as pages, so the export has no trace of them. The same
 // test as `DRAFTS` in src/lib/drafts.ts, which hides the links to them.
 const drafts = process.env.NODE_ENV === 'development'
+
+// The home room's GLSL ships without its comments (src/components/site/room/room-shader.ts).
+const stripGlsl = fileURLToPath(
+  new URL('./scripts/strip-glsl-comments.cjs', import.meta.url),
+)
 
 /** @type {import('next').NextConfig} */
 const config = {
@@ -19,6 +25,14 @@ const config = {
   trailingSlash: true,
   reactStrictMode: true,
   images: { unoptimized: true },
+  turbopack: {
+    rules: {
+      '*.glsl': { loaders: [stripGlsl], type: 'raw' },
+      '**/site/room/vendor/PathTracingCommon.js': {
+        loaders: [stripGlsl],
+      },
+    },
+  },
   pageExtensions: [
     ...(drafts ? ['draft.tsx'] : []),
     'mdx',

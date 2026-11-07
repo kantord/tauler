@@ -36,8 +36,8 @@
  */
 
 // cluster(g, KIND, fn): the primitives fn adds get a bounding box that rays test first; fn may
-// return extra points to include (a leaf's extent)
-function cluster(g, KIND, fn) {
+// return extra points to include (a leaf's extent). Clusters nest. room-scene.js uses it too.
+export function cluster(g, KIND, fn) {
   var at = g.prims.length,
     c = {
       k: KIND.CLUSTER,
@@ -64,6 +64,10 @@ function cluster(g, KIND, fn) {
     var ry = p.k === KIND.CONE ? 0.5 : p.r + 0.5 // frusta stand upright
     grow(p.a, p.r + 0.5, ry)
     grow(p.b, p.r + 0.5, ry)
+    if (p.k === KIND.QUAD) {
+      grow(p.c, 0.5, 0.5)
+      grow(p.d, 0.5, 0.5)
+    }
   })
   ext.forEach(function (q) {
     grow(q, 0.5, 0.5)

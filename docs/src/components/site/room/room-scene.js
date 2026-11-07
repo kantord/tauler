@@ -1,7 +1,7 @@
 // The scene of the home page's room (room.ts), inspired by a photo by Urban Vintage on
 // Unsplash. It began as the scene script of a standalone page, hence the IIFE that sets
 // `window.ROOM_SCENE` on a local `window`.
-import { addCable, addMonstera } from './monstera-scene.js'
+import { addCable, addMonstera, cluster } from './monstera-scene.js'
 
 export function buildRoomScene() {
   const window = {}
@@ -134,9 +134,15 @@ export function buildRoomScene() {
       return out
     }
     Group.prototype.tube = function (pts, r, bend, mat, closed) {
-      var p = rounded(pts, bend, closed)
-      for (var i = 0; i < p.length - 1; i++)
-        this.capsule(p[i], p[i + 1], r, mat)
+      // a tube of more than three capsules gets its own bounding box
+      var p = rounded(pts, bend, closed),
+        self = this
+      function add() {
+        for (var i = 0; i < p.length - 1; i++)
+          self.capsule(p[i], p[i + 1], r, mat)
+      }
+      if (p.length > 4) cluster(this, KIND, add)
+      else add()
       return this
     }
 
@@ -294,7 +300,7 @@ export function buildRoomScene() {
     })()
 
     /* ---------------- framed print (standing on the sideboard, against the wall) ---------------- */
-    ;(function () {
+    cluster(room, KIND, function () {
       var FW = 64,
         FH = 82,
         B = 2.2,
@@ -323,7 +329,7 @@ export function buildRoomScene() {
         [cx - FW / 2 + B, y0 + FH - B, z],
         MAT.ART,
       )
-    })()
+    })
 
     /* ---------------- floor uplighter ---------------- */
     var lampInfo = {}
@@ -361,37 +367,40 @@ export function buildRoomScene() {
         n: [0, 1, 0],
       }
       // cable across the floor
-      addCable(room, {
-        KIND: KIND,
-        mat: MAT.LAMPHEAD,
-        r: 0.4,
-        pts: [
-          [bx, 0.4, bz],
-          [bx - 13, 0.4, bz + 15],
-          [bx - 31, 0.4, bz + 33],
-          [bx - 52, 0.4, bz + 49],
-          [bx - 68, 0.4, bz + 69],
-          [bx - 83, 0.4, bz + 91],
-          [bx - 103, 0.4, bz + 104],
-          [bx - 128, 0.4, bz + 105],
-          [bx - 148, 0.4, bz + 95],
-          [bx - 158, 0.4, bz + 78],
-          [bx - 163, 0.4, bz + 56],
-          [bx - 164, 0.4, bz + 32],
-          [bx - 162, 0.4, bz + 10],
-          [bx - 159, 0.4, bz - 8],
-          [bx - 158, 0.4, bz - 19],
-          [bx - 164, 0.4, bz - 25.4],
-          [bx - 177, 0.4, bz - 26.8],
-          [bx - 195, 0.4, bz - 27],
-          [bx - 294, 0.4, bz - 27],
-          [bx - 302, 0.5, bz - 27.3],
-          [bx - 306.6, 1.16, bz - 28.84],
-          [bx - 308, 3.6, bz - 29.58],
-          [bx - 308, 8, bz - 29.6],
-          [bx - 308, 18, bz - 29.6],
-        ],
-      }) // a smooth curve (monstera-scene.js) that runs along the cove at the wall's foot, behind the planter, up to a socket
+      // in one box around the cable's own nested boxes
+      cluster(room, KIND, () =>
+        addCable(room, {
+          KIND: KIND,
+          mat: MAT.LAMPHEAD,
+          r: 0.4,
+          pts: [
+            [bx, 0.4, bz],
+            [bx - 13, 0.4, bz + 15],
+            [bx - 31, 0.4, bz + 33],
+            [bx - 52, 0.4, bz + 49],
+            [bx - 68, 0.4, bz + 69],
+            [bx - 83, 0.4, bz + 91],
+            [bx - 103, 0.4, bz + 104],
+            [bx - 128, 0.4, bz + 105],
+            [bx - 148, 0.4, bz + 95],
+            [bx - 158, 0.4, bz + 78],
+            [bx - 163, 0.4, bz + 56],
+            [bx - 164, 0.4, bz + 32],
+            [bx - 162, 0.4, bz + 10],
+            [bx - 159, 0.4, bz - 8],
+            [bx - 158, 0.4, bz - 19],
+            [bx - 164, 0.4, bz - 25.4],
+            [bx - 177, 0.4, bz - 26.8],
+            [bx - 195, 0.4, bz - 27],
+            [bx - 294, 0.4, bz - 27],
+            [bx - 302, 0.5, bz - 27.3],
+            [bx - 306.6, 1.16, bz - 28.84],
+            [bx - 308, 3.6, bz - 29.58],
+            [bx - 308, 8, bz - 29.6],
+            [bx - 308, 18, bz - 29.6],
+          ],
+        }),
+      ) // a smooth curve (monstera-scene.js) that runs along the cove at the wall's foot, behind the planter, up to a socket
     })()
 
     /* ---------------- chrome candle lamp ---------------- */
@@ -419,9 +428,11 @@ export function buildRoomScene() {
         var x = L[0],
           z = L[1],
           h = L[2]
-        candle.cyl([x, 2, z], [x, h + 2, z], 3, MAT.CHROME)
-        candle.cyl([x, h + 2, z], [x, h + 3.2, z], 1.6, MAT.CHROME)
-        candle.sphere([x, h + 5.2, z], 1.5, MAT.BULB)
+        cluster(candle, KIND, function () {
+          candle.cyl([x, 2, z], [x, h + 2, z], 3, MAT.CHROME)
+          candle.cyl([x, h + 2, z], [x, h + 3.2, z], 1.6, MAT.CHROME)
+          candle.sphere([x, h + 5.2, z], 1.5, MAT.BULB)
+        })
         bulbs.push([x, h + 5.2, z])
       })
     })()
@@ -511,15 +522,19 @@ export function buildRoomScene() {
           Math.sin((Math.PI * i) / (prof.length - 1))
         return [x, prof[i][1] - sg, prof[i][0] + sg * 0.3]
       }
-      for (var i = 0; i < prof.length - 1; i++)
-        for (var j = 0; j < cols; j++)
-          g.quad(
-            pt(i, j),
-            pt(i, j + 1),
-            pt(i + 1, j + 1),
-            pt(i + 1, j),
-            MAT.LEATHER,
-          )
+      // the sling's quads in bounding boxes of three rows each
+      for (var i0 = 0; i0 < prof.length - 1; i0 += 3)
+        cluster(g, KIND, function () {
+          for (var i = i0; i < Math.min(prof.length - 1, i0 + 3); i++)
+            for (var j = 0; j < cols; j++)
+              g.quad(
+                pt(i, j),
+                pt(i, j + 1),
+                pt(i + 1, j + 1),
+                pt(i + 1, j),
+                MAT.LEATHER,
+              )
+        })
       return g
     }
     chair('chairL', -162, 142, 1.05)
