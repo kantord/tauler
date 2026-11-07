@@ -6,12 +6,12 @@
   ones it lists under `_Avoid_`. Glossary only, no implementation detail.
 - `docs/adr/` — decisions that are hard to reverse and surprising without context. Check
   here before "fixing" something that looks wrong.
-- `docs/src/content/docs/` — the published site. Everything a person writing a layout file
-  needs; nothing about how tauler is built inside. Exception: `docs/src/content/docs/devtools/`
-  is maintainer-only tooling that happens to live in this tree to reuse the Astro/Starlight
-  build (image galleries, routing) — it is unlisted from the sidebar and documents build/test
-  internals on purpose. The "nothing about how tauler is built" rule applies to every other
-  page here.
+- `docs/content/docs/` — the published site (Next.js + Fumadocs). Everything a person
+  writing a layout file needs; nothing about how tauler is built inside. Exception:
+  `docs/content/devtools/` is maintainer-only tooling that reuses the same build (image
+  galleries, routing) — it is its own unlisted collection, never in the sidebar or search,
+  and documents build/test internals on purpose. The "nothing about how tauler is built"
+  rule applies to every page under `docs/content/docs/`.
 - **Module-level `//!` docs** — how a given piece actually works. This is where
   implementation detail belongs: next to the code, where it goes stale loudly.
 
@@ -39,3 +39,4 @@ Use subagents for each stage:
 - `tauler-i3` is a separate binary; build with `cargo build --release -p tauler-i3` and replace atomically: `cp target/release/tauler-i3 ~/.cargo/bin/tauler-i3.new && mv ~/.cargo/bin/tauler-i3.new ~/.cargo/bin/tauler-i3`
 - Config-only changes: `chezmoi apply ~/.config/tauler/layout.op.mdx` (or `config.yaml`/`layout.jsx` on the legacy path) — tauler hot-reloads within 500ms, no restart needed
 - `bar_width` or `outer_gap` changes trigger a full re-exec automatically
+- Docs site: `cd docs && pnpm run checks` before pushing

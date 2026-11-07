@@ -78,7 +78,7 @@ fn serve_one(mut stream: TcpStream, root: &Path) -> std::io::Result<()> {
 
 /// Map a request path to a file under `root`, refusing anything that climbs out.
 ///
-/// A directory resolves to its `index.html`, which is what Astro's output needs.
+/// A directory resolves to its `index.html`, which is what the static export (`trailingSlash: true`) needs.
 fn resolve(root: &Path, target: &str) -> Option<PathBuf> {
     let relative = Path::new(target.trim_start_matches('/'));
     if relative

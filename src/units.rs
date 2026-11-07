@@ -1126,7 +1126,7 @@ mod tests {
         );
     }
 
-    /// The workspace Unit from `docs/src/content/docs/docs/units.md`, with only
+    /// The workspace Unit from `docs/content/docs/units.md`, with only
     /// its two shell commands swapped for a file read and a log write. The parts
     /// a reader can get wrong are under test: `value` as a *set* of workspaces
     /// rather than one number, and an app that is not running staying untouched
@@ -1204,7 +1204,7 @@ mod tests {
           );
         }"#;
 
-    /// The Home Assistant Unit from `docs/src/content/docs/docs/units.md`, with
+    /// The Home Assistant Unit from `docs/content/docs/units.md`, with
     /// only its `hass` helper swapped for one that reads and writes files. The
     /// parts a reader can get wrong — filtering `observe` down to the entities
     /// this Unit manages, and picking `turn_on` against `turn_off` — are the
@@ -1245,7 +1245,7 @@ mod tests {
         );
     }
 
-    /// The docs' rofi Unit from `docs/src/content/docs/docs/units.md`'s
+    /// The docs' rofi Unit from `docs/content/docs/units.md`'s
     /// "Rendering a config file" section — built on the global `ConfigFile`
     /// helper (`tauler_core::globals::JSX_GLOBALS_JS`), which is the case
     /// ADR 0033 punted on ("Config files are not this") and ADR 0040

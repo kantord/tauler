@@ -12,12 +12,24 @@ const breakpoints = [
   { name: 'mobile-landscape', viewport: { width: 844, height: 390 } },
 ]
 
+// DOCS_DEV_URL points the suite at a running `next dev` instead of the
+// production build, for the draft pages only the dev server has (the slides:
+// see src/lib/drafts.ts). Run just their tests that way, e.g.
+// `DOCS_DEV_URL=http://localhost:3000 playwright test -g slide`; the rest of
+// the suite is written against the static export. Use localhost: Next 16
+// blocks dev resources requested from 127.0.0.1, so the page never hydrates.
+const devUrl = process.env.DOCS_DEV_URL
+
 export default defineConfig({
   testDir: './tests',
   fullyParallel: true,
+  // Two locally: the room and wallpaper tests drive the GPU, and the default
+  // (half the cores) makes a desktop machine unusable while they run. CI keeps
+  // the default for its own runner.
+  workers: process.env.CI ? undefined : 2,
   forbidOnly: !!process.env.CI,
   use: {
-    baseURL: 'http://127.0.0.1:4321',
+    baseURL: devUrl ?? 'http://127.0.0.1:4321',
   },
   expect: {
     toHaveScreenshot: {
@@ -35,16 +47,18 @@ export default defineConfig({
     name,
     use: { browserName: 'chromium' as const, viewport },
   })),
-  webServer: {
-    // Test the production build: no dev toolbar in the screenshots.
-    // sirv, not `astro preview`: preview daemonizes when stdin is not a TTY,
-    // so Playwright would think it exited and later reuse stale daemons.
-    command:
-      'pnpm exec astro build && pnpm exec sirv dist --host 127.0.0.1 --port 4321',
-    url: 'http://127.0.0.1:4321',
-    // Never reuse: a lingering server (astro's TTY-less daemon mode, an old
-    // sirv) serves a stale dist and silently poisons every assertion.
-    reuseExistingServer: false,
-    timeout: 120_000,
-  },
+  webServer: devUrl
+    ? undefined
+    : {
+        // Test the production build: the static export Next writes to dist/
+        // (see next.config.mjs), served as GitHub Pages would serve it.
+        // DOCS_PREBUILT=1 skips the build, for a caller that has just run it
+        // (`pnpm run checks`); without it every run builds fresh.
+        command: `${process.env.DOCS_PREBUILT ? '' : 'pnpm exec next build && '}pnpm exec sirv dist --host 127.0.0.1 --port 4321`,
+        url: 'http://127.0.0.1:4321',
+        // Never reuse: a lingering server serves a stale dist and silently
+        // poisons every assertion.
+        reuseExistingServer: false,
+        timeout: 180_000,
+      },
 })
