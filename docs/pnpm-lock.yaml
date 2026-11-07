@@ -188,8 +188,8 @@ importers:
         specifier: ^2.0.4
         version: 2.2.0(astro@7.4.5(@types/node@24.19.0)(esbuild@0.28.2)(jiti@2.7.0)(yaml@2.9.1))(mermaid@12.3.0)
       d3:
-        specifier: 7.9.1
-        version: 7.9.1
+        specifier: 7.9.2
+        version: 7.9.2
       mermaid:
         specifier: ^12.0.0
         version: 12.3.0
@@ -1822,8 +1822,8 @@ packages:
     resolution: {integrity: sha512-kfjD3BDQu/FOatpZ6JdMSyIoDwTxIpI29ySTI2J5ZlDaH1WbuJGQJ2Q9oJkWTEZEW98j6idezoomSD3Cn2zwiw==}
     engines: {node: '>=12'}
 
-  d3@7.9.1:
-    resolution: {integrity: sha512-mz88VdFCKJXk3luX1GUmTBhidmxUIQpkq81Ms3y20/k+DvFJn9rF+VRVIbjHBbD5PD+KwlRAZ90sueprzawEyA==}
+  d3@7.9.2:
+    resolution: {integrity: sha512-ZKb/mONPVKzaO5UlcWcwN8bS4ezvQaYu+bsou+XgNABdGC800kwH651ADTbbTxMPHW13UlvbQafdmJQDk1w7Mg==}
     engines: {node: '>=12'}
 
   dagre-d3-es@7.0.14:
@@ -4601,7 +4601,7 @@ snapshots:
       d3-selection: 3.0.1
       d3-transition: 3.0.2(d3-selection@3.0.1)
 
-  d3@7.9.1:
+  d3@7.9.2:
     dependencies:
       d3-array: 3.2.5
       d3-axis: 3.0.1
@@ -4636,7 +4636,7 @@ snapshots:
 
   dagre-d3-es@7.0.14:
     dependencies:
-      d3: 7.9.1
+      d3: 7.9.2
       lodash-es: 4.18.1
 
   dayjs@1.11.23: {}
@@ -5156,7 +5156,7 @@ snapshots:
       cytoscape: 3.34.3
       cytoscape-cose-bilkent: 4.1.0(cytoscape@3.34.3)
       cytoscape-fcose: 2.2.0(cytoscape@3.34.3)
-      d3: 7.9.1
+      d3: 7.9.2
       d3-sankey: 0.12.3
       dagre-d3-es: 7.0.14
       dayjs: 1.11.23
