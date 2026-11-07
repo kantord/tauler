@@ -12,6 +12,11 @@ jobs:
     if: ${{ github.repository_owner == 'kantord' }}
     permissions:
       contents: write
+      # crates.io trusted publishing: release-plz exchanges the job's OIDC token for
+      # a 30-minute crates.io token. Each crate needs a trusted publisher configured
+      # on crates.io (repo kantord/tauler, workflow release-plz.yaml), and a crate's
+      # very first version must be published by hand.
+      id-token: write
     # Deliberately no `concurrency` block, per the official workflow
     # (https://release-plz.dev/docs/github/quickstart): GitHub keeps only the newest
     # pending run per group and cancels the rest, and a cancelled run here is a
@@ -30,50 +35,22 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y libwayland-dev libxkbcommon-dev libfontconfig-dev libxcb1-dev pkg-config
-      - name: Create git tags and GitHub releases
+      # Per crate, in dependency order: publish to crates.io, then tag, then create
+      # the GitHub release (which starts binary-release.yaml).
+      #
+      # If a crate uploads but its tag or release then fails (an expired
+      # RELEASE_PLZ_TOKEN, say), later runs see it on crates.io and never tag it
+      # (release-plz/release-plz#2578), so its binaries never build. Recover by hand
+      # from your own `gh` login (not GITHUB_TOKEN, whose releases start no workflows):
+      #   gh release create <crate>-v<version> --target <sha of the release commit>
+      - name: Publish, tag and create GitHub releases
         uses: release-plz/action@66b324fd6c72d05d2a08568492ecdd62bfb8a62b # v0.5
         with:
           command: release
-        # No CARGO_REGISTRY_TOKEN: `publish = false` in release-plz.toml means this
-        # step never uploads, so the only step holding a crates.io credential is the
-        # publish step below.
+        # No CARGO_REGISTRY_TOKEN, not even an empty one: release-plz falls back to
+        # trusted publishing only when that variable is absent.
         env:
           GITHUB_TOKEN: ${{ secrets.RELEASE_PLZ_TOKEN }}
-      - name: Publish to crates.io
-        run: |
-          set -o pipefail
-          order=$(cargo metadata --format-version 1 | jq -r '
-            . as $m
-            | [ $m.workspace_members[] as $id
-                | $m.packages[] | select(.id == $id) | select(.publish != []) | .name ] as $ws
-            | $m.packages[]
-            | select(.name as $n | $ws | index($n))
-            | . as $p
-            | "\($p.name) \($p.name)",
-              # Dev-dependencies do not gate publishing, and a dev-dep pointing back
-              # at its own dependent (crate <-> its test helper, say) would read as a
-              # cycle and make `tsort` emit a partial order without failing the step.
-              (.dependencies[] | select(.kind != "dev")
-                | select(.name as $d | $ws | index($d)) | "\(.name) \($p.name)")
-          ' | tsort)
-          for pkg in $order; do
-            echo "Publishing $pkg..."
-            if cargo publish -p "$pkg" 2>&1 | tee /tmp/publish.log; then
-              continue
-            fi
-            # Two messages for the same state: the first is cargo's pre-check against
-            # the index; the second is crates.io rejecting the upload because a
-            # concurrent run of this workflow (one per push, no concurrency group)
-            # uploaded the same version while this one was still compiling.
-            if grep -qE 'already exists on crates.io|is already uploaded' /tmp/publish.log; then
-              echo "$pkg already published, skipping."
-            else
-              echo "$pkg failed to publish."
-              exit 1
-            fi
-          done
-        env:
-          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
 
   release-plz-pr:
     name: Release-plz PR

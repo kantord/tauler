@@ -1,8 +1,4 @@
 [workspace]
-# Works around a gitoxide slotmap overflow (GitoxideLabs/gitoxide#1788) that
-# crashes release-plz during index polling. The release workflow publishes.
-publish = false
-
 # Breaks the version bump loop (release-plz#1181), where the "chore: release"
 # commit's own Cargo.toml changes read as unreleased work.
 release_commits = "^(feat|fix|refactor|perf|build)"
