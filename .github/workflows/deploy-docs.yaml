@@ -69,7 +69,7 @@ jobs:
       # Before `just docs`, which runs node too, so both steps use the same version.
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: 24
+          node-version: 26
 
       # Generates the component page, the screenshots, the `@ui/*` modules, the examples,
       # the harvested class list and the wasm module, then compiles the stylesheet.
