@@ -93,7 +93,7 @@ serde_yaml = "=0.9.34"
 tauler-ui-macro = { path = "tauler-ui-macro", version = "0.1.16" }
 # The wasm-clean subset, with the QuickJS half switched on. Same version pinning
 # rationale as `tauler-ui-macro` above.
-tauler-core = { path = "tauler-core", version = "0.3.12", features = ["quickjs"] }
+tauler-core = { path = "tauler-core", version = "0.3.13", features = ["quickjs"] }
 tauler-configgen = { path = "tauler-configgen", version = "0.10.1" }
 optative = "=0.1.4"
 optative-process-pool = "=0.0.9"

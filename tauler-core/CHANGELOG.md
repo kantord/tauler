@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.13](https://github.com/kantord/tauler/compare/tauler-core-v0.3.12...tauler-core-v0.3.13) - 2026-11-07
+
+### Fixed
+
+- *(deps)* update rust crate wasm-bindgen to v0.2.130 ([#747](https://github.com/kantord/tauler/pull/747))
+
 ## [0.3.12](https://github.com/kantord/tauler/compare/tauler-core-v0.3.11...tauler-core-v0.3.12) - 2026-11-05
 
 ### Added
