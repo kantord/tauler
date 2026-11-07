@@ -891,7 +891,7 @@ fn run_on(
 /// Copy the screenshot into the hidden devtools gallery's tree, so it survives past this
 /// test run without depending on `target/e2e`, which is gitignored and scenario-keyed.
 fn save_devtools_shot(name: &str, screenshot: &Path) -> Result<()> {
-    let dir = workspace_root()?.join("docs/src/assets/devtools/i3-scenarios");
+    let dir = workspace_root()?.join("docs/public/devtools/i3-scenarios");
     std::fs::create_dir_all(&dir)?;
     std::fs::copy(screenshot, dir.join(format!("{name}.png")))?;
     Ok(())
