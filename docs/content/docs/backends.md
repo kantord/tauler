@@ -80,8 +80,9 @@ logical width. If the compositor gives no logical size, it uses the output's int
 
 **`<wallpaper>` is a background-layer surface.** It covers the whole output and never makes
 room for, or moves out of the way of, other surfaces. Like a panel, it appears on the
-compositor's choice of output: the `output` prop is not routed yet. The wallpaper's pixel
-scale is rounded to a whole number, so a fractional output scale does not apply to it.
+compositor's choice of output: the `output` prop is not routed yet. A fractional output
+scale is exact when the compositor implements `wp_viewporter` (Sway, Hyprland and river
+do). Without it, the wallpaper's pixel scale is rounded to a whole number.
 
 ## macOS
 
