@@ -1,10 +1,13 @@
 //! Run tauler against a real desktop and photograph the result.
 //!
-//! Everything here is window-manager agnostic: starting the container, deciding
-//! the screen has stopped changing, capturing it, and reading back the windows
-//! the X server knows about. Anything that knows what i3 is lives in [`i3`].
+//! There are two desktops, chosen by [`Backend`]: X11 + i3 in one image, headless
+//! Sway in another. What is shared is starting the container, deciding the screen
+//! has stopped changing, and capturing it — the capture tool differs (`scrot` or
+//! `grim`), the settle logic does not. What is not shared is deliberately not
+//! hidden behind that seam: [`Desktop::root_windows`] and [`Desktop::record_motion`]
+//! read X11 and fail on Sway, and anything that knows what i3 is lives in [`i3`].
 //!
-//! The container image is not built here. `just e2e-image` builds it, because
+//! The container images are not built here. `just e2e-image` builds both, because
 //! the cache mounts that make an in-container cargo build bearable are a
 //! BuildKit feature and testcontainers builds through the classic builder.
 
@@ -23,8 +26,58 @@ pub mod motion;
 /// ffmpeg's `x11grab` needs it spelled out; it does not read the environment.
 const DISPLAY: &str = ":99";
 
-pub const IMAGE_NAME: &str = "tauler-e2e";
 pub const IMAGE_TAG: &str = "local";
+
+/// Which desktop a scenario runs on. Each has its own image, built from one
+/// Dockerfile by `just e2e-image-i3` / `just e2e-image-sway`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Backend {
+    /// Xvfb + i3. The original desktop; every scenario that reserves space does.
+    I3,
+    /// Headless Sway, which implements `wlr-layer-shell` and so exercises the
+    /// Wayland backend.
+    Sway,
+}
+
+impl Backend {
+    pub const ALL: [Backend; 2] = [Backend::I3, Backend::Sway];
+
+    pub fn image_name(self) -> &'static str {
+        match self {
+            Backend::I3 => "tauler-e2e-i3",
+            Backend::Sway => "tauler-e2e-sway",
+        }
+    }
+
+    /// The `just` recipe that builds this backend's image.
+    pub fn image_recipe(self) -> &'static str {
+        match self {
+            Backend::I3 => "just e2e-image-i3",
+            Backend::Sway => "just e2e-image-sway",
+        }
+    }
+
+    /// The directory under `target/e2e/` this backend's runs write to.
+    ///
+    /// i3 keeps the bare scenario name it always had, so CI's screenshot
+    /// publishing is unchanged; Sway gets a suffix so one fixture can run on
+    /// both desktops without the second run overwriting the first's screenshot.
+    /// The Sway entrypoint writes to the same name.
+    pub fn out_name(self, scenario: &str) -> String {
+        match self {
+            Backend::I3 => scenario.to_string(),
+            Backend::Sway => format!("{scenario}-sway"),
+        }
+    }
+
+    /// The in-container command that writes a screenshot to `path`.
+    fn capture_command(self, path: &str) -> Vec<String> {
+        match self {
+            Backend::I3 => vec!["scrot".into(), "-o".into(), path.into()],
+            Backend::Sway => vec!["grim".into(), path.into()],
+        }
+    }
+}
 
 /// How long any single in-container command may take before we call it hung.
 /// i3 4.25 can accept an IPC request and simply never answer, so every read
@@ -83,10 +136,13 @@ impl Default for Screen {
     }
 }
 
-/// A running desktop: X, i3, two clients and tauler, for one fixture.
+/// A running desktop with tauler in it, for one fixture.
 pub struct Desktop {
     container: Container<GenericImage>,
+    backend: Backend,
     scenario: String,
+    /// `target/e2e/<out_name>`, where the container's `/out/<out_name>` lands.
+    out_name: String,
     screen: Screen,
     out_dir: PathBuf,
 }
@@ -99,7 +155,12 @@ impl Desktop {
     /// this repo already has two tests that skip themselves into permanent
     /// greenness, and a third would be a habit.
     pub fn start(scenario: &str, screen: Screen) -> Result<Self> {
-        Self::start_with_env(scenario, screen, &[])
+        Self::start_on(Backend::I3, scenario, screen)
+    }
+
+    /// As [`Desktop::start`], on a chosen desktop.
+    pub fn start_on(backend: Backend, scenario: &str, screen: Screen) -> Result<Self> {
+        Self::start_on_with_env(backend, scenario, screen, &[])
     }
 
     /// As [`Desktop::start`], with extra environment variables for the entrypoint.
@@ -111,15 +172,26 @@ impl Desktop {
         screen: Screen,
         extra_env: &[(&str, &str)],
     ) -> Result<Self> {
+        Self::start_on_with_env(Backend::I3, scenario, screen, extra_env)
+    }
+
+    /// As [`Desktop::start_with_env`], on a chosen desktop.
+    pub fn start_on_with_env(
+        backend: Backend,
+        scenario: &str,
+        screen: Screen,
+        extra_env: &[(&str, &str)],
+    ) -> Result<Self> {
         let fixtures = crate_dir().join("fixtures");
         if !fixtures.join(scenario).is_dir() {
             bail!("no fixture named {scenario} in {}", fixtures.display());
         }
 
         let out_dir = out_root()?;
-        std::fs::create_dir_all(out_dir.join(scenario))?;
+        let out_name = backend.out_name(scenario);
+        std::fs::create_dir_all(out_dir.join(&out_name))?;
 
-        let mut image = GenericImage::new(IMAGE_NAME, IMAGE_TAG)
+        let mut image = GenericImage::new(backend.image_name(), IMAGE_TAG)
             .with_wait_for(WaitFor::message_on_stdout("e2e: desktop up"))
             .with_env_var("SCENARIO", scenario)
             .with_env_var("SCREEN", format!("{}x{}x24", screen.width, screen.height))
@@ -134,14 +206,17 @@ impl Desktop {
         }
         let container = image.start().with_context(|| {
             format!(
-                "starting {IMAGE_NAME}:{IMAGE_TAG} — is Docker running, and has \
-                     `just e2e-image` been run?"
+                "starting {}:{IMAGE_TAG} — is Docker running, and has `{}` been run?",
+                backend.image_name(),
+                backend.image_recipe()
             )
         })?;
 
         Ok(Self {
             container,
+            backend,
             scenario: scenario.to_string(),
+            out_name,
             screen,
             out_dir,
         })
@@ -149,6 +224,10 @@ impl Desktop {
 
     pub fn screen(&self) -> Screen {
         self.screen
+    }
+
+    pub fn backend(&self) -> Backend {
+        self.backend
     }
 
     /// Record the screen as PNG frames while the fixture's `motion` script
@@ -165,6 +244,9 @@ impl Desktop {
     pub fn record_motion(&self, seconds: u32) -> Result<motion::Motion> {
         const FPS: u32 = 30;
 
+        if self.backend != Backend::I3 {
+            bail!("record_motion records with x11grab and only works on Backend::I3");
+        }
         let script = format!("/fixtures/{}/motion", self.scenario);
         let out = format!("/out/{}", self.scenario);
 
@@ -229,6 +311,9 @@ impl Desktop {
     /// do not appear in its tree at all — the X server is the only thing that
     /// knows where a panel actually is.
     pub fn root_windows(&self) -> Result<Vec<Rect>> {
+        if self.backend != Backend::I3 {
+            bail!("root_windows reads the X server and only works on Backend::I3");
+        }
         let out = self.exec(&["xwininfo", "-root", "-children"])?;
         Ok(parse_xwininfo_children(&out))
     }
@@ -237,7 +322,7 @@ impl Desktop {
     /// second. A window that is mapped is not necessarily a window that has
     /// painted; this is what tells the two apart.
     pub fn capture_stable(&self) -> Result<PathBuf> {
-        let dir = self.out_dir.join(&self.scenario);
+        let dir = self.out_dir.join(&self.out_name);
         let final_path = dir.join("desktop.png");
 
         let mut previous: Option<Vec<u8>> = None;
@@ -269,19 +354,26 @@ impl Desktop {
     /// picture a test is waiting for, only whichever one it happened to settle on.
     pub fn capture_now(&self) -> Result<PathBuf> {
         let name = "now.png";
-        self.exec(&["scrot", "-o", &format!("/out/{}/{}", self.scenario, name)])?;
-        Ok(self.out_dir.join(&self.scenario).join(name))
+        self.grab(&format!("/out/{}/{}", self.out_name, name))?;
+        Ok(self.out_dir.join(&self.out_name).join(name))
     }
 
     fn capture_frame(&self, dir: &Path, slot: usize) -> Result<PathBuf> {
         let name = format!("frame-{slot}.png");
-        self.exec(&["scrot", "-o", &format!("/out/{}/{}", self.scenario, name)])?;
+        self.grab(&format!("/out/{}/{}", self.out_name, name))?;
         Ok(dir.join(name))
+    }
+
+    /// Write one screenshot to `path` (a path inside the container).
+    fn grab(&self, path: &str) -> Result<()> {
+        let argv = self.backend.capture_command(path);
+        let argv: Vec<&str> = argv.iter().map(String::as_str).collect();
+        self.exec(&argv).map(|_| ())
     }
 
     /// The tauler log for this scenario, for putting in a failure message.
     pub fn tauler_log(&self) -> String {
-        std::fs::read_to_string(self.out_dir.join(&self.scenario).join("tauler.log"))
+        std::fs::read_to_string(self.out_dir.join(&self.out_name).join("tauler.log"))
             .unwrap_or_else(|e| format!("<no tauler log: {e}>"))
     }
 }

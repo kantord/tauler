@@ -1,13 +1,20 @@
 # syntax=docker/dockerfile:1@sha256:4edf897a3ffa55b89f906fc8cc78afdb3f1834cc9c7083565e611a8a7d5fe99e
 #
-# A minimal X11 + i3 desktop with tauler running in it.
+# Minimal desktops with tauler running in them. Two final targets share one
+# build of tauler and one set of fonts:
+#
+#   --target i3    X11 + i3 (Xvfb, scrot)      -> tauler-e2e-i3:local
+#   --target sway  headless Sway (grim)        -> tauler-e2e-sway:local
+#
+# `just e2e-image-i3` / `just e2e-image-sway` build them; the harness picks the
+# image from `tauler_e2e::Backend`.
 #
 # tauler is compiled here rather than copied in from the host: a binary built on
 # a rolling distro links a glibc newer than any stable base image ships, and
 # glibc is forward-compatible only. See docs/adr/0004.
 #
 # Build context is the repo root, not this directory:
-#   docker build -f tauler-e2e/Dockerfile .
+#   docker buildx build -f tauler-e2e/Dockerfile --target i3 .
 
 FROM rust:1.99.1-bookworm@sha256:e6f2cff35d0f309acf8433b4f05878ed77092602c5065cc81801177da0bb3a9c AS builder
 
@@ -38,7 +45,68 @@ RUN gcc -O2 -o /artifacts/a11y-probe tauler-e2e/a11y-probe.c \
         $(pkg-config --cflags atspi-2) \
         $(pkg-config --libs atspi-2 gobject-2.0)
 
-FROM debian:bookworm-slim@sha256:734a72b3d6142a71993b4bc580ca01d8ca687f77a2c422d96a961d3376b179bc
+FROM debian:bookworm-slim@sha256:734a72b3d6142a71993b4bc580ca01d8ca687f77a2c422d96a961d3376b179bc AS base
+
+# Everything both desktops need and nothing that only one of them does: the
+# tauler binary, its runtime libraries, and the fonts. A change to either
+# desktop's own packages never invalidates this layer.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        ca-certificates \
+        fontconfig \
+        fonts-jetbrains-mono \
+        libwayland-client0 libxkbcommon0 libfontconfig1 libxcb1 \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY --from=builder /artifacts/tauler /usr/local/bin/
+
+# /usr/local/share/fonts, not /usr/local/share/tauler/fonts: nothing reads the
+# latter. tauler resolves fonts through fontconfig, and falls back to walking
+# the platform font directories only when fontconfig answers nothing — neither
+# path has ever looked under a `tauler/` subdirectory, so these fonts were
+# invisible to the very binary they were shipped for.
+#
+# This is also what puts Symbols Nerd Font Mono where `append_symbol_fallback`
+# probes for it. Without it every <Icon> in this image renders as tofu.
+COPY assets/fonts /usr/local/share/fonts
+COPY tauler-e2e/docker/fonts.conf /etc/fonts/conf.d/99-tauler-e2e.conf
+RUN fc-cache -f
+COPY tauler-e2e/docker/ /usr/local/share/e2e/
+RUN chmod +x /usr/local/share/e2e/bin/*
+
+# `~/.local/bin` is on PATH because a rice fixture installs its own scripts
+# there, the way a real dotfiles repo does — a `startup` then says
+# `monolith-pane 1` rather than naming a path under /fixtures.
+ENV PATH="/usr/local/share/e2e/bin:/root/.local/bin:${PATH}" \
+    HOME=/root
+
+# ─── Sway ─────────────────────────────────────────────────────────────────
+#
+# A headless Sway: no GPU, no seat, no X. The environment is set here rather
+# than in the entrypoint because `docker exec` — which is how the harness runs
+# `grim` — inherits the image's environment and nothing the entrypoint exported.
+# Sway names its socket wayland-1 here (wayland-0 is skipped, as in
+# taulerbox's compartment), so that is what is exported.
+FROM base AS sway
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        sway \
+        grim \
+    && rm -rf /var/lib/apt/lists/*
+
+ENV XDG_RUNTIME_DIR=/run/user/0 \
+    WAYLAND_DISPLAY=wayland-1 \
+    WLR_BACKENDS=headless \
+    WLR_RENDERER=pixman \
+    WLR_LIBINPUT_NO_DEVICES=1 \
+    SCREEN=1920x1080x24
+
+ENTRYPOINT ["e2e-entrypoint-sway"]
+
+# ─── i3 ───────────────────────────────────────────────────────────────────
+#
+# Last, so a bare `docker build` without --target still yields the original
+# desktop.
+FROM base AS i3
 
 # dunst, rofi and kitty are here so that a rice can ship a real
 # `~/.config/dunst/dunstrc`, a real `.rasi` and a real `kitty.conf`, and so that
@@ -72,9 +140,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         scrot \
         xdotool \
         ffmpeg \
-        fontconfig \
-        fonts-jetbrains-mono \
-        libwayland-client0 libxkbcommon0 libfontconfig1 libxcb1 \
         # The accessibility bus tauler's tree lives on, plus a session D-Bus
         # to host it. Only the a11y scenario starts either, but the bus
         # launcher and client library must be present for it to work at all.
@@ -113,28 +178,9 @@ RUN git clone --quiet https://github.com/kantord/dotfiles-tauler /tmp/dt \
     && cp -rf /tmp/dt/. /root/.cache/tauler/pkg/gh/kantord/dotfiles-tauler/600e73fa0bc85718e79f84b1497c09c79c2b13f1/ \
     && rm -rf /tmp/dt
 
-COPY --from=builder /artifacts/tauler /artifacts/tauler-i3 /artifacts/a11y-probe /usr/local/bin/
+COPY --from=builder /artifacts/tauler-i3 /artifacts/a11y-probe /usr/local/bin/
 
-# /usr/local/share/fonts, not /usr/local/share/tauler/fonts: nothing reads the
-# latter. tauler resolves fonts through fontconfig, and falls back to walking
-# the platform font directories only when fontconfig answers nothing — neither
-# path has ever looked under a `tauler/` subdirectory, so these fonts were
-# invisible to the very binary they were shipped for.
-#
-# This is also what puts Symbols Nerd Font Mono where `append_symbol_fallback`
-# probes for it. Without it every <Icon> in this image renders as tofu.
-COPY assets/fonts /usr/local/share/fonts
-COPY tauler-e2e/docker/fonts.conf /etc/fonts/conf.d/99-tauler-e2e.conf
-RUN fc-cache -f
-COPY tauler-e2e/docker/ /usr/local/share/e2e/
-RUN chmod +x /usr/local/share/e2e/bin/*
-
-# `~/.local/bin` is on PATH because a rice fixture installs its own scripts
-# there, the way a real dotfiles repo does — a `startup` then says
-# `monolith-pane 1` rather than naming a path under /fixtures.
-ENV PATH="/usr/local/share/e2e/bin:/root/.local/bin:${PATH}" \
-    HOME=/root \
-    DISPLAY=:99 \
+ENV DISPLAY=:99 \
     SCREEN=1920x1080x24 \
     DPI=96
 

@@ -48,15 +48,24 @@ web:
 check-wasm:
     cargo check -p tauler-core --target wasm32-unknown-unknown
 
-# The e2e image compiles tauler inside itself; the cache mounts that make that
+# The e2e images compile tauler inside themselves; the cache mounts that make that
 # bearable are BuildKit-only, which is why this is not left to testcontainers.
-e2e-image:
+# One Dockerfile, two desktops: `i3` is X11 + i3, `sway` is headless Sway.
+_e2e-buildx:
     @docker buildx version >/dev/null 2>&1 || { \
         echo "docker buildx is required: the image uses BuildKit cache mounts."; \
         echo "Arch: pacman -S docker-buildx    Debian/Ubuntu: apt install docker-buildx-plugin"; \
         exit 1; \
     }
-    docker buildx build -f tauler-e2e/Dockerfile -t tauler-e2e:local --load .
+
+e2e-image-i3: _e2e-buildx
+    docker buildx build -f tauler-e2e/Dockerfile --target i3 -t tauler-e2e-i3:local --load .
+
+e2e-image-sway: _e2e-buildx
+    docker buildx build -f tauler-e2e/Dockerfile --target sway -t tauler-e2e-sway:local --load .
+
+# Both desktops. Kept under this name because the tests' ignore reasons point at it.
+e2e-image: e2e-image-i3 e2e-image-sway
 
 e2e: e2e-image
     cargo test -p tauler-e2e -- --ignored --test-threads=1

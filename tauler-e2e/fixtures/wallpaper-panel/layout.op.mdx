@@ -1,0 +1,19 @@
+// Scenario: a solid-colour wallpaper and one fixed-width left panel on top of it.
+//
+// Backend-neutral on purpose: it has no <I3Layout>, no module and no client, so
+// the same file runs on the i3 and the Sway desktops and the two screenshots
+// can be compared. The expected colours live in tauler-e2e/tests/scenarios.rs,
+// written out by hand.
+
+export default function render() {
+  return (
+    <root>
+      <wallpaper id="desktop">
+        <div style={{ width: "100%", height: "100%", backgroundColor: "#cc3366" }} />
+      </wallpaper>
+      <panel id="rail" anchor="left" width={272} height={1080}>
+        <div style={{ width: "100%", height: "100%", backgroundColor: "#1e1e2e" }} />
+      </panel>
+    </root>
+  );
+}

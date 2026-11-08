@@ -13,7 +13,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::Result;
 use tauler_e2e::i3::{self, Gaps};
-use tauler_e2e::{pixel_at, wait_for, Desktop, Rect, Screen};
+use tauler_e2e::{pixel_at, wait_for, Backend, Desktop, Rect, Screen};
 
 /// What a fixture is supposed to produce on a 1920×1080 screen.
 struct Expected {
@@ -960,4 +960,130 @@ fn a11y_button_is_visible_and_activation_dispatches_an_intent() -> Result<()> {
     let _screenshot = desktop.capture_stable()?;
 
     Ok(())
+}
+
+/// The wallpaper colour in `fixtures/wallpaper-panel`, `#cc3366`. Written out
+/// here, not read from the fixture, so a fixture edit fails loudly.
+const WALLPAPER: [u8; 3] = [0xcc, 0x33, 0x66];
+
+/// The panel's fill in the same fixture, `#1e1e2e`.
+const RAIL: [u8; 3] = [0x1e, 0x1e, 0x2e];
+
+/// Start `fixtures/wallpaper-panel` on `backend` and photograph it once the
+/// wallpaper — and, if `wait_for_panel`, the panel — has painted.
+///
+/// Waiting for the surfaces rather than for the screen to settle matters: tauler
+/// paints them separately, and a screen showing only the first is just as
+/// "stable" as a finished one. On Wayland the first frame is also held until the
+/// compositor's configure.
+fn wallpaper_panel_shot(backend: Backend, wait_for_panel: bool) -> Result<(Desktop, PathBuf)> {
+    let desktop = Desktop::start_on(backend, "wallpaper-panel", Screen::default())?;
+    let screen = desktop.screen();
+
+    let mut probes = vec![((screen.width - 8, 8), WALLPAPER, "wallpaper")];
+    if wait_for_panel {
+        probes.push(((136, screen.height / 2), RAIL, "panel"));
+    }
+    let shot = wait_for(&format!("{backend:?}: the surfaces to paint"), || {
+        let shot = desktop.capture_stable()?;
+        for &((x, y), want, what) in &probes {
+            let [r, g, b, _] = pixel_at(&shot, x, y)?;
+            anyhow::ensure!(
+                [r, g, b] == want,
+                "the {what} has not painted: ({x}, {y}) is {r},{g},{b}, not {want:?}"
+            );
+        }
+        Ok(shot)
+    })
+    .map_err(|e| anyhow::anyhow!("{e}\n--- tauler.log ---\n{}", desktop.tauler_log()))?;
+    Ok((desktop, shot))
+}
+
+fn rgb_at(shot: &Path, x: u32, y: u32) -> Result<[u8; 3]> {
+    let [r, g, b, _] = pixel_at(shot, x, y)?;
+    Ok([r, g, b])
+}
+
+/// The wallpaper reaches every pixel the panel does not cover — three screen
+/// corners, the middle, and the column right beside the panel. The corners are
+/// where a surface that is not really full-screen would show.
+///
+/// The fixture has no `<I3Layout>` and starts no clients, so the only things on
+/// screen are tauler's surfaces and the compositor's own flat background (`#181825`
+/// on i3, `#3f3f3f` on Sway — neither is a colour above).
+fn assert_wallpaper(backend: Backend, shot: &Path, screen: Screen) -> Result<()> {
+    let (w, h) = (screen.width, screen.height);
+    for (x, y) in [(w - 1, 0), (w - 1, h - 1), (w / 2, h / 2), (272, h / 2)] {
+        assert_eq!(
+            rgb_at(shot, x, y)?,
+            WALLPAPER,
+            "{backend:?}: ({x}, {y}) should show the wallpaper"
+        );
+    }
+    Ok(())
+}
+
+/// The panel covers the left 272px and sits on top of the wallpaper.
+fn assert_panel(backend: Backend, shot: &Path, screen: Screen) -> Result<()> {
+    let h = screen.height;
+    for (x, y) in [(136, h / 2), (0, 0), (0, h - 1), (271, h / 2)] {
+        assert_eq!(
+            rgb_at(shot, x, y)?,
+            RAIL,
+            "{backend:?}: ({x}, {y}) should show the panel, not the wallpaper"
+        );
+    }
+    Ok(())
+}
+
+/// `<wallpaper>` paints on every desktop. These two share one function so parity
+/// is explicit: a desktop that cannot paint a wallpaper fails the assertion the
+/// other passes.
+fn wallpaper(backend: Backend) -> Result<()> {
+    let (desktop, shot) = wallpaper_panel_shot(backend, false)?;
+    assert_wallpaper(backend, &shot, desktop.screen())
+}
+
+#[test]
+#[ignore = "needs Docker and `just e2e-image`"]
+fn wallpaper_on_i3() -> Result<()> {
+    wallpaper(Backend::I3)
+}
+
+#[test]
+#[ignore = "needs Docker and `just e2e-image`"]
+fn wallpaper_on_sway() -> Result<()> {
+    wallpaper(Backend::Sway)
+}
+
+#[test]
+#[ignore = "needs Docker and `just e2e-image`"]
+fn panel_over_wallpaper_on_i3() -> Result<()> {
+    let (desktop, shot) = wallpaper_panel_shot(Backend::I3, true)?;
+    assert_wallpaper(Backend::I3, &shot, desktop.screen())?;
+    assert_panel(Backend::I3, &shot, desktop.screen())
+}
+
+/// Known failure, pinned: on Wayland a panel whose content never changes is never
+/// painted. Found by this scenario; not caused by `<wallpaper>` — a layout with
+/// only the panel and no wallpaper behaves the same, and editing the layout so the
+/// panel's content changes makes it appear.
+///
+/// The cause is in the order of events. `create_window` renders the first frame
+/// before the compositor's configure has arrived, and `WaylandPanel::render`
+/// returns early when `!configured`. The configure then marks the panel
+/// configured and sends `PresenterEvent::NeedsRender`, which `app.rs` handles as
+/// "no-op: reconciler handles rendering" — and the reconciler only repaints on a
+/// content change. A bar with a clock hides this at its next tick; a static panel
+/// stays blank. (The wallpaper does not have the problem: it keeps its frame and
+/// paints it when its own configure arrives.)
+///
+/// `should_panic`, not a plain failure, so `just e2e` stays green while the bug
+/// is open and goes red the day it is fixed — delete this test's attribute and
+/// let `panel_over_wallpaper_on` take both backends then.
+#[test]
+#[ignore = "needs Docker and `just e2e-image`"]
+#[should_panic(expected = "the panel has not painted")]
+fn panel_over_wallpaper_on_sway_known_blank_panel() {
+    wallpaper_panel_shot(Backend::Sway, true).unwrap();
 }
