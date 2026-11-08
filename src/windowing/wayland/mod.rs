@@ -543,6 +543,12 @@ impl DisplayManager for WaylandDisplayServer {
         Ok(())
     }
 
+    fn delete_wallpaper(&mut self, id: &str) {
+        // Dropping the surface destroys the layer surface (sctk's
+        // `LayerSurface` drop) and frees its `SlotPool`.
+        self.wallpapers.remove(id);
+    }
+
     fn flush(&mut self) {
         let _ = self.conn.flush();
     }

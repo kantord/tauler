@@ -182,6 +182,10 @@ impl X11PanelContext {
         Ok(())
     }
 
+    // Known gap: X11 does not implement `DisplayManager::delete_wallpaper`. A
+    // deleted `<wallpaper>` stays painted in the root pixmap (no leak, just a
+    // stale image). Clearing it needs the output rect, which the hook's bare id
+    // does not carry, so it would mean remembering id -> rect on every paint.
     pub(crate) fn paint_wallpaper_impl(
         &mut self,
         spec: &SurfaceSpec,

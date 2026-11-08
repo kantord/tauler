@@ -146,9 +146,10 @@ pub enum PresenterEvent {
 /// Owns the window state: one `DM::Panel` per live panel id. Does NOT own the
 /// `DisplayManager` — callers pass `&mut DM` into `apply`.
 ///
-/// Wallpapers are deliberately absent. They own no window and keep no handle, so
-/// there is nothing to track between paints — `PaintWallpaper` carries
-/// everything the backend needs.
+/// Wallpapers are deliberately absent from `panels`: `PaintWallpaper` carries
+/// everything the backend needs to paint. Backends may still keep per-wallpaper
+/// state (Wayland keeps a layer surface), so `Delete` of an id that is not a
+/// panel is forwarded to [`DisplayManager::delete_wallpaper`].
 pub struct Presenter<DM: DisplayManager> {
     pub panels: HashMap<String, DM::Panel>,
     /// The physical size each panel's window currently has, as the last
@@ -222,6 +223,10 @@ impl<DM: DisplayManager> Presenter<DM> {
                 self.sizes.remove(&id);
                 if let Some(panel) = self.panels.remove(&id) {
                     dm.delete_window(panel)?;
+                } else {
+                    // Not a panel, so it may be a wallpaper: those are not
+                    // tracked here, the backend owns whatever it keeps.
+                    dm.delete_wallpaper(&id);
                 }
             }
             SurfaceCommand::UpdatePicture { id, frame } => {
@@ -321,6 +326,9 @@ mod tests {
             self.calls.push(format!("paint_wallpaper:{}", spec.id));
             Ok(())
         }
+        fn delete_wallpaper(&mut self, id: &str) {
+            self.calls.push(format!("delete_wallpaper:{id}"));
+        }
     }
 
     fn spec(id: &str) -> SurfaceSpec {
@@ -410,6 +418,29 @@ mod tests {
                 .count(),
             2,
             "each PaintWallpaper must reach the backend; got {:?}",
+            dm.calls
+        );
+    }
+
+    /// A wallpaper owns no panel, but a backend may still hold a surface for it
+    /// (Wayland); deleting the node must tell the backend to drop it.
+    #[test]
+    fn presenter_delete_of_a_wallpaper_tells_the_backend_to_drop_it() {
+        let mut p: Presenter<MockDM> = Presenter::new();
+        let mut dm = MockDM::new();
+        p.apply(
+            SurfaceCommand::PaintWallpaper {
+                spec: wallpaper_spec("bg"),
+                frame: blank_frame(),
+            },
+            &mut dm,
+        )
+        .unwrap();
+        p.apply(SurfaceCommand::Delete { id: "bg".into() }, &mut dm)
+            .unwrap();
+        assert!(
+            dm.calls.iter().any(|c| c == "delete_wallpaper:bg"),
+            "dm.calls: {:?}",
             dm.calls
         );
     }
