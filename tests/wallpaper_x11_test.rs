@@ -110,7 +110,6 @@ fn wallpaper_spec() -> SurfaceSpec {
         height: h,
         x: 0,
         y: 0,
-        outer_gap: 0,
         output: Some("VIRT-1".to_string()),
         above: false,
         content: serde_json::Value::Null,

@@ -208,7 +208,6 @@ fn wallpaper_spec(width: u32, height: u32) -> SurfaceSpec {
         y: 0,
         width,
         height,
-        outer_gap: 0,
         // crop_for looks the wallpaper up by output name, so the panel and the
         // wallpaper have to agree on one. `None` means "no root-bg at all".
         output: Some(OUTPUT.into()),
@@ -227,7 +226,6 @@ fn panel_spec(width: u32, height: u32) -> SurfaceSpec {
         y: 0,
         width,
         height,
-        outer_gap: 0,
         // crop_for looks the wallpaper up by output name, so the panel and the
         // wallpaper have to agree on one. `None` means "no root-bg at all".
         output: Some(OUTPUT.into()),

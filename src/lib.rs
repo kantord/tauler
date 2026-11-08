@@ -125,7 +125,6 @@ mod tests {
                 "anchor": "left",
                 "width": 250,
                 "height": 2160,
-                "outer_gap": 8,
                 "children": [{ "type": "div" }]
             }]
         });
@@ -135,7 +134,6 @@ mod tests {
         assert_eq!(panels[0].anchor, Some(PanelAnchor::Left));
         assert_eq!(panels[0].width, 250);
         assert_eq!(panels[0].height, 2160);
-        assert_eq!(panels[0].outer_gap, 8);
     }
 
     #[test]
@@ -225,7 +223,7 @@ mod tests {
     }
 
     #[test]
-    fn parse_root_node_defaults_x_y_outer_gap_to_zero() {
+    fn parse_root_node_defaults_x_y_to_zero() {
         let root = serde_json::json!({
             "type": "root",
             "children": [{
@@ -239,7 +237,6 @@ mod tests {
         let panels = parse_root_node(&root).unwrap();
         assert_eq!(panels[0].x, 0);
         assert_eq!(panels[0].y, 0);
-        assert_eq!(panels[0].outer_gap, 0);
         assert_eq!(panels[0].anchor, None);
     }
 }

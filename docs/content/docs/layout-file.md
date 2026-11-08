@@ -124,7 +124,6 @@ spellings. A bare `<surface>` names no kind and is a parse error.
 | `y` | number | y position, ignored when `anchor` is set |
 | `above` | boolean | stack above other windows, for overlays like notifications |
 | `output` | string | RandR output name, e.g. `"DP-2"`; omit for the primary output |
-| `outer_gap` | number | gap reserved around screen edges |
 
 `anchor` *places* a panel. It does not reserve space for it, and a window manager will
 happily tile other windows underneath. Reserving space is a separate decision — see

@@ -1882,8 +1882,7 @@ mod tests {
 
     #[test]
     fn jsx_evaluator_injects_ctx_into_script() {
-        let ctx =
-            serde_json::json!({ "output": "DP-4", "dpi": 96.0, "width": 250, "outer_gap": 8 });
+        let ctx = serde_json::json!({ "output": "DP-4", "dpi": 96.0, "width": 250 });
         let value = JsxEvaluator::new(
             r#"export default function render() { return <span class="text-white">{ctx.output}</span>; }"#,
             ctx,
