@@ -168,7 +168,9 @@ empty with nothing in the log.
 Wallpapers work on X11, macOS and Wayland. On Wayland the wallpaper is a surface on the
 compositor's background layer, so the compositor must implement `wlr-layer-shell` (Sway,
 Hyprland and river do). It lands on the compositor's choice of output — `output` is not
-routed yet — and the pixel scale is rounded to a whole number. See [Backends](/docs/backends/).
+routed yet. A fractional pixel scale is exact when the compositor has `wp_viewporter`
+(Sway, Hyprland and river do); otherwise it is rounded to a whole number. See
+[Backends](/docs/backends/).
 
 ## Seeing through a panel
 

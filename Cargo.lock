@@ -6329,6 +6329,7 @@ dependencies = [
  "ureq",
  "url",
  "wayland-client",
+ "wayland-protocols",
  "winit",
  "x11rb 0.14.0",
 ]

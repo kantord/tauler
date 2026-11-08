@@ -26,6 +26,9 @@ use wayland_client::{
     protocol::{wl_output, wl_pointer, wl_seat, wl_shm, wl_surface},
     Connection, EventQueue, Proxy, QueueHandle,
 };
+use wayland_protocols::wp::viewporter::client::{
+    wp_viewport::WpViewport, wp_viewporter::WpViewporter,
+};
 
 use super::{DispatchError, DisplayServer, WindowEvent};
 use crate::display_manager::DisplayManager;
@@ -163,6 +166,9 @@ pub(crate) struct WaylandState {
     pub(crate) shm: Shm,
     pub(crate) layer_shell: LayerShell,
     pub(crate) seat_state: SeatState,
+    /// `wp_viewporter`, when the compositor offers it. Lets a wallpaper of any
+    /// fractional scale be shown exactly (see `plan_wallpaper_buffer`).
+    pub(crate) viewporter: Option<WpViewporter>,
     pub(crate) pointer: Option<wl_pointer::WlPointer>,
     pub(crate) pending_events: Vec<WindowEvent>,
     /// (surface_id, new_size) pairs from configure events received since last take.
@@ -189,6 +195,61 @@ pub struct WaylandDisplayServer {
 struct WallpaperSurface {
     panel: WaylandPanel,
     pixels: Arc<Vec<u8>>,
+    /// Present only when the compositor has `wp_viewporter`.
+    viewport: Option<WpViewport>,
+    /// Logical size from the latest configure; `(0, 0)` until one arrives.
+    configured: (u32, u32),
+}
+
+impl WallpaperSurface {
+    /// Paint the stored frame, `panel.width` x `panel.height` physical pixels.
+    fn render(&mut self) {
+        if !self.panel.configured {
+            return;
+        }
+        let (fw, fh) = (self.panel.width, self.panel.height);
+        if fw == 0 || fh == 0 || self.pixels.len() < (fw as usize) * (fh as usize) * 4 {
+            return;
+        }
+        let plan = plan_wallpaper_buffer(
+            self.configured,
+            self.panel.dpr,
+            (fw, fh),
+            self.viewport.is_some(),
+        );
+        let (bw, bh) = plan.buffer;
+        debug_assert!(
+            plan.scale == 1 || (bw % plan.scale as u32 == 0 && bh % plan.scale as u32 == 0),
+            "buffer {bw}x{bh} is not a multiple of scale {}",
+            plan.scale
+        );
+        let Ok((buffer, canvas)) = self.panel.pool.create_buffer(
+            bw as i32,
+            bh as i32,
+            bw as i32 * 4,
+            wl_shm::Format::Xrgb8888,
+        ) else {
+            tracing::error!("failed to create Wayland SHM buffer");
+            return;
+        };
+        // The source stride is the full frame width; crop rows when the buffer is smaller.
+        let (src_stride, dst_stride) = (fw as usize * 4, bw as usize * 4);
+        for y in 0..bh as usize {
+            canvas[y * dst_stride..(y + 1) * dst_stride]
+                .copy_from_slice(&self.pixels[y * src_stride..y * src_stride + dst_stride]);
+        }
+        let wl_surf = self.panel.layer_surface.wl_surface();
+        wl_surf.set_buffer_scale(plan.scale);
+        if let (Some(viewport), Some((w, h))) = (&self.viewport, plan.destination) {
+            viewport.set_destination(w as i32, h as i32);
+        }
+        if buffer.attach_to(wl_surf).is_err() {
+            tracing::error!("failed to attach buffer to surface");
+            return;
+        }
+        wl_surf.damage_buffer(0, 0, bw as i32, bh as i32);
+        wl_surf.commit();
+    }
 }
 
 impl std::fmt::Debug for WaylandDisplayServer {
@@ -217,6 +278,7 @@ impl WaylandDisplayServer {
         let layer_shell = LayerShell::bind(&globals, &qh)
             .map_err(|e| WaylandConnectError::BindLayerShell(e.to_string()))?;
         let seat_state = SeatState::new(&globals, &qh);
+        let viewporter = globals.bind::<WpViewporter, _, _>(&qh, 1..=1, ()).ok();
 
         let state = WaylandState {
             registry_state: RegistryState::new(&globals),
@@ -225,6 +287,7 @@ impl WaylandDisplayServer {
             shm,
             layer_shell,
             seat_state,
+            viewporter,
             pointer: None,
             pending_events: Vec::new(),
             pending_configures: Vec::new(),
@@ -359,9 +422,14 @@ impl WaylandDisplayServer {
         &mut self,
         spec: &SurfaceSpec,
         frame: &SurfaceFrame,
-    ) -> Result<WaylandPanel, anyhow::Error> {
+    ) -> Result<WallpaperSurface, anyhow::Error> {
         let qh = self.event_queue.handle();
         let wl_surface = self.state.compositor_state.create_surface(&qh);
+        let viewport = self
+            .state
+            .viewporter
+            .as_ref()
+            .map(|v| v.get_viewport(&wl_surface, &qh, ()));
         let layer_surface = self.state.layer_shell.create_layer_surface(
             &qh,
             wl_surface,
@@ -372,26 +440,28 @@ impl WaylandDisplayServer {
         layer_surface.set_size(0, 0);
         layer_surface.set_anchor(Anchor::TOP | Anchor::BOTTOM | Anchor::LEFT | Anchor::RIGHT);
         layer_surface.set_exclusive_zone(-1);
-        // The frame is physical pixels; tell the compositor so it does not draw
-        // a 2x buffer at 2x size. Whole-number scales only.
-        layer_surface
-            .wl_surface()
-            .set_buffer_scale(spec.dpr.round().max(1.0) as i32);
+        // Buffer scale and viewport destination are set per paint, once the
+        // configured size is known.
         layer_surface.wl_surface().commit();
 
         let surface_id = layer_surface.wl_surface().id();
         let pool = SlotPool::new(frame.pixels.len().max(4096) * 2, &self.state.shm)
             .map_err(|e| anyhow::anyhow!("SlotPool::new: {e}"))?;
-        Ok(WaylandPanel {
-            layer_surface,
-            pool,
-            surface_id,
-            configured: false,
-            width: frame.width,
-            height: frame.height,
-            anchor: None,
-            dpr: spec.dpr,
-            pending: None,
+        Ok(WallpaperSurface {
+            panel: WaylandPanel {
+                layer_surface,
+                pool,
+                surface_id,
+                configured: false,
+                width: frame.width,
+                height: frame.height,
+                anchor: None,
+                dpr: spec.dpr,
+                pending: None,
+            },
+            pixels: frame.pixels.clone(),
+            viewport,
+            configured: (0, 0),
         })
     }
 
@@ -406,11 +476,14 @@ impl WaylandDisplayServer {
         let (walls, panels): (Vec<_>, Vec<_>) = pending
             .into_iter()
             .partition(|(id, _)| self.wallpapers.values().any(|w| &w.panel.surface_id == id));
-        for (id, _) in walls {
+        // Every configure repaints from the stored frame: a changed size needs
+        // a new destination, and an unchanged one is harmless.
+        for (id, size) in walls {
             for w in self.wallpapers.values_mut() {
                 if w.panel.surface_id == id {
+                    w.configured = size;
                     w.panel.configured = true;
-                    w.panel.render(&w.pixels);
+                    w.render();
                 }
             }
         }
@@ -523,14 +596,8 @@ impl DisplayManager for WaylandDisplayServer {
 
     fn paint_wallpaper(&mut self, spec: &SurfaceSpec, frame: &SurfaceFrame) -> anyhow::Result<()> {
         if !self.wallpapers.contains_key(&spec.id) {
-            let panel = self.create_wallpaper_surface(spec, frame)?;
-            self.wallpapers.insert(
-                spec.id.clone(),
-                WallpaperSurface {
-                    panel,
-                    pixels: frame.pixels.clone(),
-                },
-            );
+            let wallpaper = self.create_wallpaper_surface(spec, frame)?;
+            self.wallpapers.insert(spec.id.clone(), wallpaper);
             // First paint waits for the compositor's configure.
             return Ok(());
         }
@@ -538,7 +605,7 @@ impl DisplayManager for WaylandDisplayServer {
             w.pixels = frame.pixels.clone();
             w.panel.width = frame.width;
             w.panel.height = frame.height;
-            w.panel.render(&frame.pixels);
+            w.render();
         }
         Ok(())
     }
@@ -735,6 +802,8 @@ impl ProvidesRegistryState for WaylandState {
 
 delegate_dispatch2!(WaylandState);
 delegate_registry!(WaylandState);
+wayland_client::delegate_noop!(WaylandState: WpViewporter);
+wayland_client::delegate_noop!(WaylandState: WpViewport);
 
 // ---------------------------------------------------------------------------
 // Helper functions used internally and by tests
@@ -784,6 +853,51 @@ pub(crate) fn compute_output_scale(logical_w: u32, physical_w: u32, scale_factor
     }
 }
 
+/// How a wallpaper frame is attached to its surface.
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+pub(crate) struct WallpaperPlan {
+    pub scale: i32,                      // wl_surface buffer scale
+    pub buffer: (u32, u32),              // pixels actually attached (<= frame)
+    pub destination: Option<(u32, u32)>, // wp_viewport destination in logical px
+}
+
+/// Decide how to attach a `frame`-sized pixel buffer to a surface the compositor
+/// sized to `configured` logical pixels (`0` on an axis means unknown).
+///
+/// With a viewporter the whole frame is attached at scale 1 and the destination
+/// pins it to the logical size, so any fractional `dpr` is exact. Without one the
+/// only tool is an integer buffer scale, and the buffer must be a multiple of it
+/// or the compositor raises a protocol error: crop to the nearest lower multiple.
+pub(crate) fn plan_wallpaper_buffer(
+    configured: (u32, u32),
+    dpr: f32,
+    frame: (u32, u32),
+    has_viewporter: bool,
+) -> WallpaperPlan {
+    if has_viewporter {
+        // A zero on either axis means the configure carried no usable size.
+        let destination = if configured.0 > 0 && configured.1 > 0 {
+            configured
+        } else {
+            let axis = |frame: u32| ((frame as f32 / dpr).round() as u32).max(1);
+            (axis(frame.0), axis(frame.1))
+        };
+        return WallpaperPlan {
+            scale: 1,
+            buffer: frame,
+            destination: Some(destination),
+        };
+    }
+    let scale = (dpr.round() as i32).max(1);
+    let s = scale as u32;
+    let crop = |n: u32| (n / s * s).max(s);
+    WallpaperPlan {
+        scale,
+        buffer: (crop(frame.0), crop(frame.1)),
+        destination: None,
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -792,7 +906,7 @@ pub(crate) fn compute_output_scale(logical_w: u32, physical_w: u32, scale_factor
 mod tests {
     use super::{
         anchor_for_panel, canvas_extent, compute_output_scale, compute_set_size,
-        fixed_axis_changed, WaylandDisplayServer,
+        fixed_axis_changed, plan_wallpaper_buffer, WallpaperPlan, WaylandDisplayServer,
     };
     use crate::display_manager::DisplayManager;
     use crate::layout::{PanelAnchor, SurfaceSpec};
@@ -1318,5 +1432,145 @@ mod tests {
     #[test]
     fn compute_output_scale_returns_one_when_no_scaling() {
         assert_eq!(compute_output_scale(1920, 1920, 1), 1.0_f32);
+    }
+
+    // ---------------------------------------------------------------------------
+    // plan_wallpaper_buffer
+    // ---------------------------------------------------------------------------
+
+    #[test]
+    fn wallpaper_plan_viewporter_uses_configured_as_destination_at_all_dprs() {
+        for dpr in [1.0_f32, 1.25, 1.5, 1.51, 2.0] {
+            let p = plan_wallpaper_buffer((1272, 715), dpr, (1921, 1080), true);
+            assert_eq!(
+                p,
+                WallpaperPlan {
+                    scale: 1,
+                    buffer: (1921, 1080),
+                    destination: Some((1272, 715)),
+                },
+                "dpr {dpr}"
+            );
+        }
+    }
+
+    #[test]
+    fn wallpaper_plan_viewporter_zero_configured_axis_derives_from_dpr() {
+        let p = plan_wallpaper_buffer((0, 715), 1.5, (3840, 2160), true);
+        assert_eq!(p.scale, 1);
+        assert_eq!(p.buffer, (3840, 2160));
+        assert_eq!(p.destination, Some((2560, 1440)));
+        let p = plan_wallpaper_buffer((0, 0), 2.0, (1, 1), true);
+        assert_eq!(p.destination, Some((1, 1)));
+    }
+
+    #[test]
+    fn wallpaper_plan_dpr_1_51_frame_1921_no_viewporter_has_no_odd_buffer() {
+        let p = plan_wallpaper_buffer((1272, 715), 1.51, (1921, 1080), false);
+        assert_eq!(p.scale, 2);
+        assert_eq!(p.buffer, (1920, 1080));
+        assert_eq!(p.destination, None);
+    }
+
+    #[test]
+    fn wallpaper_plan_dpr_1_51_viewporter_scale_1_dest_logical() {
+        let p = plan_wallpaper_buffer((1272, 715), 1.51, (1921, 1080), true);
+        assert_eq!(p.scale, 1);
+        assert_eq!(p.destination, Some((1272, 715)));
+    }
+
+    #[test]
+    fn wallpaper_plan_dpr_1_5_viewporter_dest_is_logical() {
+        let p = plan_wallpaper_buffer((2560, 1440), 1.5, (3840, 2160), true);
+        assert_eq!(p.scale, 1);
+        assert_eq!(p.buffer, (3840, 2160));
+        assert_eq!(p.destination, Some((2560, 1440)));
+    }
+
+    #[test]
+    fn wallpaper_plan_dpr_1_5_fallback_rounds_to_scale_2() {
+        let p = plan_wallpaper_buffer((2560, 1440), 1.5, (3840, 2160), false);
+        assert_eq!(p.scale, 2);
+        assert_eq!(p.buffer, (3840, 2160));
+        assert_eq!(p.destination, None);
+    }
+
+    #[test]
+    fn wallpaper_plan_fallback_dpr_1_0_is_identity() {
+        let p = plan_wallpaper_buffer((1920, 1080), 1.0, (1921, 1081), false);
+        assert_eq!(p.scale, 1);
+        assert_eq!(p.buffer, (1921, 1081));
+        assert_eq!(p.destination, None);
+    }
+
+    #[test]
+    fn wallpaper_plan_fallback_dpr_1_25_rounds_to_scale_1() {
+        let p = plan_wallpaper_buffer((1536, 864), 1.25, (1921, 1080), false);
+        assert_eq!(p.scale, 1);
+        assert_eq!(p.buffer, (1921, 1080));
+        assert_eq!(p.destination, None);
+    }
+
+    #[test]
+    fn wallpaper_plan_fallback_dpr_2_0_odd_frame_is_floored_to_even() {
+        let p = plan_wallpaper_buffer((540, 303), 2.0, (1081, 607), false);
+        assert_eq!(p.scale, 2);
+        assert_eq!(p.buffer, (1080, 606));
+        assert_eq!(p.destination, None);
+    }
+
+    #[test]
+    fn wallpaper_plan_viewporter_dpr_2_0_odd_frame_is_attached_whole() {
+        let p = plan_wallpaper_buffer((540, 303), 2.0, (1081, 607), true);
+        assert_eq!(p.scale, 1);
+        assert_eq!(p.buffer, (1081, 607));
+        assert_eq!(p.destination, Some((540, 303)));
+    }
+
+    #[test]
+    fn wallpaper_plan_fallback_tiny_frame_keeps_at_least_scale_per_axis() {
+        let p = plan_wallpaper_buffer((1, 1), 2.0, (1, 1), false);
+        assert_eq!(p.scale, 2);
+        assert_eq!(p.buffer, (2, 2));
+    }
+
+    #[test]
+    fn wallpaper_plan_invariants_hold_across_dprs_and_frame_sizes() {
+        let dprs = [1.0_f32, 1.25, 1.5, 1.51, 1.75, 2.0, 2.5, 3.0];
+        let frames = [
+            (1920, 1080),
+            (1921, 1080),
+            (1081, 607),
+            (3840, 2160),
+            (2559, 1439),
+            (7, 5),
+            (3, 3),
+        ];
+        for dpr in dprs {
+            for frame in frames {
+                let configured = (
+                    (frame.0 as f32 / dpr).round() as u32,
+                    (frame.1 as f32 / dpr).round() as u32,
+                );
+                let p = plan_wallpaper_buffer(configured, dpr, frame, false);
+                let s = p.scale as u32;
+                assert!(p.scale >= 1, "dpr {dpr} frame {frame:?}");
+                assert_eq!(p.scale, (dpr.round() as i32).max(1));
+                assert_eq!(p.destination, None);
+                if frame.0 >= s && frame.1 >= s {
+                    assert!(p.buffer.0 <= frame.0 && p.buffer.1 <= frame.1);
+                    // loses less than one scale step per axis
+                    assert!(frame.0 - p.buffer.0 < s && frame.1 - p.buffer.1 < s);
+                }
+                if s > 1 {
+                    assert_eq!(p.buffer.0 % s, 0, "dpr {dpr} frame {frame:?}");
+                    assert_eq!(p.buffer.1 % s, 0, "dpr {dpr} frame {frame:?}");
+                }
+                let v = plan_wallpaper_buffer(configured, dpr, frame, true);
+                assert_eq!(v.scale, 1);
+                assert_eq!(v.buffer, frame);
+                assert!(v.destination.is_some());
+            }
+        }
     }
 }
