@@ -29,10 +29,13 @@ pub trait DisplayManager {
     /// gradients, solid colours) is expressed in the layout subtree and comes
     /// out of takumi already rasterized, same as for a panel.
     ///
-    /// Only X11 implements this. Everywhere else the default rejects the node,
-    /// which the presenter reports once, at create time.
+    /// X11, macOS and Wayland implement this. Anywhere else the default rejects
+    /// the node, which the presenter reports once, at create time.
     fn paint_wallpaper(&mut self, spec: &SurfaceSpec, _frame: &SurfaceFrame) -> anyhow::Result<()> {
-        anyhow::bail!("<wallpaper id=\"{}\"> is only supported on X11", spec.id)
+        anyhow::bail!(
+            "<wallpaper id=\"{}\"> is not supported by this display backend",
+            spec.id
+        )
     }
 
     fn flush(&mut self) {}
