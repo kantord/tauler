@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.0](https://github.com/kantord/tauler/compare/tauler-v0.10.1...tauler-v0.11.0) - 2026-11-08
+
+### Fixed
+
+- drop wayland wallpaper surface when its node is deleted ([#779](https://github.com/kantord/tauler/pull/779))
+- a bunch of small fixes for wayland ([#777](https://github.com/kantord/tauler/pull/777))
+- remove dead outer_gap setting ([#774](https://github.com/kantord/tauler/pull/774))
+- support wallpapers on wayland ([#773](https://github.com/kantord/tauler/pull/773))
+
+### Other
+
+- improve docs accuracy ([#771](https://github.com/kantord/tauler/pull/771))
+
 ## [0.10.1](https://github.com/kantord/tauler/compare/tauler-v0.10.0...tauler-v0.10.1) - 2026-11-06
 
 ### Fixed
