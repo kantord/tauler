@@ -61,9 +61,43 @@ pub struct WaylandPanel {
     pub height: u32,
     pub anchor: Option<PanelAnchor>,
     pub dpr: f32,
+    /// The newest frame handed to `render` while the surface was unconfigured.
+    /// A panel whose content never changes is rendered exactly once, usually
+    /// before the compositor's first configure, and nothing re-renders it
+    /// afterwards, so `configure` paints this instead of dropping it.
+    pending: Option<Vec<u8>>,
+}
+
+/// Whole rows and bytes of a BGRX frame that fit a surface `width` pixels wide.
+///
+/// The frame may have been rendered for a size the surface no longer has, so
+/// the height comes from the data rather than from the surface, and a partial
+/// trailing row is dropped. `None` means not even one row fits.
+fn canvas_extent(bgrx_len: usize, width: u32) -> Option<(i32, usize)> {
+    let row = (width as usize).checked_mul(4).filter(|&r| r > 0)?;
+    let rows = bgrx_len / row;
+    if rows == 0 {
+        return None;
+    }
+    Some((rows as i32, rows * row))
 }
 
 impl WaylandPanel {
+    /// Record the compositor's configure and paint any frame that arrived first.
+    /// A `new_size` axis of 0 means "keep the size we asked for".
+    pub fn configure(&mut self, new_size: (u32, u32)) {
+        if new_size.0 > 0 {
+            self.width = new_size.0;
+        }
+        if new_size.1 > 0 {
+            self.height = new_size.1;
+        }
+        self.configured = true;
+        if let Some(pixels) = self.pending.take() {
+            self.render(&pixels);
+        }
+    }
+
     /// Update the panel from a new spec. Resizes the layer surface if the fixed dimension changed,
     /// which will cause the compositor to send a new configure before the next render.
     pub fn update_spec(&mut self, data: &SurfaceSpec) {
@@ -83,19 +117,20 @@ impl WaylandPanel {
         }
     }
 
-    /// Paint a BGRX frame onto this panel's layer surface.
+    /// Paint a BGRX frame onto this panel's layer surface. Before the first
+    /// configure the frame is kept for `configure` to paint.
     pub fn render(&mut self, bgrx: &[u8]) {
         if !self.configured {
+            self.pending = Some(bgrx.to_vec());
             return;
         }
         let stride = self.width as i32 * 4;
         // Derive height from bgrx rather than self.height: the compositor may have
         // configured a different height than what the app rendered (configure race),
         // and using self.height would produce a mismatched canvas size and panic.
-        let actual_height = (bgrx.len() / 4).saturating_div(self.width as usize) as i32;
-        if actual_height == 0 {
+        let Some((actual_height, used)) = canvas_extent(bgrx.len(), self.width) else {
             return;
-        }
+        };
         let Ok((buffer, canvas)) = self.pool.create_buffer(
             self.width as i32,
             actual_height,
@@ -105,8 +140,8 @@ impl WaylandPanel {
             tracing::error!("failed to create Wayland SHM buffer");
             return;
         };
-        // SlotPool rounds slot size up to 64 bytes; copy only the actual pixel data.
-        canvas[..bgrx.len()].copy_from_slice(bgrx);
+        // SlotPool rounds slot size up to 64 bytes; copy only the whole rows.
+        canvas[..used].copy_from_slice(&bgrx[..used]);
         let wl_surf = self.layer_surface.wl_surface();
         if buffer.attach_to(wl_surf).is_err() {
             tracing::error!("failed to attach buffer to surface");
@@ -310,6 +345,7 @@ impl WaylandDisplayServer {
             height: data.height,
             anchor: data.anchor.clone(),
             dpr,
+            pending: None,
         })
     }
 
@@ -355,6 +391,7 @@ impl WaylandDisplayServer {
             height: frame.height,
             anchor: None,
             dpr: spec.dpr,
+            pending: None,
         })
     }
 
@@ -754,12 +791,31 @@ pub(crate) fn compute_output_scale(logical_w: u32, physical_w: u32, scale_factor
 #[cfg(test)]
 mod tests {
     use super::{
-        anchor_for_panel, compute_output_scale, compute_set_size, fixed_axis_changed,
-        WaylandDisplayServer,
+        anchor_for_panel, canvas_extent, compute_output_scale, compute_set_size,
+        fixed_axis_changed, WaylandDisplayServer,
     };
     use crate::display_manager::DisplayManager;
     use crate::layout::{PanelAnchor, SurfaceSpec};
     use smithay_client_toolkit::shell::wlr_layer::Anchor;
+
+    #[test]
+    fn canvas_extent_of_an_exact_frame_is_every_row_and_byte() {
+        assert_eq!(canvas_extent(10 * 4 * 3, 10), Some((3, 120)));
+    }
+
+    /// A frame rendered for a size the surface no longer has must shrink to
+    /// whole rows, never promise more bytes than the buffer holds.
+    #[test]
+    fn canvas_extent_drops_a_partial_trailing_row() {
+        assert_eq!(canvas_extent(10 * 4 * 3 + 8, 10), Some((3, 120)));
+    }
+
+    #[test]
+    fn canvas_extent_is_none_when_no_whole_row_fits() {
+        assert_eq!(canvas_extent(0, 10), None);
+        assert_eq!(canvas_extent(39, 10), None);
+        assert_eq!(canvas_extent(120, 0), None);
+    }
 
     // Minimal SurfaceSpec for testing
     fn minimal_spec() -> SurfaceSpec {

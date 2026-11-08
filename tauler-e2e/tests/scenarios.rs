@@ -1056,34 +1056,27 @@ fn wallpaper_on_sway() -> Result<()> {
     wallpaper(Backend::Sway)
 }
 
+/// The panel sits on top of the wallpaper, on every desktop.
+///
+/// The panel's content never changes, so it is rendered exactly once — on
+/// Wayland, before the compositor's configure has arrived. That is the case
+/// this scenario guards: `WaylandPanel` must keep that frame and paint it on
+/// configure, because nothing re-renders a static panel afterwards. (A bar with
+/// a clock would hide the bug at its next tick.)
+fn panel_over_wallpaper(backend: Backend) -> Result<()> {
+    let (desktop, shot) = wallpaper_panel_shot(backend, true)?;
+    assert_wallpaper(backend, &shot, desktop.screen())?;
+    assert_panel(backend, &shot, desktop.screen())
+}
+
 #[test]
 #[ignore = "needs Docker and `just e2e-image`"]
 fn panel_over_wallpaper_on_i3() -> Result<()> {
-    let (desktop, shot) = wallpaper_panel_shot(Backend::I3, true)?;
-    assert_wallpaper(Backend::I3, &shot, desktop.screen())?;
-    assert_panel(Backend::I3, &shot, desktop.screen())
+    panel_over_wallpaper(Backend::I3)
 }
 
-/// Known failure, pinned: on Wayland a panel whose content never changes is never
-/// painted. Found by this scenario; not caused by `<wallpaper>` — a layout with
-/// only the panel and no wallpaper behaves the same, and editing the layout so the
-/// panel's content changes makes it appear.
-///
-/// The cause is in the order of events. `create_window` renders the first frame
-/// before the compositor's configure has arrived, and `WaylandPanel::render`
-/// returns early when `!configured`. The configure then marks the panel
-/// configured and sends `PresenterEvent::NeedsRender`, which `app.rs` handles as
-/// "no-op: reconciler handles rendering" — and the reconciler only repaints on a
-/// content change. A bar with a clock hides this at its next tick; a static panel
-/// stays blank. (The wallpaper does not have the problem: it keeps its frame and
-/// paints it when its own configure arrives.)
-///
-/// `should_panic`, not a plain failure, so `just e2e` stays green while the bug
-/// is open and goes red the day it is fixed — delete this test's attribute and
-/// let `panel_over_wallpaper_on` take both backends then.
 #[test]
 #[ignore = "needs Docker and `just e2e-image`"]
-#[should_panic(expected = "the panel has not painted")]
-fn panel_over_wallpaper_on_sway_known_blank_panel() {
-    wallpaper_panel_shot(Backend::Sway, true).unwrap();
+fn panel_over_wallpaper_on_sway() -> Result<()> {
+    panel_over_wallpaper(Backend::Sway)
 }
