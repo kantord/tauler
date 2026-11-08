@@ -38,5 +38,10 @@ pub trait DisplayManager {
         )
     }
 
+    /// Drop whatever the backend holds for the wallpaper `id` (e.g. a Wayland
+    /// layer surface). Called when a `<wallpaper>` node is deleted or renamed.
+    /// Default: nothing to drop.
+    fn delete_wallpaper(&mut self, _id: &str) {}
+
     fn flush(&mut self) {}
 }
