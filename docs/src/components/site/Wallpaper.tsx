@@ -28,14 +28,14 @@ export function Wallpaper({
 }) {
   const host = useRef<HTMLDivElement>(null)
   useEffect(() => {
+    const abort = new AbortController()
     let destroy: (() => void) | undefined
-    let cancelled = false
     void import('./wallpaper/page-wallpaper').then(({ mountPageWallpaper }) => {
-      if (cancelled || !host.current) return
+      if (abort.signal.aborted || !host.current) return
       destroy = mountPageWallpaper(host.current, { room })
     })
     return () => {
-      cancelled = true
+      abort.abort()
       destroy?.()
     }
   }, [room])
