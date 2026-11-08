@@ -191,10 +191,6 @@ fn optional_i64(obj: &serde_json::Value, key: &str, default: i64) -> i64 {
     obj.get(key).and_then(|v| v.as_i64()).unwrap_or(default)
 }
 
-fn optional_u64(obj: &serde_json::Value, key: &str, default: u64) -> u64 {
-    obj.get(key).and_then(|v| v.as_u64()).unwrap_or(default)
-}
-
 fn optional_bool(obj: &serde_json::Value, key: &str, default: bool) -> bool {
     obj.get(key).and_then(|v| v.as_bool()).unwrap_or(default)
 }
