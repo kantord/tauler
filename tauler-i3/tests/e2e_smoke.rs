@@ -189,10 +189,7 @@ fn stdin_click_and_refresh_worker_round_trip_through_real_process() {
     let mut child = Command::new(env!("CARGO_BIN_EXE_tauler-i3"))
         .env("I3SOCK", &sock_path)
         .env_remove("SWAYSOCK")
-        // tracing_subscriber::fmt() defaults to writing to stdout, which
-        // would otherwise interleave log lines with the workspace-JSON
-        // protocol output this test asserts on.
-        .env("RUST_LOG", "off")
+        .env("RUST_LOG", "info")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
@@ -272,4 +269,90 @@ fn stdin_click_and_refresh_worker_round_trip_through_real_process() {
     let _ = child.kill();
     let _ = child.wait();
     let _ = std::fs::remove_file(&sock_path);
+}
+
+/// stdout is a JSON-lines protocol, so log output must go to stderr. Point
+/// the binary at a socket nobody listens on so the subscribe thread emits a
+/// WARN ("failed to connect to i3 socket"), then check that every stdout line
+/// is still valid JSON and the log event showed up on stderr instead.
+#[test]
+fn log_output_goes_to_stderr_not_stdout() {
+    let sock_path = temp_sock("nolisten"); // deliberately never bound
+
+    let mut child = Command::new(env!("CARGO_BIN_EXE_tauler-i3"))
+        .env("I3SOCK", &sock_path)
+        .env_remove("SWAYSOCK")
+        .env("RUST_LOG", "info")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("failed to spawn tauler-i3");
+
+    let mut stdin = child.stdin.take().expect("child stdin");
+    let stdout = child.stdout.take().expect("child stdout");
+    let stderr = child.stderr.take().expect("child stderr");
+
+    writeln!(
+        stdin,
+        r#"{{"type":"init","output":"DP-1","config":{{"left":24,"outer_gap":4}},"dpi":96.0}}"#
+    )
+    .expect("write init event");
+    stdin.flush().expect("flush init event");
+
+    let (out_tx, out_rx) = mpsc::channel::<String>();
+    thread::spawn(move || {
+        for line in BufReader::new(stdout).lines() {
+            let Ok(l) = line else { break };
+            if out_tx.send(l).is_err() {
+                break;
+            }
+        }
+    });
+    let (err_tx, err_rx) = mpsc::channel::<String>();
+    thread::spawn(move || {
+        for line in BufReader::new(stderr).lines() {
+            let Ok(l) = line else { break };
+            if err_tx.send(l).is_err() {
+                break;
+            }
+        }
+    });
+
+    // Bounded wait for the log event to be produced, then a short grace
+    // period so any stray stdout lines also arrive.
+    let mut stderr_lines: Vec<String> = Vec::new();
+    let deadline = Instant::now() + Duration::from_secs(4);
+    let mut stdout_lines: Vec<String> = Vec::new();
+    while Instant::now() < deadline {
+        while let Ok(l) = out_rx.try_recv() {
+            stdout_lines.push(l);
+        }
+        while let Ok(l) = err_rx.try_recv() {
+            stderr_lines.push(l);
+        }
+        thread::sleep(Duration::from_millis(100));
+    }
+
+    let _ = child.kill();
+    let _ = child.wait();
+    let _ = std::fs::remove_file(&sock_path);
+    while let Ok(l) = out_rx.try_recv() {
+        stdout_lines.push(l);
+    }
+    while let Ok(l) = err_rx.try_recv() {
+        stderr_lines.push(l);
+    }
+
+    for line in &stdout_lines {
+        assert!(
+            serde_json::from_str::<Value>(line).is_ok(),
+            "non-JSON line on stdout (protocol corrupted): {line}"
+        );
+    }
+    let stderr_text = stderr_lines.join("\n");
+    assert!(
+        stderr_text.contains("failed to connect to i3 socket"),
+        "expected log event on stderr, got: {stderr_text:?}"
+    );
 }
