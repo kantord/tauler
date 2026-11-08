@@ -1,12 +1,12 @@
 //! Parses and validates a two-document schema file: the first document declares a flat
 //! list of JSX node components — what props each accepts, how each is validated, and
-//! whether it has children — the second is a minijinja template string (design record
-//! §14, "a multi-part YAML file would take care of making this a single file"). Nothing
+//! whether it has children — the second is a minijinja template string, so one multi-part
+//! YAML file carries the whole schema. Nothing
 //! downstream of [`parse`] should ever see the raw YAML again — every `component` name has
 //! already gone through [`Identifier::validate`], and the first document has already been
 //! checked against the generic node-schema meta-schema.
 //!
-//! Deliberately config-format-independent (design record §17): there is no "selector"
+//! Deliberately config-format-independent: there is no "selector"
 //! concept, no rasi-specific value type, nothing here assumes the target format is
 //! `.rasi`. A node is just a component with declared props, optional constant fields, and
 //! an optional `children_as` name if it wraps other nodes — the *only* place any format's
@@ -39,7 +39,7 @@ pub enum GenError {
 /// every node uses — there is no closed set of "named types": a format-specific shorthand
 /// (rasi's Padding/Border, say) is just a `pattern` a schema author writes once, with
 /// `error` naming the shape in a sentence a schema author wrote, so the thrown error is
-/// never the regex source (design record §4.6's caveat about JSON Schema's worst part).
+/// never the regex source (a raw pattern is the worst part of a JSON-Schema-style error).
 ///
 /// `items`, when set, means the prop's value must be a JS array, every element of which
 /// is checked against the *nested* rule — rofi's list-of-keywords type (`man rofi-theme`,
@@ -111,8 +111,8 @@ impl Schema {
 /// generic node-schema meta-schema (exactly one root, every container names its
 /// `children_as` field — both enforced structurally, not just by convention), validates
 /// every `component` name as a safe JS identifier, and rejects two nodes sharing one name
-/// — the bug the design record's §14.6 found by hand-tracing a schema that reused
-/// `component: Selector` for two different selectors.
+/// — a schema once reused `component: Selector` for two different selectors, and the
+/// second silently shadowed the first.
 pub fn parse(source: &str) -> Result<Schema, GenError> {
     let mut docs = serde_yaml_ng::Deserializer::from_str(source);
 
@@ -267,7 +267,7 @@ template: "irrelevant"
         assert!(matches!(err, GenError::SchemaShape(_)), "got {err:?}");
     }
 
-    /// The exact bug the design record's §14.6 caught by hand-tracing generated output:
+    /// The exact bug caught by hand-tracing generated output:
     /// two nodes reusing one `component` name silently produces one generated function
     /// that the second definition would shadow. It must be a rejected schema, not a
     /// silently-broken generated file.
@@ -308,7 +308,7 @@ template: "irrelevant"
         // The meta-schema's own `pattern` on `component` fields happens to use the same
         // regex as `Identifier::validate`, so it catches this payload first — a
         // `SchemaShape` error, not `GenError::Identifier`. That's defense in depth working
-        // as intended (§14.4), not a bug: the claim this test makes is "never reaches
+        // as intended, not a bug: the claim this test makes is "never reaches
         // codegen," not "caught by this specific layer." `Identifier::validate`'s own
         // rejection of the identical payload is proven independently, in isolation, by
         // `identifier::tests::rejects_the_identifier_breakout_payload` — the layer that
@@ -322,7 +322,7 @@ template: "irrelevant"
     /// A grammar-specific shorthand type (rasi's Border: 1-4 groups of a distance
     /// optionally followed by a line style) is expressed with a plain `pattern` + a
     /// human-written `error` — no Rust enum, no `tauler-configgen` code change, proving
-    /// the generator really is format-independent (design record §17).
+    /// the generator really is format-independent.
     #[test]
     fn a_custom_error_message_travels_through_as_plain_data() {
         let schema_with_border = r#"

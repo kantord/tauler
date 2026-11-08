@@ -22,6 +22,19 @@ commit that retired it for what moved where.
 `CONTEXT.md` and `docs/adr/` are maintained by the `domain-modeling` skill and are
 repo-internal — neither is published to the docs site.
 
+## References
+
+Anything checked into this repo — code, comments, docs, ADRs, READMEs, commit messages,
+issues — may reference only two kinds of thing: files in this repo, and public URLs.
+
+Never cite a local path outside the repo (for example `~/notes/design-draft.md`, a
+scratch file, a session transcript, a research dump), a private note, or a document only
+one person can open. A reader cannot follow it, and the claim it supports goes unchecked.
+
+If an outside source holds a decision or fact worth keeping, state it in place, with its
+reasoning, in the file that needs it — or in an ADR if the decision is hard to reverse.
+Otherwise leave the reference out.
+
 ## TDD
 
 Use "pragmatically strict" TDD: write tests for real behavior, skip tests for pure plumbing (struct fields, wiring, pass-through changes).

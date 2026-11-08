@@ -1607,8 +1607,8 @@ mod tests {
         );
     }
 
-    /// `renderTemplate` is the runtime half of the `tauler-configgen` design
-    /// (design record §14/§17): a generated root component embeds its
+    /// `renderTemplate` is the runtime half of the `tauler-configgen` design:
+    /// a generated root component embeds its
     /// schema's own minijinja template as a string constant and calls
     /// `renderTemplate(source, data)` to turn collected Item data into the
     /// final config text. Proven here exactly as a generated component would
@@ -1698,13 +1698,13 @@ mod tests {
           return <root><RofiTheme /></root>;
         }"##;
 
-    /// The real end-to-end proof (design record §18): the *actual* `tauler-configgen`
+    /// The real end-to-end proof: the *actual* `tauler-configgen`
     /// generator's output, from the *actual* shipped schema covering the real user
     /// theme's full structure (compound selectors, an array-valued `children` property,
     /// padding/border shorthand), run through the *actual* reconciler runtime tauler's
     /// live binary uses — not a hand-simulated approximation of what codegen would
-    /// produce. Colors are the real values from the current kitty theme (design record
-    /// §16.5: literal values, not `@variable` references — no reference type needed).
+    /// produce. Colors are the real values from the current kitty theme (literal values,
+    /// not `@variable` references — no reference type needed).
     #[test]
     fn the_real_generator_output_runs_end_to_end_against_the_real_reconciler() {
         let generated = tauler_configgen::generate(

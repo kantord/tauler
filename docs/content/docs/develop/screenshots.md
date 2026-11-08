@@ -61,7 +61,7 @@ plain `.jsx` file.
 | `--theme-file`        | none              | A theme YAML file. Wins over `--theme-name`. It must define every core and ANSI token.   |
 | `--width`             | `400`             | Document width in CSS pixels, including the 16 px margins.                               |
 | `--font-path`         | none              | A TTF or OTF file to use as the primary sans-serif font.                                 |
-| `--symbol-font-path`  | none              | The symbol font file used for `<Icon>` glyphs.                                           |
+| `--symbol-font-path`  | none              | The symbol font file used for `<Icon>` glyphs. Without it, fontconfig picks one.         |
 | `--files-only`        | off               | Register only `--font-path` and `--symbol-font-path`; ignore the fonts on the machine.   |
 | `--swatch`            | off               | Render a swatch scene for the theme instead of `--input`.                                |
 | `--classes-out`       | none              | Also write every Tailwind class in the rendered tree, one per line.                      |

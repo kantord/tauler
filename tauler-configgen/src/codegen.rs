@@ -1,7 +1,7 @@
-//! Emits the readable JSX component source a layout file imports directly (design record
-//! §13.1: real code a human could have written, never a runtime schema-interpreter).
+//! Emits the readable JSX component source a layout file imports directly: real code
+//! a human could have written, never a runtime schema-interpreter).
 //!
-//! Config-format-independent (design record §17): every node — leaf or container, root or
+//! Config-format-independent: every node — leaf or container, root or
 //! not — is emitted by the same [`emit_node_component`], driven entirely by what the
 //! schema declares. Nothing here knows what `.rasi` syntax looks like, what a "selector"
 //! is, or what rofi's Padding/Border shorthand rules are — that knowledge lives in the
@@ -11,8 +11,7 @@
 //! Every schema-derived VALUE reaches generated source only through [`emit_json_literal`],
 //! and only into a position where JSON literal syntax is valid — a regex pattern becomes
 //! `new RegExp(json_string)`, never a bare `/pattern/` literal, because a bare regex
-//! literal is not a position `serde_json::to_string`'s output is safe in (design record
-//! §13.3). Every schema-derived NAME that becomes a JS *identifier* (a component's own
+//! literal is not a position `serde_json::to_string`'s output is safe in. Every schema-derived NAME that becomes a JS *identifier* (a component's own
 //! function name) is an [`Identifier`](crate::identifier::Identifier), which can only have
 //! been constructed by validation. Every schema-derived name used only as an *object key*
 //! (a prop name, a constant field name, `children_as`) is written via bracket notation
@@ -53,9 +52,8 @@ fn emit_json_literal(out: &mut String, value: &(impl serde::Serialize + ?Sized))
 fn emit_node_component(out: &mut String, node: &NodeSchema) {
     writeln!(out, "export function {}(props) {{", node.component).unwrap();
 
-    // Unexpected-prop guard: `children` is always tolerated (design record §13.3 finding
-    // 3 — every function component's props object has it, traced to optative-script's
-    // h_fn), every declared prop name is tolerated, nothing else is.
+    // Unexpected-prop guard: `children` is always tolerated (every function component's
+    // props object has it, from optative-script's `h_fn`), every declared prop name is tolerated, nothing else is.
     out.push_str("  for (const k in props) {\n");
     out.push_str("    if (k !== \"children\"");
     for name in node.props.keys() {
@@ -155,8 +153,8 @@ fn emit_prop_validation(
 /// logic, not a re-implementation. `label_expr` must already be a complete, valid,
 /// JSON-escaped JS *expression* (built by the caller via [`emit_json_literal`], optionally
 /// concatenated with a controlled runtime value like a loop index) — never a raw Rust
-/// string pushed as source text, which would reopen the exact injection class design
-/// record §13.3 exists to close.
+/// string pushed as source text, which would reopen the exact injection class this
+/// validation exists to close.
 fn emit_scalar_check(
     out: &mut String,
     label_expr: &str,
@@ -280,7 +278,7 @@ template: "{{ selectors }}"
             out.contains(r#"new RegExp("^#[0-9a-fA-F]{6}$")"#),
             "got: {out}"
         );
-        // a bare `/pattern/` literal is exactly the position §13.3's exploit broke out of
+        // a bare `/pattern/` literal is exactly the position a pattern-injection exploit breaks out of
         assert!(!out.contains("/^#[0-9a-fA-F]{6}$/"), "got: {out}");
     }
 
@@ -325,7 +323,7 @@ template: "irrelevant"
         assert!(out.contains("props[\"data-src\"]"), "got: {out}");
     }
 
-    /// Reproduces the design record's §13.3 exploit directly: a `pattern` value crafted to
+    /// Reproduces the pattern-injection exploit directly: a `pattern` value crafted to
     /// break out of a naively-formatted `if (!/{pattern}/.test(...))` check and run `sh`.
     /// If this test passes, the exploit does not work against the real generator.
     #[test]
@@ -365,9 +363,9 @@ template: "irrelevant"
         assert_eq!(generate(&schema), generate(&schema));
     }
 
-    /// rofi's own Padding/Border shorthand types (design record §16.3), now expressed as
+    /// rofi's own Padding/Border shorthand types, now expressed as
     /// plain `pattern` + `error` — no `ValueType` enum, no `tauler-configgen` Rust code
-    /// change, proving the generator really is config-format-independent (§17).
+    /// change, proving the generator really is config-format-independent.
     mod rasi_shorthand_as_plain_data {
         use super::*;
         use regex::Regex;
@@ -480,7 +478,7 @@ template: "irrelevant"
 
         /// The exact bug caught and fixed while building this: the per-element error
         /// label was first built by pushing raw, unescaped component/prop-name text
-        /// directly as JS source — exactly the injection class §13.3 exists to close,
+        /// directly as JS source — exactly the injection class this validation exists to close,
         /// reopened one level down for array items specifically. A malicious component
         /// name must still only ever appear inside a JSON-escaped string, never as bare
         /// source, even inside the per-element validation this test targets.

@@ -138,6 +138,15 @@ a constant and `setting.value` is the prop.
 A child that is itself a container holds its own children under its own `children_as` name.
 `tauler-configgen/examples/rofi-full-theme.schema.yaml` nests selectors this way.
 
+The repository ships four example schemas in `tauler-configgen/examples/`:
+
+- `kitty-config.schema.yaml`: flat `directive value` lines, no nesting.
+- `rofi-config.schema.yaml`: rofi's `configuration{}` block, also flat.
+- `rofi-full-theme.schema.yaml`: rofi theme selectors and properties, including compound
+  selectors such as `element selected` and the array-valued `children` property.
+- `rofi.schema.yaml`: a small rofi example with flat properties and Padding/Border
+  shorthand.
+
 A template syntax error, or an error while rendering one (an unknown filter, say), throws
 with minijinja's message prefixed `renderTemplate:`. Layout code can also call
 `renderTemplate(source, data)` directly; it touches nothing outside the template and data.
