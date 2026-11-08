@@ -149,7 +149,7 @@ jobs:
               .map(f => `### \`${f.replace(/\.png$/, '')}\`\n\n![${f}](${base}/${f}?v=${sha})`)
               .join('\n\n');
             const marker = '<!-- tauler-e2e-screenshots -->';
-            const body = `${marker}\n## Desktop screenshots\n\nReal X11 + i3, and headless Sway for scenarios suffixed `-sway`; one container per scenario, at \`${sha}\`.\n\n${images}`;
+            const body = `${marker}\n## Desktop screenshots\n\nReal X11 + i3, and headless Sway for scenarios suffixed \`-sway\`; one container per scenario, at \`${sha}\`.\n\n${images}`;
 
             const { data: comments } = await github.rest.issues.listComments({
               owner: context.repo.owner, repo: context.repo.repo,
