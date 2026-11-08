@@ -18,7 +18,17 @@ feature.
 
 ## Status
 
-Early scaffolding. No window yet.
+Experimental. It opens a resizable window titled `taulerbox`, draws the layout's Panels in
+it at their anchors, and composites the compartment's desktop beside them over VNC. The
+mouse is forwarded to the compartment (left, middle and right buttons and vertical
+scroll); there is no keyboard input. Streams are empty and the layout context is a fixed
+1482x700. It is not built or tested in CI. See the
+[published page](https://kantord.github.io/tauler/docs/develop/taulerbox/) for what to
+expect.
+
+taulerbox does not create the compartment. The sandbox comes from a `Compartment` unit
+declared in the layout (see `fixtures/compartment/layout.op.mdx`); `--vnc` only connects
+to a server that is already running.
 
 ## Use
 
@@ -26,7 +36,7 @@ Early scaffolding. No window yet.
 taulerbox <layout.op.mdx> --home <dir> [--vnc <host:port>] [--compartment-name <name>]
 ```
 
-- `--home` is bind-mounted as the compartment's home directory.
+- `--home` must be an existing directory. It is checked and otherwise unused for now.
 - `--vnc` connects to a compartment's `wayvnc` server and composites its live desktop into
   the window next to the panel(s). The window is resizable: resizing repositions panels
   instantly, and — with `--compartment-name` also given — resizes the compartment's own

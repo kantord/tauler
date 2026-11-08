@@ -125,9 +125,14 @@ spellings. A bare `<surface>` names no kind and is a parse error.
 | `above` | boolean | stack above other windows, for overlays like notifications |
 | `output` | string | RandR output name, e.g. `"DP-2"`; omit for the primary output |
 
-`anchor` *places* a panel. It does not reserve space for it, and a window manager will
-happily tile other windows underneath. Reserving space is a separate decision — see
-[Screen layout](/docs/layout/).
+`anchor` *places* a panel. Whether it also reserves space depends on the display server:
+
+- **X11:** no. A window manager will happily tile other windows underneath. Reserving space
+  is a separate decision; on i3, `<I3Layout>` makes it. See [Screen layout](/docs/layout/).
+- **Wayland:** yes. The compositor keeps other windows clear of an anchored panel.
+- **macOS:** no. Reserve space in AeroSpace's own configuration; see [macOS](/docs/macos/).
+
+[Backends](/docs/backends/) has the details for each.
 
 ## `<wallpaper>` props
 
@@ -163,7 +168,7 @@ empty with nothing in the log.
 Wallpapers work on X11, macOS and Wayland. On Wayland the wallpaper is a surface on the
 compositor's background layer, so the compositor must implement `wlr-layer-shell` (Sway,
 Hyprland and river do). It lands on the compositor's choice of output — `output` is not
-routed yet — and the pixel scale is rounded to a whole number.
+routed yet — and the pixel scale is rounded to a whole number. See [Backends](/docs/backends/).
 
 ## Seeing through a panel
 

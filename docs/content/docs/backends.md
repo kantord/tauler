@@ -10,7 +10,7 @@ which `<wallpaper>` works, and whether anything keeps other windows out of a pan
 | | X11 | Wayland | macOS |
 |---|---|---|---|
 | Panel is | an unmanaged window | a layer-shell surface | a window |
-| `<wallpaper>` | painted into the root background | ignored | a window below all others |
+| `<wallpaper>` | painted into the root background | not supported yet | a window below all others |
 | Anchored panel reserves space | no | yes | no |
 | Scale comes from | `Xft.dpi` | the compositor | not covered here |
 
@@ -53,8 +53,9 @@ panel goes on the bottom layer.
 `anchor` asks the compositor to keep other windows clear of it: its `width` for `left` and
 `right`, its `height` for `top` and `bottom`. A panel without an `anchor` reserves nothing.
 
-The consequence: on Wayland, `anchor` both places and reserves, and you do not use
-`<I3Layout>`. A layout written for X11 and i3, where `anchor` alone leaves windows free to
+The consequence: on Wayland, `anchor` both places and reserves, so the compositor keeps
+windows clear without `<I3Layout>`. Using both together, for example `tauler-i3` on sway,
+has not been checked and might reserve the space twice. A layout written for X11 and i3, where `anchor` alone leaves windows free to
 tile underneath, will push windows aside on Wayland. A panel without an `anchor` reserves
 nothing, but its `x` and `y` do not apply: the compositor places it.
 
@@ -63,13 +64,14 @@ output, and a `top` or `bottom` panel spans the full width. The compositor decid
 length, so the length set in the layout does not apply.
 
 **There is one output.** Tauler reads the first output the compositor reports. The panel's
-`output` prop is not used to choose one, and
+`output` prop is not used to choose one.
 
 **Scale comes from the compositor.** Tauler divides the output's physical width by its
 logical width. If the compositor gives no logical size, it uses the output's integer scale.
 `Xft.dpi` plays no part.
 
-**`<wallpaper>` is ignored.** Tauler logs that the node is only supported on X11. Use a
+**`<wallpaper>` is not supported yet.** Tauler ignores the node and logs that it is only
+supported on X11. Use a
 wallpaper program, and note it will not feed `backdrop-filter`; see below.
 
 ## macOS
