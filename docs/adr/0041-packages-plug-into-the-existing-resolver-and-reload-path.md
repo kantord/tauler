@@ -129,8 +129,8 @@ attempts for the same key, however they arose, never share a working tree.
 ## Cache hygiene: no automated bookkeeping beyond a narrow orphan reaper
 
 A cold or failed Package is simply retried on the next externally-triggered
-reload — a layout/theme edit, a `bar_width`/`outer_gap` re-exec, a
-binary-replacement re-exec, or an explicit `tauler pkg update` — logged loudly on
+reload — a layout/theme edit, a binary-replacement
+re-exec, or an explicit `tauler pkg update` — logged loudly on
 every attempt, success or failure. No backoff table, no persisted failure marker.
 This was tried during design and cut: the retry cost is bounded by how often those
 external events happen, not by anything Packages themselves do, so the worst case

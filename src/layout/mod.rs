@@ -87,9 +87,6 @@ pub struct SurfaceSpec {
     pub height: u32,
     pub x: i32,
     pub y: i32,
-    /// i3-specific gap to reserve around the screen edges. Temporary until a
-    /// cleaner per-WM mechanism exists.
-    pub outer_gap: u32,
     /// RandR output name to place this panel on (e.g. "DP-2"). None = primary output.
     pub output: Option<String>,
     /// When true the window is stacked above other windows (for floating overlays like
@@ -223,7 +220,6 @@ fn parse_wallpaper(i: usize, node: &serde_json::Value) -> Result<SurfaceSpec, St
         anchor: None,
         x: 0,
         y: 0,
-        outer_gap: 0,
         output: optional_str(node, "output").map(str::to_string),
         above: false,
         content: first_child(node),
@@ -242,7 +238,6 @@ fn parse_panel(i: usize, panel: &serde_json::Value) -> Result<SurfaceSpec, Strin
         anchor: optional_str(panel, "anchor").and_then(PanelAnchor::parse),
         x: optional_i64(panel, "x", 0) as i32,
         y: optional_i64(panel, "y", 0) as i32,
-        outer_gap: optional_u64(panel, "outer_gap", 0) as u32,
         output: optional_str(panel, "output").map(str::to_string),
         above: optional_bool(panel, "above", false),
         content: first_child(panel),
@@ -276,7 +271,6 @@ mod origin_tests {
             height: 2160,
             x,
             y,
-            outer_gap: 0,
             output: None,
             above: false,
             content: serde_json::Value::Null,

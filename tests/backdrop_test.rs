@@ -46,7 +46,6 @@ fn spec(kind: SurfaceKind, id: &str, output: &str, x: i32, w: u32, h: u32) -> Su
         height: h,
         x,
         y: 0,
-        outer_gap: 0,
         output: Some(output.to_string()),
         above: false,
         content: serde_json::Value::Null,

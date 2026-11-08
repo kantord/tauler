@@ -675,7 +675,6 @@ mod tests {
             height: 30,
             x: 0,
             y: 0,
-            outer_gap: 0,
             output: None,
             above: false,
             content: serde_json::Value::Null,

@@ -1069,7 +1069,7 @@ mod tests {
               return (
                 <root>
                   <Light entity="light.desk" state="on" />
-                  <panel id="bar" anchor="top" width={1920} height={32} outer_gap={0} />
+                  <panel id="bar" anchor="top" width={1920} height={32} />
                 </root>
               );
             }"#,

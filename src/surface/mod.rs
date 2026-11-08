@@ -247,7 +247,6 @@ impl Lifecycle for Surface {
             || new.y != state.spec.y
             || new.anchor != state.spec.anchor
             || new.output != state.spec.output
-            || new.outer_gap != state.spec.outer_gap
             || new_output_rect != state.output_rect;
         // The wallpaper behind this panel is invisible to a spec diff, so ask the
         // registry directly. Wallpapers reconcile before panels (see
@@ -480,7 +479,6 @@ mod tests {
             height: 30,
             x: 0,
             y: 0,
-            outer_gap: 0,
             output: None,
             above: false,
             content: serde_json::Value::Null,
@@ -889,7 +887,7 @@ mod tests {
     }
 
     /// The regression test for issue #537: an anchored panel's declared spec
-    /// (`x`, `y`, `anchor`, `output` name, `outer_gap`) never encodes the
+    /// (`x`, `y`, `anchor`, `output` name) never encodes the
     /// output's own absolute position, so a RandR correction arriving after
     /// the panel already exists has to be visible through `ctx`, not `new`.
     #[test]
