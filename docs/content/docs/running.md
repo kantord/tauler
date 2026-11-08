@@ -66,7 +66,7 @@ invalid `config.yaml`. Fix the file and save again.
 
 A theme that cannot be loaded behaves the same way on reload: the theme on screen stays, and
 the reason is logged. At startup there is no theme to keep, so a bad `theme.file`, an
-unknown `theme.name`, or unreadable frontmatter stops Tauler with the reason on stderr.
+unknown `theme.name`, or unreadable frontmatter stops Tauler with the reason on stderr and in the log.
 
 ### A new Tauler binary restarts Tauler
 
@@ -79,8 +79,12 @@ one, so Tauler never sees a half-written file.
 
 ## Logs
 
-Tauler logs to stderr at level `info`. Set `RUST_LOG` to change it, for example
+Tauler logs to standard output at level `info`. Set `RUST_LOG` to change it, for example
 `RUST_LOG=debug tauler`.
+
+A startup failure that stops Tauler — an unusable theme, or unreadable frontmatter or
+`config.yaml` — is also printed to standard error, so you see it at the terminal even if you
+redirect standard output. To capture both streams in one file, run `tauler > tauler.log 2>&1`.
 
 ## When it crashes or freezes
 

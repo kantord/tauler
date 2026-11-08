@@ -123,7 +123,7 @@ spellings. A bare `<surface>` names no kind and is a parse error.
 | `x` | number | x position, ignored when `anchor` is set |
 | `y` | number | y position, ignored when `anchor` is set |
 | `above` | boolean | stack above other windows, for overlays like notifications |
-| `output` | string | RandR output name, e.g. `"DP-2"`; omit for the primary output |
+| `output` | string | X11 only: RandR output name, e.g. `"DP-2"`; omit for the primary output. Not used on Wayland; see [Backends](/docs/backends/) |
 
 `anchor` *places* a panel. Whether it also reserves space depends on the display server:
 
@@ -139,11 +139,11 @@ spellings. A bare `<surface>` names no kind and is a parse error.
 | prop | type | description |
 |---|---|---|
 | `id` | string | surface id; **required** — without it the whole root fails to parse |
-| `output` | string | RandR output name, e.g. `"DP-2"`; omit for the primary output |
+| `output` | string | X11: RandR output name, e.g. `"DP-2"`; omit for the primary output |
 
 A wallpaper has no geometry props. It always covers its output exactly, and its subtree is
-laid out against those dimensions. It has no window, reserves nothing, and receives no
-clicks — there are only pixels handed to the desktop background.
+laid out against those dimensions. It reserves nothing and receives no clicks. On X11 it is
+pixels painted into the root background; on macOS it is a window pinned below all others.
 
 ```jsx
 <root>

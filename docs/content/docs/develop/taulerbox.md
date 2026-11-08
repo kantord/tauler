@@ -5,35 +5,52 @@ description: An experimental window that shows a layout's Panels next to a sandb
 
 :::danger[Experimental]
 `taulerbox` is a prototype for [issue #582](https://github.com/kantord/tauler/issues/582).
-It is not part of the `tauler` binary, and nothing here is stable.
-
-**What works today**
-
-- One resizable window titled `taulerbox` opens and shows every Panel of a layout, drawn as
-  pixels at the position its `anchor` gives.
-- With `--vnc`, the window also shows a live VNC picture of a desktop and forwards your
-  mouse to it: movement, left/middle/right buttons and the scroll wheel.
-- A layout can start a microVM sandbox through the `msb` CLI. The repository's
-  `taulerbox/fixtures/compartment` layout does this.
-
-**What does not work today**
-
-- Panels are drawn once, when the program starts. They never update, and they ignore clicks.
-- Stream data does not reach the layout.
-- The sandboxed desktop gets no keyboard input.
-- Only Panels are drawn. Wallpapers and Dom surfaces are ignored, and Reservations do nothing.
-- `taulerbox` does not start the sandbox on its own. Your layout file has to.
+It is not part of the `tauler` binary, and nothing here is stable. See
+[Known limitations](#known-limitations) for what does not work.
 :::
 
 `taulerbox` opens one window instead of one desktop window per Panel. It draws every Panel
-into that window and, if you ask for it, a sandboxed desktop beside them. Native Tauler
-draws Panels in separate windows, and it has no sandbox feature. Sandboxing exists in
-`taulerbox` only, and Tauler will not gain it.
+of a layout into that window, each at the position its `anchor` gives. With `--vnc`, it also
+shows a live picture of a sandboxed desktop beside the Panels and forwards your mouse to it.
+A layout can start the sandbox, a microVM run through the `msb` CLI. The repository's
+`taulerbox/fixtures/compartment` layout does this.
+
+Native Tauler draws Panels in separate windows, and it has no sandbox feature. Sandboxing
+exists in `taulerbox` only, and Tauler will not gain it.
+
+## Build it
+
+`taulerbox` needs a Rust toolchain and a checkout of the repository. Build it from the
+checkout root:
+
+```sh
+cargo build --release -p taulerbox
+```
+
+This writes `target/release/taulerbox`; the commands below call it by that path. To get a
+`taulerbox` command on your `PATH` instead, run `cargo install --path taulerbox`.
+
+Other requirements:
+
+- Linux or macOS. The window code has no per-platform branches, but the repository's
+  continuous integration does not build or test `taulerbox`.
+- For the sandbox only:
+  - the `msb` CLI, which runs the microVM sandboxes;
+  - `docker buildx` and `just`, to build the desktop image.
+
+The desktop image is Debian with `sway` and `wayvnc` installed. Build it and load it into
+`msb` from the checkout:
+
+```sh
+just taulerbox-image
+```
+
+This leaves an image named `taulerbox-box` in the local `msb` image cache.
 
 ## Run it
 
 ```sh
-taulerbox <layout.op.mdx> --home <dir> [--vnc <host:port>] [--compartment-name <name>]
+./target/release/taulerbox <layout.op.mdx> --home <dir> [--vnc <host:port>] [--compartment-name <name>]
 ```
 
 | Argument | Required | Meaning |
@@ -47,30 +64,12 @@ Without `--vnc`, the window shows the Panels and nothing else.
 
 Set `RUST_LOG` to change how much `taulerbox` logs. The default is `info`.
 
-## Requirements
-
-- Linux or macOS. The window code has no per-platform branches, but the repository's
-  continuous integration does not build or test `taulerbox`.
-- A Rust toolchain. Build it from a checkout with `cargo build --release -p taulerbox`.
-- For the sandbox only:
-  - the `msb` CLI, which runs the microVM sandboxes;
-  - `docker buildx`, to build the desktop image.
-
-The desktop image is Debian with `sway` and `wayvnc` installed. Build it and load it into
-`msb` from a checkout:
-
-```sh
-just taulerbox-image
-```
-
-This leaves an image named `taulerbox-box` in the local `msb` image cache.
-
 ## Try it without a sandbox
 
 The checkout has a one-Panel layout. It needs neither `msb` nor Docker:
 
 ```sh
-taulerbox taulerbox/fixtures/hello/layout.op.mdx --home /tmp
+./target/release/taulerbox taulerbox/fixtures/hello/layout.op.mdx --home /tmp
 ```
 
 A 300 by 200 blue Panel reading `hello taulerbox` appears against the left edge of the
@@ -85,7 +84,7 @@ port 5900 published to host port 5900. It then starts `sway` and `wayvnc` inside
 
 ```sh
 just taulerbox-image
-taulerbox taulerbox/fixtures/compartment/layout.op.mdx --home /tmp \
+./target/release/taulerbox taulerbox/fixtures/compartment/layout.op.mdx --home /tmp \
   --vnc 127.0.0.1:5900 --compartment-name taulerbox-verify-582
 ```
 
@@ -127,18 +126,22 @@ The rest of the window stays black.
 
 While the pointer is over the desktop area, the pointer is sent to the sandboxed desktop
 and the sandbox's own cursor is shown. Left, middle and right buttons and the vertical
-scroll wheel work. Other mouse buttons are ignored. Keyboard input is not forwarded.
+scroll wheel work. Other mouse buttons are ignored.
 
 ## Known limitations
 
-- **Panels are static.** They are rendered once and never repaint. Clock, workspace and
-  other live content does not change, and clicks on a Panel do nothing.
+- **Panels are static.** They are rendered once, when the program starts, and never repaint.
+  Clock, workspace and other live content does not change, and clicks on a Panel do nothing.
+  Stream data does not reach the layout.
+- **Only Panels.** Wallpapers and Dom surfaces in the layout are skipped, and Reservations
+  do nothing.
+- **No keyboard.** Typing in the window does not reach the sandboxed desktop.
+- **`taulerbox` does not start the sandbox.** Your layout file has to, as the `Compartment`
+  definition in the fixture does. `--vnc` only connects to a VNC server that is already
+  listening; `taulerbox` does not discover the sandbox for you.
 - **`--home` does nothing yet.** `taulerbox` checks that the directory exists and uses it for
   nothing else. The bind mount into the sandbox comes from the `home` argument of the
   `Compartment` definition in your layout, and the fixture sets it to `null`.
-- **`--vnc` does not start a sandbox.** It only connects to a VNC server that is already
-  listening. `taulerbox` does not discover the sandbox for you.
-- **No keyboard.** Typing in the window does not reach the sandboxed desktop.
 - **High CPU use.** `taulerbox` asks the VNC server for a complete new picture about 30
   times a second, whether or not anything changed. This is the reason for the 1280 by 720
   cap and for the sandbox's 2 CPUs.
@@ -149,6 +152,5 @@ scroll wheel work. Other mouse buttons are ignored. Keyboard input is not forwar
 - **Resize problems are only logged.** If `msb` cannot be run or does not answer within 20
   seconds, `taulerbox` writes the error to the terminal and keeps the old resolution.
 - **Closing the window ends the program.** It does not stop the sandbox.
-- **Only Panels.** Wallpapers and Dom surfaces in the layout are skipped.
 - **Single Output.** The context passed to the layout reports an Output named `taulerbox`
   with a scale of 1.0 and the size 1482 by 700. It does not change when you resize.

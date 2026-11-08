@@ -12,7 +12,7 @@ which `<wallpaper>` works, and whether anything keeps other windows out of a pan
 | Panel is | an unmanaged window | a layer-shell surface | a window |
 | `<wallpaper>` | painted into the root background | not supported yet | a window below all others |
 | Anchored panel reserves space | no | yes | no |
-| Scale comes from | `Xft.dpi` | the compositor | not covered here |
+| Scale comes from | `Xft.dpi`, or the output's physical size for a panel with `output` | the compositor | not covered here |
 
 ## X11
 
@@ -28,10 +28,15 @@ for the primary output. When RandR reports no primary, which is the case on a ba
 such as Xvfb, Tauler uses the output at the origin, or else the first name in alphabetical
 order. Tauler follows output changes while it runs.
 
-**Scale comes from `Xft.dpi`.** Tauler reads `Xft.dpi` from the X resources. Without it, it
-computes the DPI from the screen's physical size, and without that it uses 96. The scale is
-that DPI divided by 96. `ctx.screen_width` and `ctx.screen_height` are in logical pixels at
-that scale. Tauler reads the value again when outputs change.
+**Scale has two sources.** A panel without an `output` prop, and `ctx.screen_width` and
+`ctx.screen_height`, use the context scale. Tauler reads `Xft.dpi` from the X resources;
+without it, it computes the DPI from the screen's physical height, and without that it uses
+96. The context scale is that DPI divided by 96, and `ctx.screen_width` and
+`ctx.screen_height` are in logical pixels at that scale. A panel with an `output` prop
+instead uses that output's own density, taken from the physical size RandR reports for it, so
+`Xft.dpi` does not affect it. On a mixed-DPI setup, a panel with `output` therefore renders
+at that monitor's real density while the panel's declared size, if it comes from
+`ctx.screen_width` arithmetic, follows `Xft.dpi`. Tauler recomputes both when outputs change.
 
 **Reserving space is your decision.** An unmanaged window cannot ask the window manager to
 keep clear of it, so on X11 an `anchor` places a panel and never reserves anything. On i3,
@@ -52,19 +57,25 @@ panel goes on the bottom layer.
 **An anchored panel reserves space.** This differs from X11. On Wayland, a panel with an
 `anchor` asks the compositor to keep other windows clear of it: its `width` for `left` and
 `right`, its `height` for `top` and `bottom`. A panel without an `anchor` reserves nothing.
+So `anchor` both places and reserves, and the compositor keeps windows clear without
+`<I3Layout>`. A layout written for X11 and i3, where `anchor` alone leaves windows free to
+tile underneath, pushes windows aside on Wayland.
 
-The consequence: on Wayland, `anchor` both places and reserves, so the compositor keeps
-windows clear without `<I3Layout>`. Using both together, for example `tauler-i3` on sway,
-has not been checked and might reserve the space twice. A layout written for X11 and i3, where `anchor` alone leaves windows free to
-tile underneath, will push windows aside on Wayland. A panel without an `anchor` reserves
-nothing, but its `x` and `y` do not apply: the compositor places it.
+**The compositor places the panel.** `x` and `y` do not apply on Wayland, with or without an
+`anchor`.
+
+**Unverified:** using `<I3Layout>` together with an anchored panel on Wayland, for example
+`tauler-i3` on sway, has not been checked and might reserve the space twice.
 
 **An anchored panel fills its edge.** A `left` or `right` panel spans the full height of the
 output, and a `top` or `bottom` panel spans the full width. The compositor decides that
 length, so the length set in the layout does not apply.
 
-**There is one output.** Tauler reads the first output the compositor reports. The panel's
-`output` prop is not used to choose one.
+**The compositor chooses the output.** Tauler does not pass a panel's `output` prop to the
+compositor, so the compositor decides which output shows each panel.
+
+**Tauler measures the first output.** `ctx.screen_width`, `ctx.screen_height` and the scale
+come from the first output the compositor reports, whichever output shows the panel.
 
 **Scale comes from the compositor.** Tauler divides the output's physical width by its
 logical width. If the compositor gives no logical size, it uses the output's integer scale.
