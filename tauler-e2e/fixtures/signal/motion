@@ -3,8 +3,8 @@
 #
 # The band over each workspace is seeded from that workspace's window titles, so
 # opening and closing a window on the focused workspace is the event the design
-# is built around — and round one could only assert that the seeding was
-# deterministic, never that it reacted.
+# is built around — and a static capture can only assert that the seeding is
+# deterministic, never that it reacts.
 #
 # Plain urxvt here, not e2e-urxvt: the launcher's retry can kill and relaunch a
 # terminal, which would put a second window event in the middle of the

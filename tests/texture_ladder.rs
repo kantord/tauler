@@ -1,8 +1,8 @@
 //! The texture ladder: what each texture actually costs to render.
 //!
-//! Round one's report could say takumi *can* draw a moiré and never what drawing
-//! it costs, which for a surface that repaints on every tick is the number that
-//! decides the design. This produces that number.
+//! A report can say takumi *can* draw a moiré and never what drawing it costs,
+//! which for a surface that repaints on every tick is the number that decides the
+//! design. This produces that number.
 //!
 //! It measures `render_frame_rgba`, which is the whole path a repaint pays —
 //! parse, lay out, rasterize. Everything in `render/mod.rs` draws fresh every
@@ -33,7 +33,7 @@ use tauler::{init_global_ctx, preload_layout_images, render_frame_rgba};
 /// The one output everything in this test lives on.
 const OUTPUT: &str = "LADDER";
 
-/// Timed renders per (rung, size). The brief asks for a mean of 20.
+/// Timed renders per (rung, size), averaged.
 const ITERATIONS: usize = 20;
 /// Thrown away first: the first render of a tree pays for font fallback
 /// selection and image decode that a steady-state tick does not.
@@ -130,14 +130,13 @@ fn rungs(plate: &str) -> Vec<Rung> {
         },
         Rung {
             id: "I",
-            what: "<img src=\"tauler:root-bg\"> (the C-7 path)",
+            what: "<img src=\"tauler:root-bg\"> (the root-bg image path)",
             style: json!({ "__image": "tauler:root-bg" }),
         },
-        // Not in the brief's ladder. The layout-file docs state that the
+        // Not one of the texture rungs. The layout-file docs state that the
         // background-image form of root-bg costs ~19ms against ~5ms for the
-        // <image> node, and round one repeated that as fact. Same panel, same
-        // backdrop, one property apart — so the claim either reproduces here or
-        // it does not.
+        // <image> node. Same panel, same backdrop, one property apart — so the claim
+        // either reproduces here or it does not.
         Rung {
             id: "J",
             what: "backgroundImage: url(tauler:root-bg) (the slow path the docs name)",
@@ -169,8 +168,8 @@ fn tree(rung: &Rung) -> Value {
     })
 }
 
-/// A ruled plate on disk, so rung H measures the fallback round one would have
-/// used: draw it once, hand the renderer a file.
+/// A ruled plate on disk, so rung H measures the usual fallback:
+/// draw it once, hand the renderer a file.
 fn write_plate(dir: &std::path::Path) -> PathBuf {
     use image::{Rgb, RgbImage};
     let (w, h) = (720u32, 480u32);

@@ -123,7 +123,7 @@ Two things were not checked:
 
 ## When something goes wrong
 
-Problems are logged to stdout, on the same stream as the JSON lines. The log level comes from `RUST_LOG` and defaults to `info`.
+Problems are logged to stderr, so the JSON lines on stdout stay clean. The log level comes from `RUST_LOG` and defaults to `info`.
 
 | situation | behaviour |
 |---|---|
