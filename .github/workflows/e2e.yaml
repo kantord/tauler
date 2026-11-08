@@ -37,12 +37,26 @@ jobs:
 
       # tauler is compiled inside the image, so this is the expensive step. The
       # gha cache backend is what keeps it from being a full rebuild every run.
-      - name: Build desktop image
+      # One Dockerfile, two desktops. They share the builder stage, so the
+      # second build reuses the first's compiled tauler from the gha cache.
+      - name: Build i3 desktop image
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
           file: tauler-e2e/Dockerfile
-          tags: tauler-e2e:local
+          target: i3
+          tags: tauler-e2e-i3:local
+          load: true
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build Sway desktop image
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: tauler-e2e/Dockerfile
+          target: sway
+          tags: tauler-e2e-sway:local
           load: true
           cache-from: type=gha
           cache-to: type=gha,mode=max
@@ -54,10 +68,13 @@ jobs:
       # scenarios to run".
       - name: Check screenshots were produced
         run: |
-          count=$(find target/e2e -name desktop.png | wc -l)
+          # i3 runs keep the bare scenario name and every fixture has one;
+          # Sway runs are suffixed `-sway` and only some fixtures have one.
+          i3=$(find target/e2e -mindepth 2 -maxdepth 2 -name desktop.png -not -path '*-sway/*' | wc -l)
+          sway=$(find target/e2e -mindepth 2 -maxdepth 2 -name desktop.png -path '*-sway/*' | wc -l)
           expected=$(find tauler-e2e/fixtures -mindepth 1 -maxdepth 1 -type d | wc -l)
-          echo "captured $count of $expected scenarios"
-          [ "$count" -eq "$expected" ]
+          echo "captured $i3 of $expected i3 scenarios and $sway sway scenarios"
+          [ "$i3" -eq "$expected" ] && [ "$sway" -ge 1 ]
 
       - name: Collect screenshots
         run: |
@@ -132,7 +149,7 @@ jobs:
               .map(f => `### \`${f.replace(/\.png$/, '')}\`\n\n![${f}](${base}/${f}?v=${sha})`)
               .join('\n\n');
             const marker = '<!-- tauler-e2e-screenshots -->';
-            const body = `${marker}\n## Desktop screenshots\n\nReal X11 + i3, one container per scenario, at \`${sha}\`.\n\n${images}`;
+            const body = `${marker}\n## Desktop screenshots\n\nReal X11 + i3, and headless Sway for scenarios suffixed \`-sway\`; one container per scenario, at \`${sha}\`.\n\n${images}`;
 
             const { data: comments } = await github.rest.issues.listComments({
               owner: context.repo.owner, repo: context.repo.repo,

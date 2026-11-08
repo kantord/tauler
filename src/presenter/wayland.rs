@@ -34,13 +34,7 @@ pub(crate) fn run_wayland_presenter_thread(
                 if panel.surface_id != surface_id {
                     continue;
                 }
-                if new_size.0 > 0 {
-                    panel.width = new_size.0;
-                }
-                if new_size.1 > 0 {
-                    panel.height = new_size.1;
-                }
-                panel.configured = true;
+                panel.configure(new_size);
                 let _ = event_tx.send(PresenterEvent::NeedsRender);
             }
         }

@@ -1,0 +1,3 @@
+#!/bin/sh
+# Nothing to start: the default pair of xterm clients would tile over the wallpaper.
+exit 0

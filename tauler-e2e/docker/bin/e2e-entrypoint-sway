@@ -1,0 +1,83 @@
+#!/bin/sh
+# Bring up one scenario on Wayland: headless Sway, then tauler.
+#
+# The i3 desktop's twin (see e2e-entrypoint). Same contract: each step waits for
+# the previous one to answer rather than sleeping, this only *launches* the
+# desktop, and "mapped" is not "painted" — the harness decides when to photograph.
+#
+# Logs go to /out/<scenario>-sway so one fixture can run on both desktops
+# without the two runs overwriting each other's screenshots.
+set -eu
+
+: "${SCENARIO:?SCENARIO must name a directory under /fixtures}"
+: "${SCREEN:?SCREEN must be WxHxDEPTH}"
+
+FIXTURE="/fixtures/${SCENARIO}"
+[ -d "$FIXTURE" ] || { echo "e2e: no such fixture: $FIXTURE" >&2; exit 1; }
+
+LOGS="/out/${SCENARIO}-sway"
+mkdir -p "$LOGS"
+
+e2e-install-fixture
+
+# Sway 1.7 refuses to run as uid 0 ("Unable to drop root"), so it runs as an
+# unprivileged user while everything else — tauler, grim, the harness's execs —
+# stays root, which can read the sockets sway makes. The runtime directory is
+# therefore sway's to write, and the config it reads must be readable by it.
+SWAY_UID=1000
+mkdir -p "$XDG_RUNTIME_DIR"
+chmod 700 "$XDG_RUNTIME_DIR"
+chown "$SWAY_UID:$SWAY_UID" "$XDG_RUNTIME_DIR"
+
+# Sway's headless output defaults to 1920x1080; state the size anyway so a
+# scenario that asks for another screen gets it.
+RESOLUTION="${SCREEN%x*}"
+cp /usr/local/share/e2e/sway.config "$LOGS/sway.config"
+printf 'output * resolution %s\n' "$RESOLUTION" >> "$LOGS/sway.config"
+
+# Sway must not mistake itself for a nested compositor, and the image's
+# WAYLAND_DISPLAY names the socket it is about to create, not one that exists.
+#
+# --unsupported-gpu: a container sees the *host's* /proc/modules, and sway
+# refuses to start when that lists the proprietary Nvidia driver — on a machine
+# whose GPU this headless, pixman-rendered compositor never touches.
+chmod 644 "$LOGS/sway.config"
+setpriv --reuid="$SWAY_UID" --regid="$SWAY_UID" --clear-groups \
+    env -u WAYLAND_DISPLAY HOME=/tmp sway --unsupported-gpu -c "$LOGS/sway.config" \
+    >"$LOGS/sway.log" 2>&1 &
+
+i=0
+until [ -S "$XDG_RUNTIME_DIR/$WAYLAND_DISPLAY" ]; do
+    i=$((i + 1))
+    [ "$i" -lt 100 ] || { echo "e2e: sway never opened $WAYLAND_DISPLAY" >&2; exit 1; }
+    sleep 0.1
+done
+
+# The socket exists before sway has finished starting its IPC and outputs; an
+# output that is not there yet makes tauler start with nothing to paint on.
+i=0
+until [ -n "$(ls "$XDG_RUNTIME_DIR"/sway-ipc.*.sock 2>/dev/null)" ]; do
+    i=$((i + 1))
+    [ "$i" -lt 100 ] || { echo "e2e: sway never opened its IPC socket" >&2; exit 1; }
+    sleep 0.1
+done
+SWAYSOCK="$(ls "$XDG_RUNTIME_DIR"/sway-ipc.*.sock | head -1)"
+export SWAYSOCK
+i=0
+until swaymsg -t get_outputs 2>/dev/null | grep -q '"name"'; do
+    i=$((i + 1))
+    [ "$i" -lt 100 ] || { echo "e2e: sway has no output" >&2; exit 1; }
+    sleep 0.1
+done
+
+# No default clients here: they are X11 terminals, and a Wayland scenario that
+# wants windows supplies its own.
+if [ -x "$FIXTURE/startup" ]; then
+    "$FIXTURE/startup"
+fi
+
+tauler >"$LOGS/tauler.log" 2>&1 &
+
+echo "e2e: desktop up"
+
+exec tail -f /dev/null
