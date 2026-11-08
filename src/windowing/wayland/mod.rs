@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::os::fd::{AsFd, AsRawFd, RawFd};
 use std::sync::Arc;
 
@@ -142,6 +143,17 @@ pub struct WaylandDisplayServer {
     conn: Arc<Connection>,
     event_queue: EventQueue<WaylandState>,
     state: WaylandState,
+    /// `<wallpaper>` surfaces by node id. They live here rather than in the
+    /// presenter's panel map because a wallpaper has no create/resize/delete
+    /// lifecycle of its own (see `SurfaceCommand::PaintWallpaper`).
+    wallpapers: HashMap<String, WallpaperSurface>,
+}
+
+/// A `<wallpaper>` on a `Layer::Background` surface, plus the latest frame so
+/// it can be painted once the compositor's first configure arrives.
+struct WallpaperSurface {
+    panel: WaylandPanel,
+    pixels: Arc<Vec<u8>>,
 }
 
 impl std::fmt::Debug for WaylandDisplayServer {
@@ -187,6 +199,7 @@ impl WaylandDisplayServer {
             conn,
             event_queue,
             state,
+            wallpapers: HashMap::new(),
         };
         // Roundtrip so output geometry events are processed before the caller
         // queries output dimensions.
@@ -300,10 +313,71 @@ impl WaylandDisplayServer {
         })
     }
 
+    /// Create the background-layer surface behind a `<wallpaper>`.
+    ///
+    /// Anchored to all four edges with size 0x0, so the compositor sizes it to
+    /// the output; exclusive zone -1 so it never makes room for, or moves out of
+    /// the way of, any other surface. Like panels it lands on the compositor's
+    /// choice of output: the backend does not yet route a spec's `output`.
+    fn create_wallpaper_surface(
+        &mut self,
+        spec: &SurfaceSpec,
+        frame: &SurfaceFrame,
+    ) -> Result<WaylandPanel, anyhow::Error> {
+        let qh = self.event_queue.handle();
+        let wl_surface = self.state.compositor_state.create_surface(&qh);
+        let layer_surface = self.state.layer_shell.create_layer_surface(
+            &qh,
+            wl_surface,
+            Layer::Background,
+            Some("tauler-wallpaper"),
+            None,
+        );
+        layer_surface.set_size(0, 0);
+        layer_surface.set_anchor(Anchor::TOP | Anchor::BOTTOM | Anchor::LEFT | Anchor::RIGHT);
+        layer_surface.set_exclusive_zone(-1);
+        // The frame is physical pixels; tell the compositor so it does not draw
+        // a 2x buffer at 2x size. Whole-number scales only.
+        layer_surface
+            .wl_surface()
+            .set_buffer_scale(spec.dpr.round().max(1.0) as i32);
+        layer_surface.wl_surface().commit();
+
+        let surface_id = layer_surface.wl_surface().id();
+        let pool = SlotPool::new(frame.pixels.len().max(4096) * 2, &self.state.shm)
+            .map_err(|e| anyhow::anyhow!("SlotPool::new: {e}"))?;
+        Ok(WaylandPanel {
+            layer_surface,
+            pool,
+            surface_id,
+            configured: false,
+            width: frame.width,
+            height: frame.height,
+            anchor: None,
+            dpr: spec.dpr,
+        })
+    }
+
     /// Drain and return (surface_id, new_size) pairs from configure events since the last call.
     /// A new_size of (0, 0) means the compositor accepted the set_size value as-is.
+    ///
+    /// Configures that belong to a wallpaper are consumed here: the wallpaper
+    /// is marked configured and painted from its stored frame, and the pair is
+    /// not returned (the presenter only knows about panels).
     pub fn take_pending_configures(&mut self) -> Vec<(ObjectId, (u32, u32))> {
-        std::mem::take(&mut self.state.pending_configures)
+        let pending = std::mem::take(&mut self.state.pending_configures);
+        let (walls, panels): (Vec<_>, Vec<_>) = pending
+            .into_iter()
+            .partition(|(id, _)| self.wallpapers.values().any(|w| &w.panel.surface_id == id));
+        for (id, _) in walls {
+            for w in self.wallpapers.values_mut() {
+                if w.panel.surface_id == id {
+                    w.panel.configured = true;
+                    w.panel.render(&w.pixels);
+                }
+            }
+        }
+        panels
     }
 
     pub fn flush(&self) {
@@ -407,6 +481,28 @@ impl DisplayManager for WaylandDisplayServer {
 
     fn delete_window(&mut self, _panel: WaylandPanel) -> Result<(), anyhow::Error> {
         // Panel is dropped here by ownership transfer; cleanup is implicit
+        Ok(())
+    }
+
+    fn paint_wallpaper(&mut self, spec: &SurfaceSpec, frame: &SurfaceFrame) -> anyhow::Result<()> {
+        if !self.wallpapers.contains_key(&spec.id) {
+            let panel = self.create_wallpaper_surface(spec, frame)?;
+            self.wallpapers.insert(
+                spec.id.clone(),
+                WallpaperSurface {
+                    panel,
+                    pixels: frame.pixels.clone(),
+                },
+            );
+            // First paint waits for the compositor's configure.
+            return Ok(());
+        }
+        if let Some(w) = self.wallpapers.get_mut(&spec.id) {
+            w.pixels = frame.pixels.clone();
+            w.panel.width = frame.width;
+            w.panel.height = frame.height;
+            w.panel.render(&frame.pixels);
+        }
         Ok(())
     }
 

@@ -161,8 +161,10 @@ enabled, so a JPEG decodes to nothing — and a file that cannot be decoded is
 indistinguishable from one that is not there, so the symptom is a surface that renders
 empty with nothing in the log.
 
-Wallpapers are an X11 feature for now. On Wayland and macOS the node is ignored with a
-warning.
+Wallpapers work on X11, macOS and Wayland. On Wayland the wallpaper is a surface on the
+compositor's background layer, so the compositor must implement `wlr-layer-shell` (Sway,
+Hyprland and river do). It lands on the compositor's choice of output — `output` is not
+routed yet — and the pixel scale is rounded to a whole number.
 
 ## Seeing through a panel
 
