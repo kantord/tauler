@@ -175,7 +175,7 @@ type ParsedElement = NodeElement<Infallible>;
 ///
 /// Example:
 /// ```ignore
-/// ui! {
+/// rsx! {
 ///     <div class={class}>
 ///         {props.children}
 ///     </div>
@@ -194,8 +194,8 @@ pub fn rsx(input: TokenStream) -> TokenStream {
     let nodes = nodes_opt.unwrap_or_default();
     let node_tokens = match nodes.as_slice() {
         [single] => gen_node(single),
-        [] => quote! { compile_error!("ui! requires a root element") },
-        _ => quote! { compile_error!("ui! requires exactly one root element") },
+        [] => quote! { compile_error!("rsx! requires a root element") },
+        _ => quote! { compile_error!("rsx! requires exactly one root element") },
     };
 
     quote! { { #[allow(unused_braces)] { #error_tokens #node_tokens } } }.into()

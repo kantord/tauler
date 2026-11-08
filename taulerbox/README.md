@@ -1,12 +1,10 @@
 # taulerbox
 
-**Experimental.** A native window (Linux and macOS) that shows a
-[tauler](https://crates.io/crates/tauler) layout's Panels as pixel buffers, drawn alongside
-a microVM compartment running a nested desktop. It is a prototype for
-[#582](https://github.com/kantord/tauler/issues/582), is not built or tested in CI, and
-nothing in it is stable.
+**Extremely early development. It basically does not work yet.** Do not use it for
+anything real.
 
-Where native Tauler creates one desktop window per Panel, taulerbox creates one window and
-draws every Panel into it at its declared position. Sandboxing exists in taulerbox only.
+taulerbox is meant to show a [tauler](https://crates.io/crates/tauler) layout's Panels in
+one window, next to a sandboxed desktop, instead of drawing each Panel as its own desktop
+window. It is tracked in [#582](https://github.com/kantord/tauler/issues/582).
 
 Documentation: <https://kantord.github.io/tauler/docs/develop/taulerbox/>

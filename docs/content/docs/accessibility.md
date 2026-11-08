@@ -45,6 +45,11 @@ Text takes no node of its own. It becomes part of the name of the elements aroun
 `<div>` holding `{used}%` is a paragraph named by what that text renders as. An `<img>` has
 no text, so give it `aria-label` or `title`; `alt` is not read.
 
+A `<D3Figure>` appears in the tree as an Image with no name, and what it draws is not
+available to assistive technology. `<D3Figure>` does not pass `aria-label` or `title` on to
+the node, so describe the figure in an element around it, such as
+`<div aria-label="CPU load, last 60 seconds">`, or in text next to it.
+
 Only `role="button"` is understood. Other `role` values do not fail, but they make the node
 a generic container, even on an element that has a name or is an `<img>`.
 

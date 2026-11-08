@@ -13,10 +13,10 @@ theme:
 // flag, every time — so you learn to recognise your workspaces by their flag,
 // and a new window visibly changes one.
 //
-// The brief builds this with a Pillow script writing PNGs into /run/user, an
-// i3ipc daemon regenerating them on every window event, a content-hash in the
-// filename to defeat the bar's image cache, and a symlink the bar points at. It
-// then spends three questions on whether the bar notices the file changed.
+// A bar that shows images typically needs a script writing PNGs into /run/user,
+// an i3ipc daemon regenerating them on every window event, a content-hash in
+// the filename to defeat the bar's image cache, and a symlink the bar points
+// at, plus a way to tell whether the bar notices the file changed.
 //
 // None of that exists here. A flag is five nested <div>s, the seed is
 // computed in the layout file from the data tauler-i3 already publishes, and
@@ -58,8 +58,8 @@ function hash(str) {
 // The seed is the workspace number plus its window names, sorted. Sorted
 // because the flag must not change when you move focus between two windows.
 //
-// tauler-i3 publishes window *titles*, not classes. That is not what the brief
-// asked for and it matters: a title changes when you cd, open a file or load a
+// tauler-i3 publishes window *titles*, not classes. That is not
+// the same thing and it matters: a title changes when you cd, open a file or load a
 // page, so a title-seeded flag reshuffles under you while a class-seeded one
 // would not. The fixture's clients hold static titles, which hides it here —
 // see the report.
@@ -124,8 +124,8 @@ function Field({ div, a, b }) {
   }
   if (div === 3) {
     // The hoist triangle. `clip-path: polygon(...)` is the whole division —
-    // the brief's generator drew this with Pillow's `d.polygon` because GTK3
-    // CSS has no way to cut a shape out of a box.
+    // GTK3 CSS has no way to cut a shape out of a box, so a script would have to
+    // draw this polygon into a PNG.
     return (
       <div style={{ display: "flex", width: "100%", height: "100%", backgroundColor: a }}>
         <div

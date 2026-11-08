@@ -20,12 +20,9 @@ fonts:
 ---
 // Monolith III — engraved surfaces.
 //
-// Exploratory scenario for the "three rices" handoff brief. The brief targets
-// eww/GTK3 and spends most of its questions on which paint primitives survive
-// there; tauler rasterizes with takumi, so the answers are different enough
-// that the design changes shape. Everything textured below is CSS on a
-// <div>. Nothing is a pre-rendered PNG, and the brief's plate-gen.py has
-// no equivalent here at all.
+// Exploratory scenario: which paint primitives survive in tauler, which
+// rasterizes with takumi. Everything textured below is CSS on a <div>.
+// Nothing is a pre-rendered PNG, and there is no image-generating script.
 //
 // Geometry, which tauler-e2e/tests/scenarios.rs states by hand:
 //
@@ -35,8 +32,7 @@ fonts:
 //
 // The two floats reserve nothing: only <Panel> inside <I3Layout> eats an edge.
 //
-// There is not one icon glyph in this file. The brief forbids them and nothing
-// here wanted one.
+// There is not one icon glyph in this file; nothing here wanted one.
 
 const TAULER_I3 = "/usr/local/bin/tauler-i3";
 const STATUS = "~/.local/bin/monolith-status";
@@ -46,11 +42,11 @@ const STATUS = "~/.local/bin/monolith-status";
 // Four textures, each a `style` object rather than a class, because none of
 // them is expressible in the `class` subset and all of them are the point.
 //
-// The alphas follow the brief's legibility rule: texture never exceeds ~0.2
+// The alphas follow a legibility rule: texture never exceeds ~0.2
 // under body text, full strength only in margins, meters and empty plate.
 
 // RULED. 1px gold rule every 6px. `repeating-linear-gradient` with two hard
-// stops per period — the same declaration the brief writes for GTK3, and it
+// stops per period — the same declaration GTK3's CSS takes, and it
 // needed no translation.
 const RULED = {
   backgroundColor: "#1B1924",
@@ -58,7 +54,7 @@ const RULED = {
     "repeating-linear-gradient(0deg, rgba(216,178,94,0.16) 0px, rgba(216,178,94,0.16) 1px, transparent 1px, transparent 6px)",
 };
 
-// HALFTONE. The brief asks whether a repeating radial dot field is reachable.
+// HALFTONE. Is a repeating radial dot field reachable?
 // It is, but not with `repeating-radial-gradient` — that draws concentric
 // rings, not a grid. A single `radial-gradient` tile plus `background-size`
 // and `background-repeat` is the dot field, and it is one declaration.
@@ -77,7 +73,7 @@ const GUILLOCHE = (cx, cy, alpha) => ({
 });
 
 // EMBOSS. A lit top edge and a shadowed bottom one, both inside the box. The
-// brief's fallback for this was a 9-slice PNG; `box-shadow: inset` is enough.
+// A 9-slice PNG is the usual fallback; `box-shadow: inset` is enough.
 const EMBOSS = {
   boxShadow:
     "inset 0 1px 0 rgba(216,178,94,0.22), inset 0 -1px 0 rgba(16,15,22,0.9)",
@@ -97,7 +93,7 @@ const MOIRE = {
 //
 // `fonts.primary` in this file's frontmatter puts Nimbus Roman in the sans-serif slot, so
 // the serif is the default and the mono has to be asked for. That is backwards
-// from how the brief writes it and it is the only way to get two faces.
+// from the usual arrangement and it is the only way to get two faces.
 const MONO = { fontFamily: "monospace" };
 
 const ROMAN = ["", "I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X"];
@@ -187,7 +183,7 @@ function Rail({ ws, status }) {
 
 // ── Galley slip ─────────────────────────────────────────────────────────────
 //
-// The brief's hardest surface: dunst paints a flat fill and nothing else, so
+// The hardest surface: dunst paints a flat fill and nothing else, so
 // the perforated edge had to become an icon PNG or a second always-on-top
 // window drawing over dunst's geometry. Here the notification *is* a panel, so
 // the perforation is a background tile like any other and the whole question
@@ -302,8 +298,8 @@ export default function render() {
     <root>
       {/* The whole wallpaper is CSS. Base plate, a guilloché rosette off the
           top-right, a halftone field fading in from the left, and one wide
-          ruled band. The brief's Pillow generator drew exactly these four and
-          wrote them to a PNG; here they are four declarations and they resize
+          ruled band. A generator script would draw exactly these four and
+          write them to a PNG; here they are four declarations and they resize
           with the output. */}
       <wallpaper id="desktop">
         <div

@@ -123,7 +123,7 @@ spellings. A bare `<surface>` names no kind and is a parse error.
 | `x` | number | x position, ignored when `anchor` is set |
 | `y` | number | y position, ignored when `anchor` is set |
 | `above` | boolean | stack above other windows, for overlays like notifications |
-| `output` | string | X11 only: RandR output name, e.g. `"DP-2"`; omit for the primary output. Not used on Wayland; see [Backends](/docs/backends/) |
+| `output` | string | X11: RandR output name, e.g. `"DP-2"`; omit for the primary output. Wayland: not used; the compositor picks the output. macOS: Tauler sees only the primary display, and a name other than `ctx.output` removes the panel. See [Backends](/docs/backends/) |
 
 `anchor` *places* a panel. Whether it also reserves space depends on the display server:
 
@@ -139,7 +139,7 @@ spellings. A bare `<surface>` names no kind and is a parse error.
 | prop | type | description |
 |---|---|---|
 | `id` | string | surface id; **required** — without it the whole root fails to parse |
-| `output` | string | X11: RandR output name, e.g. `"DP-2"`; omit for the primary output |
+| `output` | string | X11: RandR output name, e.g. `"DP-2"`; omit for the primary output. Wayland: not routed yet. macOS: only the primary display; any other name removes the wallpaper |
 
 A wallpaper has no geometry props. It always covers its output exactly, and its subtree is
 laid out against those dimensions. It reserves nothing and receives no clicks. On X11 it is

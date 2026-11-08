@@ -10,9 +10,9 @@ which `<wallpaper>` works, and whether anything keeps other windows out of a pan
 | | X11 | Wayland | macOS |
 |---|---|---|---|
 | Panel is | an unmanaged window | a layer-shell surface | a window |
-| `<wallpaper>` | painted into the root background | not supported yet | a window below all others |
+| `<wallpaper>` | painted into the root background | a background-layer surface | a window below all others |
 | Anchored panel reserves space | no | yes | no |
-| Scale comes from | `Xft.dpi`, or the output's physical size for a panel with `output` | the compositor | not covered here |
+| Scale comes from | `Xft.dpi`, or the output's physical size for a panel with `output` | the compositor | the primary display's scale factor |
 
 ## X11
 
@@ -64,9 +64,6 @@ tile underneath, pushes windows aside on Wayland.
 **The compositor places the panel.** `x` and `y` do not apply on Wayland, with or without an
 `anchor`.
 
-**Unverified:** using `<I3Layout>` together with an anchored panel on Wayland, for example
-`tauler-i3` on sway, has not been checked and might reserve the space twice.
-
 **An anchored panel fills its edge.** A `left` or `right` panel spans the full height of the
 output, and a `top` or `bottom` panel spans the full width. The compositor decides that
 length, so the length set in the layout does not apply.
@@ -81,14 +78,20 @@ come from the first output the compositor reports, whichever output shows the pa
 logical width. If the compositor gives no logical size, it uses the output's integer scale.
 `Xft.dpi` plays no part.
 
-**`<wallpaper>` is not supported yet.** Tauler ignores the node and logs that it is only
-supported on X11. Use a
-wallpaper program, and note it will not feed `backdrop-filter`; see below.
+**`<wallpaper>` is a background-layer surface.** It covers the whole output and never makes
+room for, or moves out of the way of, other surfaces. Like a panel, it appears on the
+compositor's choice of output: the `output` prop is not routed yet. The wallpaper's pixel
+scale is rounded to a whole number, so a fractional output scale does not apply to it.
 
 ## macOS
 
 See [macOS](/docs/macos/). It is experimental, and that page covers install, the one manual
 measurement, and what to expect.
+
+**Only the primary display exists.** Tauler places panels and wallpapers on the primary
+display, and `ctx.output`, `ctx.screen_width` and `ctx.screen_height` describe it. An
+`output` that does not match `ctx.output` removes the panel or wallpaper without an error.
+There is no way to target a second display yet.
 
 ## Seeing the wallpaper through a panel
 

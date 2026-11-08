@@ -59,7 +59,7 @@ One JSON object per line:
 | `urgent` | the workspace's urgency flag |
 | `focused_windows` | window titles on the workspace, most recently focused first |
 
-- The list holds the workspaces of the output this process was started for. It follows the
+- The list holds the workspaces of the output named in the init event (see below). It follows the
   order in the i3 tree. Workspaces whose name starts with `__` are left out.
 - A line is written when i3 reports a workspace or window event (changes within 50 ms are
   merged into one line), and at least once a second otherwise.
@@ -75,14 +75,17 @@ A layout sends an intent with `events.<type>({...})`. `tauler-i3` acts on one:
 
 `focusWindow` is not handled: `tauler-i3` ignores it.
 
-## One process per output, and the init event
+## The init event and outputs
 
 Tauler sends an `init` event as the first line on the process's stdin. `tauler-i3` reads
 two things from it: `output`, the name of the output the process lists workspaces for, and
 `gaps`. It writes nothing until the event arrives.
 
-A multi-output setup therefore runs one `tauler-i3` process per panel, each listing the
-workspaces of its own output. If the `output` in the event is empty, the process lists the
+Tauler runs one `tauler-i3` process per `bin` path, however many panels or `<Module>`
+declarations name it, and the `output` in its init event is always the primary output.
+Moving the declaration into a panel on another output does not change that. So the
+workspace list is that of the primary output, and a layout cannot get a second output's
+workspaces from this program. If the `output` in the event is empty, the process lists the
 workspaces of every output and writes no gaps.
 
 ## Gaps
@@ -118,13 +121,9 @@ Two things were not checked:
   a window only if the i3 IPC tree gives it an X11 window id.
 - Whether the `gaps` commands behave the same way under sway.
 
-On Wayland, Tauler also asks the compositor to keep windows clear of an anchored panel.
-See [Backends](/docs/backends/#wayland) for why combining that with gaps has not been
-checked.
-
 ## When something goes wrong
 
-Problems are logged to stderr. The log level comes from `RUST_LOG` and defaults to `info`.
+Problems are logged to stdout, on the same stream as the JSON lines. The log level comes from `RUST_LOG` and defaults to `info`.
 
 | situation | behaviour |
 |---|---|
@@ -134,5 +133,6 @@ Problems are logged to stderr. The log level comes from `RUST_LOG` and defaults 
 | A gap command fails | A warning is logged, and gaps are tried again on the next workspace event. |
 | Stdin closes | The process exits with status 0. |
 
-A process that has exited is not restarted by Tauler (see
-[Data and events](/docs/data/#history-tauler-accumulate)), so `data` keeps its last value.
+If the process exits, whatever the status, Tauler starts it again within about half a
+second and sends it a new init event. Until a restarted process writes its first line,
+`data` keeps its last value.

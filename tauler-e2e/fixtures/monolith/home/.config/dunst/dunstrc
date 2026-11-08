@@ -7,8 +7,8 @@
 #
 # What dunst gives you: a flat fill, a frame, a corner radius, a font, a size.
 # What it does not: any background image, so the perforated edge that makes the
-# slip look like paper has nowhere to live. The brief's fallbacks for that were
-# an icon PNG or a second always-on-top window drawn over dunst's own geometry.
+# slip look like paper has nowhere to live. The only workarounds are an icon PNG
+# or a second always-on-top window drawn over dunst's own geometry.
 
 [global]
     font = JetBrains Mono 10
