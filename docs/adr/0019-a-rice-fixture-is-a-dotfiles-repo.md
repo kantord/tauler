@@ -39,7 +39,7 @@ pseudo-transparency moved from urxvt command-line flags in `startup` into `~/.Xr
 so `startup` says only which window it is and what to run in it.
 
 And giving dunst, rofi and kitty somewhere to keep a config meant they had to be run —
-which is how three of the source brief's open questions stopped being questions. They are
+which is how three open questions about those surfaces stopped being questions. They are
 now on screen beside tauler's own versions of the same surfaces, so the comparison is a
 screenshot rather than a claim.
 
