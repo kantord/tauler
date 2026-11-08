@@ -1,7 +1,6 @@
 use std::sync::mpsc;
 
 use super::drain_commands;
-use tauler::layout::OutputInfo;
 use tauler::presentation::{
     PointerEvent, PointerPhase, PresentationThread, PresenterEvent, PresenterEvents, SurfaceCommand,
 };
@@ -44,24 +43,14 @@ pub(crate) fn run_wayland_presenter_thread(
                 for event in events {
                     match event {
                         WindowEvent::OutputsChanged => {
-                            if let Some((w, h)) = pt.dm.primary_output_size() {
-                                let dpr = pt.dm.primary_output_scale();
-                                let outputs = vec![OutputInfo {
-                                    name: String::new(),
-                                    x: 0,
-                                    y: 0,
-                                    width: w,
-                                    height: h,
-                                    dpr,
-                                }];
+                            if let Some(report) = pt.dm.output_report() {
                                 let _ = event_tx.send(PresenterEvent::OutputsChanged {
-                                    outputs,
-                                    // Wayland's single, unnamed output is always primary,
-                                    // and its compositor-reported scale (not a separate
-                                    // Xft.dpi-style value — that split is X11-only) is
-                                    // already the number layout math should use.
-                                    primary_name: String::new(),
-                                    context_dpr: dpr,
+                                    outputs: report.outputs,
+                                    primary_name: report.primary_name,
+                                    // The compositor-reported scale of the primary output
+                                    // (not a separate Xft.dpi-style value — that split is
+                                    // X11-only) is already the number layout math should use.
+                                    context_dpr: report.context_dpr,
                                 });
                             }
                         }

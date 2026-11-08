@@ -1080,3 +1080,74 @@ fn panel_over_wallpaper_on_i3() -> Result<()> {
 fn panel_over_wallpaper_on_sway() -> Result<()> {
     panel_over_wallpaper(Backend::Sway)
 }
+
+/// The left output's wallpaper in `fixtures/two-outputs`, `#cc3366`, and the
+/// right output's, `#3366cc`. Written out here so a fixture edit fails loudly.
+const LEFT_WALLPAPER: [u8; 3] = [0xcc, 0x33, 0x66];
+const RIGHT_WALLPAPER: [u8; 3] = [0x33, 0x66, 0xcc];
+
+/// A surface lands on the output it names.
+///
+/// Two 1920×1080 outputs side by side, HEADLESS-2 on the right. Each has its
+/// own wallpaper, and the panel names HEADLESS-2, so it must sit at the left edge
+/// of the *right* output — x = 1920 in the one picture `grim` takes of both —
+/// and nothing of it may show on the left output. Before outputs were routed
+/// every surface landed on whichever output the compositor chose.
+#[test]
+#[ignore = "needs Docker and `just e2e-image`"]
+fn surfaces_land_on_the_output_they_name_on_sway() -> Result<()> {
+    let desktop = Desktop::start_on_with_env(
+        Backend::Sway,
+        "two-outputs",
+        Screen::default(),
+        &[("OUTPUTS", "2")],
+    )?;
+    let screen = desktop.screen();
+    let (w, h) = (screen.width, screen.height);
+
+    // Probe each surface before trusting a settled screen, as the single-output
+    // scenario does: they paint separately.
+    let probes = [
+        ((8, 8), LEFT_WALLPAPER, "left wallpaper"),
+        ((w + w - 8, 8), RIGHT_WALLPAPER, "right wallpaper"),
+        ((w + 136, h / 2), RAIL, "panel"),
+    ];
+    let shot = wait_for("Sway: both outputs to paint", || {
+        let shot = desktop.capture_stable()?;
+        for &((x, y), want, what) in &probes {
+            let [r, g, b, _] = pixel_at(&shot, x, y)?;
+            anyhow::ensure!(
+                [r, g, b] == want,
+                "the {what} has not painted: ({x}, {y}) is {r},{g},{b}, not {want:?}"
+            );
+        }
+        Ok(shot)
+    })
+    .map_err(|e| anyhow::anyhow!("{e}\n--- tauler.log ---\n{}", desktop.tauler_log()))?;
+
+    // Left output: wallpaper everywhere, including where the panel would be if
+    // it had landed here.
+    for (x, y) in [(0, 0), (136, h / 2), (271, h / 2), (w - 1, h - 1)] {
+        assert_eq!(
+            rgb_at(&shot, x, y)?,
+            LEFT_WALLPAPER,
+            "({x}, {y}) is on HEADLESS-1 and should show its wallpaper only"
+        );
+    }
+    // Right output: the panel over the left 272px, wallpaper beyond.
+    for (x, y) in [(w, 0), (w + 136, h / 2), (w + 271, h - 1)] {
+        assert_eq!(
+            rgb_at(&shot, x, y)?,
+            RAIL,
+            "({x}, {y}) should show the panel on HEADLESS-2"
+        );
+    }
+    for (x, y) in [(w + 272, h / 2), (w + w / 2, h / 2), (w + w - 1, h - 1)] {
+        assert_eq!(
+            rgb_at(&shot, x, y)?,
+            RIGHT_WALLPAPER,
+            "({x}, {y}) should show HEADLESS-2's wallpaper"
+        );
+    }
+    Ok(())
+}

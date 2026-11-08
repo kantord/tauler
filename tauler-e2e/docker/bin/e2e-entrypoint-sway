@@ -35,6 +35,20 @@ RESOLUTION="${SCREEN%x*}"
 cp /usr/local/share/e2e/sway.config "$LOGS/sway.config"
 printf 'output * resolution %s\n' "$RESOLUTION" >> "$LOGS/sway.config"
 
+# OUTPUTS=2 asks for a second headless output, to the right of the first, for
+# the scenario that routes surfaces by output name. The positions are config
+# (sway applies an `output` line when that output appears); creating the output
+# is not, because `create_output` is a runtime command that sway 1.7 rejects in
+# a config file. It is run below, once sway's IPC is up. The new output is named
+# HEADLESS-2.
+OUTPUTS="${OUTPUTS:-1}"
+if [ "$OUTPUTS" -ge 2 ]; then
+    {
+        printf 'output HEADLESS-1 position 0 0\n'
+        printf 'output HEADLESS-2 position %s 0\n' "${RESOLUTION%x*}"
+    } >> "$LOGS/sway.config"
+fi
+
 # Sway must not mistake itself for a nested compositor, and the image's
 # WAYLAND_DISPLAY names the socket it is about to create, not one that exists.
 #
@@ -63,10 +77,13 @@ until [ -n "$(ls "$XDG_RUNTIME_DIR"/sway-ipc.*.sock 2>/dev/null)" ]; do
 done
 SWAYSOCK="$(ls "$XDG_RUNTIME_DIR"/sway-ipc.*.sock | head -1)"
 export SWAYSOCK
+if [ "$OUTPUTS" -ge 2 ]; then
+    swaymsg create_output >/dev/null
+fi
 i=0
-until swaymsg -t get_outputs 2>/dev/null | grep -q '"name"'; do
+until [ "$(swaymsg -t get_outputs 2>/dev/null | grep -o '"name"' | wc -l)" -ge "$OUTPUTS" ]; do
     i=$((i + 1))
-    [ "$i" -lt 100 ] || { echo "e2e: sway has no output" >&2; exit 1; }
+    [ "$i" -lt 100 ] || { echo "e2e: sway has fewer than $OUTPUTS outputs" >&2; exit 1; }
     sleep 0.1
 done
 

@@ -68,11 +68,12 @@ jobs:
       # scenarios to run".
       - name: Check screenshots were produced
         run: |
-          # i3 runs keep the bare scenario name and every fixture has one;
+          # i3 runs keep the bare scenario name and every non-`sway-only` fixture has one;
           # Sway runs are suffixed `-sway` and only some fixtures have one.
           i3=$(find target/e2e -mindepth 2 -maxdepth 2 -name desktop.png -not -path '*-sway/*' | wc -l)
           sway=$(find target/e2e -mindepth 2 -maxdepth 2 -name desktop.png -path '*-sway/*' | wc -l)
-          expected=$(find tauler-e2e/fixtures -mindepth 1 -maxdepth 1 -type d | wc -l)
+          # A fixture marked `sway-only` (a `sway-only` file in it) has no i3 run.
+          expected=$(find tauler-e2e/fixtures -mindepth 1 -maxdepth 1 -type d ! -exec test -e {}/sway-only \; -print | wc -l)
           echo "captured $i3 of $expected i3 scenarios and $sway sway scenarios"
           [ "$i3" -eq "$expected" ] && [ "$sway" -ge 1 ]
 
