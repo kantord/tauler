@@ -123,22 +123,27 @@ spellings. A bare `<surface>` names no kind and is a parse error.
 | `x` | number | x position, ignored when `anchor` is set |
 | `y` | number | y position, ignored when `anchor` is set |
 | `above` | boolean | stack above other windows, for overlays like notifications |
-| `output` | string | RandR output name, e.g. `"DP-2"`; omit for the primary output |
+| `output` | string | X11: RandR output name, e.g. `"DP-2"`; omit for the primary output. Wayland: not used; the compositor picks the output. macOS: Tauler sees only the primary display, and a name other than `ctx.output` removes the panel. See [Backends](/docs/backends/) |
 
-`anchor` *places* a panel. It does not reserve space for it, and a window manager will
-happily tile other windows underneath. Reserving space is a separate decision — see
-[Screen layout](/docs/layout/).
+`anchor` *places* a panel. Whether it also reserves space depends on the display server:
+
+- **X11:** no. A window manager will happily tile other windows underneath. Reserving space
+  is a separate decision; on i3, `<I3Layout>` makes it. See [Screen layout](/docs/layout/).
+- **Wayland:** yes. The compositor keeps other windows clear of an anchored panel.
+- **macOS:** no. Reserve space in AeroSpace's own configuration; see [macOS](/docs/macos/).
+
+[Backends](/docs/backends/) has the details for each.
 
 ## `<wallpaper>` props
 
 | prop | type | description |
 |---|---|---|
 | `id` | string | surface id; **required** — without it the whole root fails to parse |
-| `output` | string | RandR output name, e.g. `"DP-2"`; omit for the primary output |
+| `output` | string | X11: RandR output name, e.g. `"DP-2"`; omit for the primary output. Wayland: not routed yet. macOS: only the primary display; any other name removes the wallpaper |
 
 A wallpaper has no geometry props. It always covers its output exactly, and its subtree is
-laid out against those dimensions. It has no window, reserves nothing, and receives no
-clicks — there are only pixels handed to the desktop background.
+laid out against those dimensions. It reserves nothing and receives no clicks. On X11 it is
+pixels painted into the root background; on macOS it is a window pinned below all others.
 
 ```jsx
 <root>
@@ -163,7 +168,7 @@ empty with nothing in the log.
 Wallpapers work on X11, macOS and Wayland. On Wayland the wallpaper is a surface on the
 compositor's background layer, so the compositor must implement `wlr-layer-shell` (Sway,
 Hyprland and river do). It lands on the compositor's choice of output — `output` is not
-routed yet — and the pixel scale is rounded to a whole number.
+routed yet — and the pixel scale is rounded to a whole number. See [Backends](/docs/backends/).
 
 ## Seeing through a panel
 

@@ -3,17 +3,27 @@
   "pages": [
     "---Guide---",
     "index",
+    "running",
     "layout-file",
     "themes",
     "elements",
     "data",
     "units",
     "layout",
+    "accessibility",
     "---Reference---",
     "components",
     "component-reference",
     "packages",
     "---Platforms---",
-    "macos"
+    "backends",
+    "macos",
+    "---Data sources---",
+    "modules/tauler-i3",
+    "modules/tauler-notify",
+    "---Developing with Tauler---",
+    "develop/screenshots",
+    "develop/config-generation",
+    "develop/taulerbox"
   ]
 }

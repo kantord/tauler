@@ -203,7 +203,7 @@ desktop uses.
 `on_click` goes on the element you want clickable, and only fires on elements that have a
 box of their own — a `<div>`, or anything that is a flex or grid item. A `<span>` inside a
 run of text has no box, so a handler there never fires; the first click logs a warning
-naming the element. See [Data and interaction](/docs/data/#on_click).
+naming the element. See [Data and interaction](/docs/data/#event-handlers).
 
 ## Coming from `container` / `text` / `tw`
 

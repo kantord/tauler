@@ -1,12 +1,11 @@
 //! Renders a schema's own template (its second YAML document) against structured data —
-//! the step the design record's chat discussion placed inside a new `renderTemplate`
-//! runtime builtin, called from the generated root component with the schema's template
-//! text embedded as a JSON-escaped constant (see [`crate::codegen::generate`]).
+//! the step the `renderTemplate` runtime builtin performs, called from the generated root
+//! component with the schema's template text embedded as a JSON-escaped constant (see
+//! [`crate::codegen::generate`]).
 //!
-//! This module proves the Rust-side half works — given data shaped exactly like what the
-//! generated JS components would produce, does the template produce the right `.rasi`
-//! text — without yet wiring a QuickJS builtin (design record §14.10: that integration
-//! step is explicitly not done in this prototype).
+//! This module is the Rust-side half — given data shaped exactly like what the generated
+//! JS components would produce, does the template produce the right `.rasi` text. The
+//! QuickJS builtin that exposes it to layout files lives in the main crate's `src/jsx.rs`.
 //!
 //! `{{ prop.value }}` interpolates a runtime VALUE into OUTPUT TEXT, which is a different
 //! injection surface than [`crate::codegen`]'s — not JS source, but the target config
@@ -42,7 +41,7 @@ mod tests {
 {% endfor %}"#;
 
     /// The exact data shape §codegen's generated components would produce for the worked
-    /// example (design record §14.7/§14.8), rendered against the schema's own template.
+    /// example, rendered against the schema's own template.
     #[test]
     fn renders_the_worked_example_to_the_expected_rasi_text() {
         let data = json!({

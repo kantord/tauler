@@ -188,7 +188,7 @@ fn workspaces_layout_js_fn<'js>(
 
 /// Renders a minijinja template against arbitrary JSON-serialisable data — the pure
 /// half of what a `tauler-configgen`-generated root component does with its own
-/// schema's template (design record §14/§17): validated Item data in, config text out.
+/// schema's template: validated Item data in, config text out.
 /// A syntax error in `source`, or a render-time error (an undefined filter, say),
 /// throws with minijinja's own message rather than panicking — matching every other
 /// builtin's error convention in this codebase.
@@ -1211,7 +1211,7 @@ impl JsxEvaluator {
                     "__workspaces_layout",
                     rquickjs::Function::new(qjs_ctx.clone(), workspaces_layout_js_fn)?,
                 )?;
-                // The runtime half of `tauler-configgen` (design record §14/§17): a
+                // The runtime half of `tauler-configgen`: a
                 // generated root component embeds its schema's own minijinja template as
                 // a string constant and calls this to turn collected Item data into the
                 // final config text. Registered unconditionally rather than gated behind

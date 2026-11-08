@@ -1,20 +1,14 @@
-# A schema covering the real user theme this design has been tested against
-# throughout (design record §17/§18): every selector and property in
-# ~/.local/share/chezmoi/dot_config/rofi/theme.rasi.tmpl, expressed with the
-# generic node/prop model — no rasi-specific Rust code anywhere.
+# A schema covering a full real-world rofi theme: every selector and property it
+# uses, expressed with the generic node/prop model — no rasi-specific Rust code
+# anywhere.
 #
-# Colors are literal hex values, not `@variable` references (design record
-# §16.5): a real layout file (`RofiTheme.jsx`) reads the current kitty
-# palette itself, via `read`/`JSON.parse` against
-# ~/.config/tauler/rofi-colors.json (written by
-# ~/.config/i3/sync_rofi_with_kitty_theme.sh on every chtheme()), and passes
-# the values straight through as JS variables — no reference type needed.
-# Colors used to stay behind `@name` references into rofi's own
-# colors.rasi/`@import`, so a separate reconciler (that script) partially
-# owned the generated theme too; now tauler owns it end to end.
+# Colors are literal hex values, not `@variable` references: a layout file reads
+# the current terminal palette itself and passes the values straight through as
+# JS variables — no reference type needed. Keeping colors out of rofi's own
+# colors.rasi/`@import` means tauler owns the generated theme end to end.
 #
-# Compound selectors (`element selected`) need no new capability at all
-# (§16.1/§16.2): they're just a wider `pattern` on the existing `Selector`
+# Compound selectors (`element selected`) need no new capability at all:
+# they're just a wider `pattern` on the existing `Selector`
 # component's `name` prop, since rofi treats the space as cosmetic — a state
 # suffix, not a combinator.
 nodes:
@@ -37,41 +31,37 @@ nodes:
   # --- Color properties (reused across every selector that needs one) ---
   - component: BackgroundColor
     props:
-      # Accepts a literal hex color (what RofiTheme.jsx now passes, read
-      # from rofi-colors.json) or an `@name` Reference (`man rofi-theme`,
-      # "Reference") — the pattern stays permissive so a layout can still use
-      # rofi's own colors.rasi/`@import` mechanism if it wants to (design
-      # record §16.5) — plus the `transparent`/`inherit` keywords the real
+      # Accepts a literal hex color (what a layout passes after reading its
+      # palette) or an `@name` Reference (`man rofi-theme`, "Reference") — the
+      # pattern stays permissive so a layout can still use rofi's own
+      # colors.rasi/`@import` mechanism if it wants to — plus the `transparent`/`inherit` keywords the real
       # theme also uses.
       value: { pattern: '^(?:#[0-9a-fA-F]{6}|@[a-zA-Z][a-zA-Z0-9_-]*|transparent|inherit)$' }
     constants: { css_name: background-color }
   - component: TextColor
     props:
-      # Accepts a literal hex color (what RofiTheme.jsx now passes, read
-      # from rofi-colors.json) or an `@name` Reference (`man rofi-theme`,
-      # "Reference") — the pattern stays permissive so a layout can still use
-      # rofi's own colors.rasi/`@import` mechanism if it wants to (design
-      # record §16.5) — plus the `transparent`/`inherit` keywords the real
+      # Accepts a literal hex color (what a layout passes after reading its
+      # palette) or an `@name` Reference (`man rofi-theme`, "Reference") — the
+      # pattern stays permissive so a layout can still use rofi's own
+      # colors.rasi/`@import` mechanism if it wants to — plus the `transparent`/`inherit` keywords the real
       # theme also uses.
       value: { pattern: '^(?:#[0-9a-fA-F]{6}|@[a-zA-Z][a-zA-Z0-9_-]*|transparent|inherit)$' }
     constants: { css_name: text-color }
   - component: BorderColor
     props:
-      # Accepts a literal hex color (what RofiTheme.jsx now passes, read
-      # from rofi-colors.json) or an `@name` Reference (`man rofi-theme`,
-      # "Reference") — the pattern stays permissive so a layout can still use
-      # rofi's own colors.rasi/`@import` mechanism if it wants to (design
-      # record §16.5) — plus the `transparent`/`inherit` keywords the real
+      # Accepts a literal hex color (what a layout passes after reading its
+      # palette) or an `@name` Reference (`man rofi-theme`, "Reference") — the
+      # pattern stays permissive so a layout can still use rofi's own
+      # colors.rasi/`@import` mechanism if it wants to — plus the `transparent`/`inherit` keywords the real
       # theme also uses.
       value: { pattern: '^(?:#[0-9a-fA-F]{6}|@[a-zA-Z][a-zA-Z0-9_-]*|transparent|inherit)$' }
     constants: { css_name: border-color }
   - component: PlaceholderColor
     props:
-      # Accepts a literal hex color (what RofiTheme.jsx now passes, read
-      # from rofi-colors.json) or an `@name` Reference (`man rofi-theme`,
-      # "Reference") — the pattern stays permissive so a layout can still use
-      # rofi's own colors.rasi/`@import` mechanism if it wants to (design
-      # record §16.5) — plus the `transparent`/`inherit` keywords the real
+      # Accepts a literal hex color (what a layout passes after reading its
+      # palette) or an `@name` Reference (`man rofi-theme`, "Reference") — the
+      # pattern stays permissive so a layout can still use rofi's own
+      # colors.rasi/`@import` mechanism if it wants to — plus the `transparent`/`inherit` keywords the real
       # theme also uses.
       value: { pattern: '^(?:#[0-9a-fA-F]{6}|@[a-zA-Z][a-zA-Z0-9_-]*|transparent|inherit)$' }
     constants: { css_name: placeholder-color }
@@ -118,7 +108,7 @@ nodes:
       value: { pattern: '^[0-9.]+$' }
     constants: { css_name: vertical-align }
 
-  # --- Padding/Border shorthand (design record §16.3) ---
+  # --- Padding/Border shorthand ---
   - component: Padding
     props:
       value:

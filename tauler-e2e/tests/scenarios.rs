@@ -498,7 +498,7 @@ fn signal_reseeds_a_band_when_a_window_opens() -> Result<()> {
         eprintln!("  event {ms}  {label}");
     }
 
-    // The map/unmap flash the brief asks about: across *one* reseed, is there
+    // The map/unmap flash: across *one* reseed, is there
     // any frame where the band is neither its old self nor its new one?
     //
     // The span has to stop while the probe window is still open. The script

@@ -3,12 +3,9 @@
 //! crate) calls [`parse`]/[`generate`] on every `*.schema.yaml` a layout file imports,
 //! live, in the shipped binary — not a build-time-only tool.
 //!
-//! Design record: `~/Downloads/tauler-config-files-design-record.md`, §13 (the codegen
-//! model, verified against real tauler source), §14 (the tech stack and worked example
-//! this crate makes real), and §17 (making the schema/generator config-format-independent
-//! — there is no rasi-specific concept anywhere in this crate's Rust code; the only place
-//! any format's syntax is known is a schema file's own data and its template text). See
-//! this crate's `README` for what's still missing.
+//! The crate is config-format-independent: there is no rasi-specific concept anywhere in
+//! its Rust code; the only place any format's syntax is known is a schema file's own data
+//! and its template text. See this crate's `README` for what's still missing.
 //!
 //! The pipeline: [`schema::parse`] reads a two-document YAML schema (a flat list of node
 //! declarations, then a minijinja template) and returns a [`schema::Schema`] with every
@@ -39,7 +36,7 @@ mod integration_tests {
     /// The whole pipeline, end to end: parse the real example schema shipped with this
     /// crate, generate its JS, and confirm the generated source's embedded template
     /// renders — via the exact same `render_template` a `renderTemplate` builtin would
-    /// call — to the `.rasi` text the design record's §14.8 traced by hand.
+    /// call — to the `.rasi` text a human traced by hand from the schema.
     #[test]
     fn the_rofi_example_schema_parses_generates_and_renders_correctly() {
         let schema = parse(ROFI_SCHEMA).expect("the shipped example schema must parse");

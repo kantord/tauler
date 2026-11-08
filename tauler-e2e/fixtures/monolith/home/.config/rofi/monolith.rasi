@@ -4,8 +4,8 @@
  * so the two can be photographed side by side. tauler's sits in the middle of
  * the screen; rofi's sits bottom-left.
  *
- * The brief's open question 03 is whether .rasi can take a per-element
- * background image, and whether it scales or tiles. rofi 1.7 does have
+ * Can .rasi take a per-element background image, and does it scale or tile?
+ * rofi 1.7 does have
  * `background-image`, and it takes `url(path, scaling)` — but there is no
  * `repeating-linear-gradient` and no `background-size`, so a rule field cannot
  * be written; it has to be handed over as a picture. `plate.png` beside this

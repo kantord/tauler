@@ -37,8 +37,8 @@ const KNOB_VARIANTS: Cva = Cva {
 ///
 /// Done this way rather than with an absolutely-positioned needle because takumi
 /// blanks a whole parent subtree once it has two or more out-of-flow children
-/// (`docs/takumi-absolute-sibling-bug-research.md`), and a knob that later grows a
-/// second overlay should not have to be rebuilt to survive it.
+/// (an unresolved bug in takumi 1.8.7), and a knob that later grows a second overlay
+/// should not have to be rebuilt to survive it.
 fn needle(degrees: f64) -> Node {
     let mut style = Map::new();
     style.insert("rotate".into(), Value::from(format!("{degrees}deg")));

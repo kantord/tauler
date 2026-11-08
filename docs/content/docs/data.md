@@ -96,9 +96,9 @@ const newestFirst = [...load].reverse();
 ```
 
 Two things to know. Numbers are re-serialized, so `0.60` comes back as `0.6` — accumulate
-strings if the exact text matters. And a stream is never restarted once its subprocess
-exits, which a pipe makes twice as likely, so a dead source keeps rendering its last window
-indefinitely.
+strings if the exact text matters. And when the subprocess exits, Tauler starts it again
+within about half a second. A restarted pipe begins with an empty window, because the
+`tauler-accumulate` process that held the history is new.
 
 ### A complete component
 

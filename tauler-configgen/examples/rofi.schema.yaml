@@ -41,7 +41,7 @@ nodes:
 
   # rofi's Padding shorthand (man rofi-theme, "Padding"): 1-4 space-separated
   # Distance tokens. Plain pattern + a human-written error — no Rust code
-  # anywhere knows this is "padding" (design record §17).
+  # anywhere knows this is "padding".
   - component: Padding
     props:
       value:

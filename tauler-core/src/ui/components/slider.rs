@@ -51,7 +51,7 @@ const THUMB: f64 = 14.0;
 /// gap the width of the thumb just before the value it marks.
 ///
 /// The only out-of-flow node in the tree, deliberately: takumi blanks a whole parent
-/// subtree when it has two or more (`docs/takumi-absolute-sibling-bug-research.md`).
+/// subtree when it has two or more (an unresolved bug in takumi 1.8.7).
 ///
 /// It overhangs each end by half its width at the extremes. Insetting its travel, as
 /// Radix does, would put it up to 7px from where the pointer actually is — the drag

@@ -8,13 +8,13 @@
 
 font pango:JetBrains Mono 10
 
-# 14, from the design brief. One spacing unit for the whole screen.
+# 14: one spacing unit for the whole screen.
 gaps inner 14
 
 # 1px, always shown.
 #
-# The brief writes `smart_borders off` here. i3 4.22 — the native-gaps release
-# the brief itself names as the target — does not have that directive; it came
+# Do not write `smart_borders off` here. i3 4.22 — the native-gaps release, and
+# the target of this fixture — does not have that directive; it came
 # from the i3-gaps fork and was not merged with the gaps code. i3 rejects the
 # whole line, raises i3-nagbar, and the nagbar eats 34px off the top of the
 # screen for the rest of the session. Nothing in this suite fails when that

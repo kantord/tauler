@@ -3,9 +3,11 @@ title: Screen layout
 description: Placing panels on an output, and reserving the space they occupy.
 ---
 
-A `<panel>` is a window at a position. Nothing about creating one tells the window
-manager to keep other windows out of the way — that is a separate, and surprisingly
-awkward, problem.
+A `<panel>` is a window at a position. On X11 and macOS, nothing about creating one tells
+the window manager to keep other windows out of the way — that is a separate, and
+surprisingly awkward, problem. This page is about X11 and i3. On Wayland an anchored panel
+reserves its own space, so most of what follows does not apply; see
+[Backends](/docs/backends/).
 
 ## Why reserving space is not automatic
 
@@ -19,7 +21,8 @@ that, because it places panels itself, per-output and DPR-aware. But an unmanage
 struts are never read.
 
 And i3 would not honour them anyway. It recognises only `W_DOCK_TOP` and `W_DOCK_BOTTOM`
-(`include/data.h`), and classifies a dock by its top/bottom struts alone (`src/manage.c`).
+(`include/data.h`), and classifies a dock by its top or bottom strut, falling back to the
+window's position when neither or both are set (`src/manage.c`; i3 4.25).
 There is no left or right dock. A full-height sidebar — the most common panel there is —
 cannot reserve space this way even in principle.
 

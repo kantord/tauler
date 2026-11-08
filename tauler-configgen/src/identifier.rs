@@ -1,8 +1,7 @@
 //! A schema-derived name that has passed identifier validation.
 //!
 //! The only way to get one is [`Identifier::validate`] — nothing downstream can format an
-//! unvalidated `&str` into a position that expects a JS identifier. Design record §13.3:
-//! names are never escaped, only validated, because there is no transformation that makes
+//! unvalidated `&str` into a position that expects a JS identifier. Names are never escaped, only validated, because there is no transformation that makes
 //! an arbitrary string safe in bare-identifier position (a schema property named
 //! `}); evil(); (({ ` breaks a destructuring parameter list no matter how the string is
 //! quoted). Refusing to construct one at all is the only sound move.
@@ -68,7 +67,7 @@ mod tests {
         assert!(Identifier::validate("1Foo").is_err());
     }
 
-    /// The concrete exploit the design record's skeptic round built: a malicious property
+    /// The concrete exploit: a malicious property
     /// name that breaks out of a destructuring parameter list. No escaping function fixes
     /// this — validation must refuse it outright, which is the entire reason `Identifier`
     /// exists instead of a plain `String`.

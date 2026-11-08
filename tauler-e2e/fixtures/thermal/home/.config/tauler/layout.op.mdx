@@ -11,22 +11,20 @@ fonts:
 ---
 // Thermal — one heat field, cropped per window.
 //
-// The brief's version tints each window's *interior* by the CPU of the process
+// The obvious version tints each window's *interior* by the CPU of the process
 // inside it, over kitty's remote control for terminals and an eww overlay for
 // everything else. Neither half is reachable here, and the reasons are worth
 // more than the feature was:
 //
 //   · i3's `client.*` colours are per *state*, not per window. There is no IPC
-//     command that gives one container its own border colour. The brief's own
-//     heat daemon has a comment admitting this and then falls through to an
-//     overlay window anyway.
+//     command that gives one container its own border colour, so a heat
+//     daemon falls through to an overlay window anyway.
 //   · tauler paints panels, not clients. A panel large enough to cover a window
 //     would hide it: each panel is rasterized into its own opaque buffer, and
 //     with no compositor there is no alpha to see through (see the layout-file
 //     docs on `tauler:root-bg`).
 //
-// So this build does the thing the brief calls the effect it wants most, and
-// reaches it by a route the brief did not consider. The <wallpaper> is one
+// So this build gets the effect by another route. The <wallpaper> is one
 // continuous heat field across the whole screen; the terminals are urxvt with
 // -tr, so each reads _XROOTPMAP_ID and paints its own crop of that field as its
 // background. Adjacent windows line up into a single image, across the 20px
@@ -61,7 +59,7 @@ const RAMP_CSS = `linear-gradient(90deg, ${RAMP.join(", ")})`;
 // last.
 //
 // The blob centres are in per cent, so the field is resolution-independent —
-// the brief's Pillow field would have to be regenerated for a second monitor.
+// a pre-rendered image would have to be regenerated for a second monitor.
 const FIELD = {
   backgroundColor: "#120F1C",
   backgroundImage: [
@@ -177,7 +175,7 @@ function Scale({ scene }) {
 // and nothing about geometry — see the report.
 //
 // It stays one long-lived panel rather than opening and closing on focus: the
-// brief worries about a map/unmap flash without a compositor, and the way not
+// a map/unmap flash without a compositor is a risk, and the way not
 // to find out is not to unmap. When nothing is focused the module reports a
 // zero rect and the panel parks itself off-screen instead of disappearing.
 

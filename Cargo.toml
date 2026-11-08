@@ -31,6 +31,7 @@ exclude = [
     "/.github",
     "/assets",
     "/.cargo",
+    "/AGENTS.md",
     "/CLAUDE.md",
     "/VISION.md",
     "/justfile",

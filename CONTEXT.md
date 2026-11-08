@@ -37,14 +37,17 @@ One connected monitor, named as RandR names it (`DP-2`).
 _Avoid_: screen, display, monitor
 
 **Anchor**:
-The screen edge a surface is pinned to. An anchor *places* a surface; it never reserves
-space for it.
+The screen edge a surface is pinned to. An anchor *places* a surface. On X11 and macOS it
+never reserves space for it. On Wayland the backend also asks the compositor to keep other
+windows clear of an anchored surface (ADR 0001).
 _Avoid_: dock edge, side, alignment
 
 **Reservation**:
-Space the window manager keeps clear of tiled windows. Always stated as a decision, never
-derived from a surface's geometry.
-_Avoid_: strut, exclusive zone (both are display-server mechanisms, not this concept)
+Space the window manager keeps clear of tiled windows. On X11 and macOS it is always
+stated as a decision, never derived from a surface's geometry. On Wayland the backend
+derives it from an anchored surface's size and hands it to the compositor.
+_Avoid_: strut, exclusive zone (both are display-server mechanisms for expressing this
+concept, not the concept itself)
 
 **Gaps**:
 The four per-edge distances that express a reservation to i3. The unit is the logical

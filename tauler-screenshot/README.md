@@ -1,55 +1,15 @@
 # tauler-screenshot
 
 Renders a [tauler](https://crates.io/crates/tauler) JSX layout to a vector SVG, using the
-same evaluation, theming and layout pipeline as the bar itself.
-
-Because it shares the pipeline rather than reimplementing it, the output is what the bar
-would actually draw — which makes it useful for documentation screenshots, visual
-regression tests, and iterating on a layout without restarting the bar.
-
-## Install
+same evaluation, theming and layout pipeline as the bar itself. Use it for documentation
+screenshots, visual regression tests, and iterating on a layout without restarting the bar.
+It is also a library: `tauler_screenshot::render` is the same pipeline as one function call.
 
 ```sh
 cargo install tauler-screenshot
 ```
 
-## Use
-
-```sh
-tauler-screenshot --input card.jsx --output card.svg --theme dark --width 400
-```
-
-| flag | default | meaning |
-|---|---|---|
-| `--input` | required | path to the JSX source |
-| `--output` | required | path to write the SVG to |
-| `--theme` | `dark` | `dark` or `light` |
-| `--width` | `400` | render width in CSS pixels, including the 16 px margins |
-| `--font-path` | — | TTF/OTF file to use as the primary sans-serif font |
-
-The layout is rendered onto a padded canvas whose height follows the content, so the
-document is sized to the component plus a 16 px margin rather than to a fixed canvas.
-Text comes out as glyph-outline paths, so the SVG looks the same everywhere regardless
-of which fonts a viewer has installed.
-
-Streams are not run: `useStringStream` and `useJSONStream` resolve to empty values, so a
-layout that reads live data renders in its empty state. Pass data as props instead when
-you want a populated screenshot.
-
-## Use as a library
-
-The same pipeline is one function call:
-
-```rust
-let shot = tauler_screenshot::render(
-    r#"export default () => <span class="text-foreground">Hello, world</span>;"#,
-    &tauler_screenshot::Options::default(),
-)?;
-std::fs::write("hello.svg", &shot.svg)?;
-```
-
-`Options` carries the theme, width and font path the flags above set; `Screenshot` also
-exposes the Tailwind class harvest (`classes`) and the painted boxes (`geometry()`).
+Documentation: <https://kantord.github.io/tauler/docs/develop/screenshots/>
 
 ## License
 

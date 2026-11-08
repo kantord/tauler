@@ -41,9 +41,9 @@ a page renders nothing where they were, rather than failing.
 Each panel `<Workspaces>` emits re-renders the *whole* wrapper subtree inside an
 `overflow-hidden` box, shifted by a `translate` — `ScrollArea`'s existing
 `content_translate` trick (`tauler-core/src/ui/components/scroll_area.rs`) — rather than
-`position: absolute`. `docs/takumi-absolute-sibling-bug-research.md` documents an
-unresolved takumi bug where two-or-more `position: absolute` siblings under one parent
-blank the whole subtree; `translate` on a single normal-flow child was already proven in
+`position: absolute`. takumi (1.8.7) has an unresolved bug where two or more
+`position: absolute` siblings under one parent blank the whole subtree, and no upstream
+issue matched it when it was investigated in July 2026; `translate` on a single normal-flow child was already proven in
 production and sidesteps that bug family entirely.
 
 This also means these panels are not binary crops of one pre-rendered buffer, the way

@@ -1,9 +1,8 @@
 #!/bin/sh
 # Set the kitty window's own background plate, and time it.
 #
-# This is the brief's §3 question 1 and its open question 05, asked directly:
-# can `kitty @ set-background-image` address a specific OS-window, how fast is
-# the swap, and does it flash? Both numbers go to /out so they survive the
+# The question asked directly: can `kitty @ set-background-image` address a
+# specific OS-window, how fast is the swap, and does it flash? Both numbers go to /out so they survive the
 # container.
 #
 # `--to` rather than $KITTY_LISTEN_ON: this runs from the session script, not
@@ -69,8 +68,8 @@ ready_end=$(date +%s%N)
 log "kitty remote control ready after $(( (ready_end - ready_start) / 1000000 ))ms of polling"
 
 # The first "id" in the reply is the OS-window's. Addressing it explicitly, and
-# not `--all`, is the part of the question worth answering: the brief asks
-# whether a *specific* OS-window can be named.
+# not `--all`, is the part of the question worth answering: whether a *specific*
+# OS-window can be named.
 OSWIN=$(printf '%s' "$WINDOWS" | sed -n 's/.*"id": *\([0-9][0-9]*\).*/\1/p' | head -1)
 [ -n "$OSWIN" ] || { echo "e2e: could not read an OS-window id from kitty ls" >&2; exit 1; }
 
