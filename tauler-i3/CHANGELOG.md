@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.0](https://github.com/kantord/tauler/compare/tauler-i3-v0.10.1...tauler-i3-v0.11.0) - 2026-11-08
+
+### Fixed
+
+- log to stderr in tauler-i3 and tauler-aerospace ([#778](https://github.com/kantord/tauler/pull/778))
+
+### Other
+
+- improve docs accuracy ([#771](https://github.com/kantord/tauler/pull/771))
+
 ## [0.10.1](https://github.com/kantord/tauler/compare/tauler-i3-v0.10.0...tauler-i3-v0.10.1) - 2026-11-07
 
 ### Other

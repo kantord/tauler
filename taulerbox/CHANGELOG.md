@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.0](https://github.com/kantord/tauler/compare/taulerbox-v0.10.1...taulerbox-v0.11.0) - 2026-11-08
+
+### Fixed
+
+- remove dead outer_gap setting ([#774](https://github.com/kantord/tauler/pull/774))
+
+### Other
+
+- improve docs accuracy ([#771](https://github.com/kantord/tauler/pull/771))
+
 ## [0.10.1](https://github.com/kantord/tauler/compare/taulerbox-v0.10.0...taulerbox-v0.10.1) - 2026-11-06
 
 ### Other
