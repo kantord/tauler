@@ -20,3 +20,7 @@ return when the full scroll-story page needs them, translated the same way.
 
 The Playwright visual baselines pin the translation: they were generated from
 the hand-written CSS and passed unchanged against the Tailwind rebuild.
+
+## Superseded
+
+The token layout is now ADR [0049](0049-the-site-is-built-on-an-oklch-base-palette-with-shadcn-slots-as-aliases.md): the tokens live in `src/app/global.css` as OKLCH base colours, not in a `@theme` block of renamed Tailwind namespaces.

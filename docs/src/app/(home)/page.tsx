@@ -31,9 +31,9 @@ const UNSPLASH_UTM = '?utm_source=tauler&utm_medium=referral'
  */
 function Credit() {
   const link =
-    'text-inherit underline decoration-current/40 decoration-1 underline-offset-2 hover:text-(--tu-ink) hover:decoration-current'
+    'text-inherit underline decoration-current/40 decoration-1 underline-offset-2 hover:text-ink hover:decoration-current'
   return (
-    <p className="mt-auto max-w-[44rem] self-end rounded-sm bg-(--tu-page)/75 px-2 py-1 text-right text-[11px] leading-snug text-(--tu-muted) backdrop-blur-[2px]">
+    <p className="mt-auto max-w-[44rem] self-end rounded-sm bg-page/75 px-2 py-1 text-right text-[11px] leading-snug text-ink-muted backdrop-blur-[2px]">
       Room inspired by a{' '}
       <a
         href={`https://unsplash.com/photos/a-white-room-with-yellow-chairs-and-a-table-k_CZ0eldzvM${UNSPLASH_UTM}`}

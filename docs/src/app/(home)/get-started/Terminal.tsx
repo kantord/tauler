@@ -7,11 +7,11 @@ export function Terminal() {
   const command = '[INSTALL COMMAND]'
   const [copied, setCopied] = useState(false)
   return (
-    <div className="win border-(--tu-rule)">
+    <div className="win border-rule">
       <div className="wbar">terminal</div>
-      <div className="m flex flex-wrap items-center gap-3 bg-(--tu-code) py-3.5 pr-3.5 pl-[18px] text-(--tu-codeink)">
+      <div className="m bg-code text-code-ink flex flex-wrap items-center gap-3 py-3.5 pr-3.5 pl-[18px]">
         <code className="flex-[1_1_220px] text-[15px]">
-          <span className="text-(--tu-or)">$</span> {command}
+          <span className="text-orange-ink">$</span> {command}
         </code>
         <Button
           variant="outline-primary"

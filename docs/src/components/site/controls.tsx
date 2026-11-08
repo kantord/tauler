@@ -15,8 +15,8 @@ export function SearchButton() {
       onClick={() => setOpenSearch(true)}
       className="bg-card px-3 font-normal"
     >
-      <span className="text-(--tu-muted)">search</span>
-      <span className="hidden w-[180px] text-left tracking-normal text-(--tu-muted) normal-case sm:inline">
+      <span className="text-ink-muted">search</span>
+      <span className="hidden w-[180px] text-left tracking-normal text-ink-muted normal-case sm:inline">
         layouts, units, data…
       </span>
     </Button>

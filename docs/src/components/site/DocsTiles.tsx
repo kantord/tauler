@@ -54,7 +54,7 @@ export function DocsTiles({
     <div className="mx-auto w-full max-w-[1320px] px-6 pt-7 pb-16">
       <nav
         aria-label="Breadcrumb"
-        className="m mb-3.5 flex items-center gap-3 text-[12px] tracking-[.1em] text-(--tu-muted) uppercase"
+        className="m mb-3.5 flex items-center gap-3 text-[12px] tracking-[.1em] text-ink-muted uppercase"
       >
         <Link href="/docs/" className="font-semibold no-underline">
           docs

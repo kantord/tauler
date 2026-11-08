@@ -50,14 +50,12 @@ function Principle({
       <div className="tb">
         <div
           aria-hidden="true"
-          className={`h text-[88px] ${n === '1' ? 'text-(--tu-or)' : ''} ${n === '3' ? 'outline-num' : ''}`}
+          className={`h text-[88px] ${n === '1' ? 'text-orange' : ''} ${n === '3' ? 'outline-num' : ''}`}
         >
           {n}
         </div>
         <h2 className="h m-0 text-[26px]">{heading}</h2>
-        <p className="m-0 text-base leading-[1.6] text-(--tu-muted)">
-          {children}
-        </p>
+        <p className="m-0 text-base leading-[1.6] text-ink-muted">{children}</p>
       </div>
     </Window>
   )

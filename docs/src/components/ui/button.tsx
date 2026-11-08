@@ -5,7 +5,7 @@ import { cn } from 'cn'
 // shadcn's base-lyra Button (`shadcn add button`), restyled to the site's
 // controls: a 1.5px rule, square corners, 12px uppercase mono with wide
 // tracking. Colours come from the shadcn slots in global.css, which point at
-// the --tu-* tokens. A link that looks like a button takes `buttonVariants()`
+// the design-system tokens in global.css. A link that looks like a button takes `buttonVariants()`
 // as its className: Base UI's Button forces button semantics on whatever it
 // renders, so it must not render an <a>.
 const variants = cva(
@@ -15,11 +15,11 @@ const variants = cva(
       variant: {
         default: 'border-input bg-primary text-primary-foreground',
         outline:
-          'border-input bg-transparent text-foreground hover:text-primary',
+          'border-input bg-transparent text-foreground hover:text-orange-ink',
         'outline-primary':
-          'border-primary bg-transparent text-primary hover:bg-primary hover:text-primary-foreground',
+          'border-primary bg-transparent text-orange-ink hover:bg-primary hover:text-primary-foreground',
         // Navigation: the current page (aria-current="page") is lit.
-        nav: 'border-input bg-card text-foreground not-aria-[current=page]:hover:text-primary aria-[current=page]:border-primary aria-[current=page]:bg-primary aria-[current=page]:text-primary-foreground',
+        nav: 'border-input bg-card text-foreground not-aria-[current=page]:hover:text-orange-ink aria-[current=page]:border-primary aria-[current=page]:bg-primary aria-[current=page]:text-primary-foreground',
       },
       size: {
         default: 'min-h-10 px-3.5',
@@ -29,7 +29,7 @@ const variants = cva(
         inline:
           'border-0 bg-transparent p-0 font-normal aria-[current=page]:px-2.5 aria-[current=page]:py-1 aria-[current=page]:font-semibold',
         // A square key, like a workspace number in a bar.
-        icon: 'size-10 font-ws text-[18px] font-bold tracking-normal',
+        icon: 'size-10 font-mono text-[16px] font-bold tracking-normal',
       },
     },
     defaultVariants: {
