@@ -74,14 +74,29 @@ impl std::fmt::Display for WatchedPath {
 /// it survives every replacement of the files inside — the same trick
 /// `setup_file_watchers` in `main.rs` already uses for the top-level layout
 /// files, extended here to cover imports and the theme file too.
-fn watch_parent_dir(path: &std::path::Path, ctx: &mut WatchCtx) -> Result<(), notify::Error> {
+///
+/// The directory is canonicalized before watching and the recorded path is
+/// rebuilt from it. FSEvents (macOS) reports real paths, so a path under a
+/// symlinked ancestor (`/var` -> `/private/var`, a dotfiles-linked config dir)
+/// would never equal a reported one. Only the directory is canonicalized, since
+/// `path` itself may not exist yet. Returns the recorded path; `exit` must
+/// remove that exact entry.
+fn watch_parent_dir(
+    path: &std::path::Path,
+    ctx: &mut WatchCtx,
+) -> Result<std::path::PathBuf, notify::Error> {
     let dir = path.parent().unwrap_or(path);
+    let canonical_dir = dir.canonicalize().unwrap_or_else(|_| dir.to_path_buf());
     ctx.watcher
         .lock()
         .unwrap()
-        .watch(dir, notify::RecursiveMode::NonRecursive)?;
-    ctx.interesting.lock().unwrap().insert(path.to_path_buf());
-    Ok(())
+        .watch(&canonical_dir, notify::RecursiveMode::NonRecursive)?;
+    let recorded = match path.file_name() {
+        Some(name) => canonical_dir.join(name),
+        None => canonical_dir,
+    };
+    ctx.interesting.lock().unwrap().insert(recorded.clone());
+    Ok(recorded)
 }
 
 impl Lifecycle for WatchedPath {
@@ -100,8 +115,7 @@ impl Lifecycle for WatchedPath {
     }
 
     fn enter(self, ctx: &mut WatchCtx, _: &mut ()) -> Result<std::path::PathBuf, notify::Error> {
-        watch_parent_dir(&self.0, ctx)?;
-        Ok(self.0)
+        watch_parent_dir(&self.0, ctx)
     }
 
     fn reconcile_self(
@@ -2654,5 +2668,51 @@ mod tests {
                 i + 1
             );
         }
+    }
+
+    /// Claim: a path reached through a symlinked ancestor is recorded under its
+    /// canonical form, and `exit` removes exactly that entry. FSEvents (macOS)
+    /// reports canonical paths, so an entry recorded in symlink form would never
+    /// match a reported event and hot reload would silently never fire. inotify
+    /// reports the watched form, so this checks the recorded state, which is
+    /// observable on every platform.
+    #[test]
+    fn watched_path_records_the_canonical_path_and_exit_removes_it() {
+        use super::{WatchCtx, WatchedPath};
+        use tauler::managed_set::Lifecycle;
+
+        let root = tempfile::Builder::new()
+            .prefix("watched-path-canon-")
+            .tempdir_in(concat!(env!("CARGO_MANIFEST_DIR"), "/target"))
+            .expect("tempdir");
+        let real_dir = root.path().canonicalize().unwrap().join("real");
+        std::fs::create_dir(&real_dir).unwrap();
+        let link_dir = root.path().join("link");
+        std::os::unix::fs::symlink(&real_dir, &link_dir).unwrap();
+        std::fs::write(real_dir.join("component.jsx"), "x").unwrap();
+
+        let watcher = notify::recommended_watcher(|_: notify::Result<notify::Event>| {})
+            .expect("build watcher");
+        let interesting: super::InterestingPaths = Default::default();
+        let mut ctx = WatchCtx {
+            watcher: std::sync::Arc::new(std::sync::Mutex::new(watcher)),
+            interesting: interesting.clone(),
+        };
+
+        let state = WatchedPath(link_dir.join("component.jsx"))
+            .enter(&mut ctx, &mut ())
+            .expect("enter must register the watch");
+        let canonical = real_dir.join("component.jsx");
+        assert_eq!(state, canonical, "state must be the canonical path");
+        assert!(
+            interesting.lock().unwrap().contains(&canonical),
+            "enter must record the canonical path"
+        );
+
+        WatchedPath::exit(state, &mut ctx, &mut ()).unwrap();
+        assert!(
+            interesting.lock().unwrap().is_empty(),
+            "exit must remove exactly what enter recorded, leaking nothing"
+        );
     }
 }
