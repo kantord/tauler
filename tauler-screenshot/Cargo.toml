@@ -33,3 +33,6 @@ path = "src/main.rs"
 tauler = { path = "..", version = "0.11.0" }
 clap = { version = "=4.6.7", features = ["derive"] }
 serde_json = "=1.0.154"
+
+[dev-dependencies]
+tempfile = "=3.27.0"

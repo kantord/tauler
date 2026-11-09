@@ -130,7 +130,9 @@ impl Screenshot {
     }
 }
 
-/// Render `jsx_source` — a module whose default export returns the layout.
+/// Render `jsx_source` — a module whose default export returns the layout, or a whole
+/// `layout.op.mdx`: a leading YAML frontmatter block is split off as the bar splits it, and
+/// the `theme.file` or `theme.name` it names is the theme unless `options.palette` is set.
 pub fn render(jsx_source: &str, options: &Options) -> Result<Screenshot, Error> {
     let font_config = tauler::config::FontConfig {
         primary_path: options
@@ -148,10 +150,21 @@ pub fn render(jsx_source: &str, options: &Options) -> Result<Screenshot, Error> 
     tauler::init_global_ctx(font_config.clone());
     tauler::reload_font_config(font_config);
 
-    let theme = options
-        .palette
-        .clone()
-        .unwrap_or_else(|| tauler::theme::builtin::default_for(options.theme));
+    let loaded = tauler::layout_source::parse_source(jsx_source).map_err(|e| match e {
+        tauler::layout_source::SourceError::UnterminatedFrontmatter => {
+            Error("frontmatter opened with `---` but never closed".to_string())
+        }
+        tauler::layout_source::SourceError::Config(e) => Error(format!("frontmatter: {e}")),
+    })?;
+    let jsx_source = loaded.js_source.as_str();
+
+    // An explicit palette wins over the frontmatter's theme, which wins over the default.
+    // `theme.mode` is not read: the mode is `options.theme`, and a theme carries its own.
+    let theme = match &options.palette {
+        Some(palette) => palette.clone(),
+        None => frontmatter_theme(&loaded.config.theme)?
+            .unwrap_or_else(|| tauler::theme::builtin::default_for(options.theme)),
+    };
 
     // `ctx.theme` is the theme the classes below are resolved against, so `themeColor` and
     // `bg-primary` paint the same palette.
@@ -194,6 +207,32 @@ pub fn render(jsx_source: &str, options: &Options) -> Result<Screenshot, Error> 
         canvas,
         width: options.width,
     })
+}
+
+/// The theme the frontmatter's `theme.file` or `theme.name` names, if either.
+fn frontmatter_theme(
+    config: &tauler::config::ThemeConfig,
+) -> Result<Option<tauler::theme::Theme>, Error> {
+    match (&config.file, &config.name) {
+        (Some(_), Some(_)) => Err(Error(
+            "frontmatter: theme.name and theme.file are both set; use one".to_string(),
+        )),
+        (None, Some(name)) => tauler::theme::builtin::by_name(name)
+            .map(Some)
+            .map_err(|e| Error(format!("frontmatter: {e}"))),
+        (Some(file), None) => {
+            let path = tauler::config::expand_tilde(file);
+            let theme_err =
+                |e: &dyn fmt::Display| Error(format!("theme file {}: {e}", path.display()));
+            let yaml = std::fs::read_to_string(&path).map_err(|e| theme_err(&e))?;
+            tauler::theme::Theme::from_yaml(&yaml)
+                .map_err(|e| theme_err(&e))?
+                .validated()
+                .map(Some)
+                .map_err(|e| theme_err(&e))
+        }
+        (None, None) => Ok(None),
+    }
 }
 
 /// Every `class` string in the tree, split into individual utilities.
@@ -245,5 +284,92 @@ mod tests {
     #[test]
     fn a_source_that_does_not_evaluate_is_an_error_not_a_panic() {
         assert!(render("export default squiggle(", &Options::default()).is_err());
+    }
+
+    /// A complete theme file whose `foreground` is a colour no other theme uses.
+    fn write_theme(dir: &std::path::Path, name: &str, foreground: &str) -> std::path::PathBuf {
+        let base = tauler::theme::builtin::default_for(ThemeMode::Dark);
+        let mut yaml = String::from("name: probe\nmode: dark\ncolors:\n");
+        for (token, value) in &base.colors {
+            let value = if token == "foreground" {
+                foreground
+            } else {
+                value
+            };
+            yaml.push_str(&format!("  {token}: \"{value}\"\n"));
+        }
+        let path = dir.join(name);
+        std::fs::write(&path, yaml).expect("write theme");
+        path
+    }
+
+    const THEMED: &str = "export default () => <span class=\"text-foreground\">Hi</span>;\n";
+
+    /// A whole `layout.op.mdx`: the frontmatter never reaches the JS engine, and the
+    /// theme file it names paints the render.
+    #[test]
+    fn frontmatter_is_split_off_and_its_theme_file_is_honoured() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let theme = write_theme(dir.path(), "theme.yaml", "#12ab34");
+        let source = format!("---\ntheme:\n  file: {}\n---\n{THEMED}", theme.display());
+        let shot = render(&source, &Options::default()).expect("renders");
+        assert!(
+            shot.classes.iter().any(|c| c.contains("12ab34")),
+            "{:?}",
+            shot.classes
+        );
+    }
+
+    #[test]
+    fn a_palette_option_wins_over_the_frontmatter_theme() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let theme = write_theme(dir.path(), "theme.yaml", "#12ab34");
+        let source = format!("---\ntheme:\n  file: {}\n---\n{THEMED}", theme.display());
+        let shot = render(
+            &source,
+            &Options {
+                palette: Some(tauler::theme::builtin::default_for(ThemeMode::Light)),
+                ..Options::default()
+            },
+        )
+        .expect("renders");
+        assert!(!shot.classes.iter().any(|c| c.contains("12ab34")));
+    }
+
+    #[test]
+    fn plain_jsx_renders_with_the_default_theme() {
+        let shot = render(THEMED, &Options::default()).expect("renders");
+        assert!(shot.svg.starts_with("<svg"));
+        assert!(!shot.classes.iter().any(|c| c.contains("12ab34")));
+    }
+
+    #[test]
+    fn unterminated_frontmatter_is_a_clear_error() {
+        let err = render("---\ntheme: {}\n", &Options::default())
+            .err()
+            .expect("fails");
+        assert!(err.to_string().contains("never closed"), "{err}");
+    }
+
+    #[test]
+    fn invalid_frontmatter_yaml_is_a_clear_error() {
+        let err = render(
+            "---\ntheme: [x\n---\nexport default 1;\n",
+            &Options::default(),
+        )
+        .err()
+        .expect("fails");
+        assert!(err.to_string().contains("frontmatter"), "{err}");
+    }
+
+    #[test]
+    fn a_missing_theme_file_is_a_clear_error() {
+        let err = render(
+            "---\ntheme:\n  file: /nonexistent/theme.yaml\n---\nexport default 1;\n",
+            &Options::default(),
+        )
+        .err()
+        .expect("fails");
+        assert!(err.to_string().contains("/nonexistent/theme.yaml"), "{err}");
     }
 }

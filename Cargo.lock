@@ -6434,6 +6434,7 @@ dependencies = [
  "clap",
  "serde_json",
  "tauler",
+ "tempfile",
 ]
 
 [[package]]
