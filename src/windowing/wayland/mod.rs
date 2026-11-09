@@ -32,8 +32,10 @@ use wayland_protocols::wp::viewporter::client::{
 
 use super::{DispatchError, DisplayServer, WindowEvent};
 use crate::display_manager::DisplayManager;
-use crate::layout::{PanelAnchor, SurfaceSpec};
+use crate::layout::{OutputInfo, PanelAnchor, SurfaceSpec};
 use crate::presentation::SurfaceFrame;
+
+mod outputs;
 
 // ---------------------------------------------------------------------------
 // Public error type
@@ -180,6 +182,13 @@ pub(crate) struct WaylandState {
 // Public struct
 // ---------------------------------------------------------------------------
 
+/// Everything `PresenterEvent::OutputsChanged` carries.
+pub struct OutputReport {
+    pub outputs: Vec<OutputInfo>,
+    pub primary_name: String,
+    pub context_dpr: f32,
+}
+
 pub struct WaylandDisplayServer {
     conn: Arc<Connection>,
     event_queue: EventQueue<WaylandState>,
@@ -308,39 +317,71 @@ impl WaylandDisplayServer {
         Ok(server)
     }
 
-    /// Returns the logical size of the first known output, falling back to the
-    /// current physical mode if xdg-output logical size is unavailable.
-    pub fn primary_output_size(&self) -> Option<(u32, u32)> {
-        let output = self.state.output_state.outputs().next()?;
-        let info = self.state.output_state.info(&output)?;
-        if let Some((w, h)) = info.logical_size {
-            if w > 0 && h > 0 {
-                return Some((w as u32, h as u32));
-            }
-        }
-        info.modes
-            .iter()
-            .find(|m| m.current)
-            .map(|m| (m.dimensions.0 as u32, m.dimensions.1 as u32))
+    /// Every output the compositor has told us about, paired with its
+    /// `wl_output`, in no particular order.
+    fn output_entries(&self) -> Vec<(OutputInfo, wl_output::WlOutput)> {
+        self.state
+            .output_state
+            .outputs()
+            .filter_map(|wl_output| {
+                let info = self.state.output_state.info(&wl_output)?;
+                let snapshot = outputs::OutputSnapshot {
+                    name: info.name,
+                    id: info.id,
+                    logical_position: info.logical_position,
+                    logical_size: info.logical_size,
+                    current_mode: info.modes.iter().find(|m| m.current).map(|m| m.dimensions),
+                    scale_factor: info.scale_factor,
+                };
+                Some((outputs::output_info(&snapshot)?, wl_output))
+            })
+            .collect()
     }
 
-    /// Returns the device pixel ratio of the primary output.
-    /// Uses physical/logical width ratio if logical size is available, otherwise falls back to scale_factor.
+    /// All outputs, which of them is primary, and the dpr layout math should
+    /// use. `None` until the compositor has described at least one output.
+    pub fn output_report(&self) -> Option<OutputReport> {
+        let entries = self.output_entries();
+        let primary = outputs::primary_index(&entries)?;
+        let primary_name = entries[primary].0.name.clone();
+        let context_dpr = entries[primary].0.dpr;
+        Some(OutputReport {
+            outputs: entries.into_iter().map(|(info, _)| info).collect(),
+            primary_name,
+            context_dpr,
+        })
+    }
+
+    /// The logical size of the primary output.
+    pub fn primary_output_size(&self) -> Option<(u32, u32)> {
+        let entries = self.output_entries();
+        let info = &entries[outputs::primary_index(&entries)?].0;
+        Some((
+            (info.width as f32 / info.dpr).round() as u32,
+            (info.height as f32 / info.dpr).round() as u32,
+        ))
+    }
+
+    /// The device pixel ratio of the primary output; 1.0 before any is known.
     pub fn primary_output_scale(&self) -> f32 {
-        let Some(output) = self.state.output_state.outputs().next() else {
-            return 1.0;
-        };
-        let Some(info) = self.state.output_state.info(&output) else {
-            return 1.0;
-        };
-        let physical_w = info
-            .modes
-            .iter()
-            .find(|m| m.current)
-            .map(|m| m.dimensions.0 as u32)
-            .unwrap_or(0);
-        let logical_w = info.logical_size.map(|(w, _)| w as u32).unwrap_or(0);
-        compute_output_scale(logical_w, physical_w, info.scale_factor)
+        let entries = self.output_entries();
+        outputs::primary_index(&entries).map_or(1.0, |i| entries[i].0.dpr)
+    }
+
+    /// The output a surface asked for, with its dpr. `None` (no outputs known
+    /// yet) leaves the choice to the compositor, as every surface did before
+    /// outputs were routed.
+    fn target_output(&self, wanted: Option<&str>) -> Option<(wl_output::WlOutput, f32)> {
+        let entries = self.output_entries();
+        let picked = outputs::select_output(&entries, wanted)?;
+        if picked.fell_back {
+            tracing::warn!(
+                output = wanted.unwrap_or_default(),
+                "no such output; placing the surface on the primary output"
+            );
+        }
+        let (info, wl_output) = entries.into_iter().nth(picked.index)?;
+        Some((wl_output, info.dpr))
     }
 
     /// Create a Wayland layer-shell panel for the given spec.
@@ -357,12 +398,13 @@ impl WaylandDisplayServer {
             Layer::Bottom
         };
 
+        let target = self.target_output(data.output.as_deref());
         let layer_surface = self.state.layer_shell.create_layer_surface(
             &qh,
             wl_surface,
             layer,
             Some("tauler"),
-            None,
+            target.as_ref().map(|(output, _)| output),
         );
 
         // For panels that span the full perpendicular axis (composite anchor), set the spanned
@@ -397,7 +439,7 @@ impl WaylandDisplayServer {
             .flush()
             .map_err(|e| anyhow::anyhow!("flush after create_panel: {e}"))?;
 
-        let dpr = self.primary_output_scale();
+        let dpr = target.map_or(1.0, |(_, dpr)| dpr);
 
         Ok(WaylandPanel {
             layer_surface,
@@ -416,8 +458,7 @@ impl WaylandDisplayServer {
     ///
     /// Anchored to all four edges with size 0x0, so the compositor sizes it to
     /// the output; exclusive zone -1 so it never makes room for, or moves out of
-    /// the way of, any other surface. Like panels it lands on the compositor's
-    /// choice of output: the backend does not yet route a spec's `output`.
+    /// the way of, any other surface. It lands on the spec's `output`.
     fn create_wallpaper_surface(
         &mut self,
         spec: &SurfaceSpec,
@@ -430,12 +471,13 @@ impl WaylandDisplayServer {
             .viewporter
             .as_ref()
             .map(|v| v.get_viewport(&wl_surface, &qh, ()));
+        let target = self.target_output(spec.output.as_deref());
         let layer_surface = self.state.layer_shell.create_layer_surface(
             &qh,
             wl_surface,
             Layer::Background,
             Some("tauler-wallpaper"),
-            None,
+            target.as_ref().map(|(output, _)| output),
         );
         layer_surface.set_size(0, 0);
         layer_surface.set_anchor(Anchor::TOP | Anchor::BOTTOM | Anchor::LEFT | Anchor::RIGHT);
@@ -706,7 +748,11 @@ impl OutputHandler for WaylandState {
 }
 
 impl LayerShellHandler for WaylandState {
-    fn closed(&mut self, _conn: &Connection, _qh: &QueueHandle<Self>, _layer: &LayerSurface) {}
+    fn closed(&mut self, _conn: &Connection, _qh: &QueueHandle<Self>, _layer: &LayerSurface) {
+        // Usually its output went away. Nothing here reacts to it, so say so
+        // rather than leave a surface that is silently gone.
+        tracing::warn!("the compositor closed a layer surface");
+    }
 
     fn configure(
         &mut self,

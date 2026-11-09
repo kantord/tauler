@@ -1,0 +1,23 @@
+// Scenario: two outputs, each with its own wallpaper, and a panel on the second only.
+//
+// Sway only (the `sway-only` marker keeps it out of CI's one-shot-per-fixture
+// count for i3): it needs two outputs, and Xvfb has one. The harness asks the
+// Sway entrypoint for them with OUTPUTS=2, which names them HEADLESS-1 and
+// HEADLESS-2, the second to the right of the first. The expected colours live in
+// tauler-e2e/tests/scenarios.rs, written out by hand.
+
+export default function render() {
+  return (
+    <root>
+      <wallpaper id="left" output="HEADLESS-1">
+        <div style={{ width: "100%", height: "100%", backgroundColor: "#cc3366" }} />
+      </wallpaper>
+      <wallpaper id="right" output="HEADLESS-2">
+        <div style={{ width: "100%", height: "100%", backgroundColor: "#3366cc" }} />
+      </wallpaper>
+      <panel id="rail" output="HEADLESS-2" anchor="left" width={272} height={1080}>
+        <div style={{ width: "100%", height: "100%", backgroundColor: "#1e1e2e" }} />
+      </panel>
+    </root>
+  );
+}

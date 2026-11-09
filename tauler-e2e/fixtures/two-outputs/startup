@@ -1,0 +1,3 @@
+#!/bin/sh
+# Nothing to start: no clients, only tauler's surfaces.
+exit 0

@@ -68,19 +68,22 @@ tile underneath, pushes windows aside on Wayland.
 output, and a `top` or `bottom` panel spans the full width. The compositor decides that
 length, so the length set in the layout does not apply.
 
-**The compositor chooses the output.** Tauler does not pass a panel's `output` prop to the
-compositor, so the compositor decides which output shows each panel.
+**`output` picks the output.** Give the name the compositor uses for it, such as `DP-1`
+(`swaymsg -t get_outputs` lists them on Sway). Omit it for the primary output, which on
+Wayland is the leftmost output, or the topmost of several at the same position. A name that
+matches no output puts the surface on the primary output and logs a warning.
 
-**Tauler measures the first output.** `ctx.screen_width`, `ctx.screen_height` and the scale
-come from the first output the compositor reports, whichever output shows the panel.
+**Tauler measures the primary output.** `ctx.screen_width`, `ctx.screen_height` and the
+implicit scale come from the primary output, whichever output shows the panel. A panel with
+an `output` of its own uses that output's scale.
 
 **Scale comes from the compositor.** Tauler divides the output's physical width by its
 logical width. If the compositor gives no logical size, it uses the output's integer scale.
 `Xft.dpi` plays no part.
 
 **`<wallpaper>` is a background-layer surface.** It covers the whole output and never makes
-room for, or moves out of the way of, other surfaces. Like a panel, it appears on the
-compositor's choice of output: the `output` prop is not routed yet. A fractional output
+room for, or moves out of the way of, other surfaces. It appears on the output its `output`
+prop names, so with several outputs give each one its own `<wallpaper>`. A fractional output
 scale is exact when the compositor implements `wp_viewporter` (Sway, Hyprland and river
 do). Without it, the wallpaper's pixel scale is rounded to a whole number.
 
