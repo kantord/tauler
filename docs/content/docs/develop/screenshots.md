@@ -33,9 +33,28 @@ export default () => (
 
 The tool prints `wrote card.svg (<n> bytes)` to stderr when it finishes.
 
-The input is plain JSX. A layout file with frontmatter, such as `layout.op.mdx`, is not
-accepted: it fails with `evaluating the layout`. Move the part you want to render into a
-plain `.jsx` file.
+### Render a layout.op.mdx
+
+`--input` also accepts a `layout.op.mdx`. The tool splits off the YAML frontmatter the way
+the bar does and evaluates the JavaScript after it:
+
+```sh
+tauler-screenshot --input ~/.config/tauler/layout.op.mdx --output bar.svg
+```
+
+Only the `theme` part of the frontmatter affects the render:
+
+- `theme.file` and `theme.name` choose the theme. A leading `~/` in `theme.file` is
+  expanded. Setting both is an error.
+- `theme.mode` is ignored. A frontmatter theme renders in the mode the theme carries. With
+  no `theme.file` or `theme.name`, `--theme` picks the default theme, as for plain JSX.
+- `--theme-file` and `--theme-name` take precedence over the frontmatter theme. `--theme`
+  does not override it.
+
+An unterminated frontmatter block, frontmatter that is not valid configuration YAML, and a
+theme file that is missing or incomplete each stop the tool with a message that names the
+problem. The rest of the frontmatter has no effect
+on the picture.
 
 ## Know what the output is
 
@@ -54,7 +73,7 @@ plain `.jsx` file.
 
 | Flag                  | Default           | Meaning                                                                                  |
 | --------------------- | ----------------- | ---------------------------------------------------------------------------------------- |
-| `--input`             | none              | Path to the JSX source. Required unless `--swatch` is given.                             |
+| `--input`             | none              | Path to the JSX source or `layout.op.mdx`. Required unless `--swatch` is given.          |
 | `--output`            | none, required    | Path to write the SVG to.                                                                |
 | `--theme`             | `dark`            | `dark` or `light`. Selects the default theme of that mode.                               |
 | `--theme-name`        | the default theme | A [built-in theme](/docs/themes/) by name, such as `tokyonight-night`.                   |
@@ -123,8 +142,10 @@ std::fs::write("hello.svg", &shot.svg)?;
 `Options` has one field for each rendering flag above: `theme` (a `ThemeMode`), `width`,
 `font_path`, `symbol_font_path`, `files_only` and `palette` (a theme, the counterpart of
 `--theme-name` and `--theme-file`). `Options::default()` is the dark theme at width 400
-with fonts from the machine. `render` returns an `Error` when the source does not parse or
-evaluate.
+with fonts from the machine. `render` accepts a whole `layout.op.mdx` as well as plain JSX,
+with the frontmatter rules above. It returns an `Error` when the frontmatter, a theme file
+or the source does not parse or evaluate. A `palette` in `Options` takes precedence over the
+frontmatter theme.
 
 The returned `Screenshot` holds:
 

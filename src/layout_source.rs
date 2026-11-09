@@ -167,6 +167,36 @@ fn split_frontmatter(source: &str) -> FrontmatterSplit<'_> {
     }
 }
 
+/// Why the text of a `layout.op.mdx` could not be split into config and body.
+#[derive(Debug)]
+pub enum SourceError {
+    /// Opened with `---` but never closed.
+    UnterminatedFrontmatter,
+    /// The frontmatter is not valid config YAML.
+    Config(serde_yaml::Error),
+}
+
+/// The text of a `layout.op.mdx`, split into its config and its JS body: the same split
+/// [`load`] makes for the bar, offered on a string so a tool that already holds the file's
+/// contents (tauler-screenshot) evaluates exactly the body tauler would, instead of handing
+/// the frontmatter fence to the JS engine.
+pub fn parse_source(raw: &str) -> Result<LoadedLayout, SourceError> {
+    match split_frontmatter(raw) {
+        FrontmatterSplit::NoFrontmatter => Ok(LoadedLayout {
+            config: TaulerConfig::default(),
+            js_source: raw.to_string(),
+        }),
+        FrontmatterSplit::Frontmatter { frontmatter, body } => {
+            let config = TaulerConfig::from_yaml(frontmatter).map_err(SourceError::Config)?;
+            Ok(LoadedLayout {
+                config,
+                js_source: body.to_string(),
+            })
+        }
+        FrontmatterSplit::UnterminatedFrontmatter => Err(SourceError::UnterminatedFrontmatter),
+    }
+}
+
 /// Loads the config and the JS source to feed into `JsxEvaluator`, from whichever format
 /// `source` names.
 pub fn load(source: &LayoutSource) -> Result<LoadedLayout, LayoutLoadError> {
@@ -176,27 +206,15 @@ pub fn load(source: &LayoutSource) -> Result<LoadedLayout, LayoutLoadError> {
                 path: path.clone(),
                 source,
             })?;
-            match split_frontmatter(&raw) {
-                FrontmatterSplit::NoFrontmatter => Ok(LoadedLayout {
-                    config: TaulerConfig::default(),
-                    js_source: raw,
-                }),
-                FrontmatterSplit::Frontmatter { frontmatter, body } => {
-                    let config = TaulerConfig::from_yaml(frontmatter).map_err(|source| {
-                        LayoutLoadError::Config {
-                            path: path.clone(),
-                            source,
-                        }
-                    })?;
-                    Ok(LoadedLayout {
-                        config,
-                        js_source: body.to_string(),
-                    })
+            parse_source(&raw).map_err(|e| match e {
+                SourceError::UnterminatedFrontmatter => {
+                    LayoutLoadError::Frontmatter { path: path.clone() }
                 }
-                FrontmatterSplit::UnterminatedFrontmatter => {
-                    Err(LayoutLoadError::Frontmatter { path: path.clone() })
-                }
-            }
+                SourceError::Config(source) => LayoutLoadError::Config {
+                    path: path.clone(),
+                    source,
+                },
+            })
         }
         LayoutSource::Legacy { layout, config } => {
             let js_source =
@@ -500,5 +518,33 @@ mod tests {
             matches!(err, LayoutLoadError::Read { .. }),
             "expected LayoutLoadError::Read, got: {err:?}"
         );
+    }
+
+    #[test]
+    fn parse_source_without_frontmatter_is_the_whole_input_and_default_config() {
+        let loaded = parse_source("export default () => null;\n").expect("parses");
+        assert_eq!(loaded.js_source, "export default () => null;\n");
+        assert_eq!(loaded.config.theme.file, None);
+    }
+
+    #[test]
+    fn parse_source_splits_frontmatter_from_body() {
+        let loaded = parse_source("---\ntheme:\n  file: ~/t.yaml\n---\nexport default 1;\n")
+            .expect("parses");
+        assert_eq!(loaded.config.theme.file.as_deref(), Some("~/t.yaml"));
+        assert_eq!(loaded.js_source, "export default 1;\n");
+    }
+
+    #[test]
+    fn parse_source_rejects_unterminated_frontmatter() {
+        let err = parse_source("---\ntheme: {}\nexport default 1;\n").expect_err("must fail");
+        assert!(matches!(err, SourceError::UnterminatedFrontmatter));
+    }
+
+    #[test]
+    fn parse_source_rejects_invalid_frontmatter_yaml() {
+        let err =
+            parse_source("---\ntheme: [unclosed\n---\nexport default 1;\n").expect_err("must fail");
+        assert!(matches!(err, SourceError::Config(_)));
     }
 }
