@@ -168,7 +168,22 @@ fn setup_file_watchers(
 ) {
     use notify::{EventKind, RecursiveMode, Watcher};
 
-    let exe = exe_path.to_path_buf();
+    // Canonicalized up front: FSEvents (macOS) reports real paths, so a path under a
+    // symlinked ancestor (`/var`, or a config dir linked into a dotfiles checkout)
+    // would never equal a reported one. `canonicalize` needs the path to exist, so
+    // a not-yet-created directory keeps its original form (its watch is skipped below).
+    let config_dir = config_dir
+        .canonicalize()
+        .unwrap_or_else(|_| config_dir.to_path_buf());
+    // Only the exe's directory is resolved, not the exe itself: a replaced binary shows
+    // up as an event on the name it was installed under, even if that name is a symlink.
+    let exe_path = match (exe_path.parent(), exe_path.file_name()) {
+        (Some(dir), Some(name)) => dir
+            .canonicalize()
+            .map_or_else(|_| exe_path.to_path_buf(), |d| d.join(name)),
+        _ => exe_path.to_path_buf(),
+    };
+    let exe = exe_path.clone();
     let watched_layout_paths = [
         config_dir.join("layout.op.mdx"),
         config_dir.join("layout.jsx"),
@@ -205,7 +220,7 @@ fn setup_file_watchers(
     {
         let mut w = watcher.lock().unwrap();
         let dirs: std::collections::HashSet<&std::path::Path> =
-            [Some(config_dir), exe_path.parent()]
+            [Some(config_dir.as_path()), exe_path.parent()]
                 .into_iter()
                 .flatten()
                 .collect();
@@ -464,4 +479,48 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let _ = cmd.exec();
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Claim: reloads still fire when the config directory is reached through a
+    /// symlink (a dotfiles checkout linked into `~/.config`). Guards the
+    /// canonicalization in `setup_file_watchers` against breaking the
+    /// event-to-path match on platforms that report the watched form (inotify).
+    #[test]
+    fn layout_reload_fires_when_config_dir_is_a_symlink() {
+        let root = tempfile::Builder::new()
+            .prefix("config-symlink-")
+            .tempdir_in(concat!(env!("CARGO_MANIFEST_DIR"), "/target"))
+            .expect("tempdir");
+        let real = root.path().join("real");
+        std::fs::create_dir(&real).unwrap();
+        let link = root.path().join("link");
+        std::os::unix::fs::symlink(&real, &link).unwrap();
+        let exe = real.join("fake-exe");
+        std::fs::write(&exe, "").unwrap();
+
+        let (reload_tx, reload_rx) = mpsc::channel();
+        let (bin_tx, _bin_rx) = mpsc::channel();
+        let (wake_tx, _wake_rx) = mpsc::sync_channel(16);
+        let _w = setup_file_watchers(&link, &exe, reload_tx, bin_tx, wake_tx);
+
+        let layout = link.join("layout.op.mdx");
+        let mut fired = false;
+        for i in 0..50 {
+            let tmp = link.join("layout.tmp");
+            std::fs::write(&tmp, format!("v{i}")).unwrap();
+            std::fs::rename(&tmp, &layout).unwrap();
+            if reload_rx
+                .recv_timeout(std::time::Duration::from_millis(100))
+                .is_ok()
+            {
+                fired = true;
+                break;
+            }
+        }
+        assert!(fired, "an atomic replace through the symlink must reload");
+    }
 }
