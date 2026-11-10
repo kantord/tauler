@@ -252,8 +252,8 @@ importers:
         specifier: 0.185.1
         version: 0.185.1
       html-validate:
-        specifier: 11.18.0
-        version: 11.18.0
+        specifier: 11.19.0
+        version: 11.19.0
       oxfmt:
         specifier: 0.77.0
         version: 0.77.0
@@ -1962,8 +1962,8 @@ packages:
   hastscript@9.0.3:
     resolution: {integrity: sha512-1ALZXSmCGmW3h8AMz4R4+QKSKFi7sNgXLVwmwB8FYVtl1CwQ3WDkSAEY/d5tp1g/vbQgq2s1WlHgfO3jbw1TsA==}
 
-  html-validate@11.18.0:
-    resolution: {integrity: sha512-9+cP5LyLG2blk1W8pYACmgTuFnqOuMZS8rt7G0q72wH7xqdduKE0qyV1qhwsKr/tjqmqscq81yyE6mNUuUex3Q==}
+  html-validate@11.19.0:
+    resolution: {integrity: sha512-+QSAz0rcgoBoX6MoVve5EAxPcmvmg+aPqChVGA9oYN3gM7IwF9NBFtEEJOzGokBeaExWlTM4eUV6atj2h5pCtg==}
     engines: {node: ^22.22.0 || >= 24.8.0}
     hasBin: true
     peerDependencies:
@@ -4086,7 +4086,7 @@ snapshots:
       property-information: 7.2.0
       space-separated-tokens: 2.0.2
 
-  html-validate@11.18.0:
+  html-validate@11.19.0:
     dependencies:
       '@html-validate/stylish': 6.1.0
       '@sidvind/better-ajv-errors': 7.0.0(ajv@8.20.0)
