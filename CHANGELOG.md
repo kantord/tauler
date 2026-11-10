@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.1](https://github.com/kantord/tauler/compare/tauler-v0.11.0...tauler-v0.11.1) - 2026-11-10
+
+### Added
+
+- *(screenshot)* render layout.op.mdx with frontmatter ([#788](https://github.com/kantord/tauler/pull/788))
+- *(wayland)* route panels and wallpapers to the output they name ([#781](https://github.com/kantord/tauler/pull/781))
+
+### Fixed
+
+- *(deps)* update rust crate minijinja to v3.1.0 ([#792](https://github.com/kantord/tauler/pull/792))
+- *(watch)* canonicalize watched paths so hot reload fires via symlink ([#789](https://github.com/kantord/tauler/pull/789))
+- *(deps)* update patch updates ([#786](https://github.com/kantord/tauler/pull/786))
+
+### Other
+
+- small fixes ([#782](https://github.com/kantord/tauler/pull/782))
+
 ## [0.11.0](https://github.com/kantord/tauler/compare/tauler-v0.10.1...tauler-v0.11.0) - 2026-11-08
 
 ### Fixed
