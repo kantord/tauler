@@ -45,7 +45,7 @@ export function Desk({
   return (
     <FocusContext value={{ focus, setFocus }}>
       <SiteHeader lead={<WorkspaceNav current={n} />} />
-      <main className="on-room mx-auto w-full max-w-[1320px] px-4 pt-8 pb-16 sm:px-6">
+      <main className="on-room mx-auto w-full max-w-page px-4 pt-8 pb-16 sm:px-6">
         <div className="wslabel mt-0">
           <h1>
             {n} · {workspace.name}

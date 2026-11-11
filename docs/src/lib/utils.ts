@@ -12,12 +12,20 @@ export const cn = createCn({
   extend: {
     classGroups: {
       'font-size': [
-        { text: ['label', 'label-strong', 'display-lg', 'display-xl'] },
+        {
+          text: [
+            'caption',
+            'label',
+            'label-strong',
+            'display-lg',
+            'display-xl',
+          ],
+        },
       ],
       'border-w': [{ border: ['heavy', 'thin'] }],
-      'border-w-t': [{ 'border-t': ['heavy', 'thin'] }],
-      'border-w-b': [{ 'border-b': ['heavy', 'thin'] }],
-      'border-w-l': [{ 'border-l': ['heavy', 'thin'] }],
+      'border-w-t': [{ 'border-t': ['heavy'] }],
+      'border-w-b': [{ 'border-b': ['heavy'] }],
+      'border-w-l': [{ 'border-l': ['heavy'] }],
     },
   },
 })

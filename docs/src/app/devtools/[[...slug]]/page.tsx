@@ -18,7 +18,7 @@ export default async function Page(props: Props) {
     <>
       <Wallpaper />
       <SiteHeader current="docs" />
-      <div className="mx-auto w-full max-w-[1320px] px-6 pt-7 pb-16">
+      <div className="mx-auto w-full max-w-page px-6 pt-7 pb-16">
         <main className="tile on">
           <div className="bar">
             <span className="tt">devtools</span>

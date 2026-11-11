@@ -41,24 +41,24 @@ Wire it in Tailwind v4 with the shadcn convention: declare base and semantic val
 
 - Page and app ground is `bg-background`; cards and popovers `bg-card`; text `text-foreground`, secondary text `text-muted-foreground`.
 - Light `rule` equals `ink`, so frames and control borders read as black ink; dark `rule` is a mid grey.
-- `primary` (orange) marks whatever has focus or the one main action per view. Its text is always `primary-foreground` (near-black), never white. Orange as text or a link hover on light grounds is `orange-ink` (`text-orange-ink`), never `orange`. Fumadocs' search dialog sets its match highlight and result titles in `fd-primary` (orange); `global.css` overrides those to `orange-ink`, so `fd-primary` stays a fill. The orange link underline on article links is a decoration (the text is `ink`) and is also exempt; large display type (24px and up) may use `orange`.
+- `primary` (orange) marks whatever has focus or the one main action per view. Its text is always `primary-foreground` (near-black), never white. Orange as text or a link hover on light grounds is `orange-ink` (`text-orange-ink`), never `orange`. Fumadocs' search dialog sets its match highlight and result titles in `fd-primary` (orange); `global.css` overrides those to `orange-ink`, so `fd-primary` stays a fill. The override exists because Fumadocs uses one slot for both fill and text; recheck it when Fumadocs is upgraded. The orange link underline on article links is a decoration (the text is `ink`) and is also exempt; large display type (24px and up) may use `orange`.
 - Controls take a heavy `border-input` border; panels and separators a thin `border-border`.
 - Focus is the `ring` color as a solid ring, no glow. Hover and active states change border or ring, not hue.
 - Errors: `destructive`, with a word or icon as well as color.
 
 ## Type
 
-- Three families only; there is no fourth (workspace numerals are mono). The `--font-tu-*` variables in `:root` hold the stacks; `@theme` maps them to `font-display`, `font-sans` and `font-mono`. `display` (Archivo Variable, weight 900, width 125%, uppercase) for headlines at `display-xl` / `display-lg`. `sans` (DM Sans) for body: `text-base`, `text-sm`, `text-xs`. `mono` (IBM Plex Mono) for labels, nav, keycaps and code: `label` is uppercase and letter-spaced.
+- Three families only; there is no fourth (workspace numerals are mono). The `--font-tu-*` variables in `:root` hold the stacks; `@theme` maps them to `font-display`, `font-sans` and `font-mono`. `display` (Archivo Variable, weight 900, width 125%, uppercase) for headlines at `display-xl` / `display-lg`. `sans` (DM Sans) for body: `text-base`, `text-sm`, `text-caption`. `mono` (IBM Plex Mono) for labels, nav, keycaps and code: `label` is uppercase and letter-spaced.
 - Write the name lowercase, `tauler`; the capitals come from the display style.
 - The fonts are loaded from npm (`@fontsource`), not vendored.
 
 ### Type scale
 
-Defined in `@theme` in `global.css`; use these utilities, never `text-[Npx]`.
+Defined in `@theme` in `global.css`; use these utilities, never `text-[Npx]`. `text-xs` is deliberately not redefined: it stays Tailwind's 12px, because Fumadocs' search dialog uses it (result breadcrumbs, group headers, filter chips) and 11px muted DM Sans is too small to read there. Our own 11px step has its own name, `text-caption`.
 
 | Style | Size | Utility | Use |
 | --- | --- | --- | --- |
-| `text-xs` | 11px | `text-xs` | Group labels, table heads, fine print |
+| `caption` | 11px | `text-caption` | Group labels, table heads, fine print |
 | `label` | 12px | `text-label` | Mono labels, buttons, header and footer |
 | `label-strong` | 13px | `text-label-strong` | Title bars, table of contents |
 | `text-sm` | 14px | `text-sm` | Navigation, code, tables, inline code, callouts |
@@ -69,11 +69,11 @@ Defined in `@theme` in `global.css`; use these utilities, never `text-[Npx]`.
 
 ## Shape and spacing
 
-- Spacing is Tailwind's 4px scale (`space-1` … `space-12`); use Tailwind's `p-*`, `gap-*` utilities. No half-steps (`gap-3.5`) and no arbitrary px; 2px is allowed for hairline offsets only (inline code padding).
+- Page width is one token, `--width-page` (1320px), used as `max-w-page`. Spacing is Tailwind's 4px scale (`space-1` … `space-12`); use Tailwind's `p-*`, `gap-*` utilities. No half-steps (`gap-3.5`) and no arbitrary px; 2px is allowed for hairline offsets only (inline code padding). **Exception:** the 88px workspace numerals on `principles/page.draft.tsx` have no scale step, because they exist only on a draft page. Add a step when that page ships.
 - `radius` is 0, so every shadcn `rounded-*` is square. The one exception is keycaps (`radius-key`, 4px).
-- Borders: `border-heavy` 1.5px (frames, controls) and `border-thin` 1px (nested windows) are utilities (`border-heavy`, `border-t-heavy`, `border-b-heavy`, `border-l-heavy`, `border-thin`) and the variables `--border-heavy` and `--border-thin`. No other widths, except the keycap's 3px foot.
+- Borders: heavy (1.5px) for top-level tiles, the header and footer rules, and controls; thin (1px) for anything nested inside a tile: sub-windows, mini windows, callouts such as alerts, and separators. Both are utilities (`border-heavy`, `border-t-heavy`, `border-b-heavy`, `border-l-heavy`, `border-thin`) and the variables `--border-heavy` and `--border-thin`. No other widths, except the keycap's 3px foot.
 - No shadows or gradients, and that includes third-party components: the search dialog's shadow is removed in `global.css`. Depth is rules and the 4px checker hatch (`line` on `page`, or `orange-deep` on `orange` when focused); the hatch is 4px everywhere.
-- Tiles: a `card` panel with a heavy `rule` frame and a hatched title bar holding a `label-strong` mono title. The focused tile gets an orange frame and bar. **Exception:** the orange frame on the light page is 2.96:1, under the 3:1 border rule. It is decorative and paired with the orange title bar, and it passes in dark, so it is exempt. Do not darken it.
+- Tiles: a `card` panel with a heavy `rule` frame and a hatched title bar holding a `label-strong` mono title. The focused tile gets an orange frame and bar. **Exception:** the orange frame on the light page is 2.96:1, under the 3:1 border rule. The frame is not the only cue: the lit tile also has the orange title bar and its text, and the frame passes in dark, so it is exempt. Do not use `orange-ink` for it; that would turn a bright accent into a dull one.
 
 ## Logo
 

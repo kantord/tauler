@@ -47,7 +47,7 @@ These are errors in `DESIGN.md` or comments, not code that bypasses a token.
 | # | Where | What | Fix |
 |---|---|---|---|
 | B5 | search dialog | `shadow-2xl` (measured `0 25px 50px -12px`). The system has no shadows. | Remove. |
-| B6 | `global.css:285` | `.tile.on` fakes a second ring with `box-shadow`. | Replace with a border width. |
+| B6 | `global.css:285` | `.tile.on` fakes a second ring with `box-shadow`. | Replace with a border width (done as an `outline`, so layout does not shift). |
 | B7 | `(home)/page.tsx:36` | `rounded-sm` (no-op, radius is 0) and `backdrop-blur-[2px]`. | Remove `rounded-sm`; decide on the blur. |
 | B8 | `global.css:532` | `.toc a` border 2px. | 1.5px. |
 | B9 | `global.css:633` | `blockquote` border 3px. | 1.5px. |
@@ -137,3 +137,15 @@ B1 and B2 first, then the doc errors (D1–D5), then decisions 1–6.
 - **`cn` merger:** `src/lib/utils.ts` now registers the type-scale and `border-heavy/thin`
   utilities. Without it `tailwind-merge` drops `text-label` next to `text-foreground` and
   `border-heavy` next to `border-input`.
+
+## Follow-up decisions (2026-11-11)
+
+- `text-xs` stays Tailwind's 12px: Fumadocs' search dialog uses it, and 11px there was too small.
+  Our 11px step is `text-caption`.
+- The `fd-primary` text override carries a comment to recheck it on Fumadocs upgrades; the typed-query
+  highlight measures `orange-ink` in light.
+- Lit-tile frame exemption keeps its reason in `DESIGN.md`; alert border stays thin (1px, as before).
+- Heavy for top-level tiles, header/footer rules and controls; thin for anything nested.
+- `--width-page` (1320px) as `max-w-page`; the 88px numerals are a documented draft-page exception.
+- `tests/console.spec.ts`: 19 of 20 pass. `/docs/component-reference/` 404s on `/tauler/tauler_web.js`
+  because the wasm assets are not built here; the baseline 404s on its runtime files too.

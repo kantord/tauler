@@ -51,7 +51,7 @@ export function DocsTiles({
   const headings = toc.filter((t) => t.depth <= 3)
 
   return (
-    <div className="mx-auto w-full max-w-[1320px] px-6 pt-7 pb-16">
+    <div className="mx-auto w-full max-w-page px-6 pt-7 pb-16">
       <nav
         aria-label="Breadcrumb"
         className="m mb-4 flex items-center gap-3 text-label tracking-[.1em] text-ink-muted uppercase"

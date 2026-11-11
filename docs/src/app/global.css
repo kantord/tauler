@@ -131,7 +131,7 @@
 /* The type scale and border widths. Plain @theme, so the values are also CSS
    variables the rules below read. */
 @theme {
-  --text-xs: 0.6875rem; /* 11 */
+  --text-caption: 0.6875rem; /* 11: our own fine print; text-xs stays Tailwind's 12 for Fumadocs */
   --text-label: 0.75rem; /* 12: mono labels, buttons */
   --text-label-strong: 0.8125rem; /* 13: title bars */
   --text-sm: 0.875rem; /* 14 */
@@ -139,6 +139,11 @@
   --text-xl: 1.25rem; /* 20: lead */
   --text-display-lg: 1.5rem; /* 24 */
   --text-display-xl: clamp(2.5rem, 4.4vw, 4rem); /* 40 to 64 */
+  --width-page: 1320px;
+}
+
+@utility max-w-page {
+  max-width: var(--width-page);
 }
 
 :root {
@@ -268,7 +273,11 @@ html > body[data-scroll-locked] {
     box-shadow: none;
   }
   /* Fumadocs' search dialog sets matches and result titles in fd-primary,
-     which is orange: a fill, not text. They take orange-ink. */
+     which is orange: a fill, not text. They take orange-ink.
+     This override exists because Fumadocs uses one slot, fd-primary, for
+     both fill and text. Recheck it whenever Fumadocs is upgraded: the
+     selectors match its class strings (`text-fd-primary`,
+     `first:text-fd-primary`) and its `fd-search` highlight name. */
   [role='dialog'] .text-fd-primary,
   [role='dialog'] [class*='first:text-fd-primary'] > :first-child {
     color: var(--orange-ink);
@@ -573,7 +582,7 @@ html > body[data-scroll-locked] {
   }
   .tu .grp {
     font-family: var(--font-tu-mono);
-    font-size: var(--text-xs);
+    font-size: var(--text-caption);
     text-transform: uppercase;
     letter-spacing: 0.12em;
     color: var(--ink-muted);
@@ -621,7 +630,7 @@ html > body[data-scroll-locked] {
     align-items: center;
     gap: 4px;
     font-family: var(--font-tu-mono);
-    font-size: var(--text-xs);
+    font-size: var(--text-caption);
     font-weight: 500;
     text-transform: uppercase;
     letter-spacing: 0.1em;
@@ -761,7 +770,7 @@ html > body[data-scroll-locked] {
   }
   .tu th {
     font-family: var(--font-tu-mono);
-    font-size: var(--text-xs);
+    font-size: var(--text-caption);
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.1em;
