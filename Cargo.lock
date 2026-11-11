@@ -6183,9 +6183,9 @@ dependencies = [
 
 [[package]]
 name = "takumi"
-version = "2.19.0"
+version = "2.20.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "51036ce9435b90c36e57d76939ed45cab2f94adbeee60805ac09363b7780043e"
+checksum = "ab8e5b08488a8a259f7ef8207290ecf408226864fa05a8affa9229e1bbdaad2b"
 dependencies = [
  "takumi-core",
  "takumi-raster",
@@ -6194,9 +6194,9 @@ dependencies = [
 
 [[package]]
 name = "takumi-core"
-version = "0.35.0"
+version = "0.36.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "81026e2b18d8ce4035c95ef8d1d33665201091630e82587a40e778645be3b1d9"
+checksum = "3d9e46419a17adcd53feb9c3f954414c36e8f01f464ffdddee40b307fb3a2163"
 dependencies = [
  "bitflags 2.13.2",
  "bytemuck",
@@ -6239,9 +6239,9 @@ dependencies = [
 
 [[package]]
 name = "takumi-raster"
-version = "0.6.0"
+version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cbb1bfa6491a7677626a4f0d8dc14e313d4dfc07dc62ab95a8eafda33284b17e"
+checksum = "bde7488e271448584123bfbbdbe0ada4632ca68b25ab18e4d202b6ddd212a9df"
 dependencies = [
  "bytemuck",
  "color",
@@ -6252,6 +6252,7 @@ dependencies = [
  "libz-rs-sys",
  "png",
  "rayon",
+ "rustc-hash",
  "serde",
  "skrifa 0.48.0",
  "smallvec",
@@ -6264,11 +6265,12 @@ dependencies = [
 
 [[package]]
 name = "takumi-svg"
-version = "0.3.34"
+version = "0.3.35"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c5523e1cf0877914e524c0a319af9a2a8a504dcbce8a65510695a0e8e14abe9e"
+checksum = "50eb2ee2a7955d59fe94336deaf4b3f16273fd06ca80aae66c9577ef5b82058e"
 dependencies = [
  "quick-xml 0.42.0",
+ "rustc-hash",
  "takumi-core",
  "tiny-skia 0.12.0",
  "typed-builder",
