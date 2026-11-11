@@ -464,7 +464,7 @@ html > body[data-scroll-locked] {
     text-transform: uppercase;
     letter-spacing: 0.1em;
     color: var(--ink-muted);
-    margin: 44px 0 12px;
+    margin: 48px 0 12px;
     scroll-margin-top: calc(var(--tu-header-h) + 12px);
   }
   .tu .wslabel h1 {
@@ -640,7 +640,7 @@ html > body[data-scroll-locked] {
   /* ── Article ───────────────────────────────────────────────────────────── */
 
   .tu .art {
-    padding: 40px 48px 48px;
+    padding: 48px;
     max-width: 780px;
   }
   .tu .art h1 {
