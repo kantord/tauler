@@ -109,11 +109,32 @@ Light on `:root`, dark on `.dark`. `orange-ink` is `{orange}` in dark.
 | `code-orange-soft` | `oklch(0.762 0.150 43.6)` | `oklch(0.762 0.150 43.6)` | syntax colour, same in both themes. Numbers and constants on code (7.6:1). |
 | `code-yellow` | `oklch(0.846 0.169 84.9)` | `oklch(0.846 0.169 84.9)` | syntax colour, same in both themes. Strings on code (10.5:1). |
 
+## Spacing allowlist
+
+Padding, margin and gap use Tailwind steps 0, 0.5 (hairlines only), 1 to 8, 12 and 16, plus `px` and `auto`.
+In our CSS the px values are 0, 1, 2, 4, 8, 12, 16, 20, 24, 28, 32, 48 and 64. Arbitrary values are not
+allowed. Sizing (`h-*`, `size-*`, `w-*`, `max-w-*`) is not restricted. `pnpm run check:spacing` enforces
+this and `components/ui` is exempt. Add `spacing-ok: reason` to a line for a documented exception.
+
+## Checks
+
+`pnpm run checks` runs three design-system checks: `check:colors` (contrast of every text pair, and the
+derived colours against the generator), `check:spacing`, and `check:ui-log` (every shadcn component is
+listed in `src/components/ui/EDITS.md`). This file and `global.css` are canonical; any token file kept in
+a design tool is generated from them. ADR 0050 explains the choices and `design-system-tests.md` has the
+evidence.
+
+## Brand colour as text
+
+A bright brand colour is a fill. Text, link hovers and focus rings use its text-safe variant
+(`orange-ink`). A new brand colour needs both.
+
 ## Changing a colour
 
 1. Edit the base value in `global.css`; never give a shadcn slot its own value.
 2. The derived colours (`ink-muted`, `line`, `red`, `orange-ink`, dark `rule`) come from Adobe's Leonardo
-   (`@adobe/leonardo-contrast-colors`, WCAG 2) solved against `page`: change the ratio, regenerate, do not
-   hand-edit lightness.
+   (`@adobe/leonardo-contrast-colors`, WCAG 2) solved against `page`. Change the ratio in
+   `scripts/colors.mjs`, run `node scripts/colors.mjs --print`, and paste the values; do not hand-edit
+   lightness.
 3. Check every text pair on `page` and `raised` in both themes: `ink` 7:1, `ink-muted`, `red` and
    `orange-ink` 4.5:1, `rule` 3:1.
