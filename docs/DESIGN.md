@@ -16,9 +16,9 @@ Wire it in Tailwind v4 with the shadcn convention: declare base and semantic val
 
 ```css
 @theme inline {
-  --font-display: var(--font-display);
-  --font-sans: "DM Sans Variable", sans-serif;
-  --font-mono: "IBM Plex Mono", monospace;
+  --font-display: var(--font-tu-display); /* Archivo Variable */
+  --font-sans: var(--font-tu-text); /* DM Sans Variable */
+  --font-mono: var(--font-tu-mono); /* IBM Plex Mono */
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --color-primary: var(--primary);
@@ -41,24 +41,39 @@ Wire it in Tailwind v4 with the shadcn convention: declare base and semantic val
 
 - Page and app ground is `bg-background`; cards and popovers `bg-card`; text `text-foreground`, secondary text `text-muted-foreground`.
 - Light `rule` equals `ink`, so frames and control borders read as black ink; dark `rule` is a mid grey.
-- `primary` (orange) marks whatever has focus or the one main action per view. Its text is always `primary-foreground` (near-black), never white. Orange as text or a link hover on light grounds is `orange-ink` (`text-orange-ink`), never `orange`; large display type (24px and up) may use `orange`.
+- `primary` (orange) marks whatever has focus or the one main action per view. Its text is always `primary-foreground` (near-black), never white. Orange as text or a link hover on light grounds is `orange-ink` (`text-orange-ink`), never `orange`. Fumadocs' search dialog sets its match highlight and result titles in `fd-primary` (orange); `global.css` overrides those to `orange-ink`, so `fd-primary` stays a fill. The orange link underline on article links is a decoration (the text is `ink`) and is also exempt; large display type (24px and up) may use `orange`.
 - Controls take a heavy `border-input` border; panels and separators a thin `border-border`.
 - Focus is the `ring` color as a solid ring, no glow. Hover and active states change border or ring, not hue.
 - Errors: `destructive`, with a word or icon as well as color.
 
 ## Type
 
-- Three families only; there is no fourth (workspace numerals are mono). `display` (Archivo Variable, weight 900, width 125%, uppercase) for headlines at `display-xl` / `display-lg`. `sans` (DM Sans) for body: `text-base`, `text-sm`, `text-xs`. `mono` (IBM Plex Mono) for labels, nav, keycaps and code: `label` is uppercase and letter-spaced.
+- Three families only; there is no fourth (workspace numerals are mono). The `--font-tu-*` variables in `:root` hold the stacks; `@theme` maps them to `font-display`, `font-sans` and `font-mono`. `display` (Archivo Variable, weight 900, width 125%, uppercase) for headlines at `display-xl` / `display-lg`. `sans` (DM Sans) for body: `text-base`, `text-sm`, `text-xs`. `mono` (IBM Plex Mono) for labels, nav, keycaps and code: `label` is uppercase and letter-spaced.
 - Write the name lowercase, `tauler`; the capitals come from the display style.
 - The fonts are loaded from npm (`@fontsource`), not vendored.
 
+### Type scale
+
+Defined in `@theme` in `global.css`; use these utilities, never `text-[Npx]`.
+
+| Style | Size | Utility | Use |
+| --- | --- | --- | --- |
+| `text-xs` | 11px | `text-xs` | Group labels, table heads, fine print |
+| `label` | 12px | `text-label` | Mono labels, buttons, header and footer |
+| `label-strong` | 13px | `text-label-strong` | Title bars, table of contents |
+| `text-sm` | 14px | `text-sm` | Navigation, code, tables, inline code, callouts |
+| `text-base` | 16px | `text-base` | Body text |
+| lead | 20px | `text-xl` | Page lead |
+| `display-lg` | 24px | `text-display-lg` | Section headings |
+| `display-xl` | 40 to 64px (`clamp`) | `text-display-xl` | Page title |
+
 ## Shape and spacing
 
-- Spacing is Tailwind's 4px scale (`space-1` … `space-12`); use Tailwind's `p-*`, `gap-*` utilities.
+- Spacing is Tailwind's 4px scale (`space-1` … `space-12`); use Tailwind's `p-*`, `gap-*` utilities. No half-steps (`gap-3.5`) and no arbitrary px; 2px is allowed for hairline offsets only (inline code padding).
 - `radius` is 0, so every shadcn `rounded-*` is square. The one exception is keycaps (`radius-key`, 4px).
-- Borders: `border-heavy` 1.5px (frames, controls), `border-thin` 1px (nested windows).
-- No shadows or gradients. Depth is rules and the 4px checker hatch (`line` on `page`, or `orange-deep` on `orange` when focused).
-- Tiles: a `card` panel with a heavy `rule` frame and a hatched title bar holding a `label-strong` mono title. The focused tile gets an orange frame and bar.
+- Borders: `border-heavy` 1.5px (frames, controls) and `border-thin` 1px (nested windows) are utilities (`border-heavy`, `border-t-heavy`, `border-b-heavy`, `border-l-heavy`, `border-thin`) and the variables `--border-heavy` and `--border-thin`. No other widths, except the keycap's 3px foot.
+- No shadows or gradients, and that includes third-party components: the search dialog's shadow is removed in `global.css`. Depth is rules and the 4px checker hatch (`line` on `page`, or `orange-deep` on `orange` when focused); the hatch is 4px everywhere.
+- Tiles: a `card` panel with a heavy `rule` frame and a hatched title bar holding a `label-strong` mono title. The focused tile gets an orange frame and bar. **Exception:** the orange frame on the light page is 2.96:1, under the 3:1 border rule. It is decorative and paired with the orange title bar, and it passes in dark, so it is exempt. Do not darken it.
 
 ## Logo
 
@@ -78,7 +93,7 @@ Light on `:root`, dark on `.dark`. `orange-ink` is `{orange}` in dark.
 | `page` | `oklch(0.919 0.008 91.5)` | `oklch(0.177 0.002 106.6)` | Page ground. Text on it: ink, ink-muted. |
 | `raised` | `oklch(0.961 0.005 95.1)` | `oklch(0.226 0.004 106.7)` | Panels, cards, popovers and keycaps raised over page. Text on it: ink, ink-muted. |
 | `ink` | `oklch(0.178 0.000 0.0)` | `oklch(0.939 0.007 97.4)` | Primary text and heavy rules on page and raised; also the logo ground. |
-| `ink-muted` | `oklch(0.435 0.008 88.7)` | `oklch(0.666 0.007 97.4)` | Secondary text on page and raised (5.3:1 light, 6.5:1 dark on page). Generated with Leonardo against page. |
+| `ink-muted` | `oklch(0.435 0.008 88.7)` | `oklch(0.666 0.007 97.4)` | Secondary text on page and raised (6.2:1 light, 6.2:1 dark on page). Generated with Leonardo against page. |
 | `line` | `oklch(0.805 0.003 84.6)` | `oklch(0.313 0.005 91.6)` | Thin hairlines and separators. Decorative; never carries text. Generated with Leonardo against page. |
 | `rule` | `oklch(0.178 0.000 0.0)` | `oklch(0.525 0.008 88.7)` | Heavy 1.5px rules and control borders. Light: same as ink (the printed look); dark: generated with Leonardo against page at 3.4:1. |
 | `orange` | `oklch(0.632 0.186 39.2)` | `oklch(0.703 0.195 40.2)` | brand anchor (matches the logo). Fills only: primary buttons, focused title bars, the logo cell. Never small text or a focus ring on light (use orange-ink); 2.96:1 on the light page. |
