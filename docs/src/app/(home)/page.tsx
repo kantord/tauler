@@ -13,7 +13,7 @@ export default function HomePage() {
   return (
     <>
       <SiteHeader current="home" lead={<WorkspaceNav />} />
-      <main className="mx-auto flex w-full max-w-[1320px] flex-1 flex-col px-4 pt-8 pb-4 sm:px-6">
+      <main className="mx-auto flex w-full max-w-page flex-1 flex-col px-4 pt-8 pb-4 sm:px-6">
         <Hero />
         <Credit />
       </main>
@@ -26,14 +26,14 @@ const UNSPLASH_UTM = '?utm_source=tauler&utm_medium=referral'
 /**
  * Credit for the background, kept incidental: small muted type in the
  * bottom-right corner, over the room. The scrim is the page colour at 75%,
- * just enough to hold the muted token's contrast (5.3:1 light, 6.5:1 dark on
+ * just enough to hold the muted token's contrast (6.2:1 light and dark on
  * the bare page colour) over the room's darker floor.
  */
 function Credit() {
   const link =
     'text-inherit underline decoration-current/40 decoration-1 underline-offset-2 hover:text-ink hover:decoration-current'
   return (
-    <p className="mt-auto max-w-[44rem] self-end rounded-sm bg-page/75 px-2 py-1 text-right text-[11px] leading-snug text-ink-muted backdrop-blur-[2px]">
+    <p className="mt-auto max-w-[44rem] self-end bg-page/75 px-2 py-1 text-right text-caption leading-snug text-ink-muted backdrop-blur-[2px]">
       Room inspired by a{' '}
       <a
         href={`https://unsplash.com/photos/a-white-room-with-yellow-chairs-and-a-table-k_CZ0eldzvM${UNSPLASH_UTM}`}

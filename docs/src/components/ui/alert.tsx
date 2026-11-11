@@ -1,12 +1,12 @@
 import * as React from 'react'
 import { cva, type VariantProps } from 'class-variance-authority'
-import { cn } from 'cn'
+import { cn } from '@/lib/utils'
 
 // shadcn's base-lyra Alert (`shadcn add alert`), restyled as the design's
 // callout: a sub-window with an orange frame, its title in the sub-window
 // title bar (`.sbar` in global.css, shared with the code panels) lit orange.
 const alertVariants = cva(
-  'group/alert relative flex w-full min-w-0 flex-col border',
+  'group/alert relative flex w-full min-w-0 flex-col border-thin',
   {
     variants: {
       variant: {
@@ -55,7 +55,7 @@ function AlertDescription({
     <div
       data-slot="alert-description"
       className={cn(
-        'px-[18px] py-4 text-[15px] leading-[1.6] [&_p]:text-[15px] [&_p]:leading-[1.6] [&>:last-child]:mb-0',
+        'px-4 py-4 text-sm leading-[1.6] [&_p]:text-sm [&_p]:leading-[1.6] [&>:last-child]:mb-0',
         className,
       )}
       {...props}

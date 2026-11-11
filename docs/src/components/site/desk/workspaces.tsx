@@ -24,7 +24,7 @@ export type WorkspaceNumber = (typeof WORKSPACES)[number]['n']
 export function WorkspaceNav({ current }: { current?: WorkspaceNumber }) {
   if (!DRAFTS) return null
   return (
-    <nav aria-label="Workspaces" className="flex gap-1.5">
+    <nav aria-label="Workspaces" className="flex gap-2">
       {WORKSPACES.map((w) => (
         <Link
           key={w.n}
@@ -52,7 +52,7 @@ export function SlideSteps({ n }: { n: WorkspaceNumber }) {
   return (
     <nav
       aria-label="Slides"
-      className="mt-10 grid grid-cols-[repeat(auto-fit,minmax(min(100%,220px),1fr))] gap-2.5"
+      className="mt-10 grid grid-cols-[repeat(auto-fit,minmax(min(100%,220px),1fr))] gap-3"
     >
       <Link href={previous.href} className="pn">
         <small>
