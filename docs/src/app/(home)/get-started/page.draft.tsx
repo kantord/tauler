@@ -47,10 +47,8 @@ export default async function GetStartedSlide() {
           </Window>
           <Window title="install" sub>
             <div className="tb">
-              <h2 className="h m-0 text-[clamp(32px,4vw,52px)]">
-                Three steps.
-              </h2>
-              <ol className="m-0 flex list-none flex-col gap-3.5 p-0 text-base leading-normal">
+              <h2 className="h m-0 text-display-lg">Three steps.</h2>
+              <ol className="m-0 flex list-none flex-col gap-4 p-0 text-base leading-normal">
                 <Step n={1}>Install Tauler from the terminal.</Step>
                 <Step n={2}>
                   Write your layout in{' '}
@@ -75,7 +73,7 @@ export default async function GetStartedSlide() {
 
 function Step({ n, children }: { n: number; children: ReactNode }) {
   return (
-    <li className="flex gap-3.5">
+    <li className="flex gap-4">
       <span className="m font-semibold text-orange-ink">{n}</span>
       <span>{children}</span>
     </li>

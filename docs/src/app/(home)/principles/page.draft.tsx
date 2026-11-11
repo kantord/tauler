@@ -54,7 +54,7 @@ function Principle({
         >
           {n}
         </div>
-        <h2 className="h m-0 text-[26px]">{heading}</h2>
+        <h2 className="h m-0 text-display-lg">{heading}</h2>
         <p className="m-0 text-base leading-[1.6] text-ink-muted">{children}</p>
       </div>
     </Window>

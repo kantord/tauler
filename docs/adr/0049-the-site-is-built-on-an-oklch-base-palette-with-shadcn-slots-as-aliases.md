@@ -11,7 +11,7 @@ This replaces the hex `--tu-*` tokens, and supersedes the token layout in ADR 00
 `@theme` block and file path are gone). The values were not redesigned: the anchors are exact
 conversions of the old ones.
 
-Three rules came out of it and are easy to undo by accident:
+Six rules came out of it and are easy to undo by accident:
 
 - **Orange is a fill.** On the light page the brand orange is 2.96:1, so text, link hovers and
   focus rings use `orange-ink`, a darker orange generated for 5:1. Large display type may still use
@@ -21,6 +21,17 @@ Three rules came out of it and are easy to undo by accident:
   nudges a lightness by eye. The light `rule` is `ink` on purpose: the heavy rules are black ink.
 - **The code panel is dark in both themes**, so its syntax colours are theme-independent
   `--code-*` tokens that the shiki theme reads as `var()`.
+- **Fumadocs' `fd-primary` stays orange (a fill).** Fumadocs uses that one slot for both fill and
+  text, so the search dialog's match highlight and result titles are overridden to `orange-ink` in
+  `global.css`. Recheck the override when Fumadocs is upgraded. The orange frame of a lit tile is
+  exempt from the 3:1 border rule on light (2.96:1): the orange title bar and its text carry the
+  state too, and it passes in dark.
+- **`text-xs` stays Tailwind's 12px.** The type scale is defined in `@theme`, but our 11px step is
+  `text-caption`: `text-xs` is a global theme value that Fumadocs components read, and 11px there is
+  too small.
+- **Borders are heavy (1.5px) or thin (1px), and nesting picks one.** Heavy for top-level tiles,
+  header and footer rules, and controls; thin for anything nested inside a tile. Page width is one
+  token, `--width-page`.
 
 There are three font families: Archivo (display), DM Sans (text) and IBM Plex Mono. Oswald was dropped; the
 workspace keys use mono. All three are SIL OFL and come from npm (ADR 0032).

@@ -51,10 +51,10 @@ export function DocsTiles({
   const headings = toc.filter((t) => t.depth <= 3)
 
   return (
-    <div className="mx-auto w-full max-w-[1320px] px-6 pt-7 pb-16">
+    <div className="mx-auto w-full max-w-page px-6 pt-7 pb-16">
       <nav
         aria-label="Breadcrumb"
-        className="m mb-3.5 flex items-center gap-3 text-[12px] tracking-[.1em] text-ink-muted uppercase"
+        className="m mb-4 flex items-center gap-3 text-label tracking-[.1em] text-ink-muted uppercase"
       >
         <Link href="/docs/" className="font-semibold no-underline">
           docs
@@ -72,7 +72,7 @@ export function DocsTiles({
           <div className="bar">
             <span className="tt">contents</span>
           </div>
-          <nav aria-label="Docs" className="scroll px-2 pb-3.5">
+          <nav aria-label="Docs" className="scroll px-2 pb-4">
             {groups.map((g, i) => (
               <div key={g.label ?? i}>
                 {g.label && <div className="grp">{g.label}</div>}
@@ -99,7 +99,7 @@ export function DocsTiles({
             <h1 className="h">{title}</h1>
             {description && <p className="lead">{description}</p>}
             {children}
-            <div className="mt-12 grid grid-cols-[repeat(auto-fit,minmax(min(100%,220px),1fr))] gap-2.5">
+            <div className="mt-12 grid grid-cols-[repeat(auto-fit,minmax(min(100%,220px),1fr))] gap-3">
               {previous ? (
                 <Link href={previous.url} className="pn">
                   <small>
@@ -132,7 +132,7 @@ export function DocsTiles({
             <div className="bar">
               <span className="tt">on this page</span>
             </div>
-            <nav className="toc scroll py-2.5 pb-3.5" aria-label="On this page">
+            <nav className="toc scroll py-2 pb-4" aria-label="On this page">
               {headings.map((h) => (
                 <a key={h.url} href={h.url} className={`depth-${h.depth}`}>
                   {h.title}

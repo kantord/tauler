@@ -22,10 +22,10 @@ export function SiteHeader({
   lead?: ReactNode
 }) {
   return (
-    <header className="m sticky top-0 z-40 border-b-[1.5px] border-rule bg-page text-[12px] tracking-[.08em] uppercase">
-      <div className="mx-auto flex max-w-[1320px] flex-wrap items-center justify-between gap-3 px-6 py-2">
+    <header className="m sticky top-0 z-40 border-b-heavy border-rule bg-page text-label tracking-[.08em] uppercase">
+      <div className="mx-auto flex max-w-page flex-wrap items-center justify-between gap-3 px-6 py-2">
         {lead}
-        <nav aria-label="Site" className="flex items-center gap-[18px]">
+        <nav aria-label="Site" className="flex items-center gap-4">
           <Link
             href="/"
             aria-label="tauler, home"
@@ -33,7 +33,7 @@ export function SiteHeader({
           >
             <Logo id="logo-nav" dither={3.6} className="size-9" />
           </Link>
-          <span aria-hidden="true" className="h-5 w-[1.5px] bg-line" />
+          <span aria-hidden="true" className="h-5 border-l-heavy border-rule" />
           <Link
             href="/"
             aria-current={current === 'home' ? 'page' : undefined}
@@ -67,9 +67,9 @@ export function SiteHeader({
 
 export function SiteFooter() {
   return (
-    <footer className="m relative mt-auto border-t-[1.5px] border-rule bg-page text-[12px] tracking-[.08em] uppercase">
-      <div className="mx-auto flex max-w-[1320px] flex-wrap items-center justify-between gap-4 px-6 py-[18px] text-ink-muted">
-        <span className="flex items-center gap-2.5">
+    <footer className="m relative mt-auto border-t-heavy border-rule bg-page text-label tracking-[.08em] uppercase">
+      <div className="mx-auto flex max-w-page flex-wrap items-center justify-between gap-4 px-6 py-4 text-ink-muted">
+        <span className="flex items-center gap-2">
           <Logo id="logo-foot" dither={4.5} label="tauler" className="size-6" />
           declarative workspace for linux
         </span>
