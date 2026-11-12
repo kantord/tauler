@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.2](https://github.com/kantord/tauler/compare/tauler-configgen-v0.11.1...tauler-configgen-v0.11.2) - 2026-11-12
+
+### Fixed
+
+- *(deps)* update rust crate jsonschema to v0.61.0 ([#799](https://github.com/kantord/tauler/pull/799))
+
 ## [0.11.1](https://github.com/kantord/tauler/compare/tauler-configgen-v0.11.0...tauler-configgen-v0.11.1) - 2026-11-10
 
 ### Fixed
