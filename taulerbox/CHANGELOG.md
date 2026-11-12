@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.2](https://github.com/kantord/tauler/compare/taulerbox-v0.11.1...taulerbox-v0.11.2) - 2026-11-12
+
+### Other
+
+- updated the following local packages: tauler
+
 ## [0.11.1](https://github.com/kantord/tauler/compare/taulerbox-v0.11.0...taulerbox-v0.11.1) - 2026-11-10
 
 ### Other
