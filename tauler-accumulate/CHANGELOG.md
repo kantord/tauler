@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.3](https://github.com/kantord/tauler/compare/tauler-accumulate-v0.11.2...tauler-accumulate-v0.11.3) - 2026-11-13
+
+### Other
+
+- update Cargo.lock dependencies
+
 ## [0.10.1](https://github.com/kantord/tauler/compare/tauler-accumulate-v0.10.0...tauler-accumulate-v0.10.1) - 2026-11-07
 
 ### Other
