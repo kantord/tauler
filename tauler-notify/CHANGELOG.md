@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.3](https://github.com/kantord/tauler/compare/tauler-notify-v0.11.2...tauler-notify-v0.11.3) - 2026-11-13
+
+### Other
+
+- update Cargo.lock dependencies
+
 ## [0.11.0](https://github.com/kantord/tauler/compare/tauler-notify-v0.10.1...tauler-notify-v0.11.0) - 2026-11-08
 
 ### Other
