@@ -972,20 +972,39 @@ const WALLPAPER: [u8; 3] = [0xcc, 0x33, 0x66];
 /// The panel's fill in the same fixture, `#1e1e2e`.
 const RAIL: [u8; 3] = [0x1e, 0x1e, 0x2e];
 
+/// The first bar of the chart in the same fixture, `#f9e2af`. It is the tallest
+/// bar, so it fills its column from the plot's top to the axis; the probe point
+/// (16px of panel padding + 83 across the figure, 616 + 170 down) is touched by
+/// no gridline, label or line.
+const BAR: [u8; 3] = [0xf9, 0xe2, 0xaf];
+const BAR_PROBE: (u32, u32) = (16 + 83, 616 + 170);
+
+/// How much of `fixtures/wallpaper-panel` to wait for before photographing it.
+#[derive(Clone, Copy, PartialEq, PartialOrd)]
+enum Painted {
+    Wallpaper,
+    Panel,
+    /// The d3 chart as well: its first draw follows the d3 + linkedom download.
+    Chart,
+}
+
 /// Start `fixtures/wallpaper-panel` on `backend` and photograph it once the
-/// wallpaper — and, if `wait_for_panel`, the panel — has painted.
+/// wallpaper — and, as far as `painted` says, the panel and the chart — has painted.
 ///
 /// Waiting for the surfaces rather than for the screen to settle matters: tauler
 /// paints them separately, and a screen showing only the first is just as
 /// "stable" as a finished one. On Wayland the first frame is also held until the
 /// compositor's configure.
-fn wallpaper_panel_shot(backend: Backend, wait_for_panel: bool) -> Result<(Desktop, PathBuf)> {
+fn wallpaper_panel_shot(backend: Backend, painted: Painted) -> Result<(Desktop, PathBuf)> {
     let desktop = Desktop::start_on(backend, "wallpaper-panel", Screen::default())?;
     let screen = desktop.screen();
 
     let mut probes = vec![((screen.width - 8, 8), WALLPAPER, "wallpaper")];
-    if wait_for_panel {
+    if painted >= Painted::Panel {
         probes.push(((136, screen.height / 2), RAIL, "panel"));
+    }
+    if painted >= Painted::Chart {
+        probes.push((BAR_PROBE, BAR, "chart"));
     }
     let shot = wait_for(&format!("{backend:?}: the surfaces to paint"), || {
         let shot = desktop.capture_stable()?;
@@ -1043,7 +1062,7 @@ fn assert_panel(backend: Backend, shot: &Path, screen: Screen) -> Result<()> {
 /// is explicit: a desktop that cannot paint a wallpaper fails the assertion the
 /// other passes.
 fn wallpaper(backend: Backend) -> Result<()> {
-    let (desktop, shot) = wallpaper_panel_shot(backend, false)?;
+    let (desktop, shot) = wallpaper_panel_shot(backend, Painted::Wallpaper)?;
     assert_wallpaper(backend, &shot, desktop.screen())
 }
 
@@ -1067,7 +1086,7 @@ fn wallpaper_on_sway() -> Result<()> {
 /// configure, because nothing re-renders a static panel afterwards. (A bar with
 /// a clock would hide the bug at its next tick.)
 fn panel_over_wallpaper(backend: Backend) -> Result<()> {
-    let (desktop, shot) = wallpaper_panel_shot(backend, true)?;
+    let (desktop, shot) = wallpaper_panel_shot(backend, Painted::Panel)?;
     assert_wallpaper(backend, &shot, desktop.screen())?;
     assert_panel(backend, &shot, desktop.screen())
 }
@@ -1086,14 +1105,17 @@ fn panel_over_wallpaper_on_sway() -> Result<()> {
 
 /// The same fixture must paint the same picture on both desktops, to the pixel.
 ///
+/// The frames are taken once the d3 chart in the panel has drawn on both, so
+/// this covers text, strokes and anti-aliased edges, not just flat fills.
+///
 /// Both desktops get the same 1920x1080 screen and fixture; the compositor's own
 /// background is fully covered by the wallpaper, so any difference is tauler's
 /// rendering or the compositor's presentation of it.
 #[test]
 #[ignore = "needs Docker and `just e2e-image`"]
 fn wallpaper_panel_frames_match_across_backends() -> Result<()> {
-    let (_i3, i3_shot) = wallpaper_panel_shot(Backend::I3, true)?;
-    let (_sway, sway_shot) = wallpaper_panel_shot(Backend::Sway, true)?;
+    let (_i3, i3_shot) = wallpaper_panel_shot(Backend::I3, Painted::Chart)?;
+    let (_sway, sway_shot) = wallpaper_panel_shot(Backend::Sway, Painted::Chart)?;
     let diff = tauler_e2e::diff_frames(&i3_shot, &sway_shot)?;
     assert!(
         diff.is_identical(),
