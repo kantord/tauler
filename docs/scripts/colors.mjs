@@ -133,7 +133,14 @@ for (const mode of ['light', 'dark']) {
 }
 
 // 2. Contrast (WCAG 2 gate, APCA advice). `min` is WCAG 2; `lc` is the APCA
-// advisory floor (body text 75, content text 60, large or UI 45).
+// advisory floor. The levels are from APCA in a Nutshell
+// (https://git.apcacontrast.com/documentation/APCA_in_a_Nutshell.html):
+// Lc 75 is the minimum for columns of body text at 18px/400 or larger, Lc 60 for
+// content text that is not body text, Lc 45 for large, heavy text such as
+// headlines (36px/400 or 24px/700), Lc 30 for non-text elements that need to be
+// discernible (solid icons, control borders; 15 is the absolute floor). The
+// 16px/400 body copy is below the table's 18px/400 row, so its real target is
+// higher than the 75 checked here: this is advice, not a verdict.
 const Y = (c) => {
   const x = clampRgb(rgb(parse(c)))
   return sRGBtoY([x.r * 255, x.g * 255, x.b * 255].map(Math.round))
@@ -148,8 +155,8 @@ const PAIRS = [
   ['red', 'raised', 4.5, 60],
   ['orange-ink', 'page', 4.5, 60],
   ['orange-ink', 'raised', 4.5, 60],
-  ['rule', 'page', 3, 45],
-  ['rule', 'raised', 3, 45],
+  ['rule', 'page', 3, 30],
+  ['rule', 'raised', 3, 30],
   ['on-orange', 'orange', 4.5, 75],
   ['code-ink', 'code', 7, 75],
   ['code-soft', 'code', 4.5, 60],

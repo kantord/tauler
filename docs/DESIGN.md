@@ -35,7 +35,7 @@ Wire it in Tailwind v4 with the shadcn convention: declare base and semantic val
 - Brand anchors are exact conversions of the site and logo: `page`, `raised`, `ink`, `orange`, `orange-deep`, `on-orange`, `code`, `code-ink`.
 - The derived colors, `ink-muted`, `line`, `red` and the dark `rule`, are generated with Adobe's Leonardo (`@adobe/leonardo-contrast-colors`, WCAG 2 contrast) as a scale from warm-gray and red key colors, solved against `page` in each theme. Targets: `ink-muted` 6:1, dark `rule` 3.4:1, `line` 1.4:1, `red` 5.2:1 light and 5.6:1 dark. To change one, change its ratio and regenerate; do not hand-edit the lightness.
 - Checked on `page` and `raised` in both themes: `ink` 14:1 or more, `ink-muted` 5.6:1 or more, `red` 5.2:1 or more, `rule` 3.2:1 or more (light `rule` is `ink`), `on-orange` on `orange` 5:1 or more. `orange` itself is 2.96:1 on the light `page`, kept to match the logo, so it is only ever a fill; text and focus rings use `orange-ink`.
-- Use WCAG 2 ratios as the gate; for text on orange or small body text, also eyeball it, since APCA would rate light-on-dark text more strictly.
+- Use WCAG 2 ratios as the gate; for text on orange or small body text, also eyeball it, since APCA would rate light-on-dark text more strictly. `scripts/colors.mjs` also prints APCA advice, never a failure, using the published levels: Lc 75 for body text columns (18px/400 and up), Lc 60 for other content text, Lc 45 for large heavy text, Lc 30 for control borders and other non-text elements. Our 16px/400 prose is below the 18px/400 row of that table, so its true target is higher than 75.
 
 ## Using the colors
 
