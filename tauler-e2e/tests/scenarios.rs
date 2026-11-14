@@ -649,19 +649,6 @@ const CYAN: [u8; 3] = [0x00, 0xff, 0xff];
 /// What the reload scenario rewrites `MAGENTA` to in the fixture.
 const ORANGE: [u8; 3] = [0xff, 0x80, 0x00];
 
-fn d3_figure_expected() -> Expected {
-    Expected {
-        gaps: Gaps {
-            left: 0,
-            right: 0,
-            top: 64,
-            bottom: 0,
-        },
-        panels: vec![rect(0, 0, 1920, 64)],
-        clients: 2,
-    }
-}
-
 /// Poll fresh frames until the pixel at `at` is exactly `rgb`.
 ///
 /// Fresh frames, not `capture_stable`: the live figure flips every 2 seconds,
@@ -697,17 +684,11 @@ fn wait_for_colour(desktop: &Desktop, what: &str, at: (u32, u32), rgb: [u8; 3]) 
 /// its colour with it. Seeing both colours at the same pixel is the claim:
 /// a figure whose redraw was skipped, or whose Picture was never swapped,
 /// shows one colour for good.
-#[test]
-#[ignore = "needs Docker and `just e2e-image`"]
-fn d3_figure_draws_and_redraws_when_its_key_changes() -> Result<()> {
-    let (desktop, _) = run(
-        "d3-figure",
-        "d3-figure-draws-and-redraws-when-its-key-changes",
-        d3_figure_expected(),
-    )?;
+fn d3_figure_draws_and_redraws_when_its_key_changes(backend: Backend) -> Result<()> {
+    let desktop = Desktop::start_on(backend, "d3-figure", Screen::default())?;
 
     // The download, the reload it triggers and the first draw all happen
-    // after the bar is up, so `run`'s screenshot may well show an empty bar.
+    // after the bar is up, so the bar may well be empty for a while.
     wait_for_colour(
         &desktop,
         "the first figure to be drawn (d3 + linkedom downloaded, then drawn)",
@@ -727,8 +708,8 @@ fn d3_figure_draws_and_redraws_when_its_key_changes() -> Result<()> {
         CYAN,
     )?;
 
-    // Photograph the bar with both figures drawn, replacing `run`'s early
-    // capture as this scenario's desktop.png and gallery shot.
+    // Photograph the bar with both figures drawn as this scenario's desktop.png
+    // (and, on i3, its gallery shot).
     let screenshot = desktop.capture_stable()?;
     let [r, g, b, _] = pixel_at(&screenshot, D3_STATIC.0, D3_STATIC.1)?;
     assert_eq!(
@@ -736,11 +717,25 @@ fn d3_figure_draws_and_redraws_when_its_key_changes() -> Result<()> {
         MAGENTA,
         "the static figure stopped showing its drawing while the live one was redrawn"
     );
-    save_devtools_shot(
-        "d3-figure-draws-and-redraws-when-its-key-changes",
-        &screenshot,
-    )?;
+    if backend == Backend::I3 {
+        save_devtools_shot(
+            "d3-figure-draws-and-redraws-when-its-key-changes",
+            &screenshot,
+        )?;
+    }
     Ok(())
+}
+
+#[test]
+#[ignore = "needs Docker and `just e2e-image`"]
+fn d3_figure_draws_and_redraws_when_its_key_changes_on_i3() -> Result<()> {
+    d3_figure_draws_and_redraws_when_its_key_changes(Backend::I3)
+}
+
+#[test]
+#[ignore = "needs Docker and `just e2e-image`"]
+fn d3_figure_draws_and_redraws_when_its_key_changes_on_sway() -> Result<()> {
+    d3_figure_draws_and_redraws_when_its_key_changes(Backend::Sway)
 }
 
 /// A layout reload draws every figure again — its `draw` may have changed —
@@ -752,18 +747,12 @@ fn d3_figure_draws_and_redraws_when_its_key_changes() -> Result<()> {
 /// show the old one: a frame with neither means the figure blanked during the
 /// reload, which is exactly what keeping the previous Picture is for.
 ///
-/// This samples as fast as `scrot` over `docker exec` allows (a frame every
+/// This samples as fast as the capture tool over `docker exec` allows (a frame every
 /// few hundred ms), so a blank shorter than that can slip between two samples.
 /// It catches a figure that is gone for the length of a draw, not a single
 /// dropped frame.
-#[test]
-#[ignore = "needs Docker and `just e2e-image`"]
-fn d3_figure_keeps_its_drawing_across_a_reload() -> Result<()> {
-    let (desktop, _) = run(
-        "d3-figure",
-        "d3-figure-keeps-its-drawing-across-a-reload",
-        d3_figure_expected(),
-    )?;
+fn d3_figure_keeps_its_drawing_across_a_reload(backend: Backend) -> Result<()> {
+    let desktop = Desktop::start_on(backend, "d3-figure", Screen::default())?;
     wait_for_colour(&desktop, "the first figure to be drawn", D3_STATIC, MAGENTA)?;
 
     desktop.exec(&[
@@ -798,8 +787,22 @@ fn d3_figure_keeps_its_drawing_across_a_reload() -> Result<()> {
     eprintln!("e2e: d3-figure reload · {before} frames of the old drawing before the new one");
 
     let screenshot = desktop.capture_stable()?;
-    save_devtools_shot("d3-figure-keeps-its-drawing-across-a-reload", &screenshot)?;
+    if backend == Backend::I3 {
+        save_devtools_shot("d3-figure-keeps-its-drawing-across-a-reload", &screenshot)?;
+    }
     Ok(())
+}
+
+#[test]
+#[ignore = "needs Docker and `just e2e-image`"]
+fn d3_figure_keeps_its_drawing_across_a_reload_on_i3() -> Result<()> {
+    d3_figure_keeps_its_drawing_across_a_reload(Backend::I3)
+}
+
+#[test]
+#[ignore = "needs Docker and `just e2e-image`"]
+fn d3_figure_keeps_its_drawing_across_a_reload_on_sway() -> Result<()> {
+    d3_figure_keeps_its_drawing_across_a_reload(Backend::Sway)
 }
 
 /// Assert the reservation contract, then hand back the desktop and its
@@ -1079,6 +1082,26 @@ fn panel_over_wallpaper_on_i3() -> Result<()> {
 #[ignore = "needs Docker and `just e2e-image`"]
 fn panel_over_wallpaper_on_sway() -> Result<()> {
     panel_over_wallpaper(Backend::Sway)
+}
+
+/// The same fixture must paint the same picture on both desktops, to the pixel.
+///
+/// Both desktops get the same 1920x1080 screen and fixture; the compositor's own
+/// background is fully covered by the wallpaper, so any difference is tauler's
+/// rendering or the compositor's presentation of it.
+#[test]
+#[ignore = "needs Docker and `just e2e-image`"]
+fn wallpaper_panel_frames_match_across_backends() -> Result<()> {
+    let (_i3, i3_shot) = wallpaper_panel_shot(Backend::I3, true)?;
+    let (_sway, sway_shot) = wallpaper_panel_shot(Backend::Sway, true)?;
+    let diff = tauler_e2e::diff_frames(&i3_shot, &sway_shot)?;
+    assert!(
+        diff.is_identical(),
+        "i3 and Sway frames differ: {diff}\n(i3: {}, sway: {})",
+        i3_shot.display(),
+        sway_shot.display()
+    );
+    Ok(())
 }
 
 /// The left output's wallpaper in `fixtures/two-outputs`, `#cc3366`, and the
