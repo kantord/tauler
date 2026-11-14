@@ -81,7 +81,7 @@ Use `assets/Logos/tauler-logo.svg` (light colors baked in). Do not redraw it, re
 
 ## Iconography
 
-No icon set. Use Lucide (shadcn's default) at 1.5px stroke when an icon is needed, in `foreground` or `muted-foreground`; otherwise mono text.
+No icon set. Use Lucide (shadcn's default) at a 2px stroke (the heavy rule width) when an icon is needed, in `foreground` or `muted-foreground`; otherwise mono text.
 
 
 ## Base colours
