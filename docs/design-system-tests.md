@@ -35,7 +35,7 @@ Our own code needed three changes to pass: a 44px and a 40px CSS value and one `
 | Does it solve against the colour you give it? | Not exactly. Its `lightness` setting moves the background it solves against (asked `#e6e4de`, got `#e3e1db`). Re-measure every value against the real page, as `scripts/colors.mjs` does. |
 | Does `formula: 'wcag3'` agree with a reference APCA implementation? | Yes, to within 0.2 Lc at Lc 45, 60 and 75, on a light and a dark page. Lc 90 is unreachable on the light page: it returns black, which measures 88.4. |
 | APCA thresholds (Lc 75 body, 60 content, 45 large)? | Checked against [APCA in a Nutshell](https://git.apcacontrast.com/documentation/APCA_in_a_Nutshell.html). 75, 60 and 45 are the published levels, but with conditions: 75 is for body text at 18px/400 or larger, 60 for content text that is not body text, 45 for large heavy text (36px/400 or 24px/700). Non-text elements such as control borders are Lc 30 (15 is the absolute floor), so `rule` is now checked against 30, not 45. Our 16px/400 prose is below the 18px/400 row, so its true target is above 75. Advice only; the checker exits 0. |
-| What does APCA say about our dark mode? | Dark `ink-muted` is 6.22:1 but Lc 44, dark `red` is 5.8:1 but Lc 42, dark `rule` is Lc 24, below the Lc 30 floor for control borders. Light mode is closer to its advisory floors. |
+| What does APCA say about our dark mode? | Dark `ink-muted` is 6.22:1 but Lc 44, dark `red` is 5.8:1 but Lc 42, dark `rule` was Lc 24 at 3.4:1, below the Lc 30 floor for control borders; it is now generated at 4.4:1 (Lc 31 on `page`, 30 on `raised`). Light mode is closer to its advisory floors. |
 
 ## Finish: what a token can restyle without editing components
 
@@ -75,8 +75,11 @@ Minimal case for the approach that changes every width utility:
 
 So colour, font, shadow and border width can be re-skinned without touching `components/ui`. Radius
 can if the style follows tokens, which lyra does not. Ring width (`ring-1`, `ring-3`) cannot. The
-heavy rule (`border-heavy`) is applied by editing the component and logging it, which still works
-but is not forced by Tailwind: a theme-wide `--default-border-width` is the alternative.
+site uses the theme route: `--default-border-width: 2px` in `global.css` makes every `border` the heavy
+rule, and the shadcn components carry the upstream `border` class again. The nested thin rule is
+`border-thin`, a logged edit in `alert.tsx`.
+
+Border widths are whole pixels (heavy 2px, thin 1px). The first version used 1.5px, which Chromium lays out as 1px at 1x, 2x and 3x device scale (a 50px box with a 1.5px border measures 52px wide, with a 2px border 54px), so heavy and thin looked the same there. Firefox and WebKit were not tested. The examples above use 1.5px because that is the value the test used; the mechanism is the same for 2px.
 
 ## Amendments to the handover brief
 

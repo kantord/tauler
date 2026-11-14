@@ -19,7 +19,7 @@ from `@/lib/utils`, and the files are formatted with oxfmt (single quotes, trail
 | Date | Edit | Why |
 | --- | --- | --- |
 | 2026-11-07 | Variants cut to `default`, `outline`, `outline-primary` and `nav`; sizes to `default`, `lg`, `inline` and `icon`. | The site has four kinds of control and no `secondary`, `ghost`, `destructive` or `link`. |
-| 2026-11-07 | Uppercase, mono, wide tracking, 1.5px rule border, solid orange focus outline. (Upstream is already square.) | Structure of the design's controls; none of it is a token. The width is `border-heavy`. |
+| 2026-11-07 | Uppercase, mono, wide tracking, 2px rule border, solid orange focus outline. (Upstream is already square.) | Structure of the design's controls; none of it is a token. The width is the theme default (`--default-border-width`), so the class is plain `border`. |
 | 2026-11-07 | `nav` variant: the current page (`aria-current="page"`) is lit. | Header links and workspace keys. |
 | 2026-11-11 | Text and hover colour use `orange-ink`, not `primary`; the `icon` size is mono, not Oswald. | `primary` (orange) is 3.36:1 as text on light; Oswald left the system. |
 | 2026-11-14 | Removed the `default` variant's hover fill, the `aria-invalid` styles, the dark-mode variants, `active` press, `transition-all` and `bg-clip-padding`; added `cursor-pointer`, `gap-2` and `no-underline` to the base. | Controls are flat and have no invalid state; the dark theme comes from the tokens. |

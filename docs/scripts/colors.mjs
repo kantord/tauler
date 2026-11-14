@@ -29,7 +29,7 @@ const RAMPS = {
     tokens: {
       'ink-muted': { light: 6, dark: 6 },
       line: { light: 1.4, dark: 1.4 },
-      rule: { dark: 3.4 },
+      rule: { dark: 4.4 },
     },
   },
   red: { keys: ['#a61b1b'], tokens: { red: { light: 5.2, dark: 5.6 } } },

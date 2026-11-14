@@ -52,7 +52,7 @@ export default function OverviewSlide() {
             <Row k="theme:" v="a shipped theme, in frontmatter" last />
             <Link
               href="/docs/layout-file/"
-              className="m flex items-center gap-2 border-t border-line pt-4 pb-2 text-label-strong font-semibold underline decoration-orange decoration-[1.5px] underline-offset-3"
+              className="m flex items-center gap-2 border-t-thin border-line pt-4 pb-2 text-label-strong font-semibold underline decoration-orange decoration-[1.5px] underline-offset-3"
             >
               the layout file
               <Icon icon={ArrowRight} />
@@ -67,7 +67,7 @@ export default function OverviewSlide() {
 function Row({ k, v, last }: { k: string; v: string; last?: boolean }) {
   return (
     <div
-      className={`flex items-center justify-between gap-3 py-4 ${last ? '' : 'border-b border-line'}`}
+      className={`flex items-center justify-between gap-3 py-4 ${last ? '' : 'border-b-thin border-line'}`}
     >
       <code className="ic">{k}</code>
       <span className="m text-right text-label-strong text-ink-muted">{v}</span>

@@ -3,13 +3,13 @@ import { cva, type VariantProps } from 'class-variance-authority'
 import { cn } from '@/lib/utils'
 
 // shadcn's base-lyra Button (`shadcn add button`), restyled to the site's
-// controls: a 1.5px rule, square corners, 12px uppercase mono with wide
+// controls: a 2px rule, square corners, 12px uppercase mono with wide
 // tracking. Colours come from the shadcn slots in global.css, which point at
 // the design-system tokens in global.css. A link that looks like a button takes `buttonVariants()`
 // as its className: Base UI's Button forces button semantics on whatever it
 // renders, so it must not render an <a>.
 const variants = cva(
-  "group/button inline-flex shrink-0 cursor-pointer items-center justify-center gap-2 border-heavy border-transparent font-mono text-label font-semibold tracking-[.08em] whitespace-nowrap uppercase no-underline outline-none select-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring focus-visible:outline-solid disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+  "group/button inline-flex shrink-0 cursor-pointer items-center justify-center gap-2 border border-transparent font-mono text-label font-semibold tracking-[.08em] whitespace-nowrap uppercase no-underline outline-none select-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring focus-visible:outline-solid disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
   {
     variants: {
       variant: {
