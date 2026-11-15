@@ -1,6 +1,10 @@
 // Scenario: two <D3Figure>s in a top bar, each one flat colour so a single
 // pixel says which drawing is showing.
 //
+// Backend-neutral on purpose: a plain <panel> with no <I3Layout>, so the same
+// file runs on the i3 and the Sway desktops. A `startup` script keeps the
+// default i3 clients away: with no gaps reserved they would tile over the bar.
+//
 // d3 and linkedom are not in the image. The first figure downloads them from
 // npm and GitHub into ~/.cache/tauler/d3, checked against the pinned hashes —
 // the same path a fresh machine takes (ADR 0045). The container has the
@@ -36,14 +40,12 @@ export default function render() {
 
   return (
     <root>
-      <I3Layout module="/usr/local/bin/tauler-i3">
-        <Panel id="d3bar" anchor="top" size={64}>
-          <div class="flex flex-row h-full w-full items-center gap-4 px-4 bg-background">
-            <Swatch figureKey="static" fill="#ff00ff" />
-            <Swatch figureKey={"live/" + n} fill={n === 0 ? "#ffff00" : "#00ffff"} />
-          </div>
-        </Panel>
-      </I3Layout>
+      <panel id="d3bar" anchor="top" width={1920} height={64}>
+        <div class="flex flex-row h-full w-full items-center gap-4 px-4 bg-background">
+          <Swatch figureKey="static" fill="#ff00ff" />
+          <Swatch figureKey={"live/" + n} fill={n === 0 ? "#ffff00" : "#00ffff"} />
+        </div>
+      </panel>
     </root>
   );
 }

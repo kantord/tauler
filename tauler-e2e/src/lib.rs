@@ -408,6 +408,75 @@ pub fn pixel_at(png: &Path, x: u32, y: u32) -> Result<[u8; 4]> {
     Ok(px.0)
 }
 
+/// How two captured frames differ, from [`diff_frames`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FrameDiff {
+    /// `(width, height)` of each frame, when they are not the same size; no
+    /// pixels are compared then.
+    pub size_mismatch: Option<((u32, u32), (u32, u32))>,
+    /// Pixels that are not exactly equal (all four channels).
+    pub differing: u64,
+    /// The first differing pixel in row-major order: `(x, y, left, right)`.
+    pub first: Option<(u32, u32, [u8; 4], [u8; 4])>,
+}
+
+impl FrameDiff {
+    pub fn is_identical(&self) -> bool {
+        self.size_mismatch.is_none() && self.differing == 0
+    }
+}
+
+impl std::fmt::Display for FrameDiff {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if let Some(((lw, lh), (rw, rh))) = self.size_mismatch {
+            return write!(f, "sizes differ: {lw}x{lh} vs {rw}x{rh}");
+        }
+        match self.first {
+            None => write!(f, "identical"),
+            Some((x, y, left, right)) => write!(
+                f,
+                "{} differing pixels, first at ({x}, {y}): {left:?} vs {right:?}",
+                self.differing
+            ),
+        }
+    }
+}
+
+/// Compare two PNGs pixel for pixel, with zero tolerance.
+pub fn diff_frames(left: &Path, right: &Path) -> Result<FrameDiff> {
+    let open = |p: &Path| -> Result<image::RgbaImage> {
+        Ok(image::open(p)
+            .with_context(|| format!("decoding {}", p.display()))?
+            .to_rgba8())
+    };
+    let (l, r) = (open(left)?, open(right)?);
+    Ok(diff_images(&l, &r))
+}
+
+fn diff_images(l: &image::RgbaImage, r: &image::RgbaImage) -> FrameDiff {
+    if l.dimensions() != r.dimensions() {
+        return FrameDiff {
+            size_mismatch: Some((l.dimensions(), r.dimensions())),
+            differing: 0,
+            first: None,
+        };
+    }
+    let mut differing = 0;
+    let mut first = None;
+    for (x, y, a) in l.enumerate_pixels() {
+        let b = r.get_pixel(x, y);
+        if a != b {
+            differing += 1;
+            first.get_or_insert((x, y, a.0, b.0));
+        }
+    }
+    FrameDiff {
+        size_mismatch: None,
+        differing,
+        first,
+    }
+}
+
 /// Parse the geometry of each child in `xwininfo -root -children` output.
 ///
 /// The lines look like:
@@ -503,6 +572,20 @@ xwininfo: Window id: 0x2e (the root window) (has no name)
                 },
             ]
         );
+    }
+
+    #[test]
+    fn frame_diff_reports_count_and_first_pixel() {
+        let a = image::RgbaImage::from_pixel(4, 3, image::Rgba([1, 2, 3, 255]));
+        let mut b = a.clone();
+        assert!(diff_images(&a, &b).is_identical());
+        b.put_pixel(2, 1, image::Rgba([9, 2, 3, 255]));
+        b.put_pixel(0, 2, image::Rgba([1, 9, 3, 255]));
+        let d = diff_images(&a, &b);
+        assert_eq!(d.differing, 2);
+        assert_eq!(d.first, Some((2, 1, [1, 2, 3, 255], [9, 2, 3, 255])));
+        let c = image::RgbaImage::new(5, 3);
+        assert!(diff_images(&a, &c).size_mismatch.is_some());
     }
 
     #[test]
