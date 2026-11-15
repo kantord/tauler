@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.3](https://github.com/kantord/tauler/compare/taulerbox-v0.11.2...taulerbox-v0.11.3) - 2026-11-15
+
+### Fixed
+
+- *(deps)* update rust crate vnc-rs to v0.6.1 ([#822](https://github.com/kantord/tauler/pull/822))
+
 ## [0.11.2](https://github.com/kantord/tauler/compare/taulerbox-v0.11.1...taulerbox-v0.11.2) - 2026-11-12
 
 ### Other
