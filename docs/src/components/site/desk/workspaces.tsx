@@ -52,7 +52,7 @@ export function SlideSteps({ n }: { n: WorkspaceNumber }) {
   return (
     <nav
       aria-label="Slides"
-      className="mt-10 grid grid-cols-[repeat(auto-fit,minmax(min(100%,220px),1fr))] gap-3"
+      className="mt-12 grid grid-cols-[repeat(auto-fit,minmax(min(100%,220px),1fr))] gap-3"
     >
       <Link href={previous.href} className="pn">
         <small>

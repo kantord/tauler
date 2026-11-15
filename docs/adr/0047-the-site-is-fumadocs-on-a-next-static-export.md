@@ -156,7 +156,7 @@ The site's buttons, button-styled links and callouts are shadcn's `Button` and
 to be hand-built, each repeating the same inline classes. The look lives in two
 places. The colours are the shadcn slots in `global.css`, which alias the
 base tokens (ADR 0049). The shape is the components' own `cva` classes, edited
-to the design: a 1.5px rule, square corners, 12px uppercase mono with wide
+to the design: a 2px rule, square corners, 12px uppercase mono with wide
 tracking, and an orange `focus-visible` outline. The variants are `default`
 (orange fill), `outline`, `outline-primary` (the terminal's copy button) and
 `nav`, a link whose current page (`aria-current="page"`) is lit. The sizes are

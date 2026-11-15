@@ -22,7 +22,7 @@ export function SiteHeader({
   lead?: ReactNode
 }) {
   return (
-    <header className="m sticky top-0 z-40 border-b-heavy border-rule bg-page text-label tracking-[.08em] uppercase">
+    <header className="m sticky top-0 z-40 border-b border-rule bg-page text-label tracking-[.08em] uppercase">
       <div className="mx-auto flex max-w-page flex-wrap items-center justify-between gap-3 px-6 py-2">
         {lead}
         <nav aria-label="Site" className="flex items-center gap-4">
@@ -33,7 +33,7 @@ export function SiteHeader({
           >
             <Logo id="logo-nav" dither={3.6} className="size-9" />
           </Link>
-          <span aria-hidden="true" className="h-5 border-l-heavy border-rule" />
+          <span aria-hidden="true" className="h-5 border-l border-rule" />
           <Link
             href="/"
             aria-current={current === 'home' ? 'page' : undefined}
@@ -67,7 +67,7 @@ export function SiteHeader({
 
 export function SiteFooter() {
   return (
-    <footer className="m relative mt-auto border-t-heavy border-rule bg-page text-label tracking-[.08em] uppercase">
+    <footer className="m relative mt-auto border-t border-rule bg-page text-label tracking-[.08em] uppercase">
       <div className="mx-auto flex max-w-page flex-wrap items-center justify-between gap-4 px-6 py-4 text-ink-muted">
         <span className="flex items-center gap-2">
           <Logo id="logo-foot" dither={4.5} label="tauler" className="size-6" />

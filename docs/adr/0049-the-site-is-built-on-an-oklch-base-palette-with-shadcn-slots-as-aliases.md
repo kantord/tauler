@@ -29,7 +29,7 @@ Six rules came out of it and are easy to undo by accident:
 - **`text-xs` stays Tailwind's 12px.** The type scale is defined in `@theme`, but our 11px step is
   `text-caption`: `text-xs` is a global theme value that Fumadocs components read, and 11px there is
   too small.
-- **Borders are heavy (1.5px) or thin (1px), and nesting picks one.** Heavy for top-level tiles,
+- **Borders are heavy (2px) or thin (1px), and nesting picks one.** Heavy for top-level tiles,
   header and footer rules, and controls; thin for anything nested inside a tile. Page width is one
   token, `--width-page`.
 

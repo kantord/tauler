@@ -20,7 +20,7 @@
   --font-tu-text: 'DM Sans Variable', sans-serif;
   --font-tu-mono: 'IBM Plex Mono', monospace;
   /* Height of the sticky site header on a wide screen (one row: 40px
-     controls, 8px padding top and bottom, 1.5px rule). */
+     controls, 8px padding top and bottom, 2px rule). */
   --tu-header-h: 58px;
   --page: oklch(0.919 0.008 91.5);
   --raised: oklch(0.961 0.005 95.1);
@@ -57,7 +57,7 @@
   --ink: oklch(0.939 0.007 97.4);
   --ink-muted: oklch(0.666 0.007 97.4);
   --line: oklch(0.313 0.005 91.6);
-  --rule: oklch(0.525 0.008 88.7);
+  --rule: oklch(0.587 0.006 84.6);
   --orange: oklch(0.703 0.195 40.2);
   --orange-deep: oklch(0.577 0.16 40.8);
   --orange-ink: var(--orange);
@@ -140,31 +140,17 @@
   --text-display-lg: 1.5rem; /* 24 */
   --text-display-xl: clamp(2.5rem, 4.4vw, 4rem); /* 40 to 64 */
   --width-page: 1320px;
+  /* Border widths. The default is the heavy rule, so a shadcn `border` is heavy
+     with no component edit; `border-thin` (and `border-t-thin` ...) is the
+     nested 1px rule. These keys also generate `border-heavy` and the side
+     variants. */
+  --default-border-width: 2px;
+  --border-width-heavy: 2px;
+  --border-width-thin: 1px;
 }
 
 @utility max-w-page {
   max-width: var(--width-page);
-}
-
-:root {
-  --border-heavy: 1.5px;
-  --border-thin: 1px;
-}
-
-@utility border-heavy {
-  border-width: var(--border-heavy);
-}
-@utility border-thin {
-  border-width: var(--border-thin);
-}
-@utility border-t-heavy {
-  border-top-width: var(--border-heavy);
-}
-@utility border-l-heavy {
-  border-left-width: var(--border-heavy);
-}
-@utility border-b-heavy {
-  border-bottom-width: var(--border-heavy);
 }
 
 @theme inline {
@@ -310,7 +296,7 @@ html > body[data-scroll-locked] {
     font-weight: 600;
     display: inline-block;
     padding: 4px 8px;
-    border: var(--border-heavy) solid var(--rule);
+    border: var(--border-width-heavy) solid var(--rule);
     border-bottom-width: 3px; /* the keycap's foot, per the spec */
     background: var(--raised);
     color: var(--ink);
@@ -328,7 +314,7 @@ html > body[data-scroll-locked] {
   .tu .mark {
     width: 16px;
     height: 16px;
-    border: var(--border-heavy) solid var(--rule);
+    border: var(--border-width-heavy) solid var(--rule);
     background:
       repeating-conic-gradient(var(--orange) 0 25%, transparent 0 50%) 0 0/4px
         4px,
@@ -338,7 +324,7 @@ html > body[data-scroll-locked] {
   /* ── Tiles: framed panels with a hatched title bar ─────────────────────── */
 
   .tu .tile {
-    border: var(--border-heavy) solid var(--rule);
+    border: var(--border-width-heavy) solid var(--rule);
     background: var(--raised);
     display: flex;
     flex-direction: column;
@@ -348,7 +334,7 @@ html > body[data-scroll-locked] {
     border-color: var(--orange);
     /* A second ring outside the border: an outline, so lighting a tile never
        moves its content. */
-    outline: var(--border-heavy) solid var(--orange);
+    outline: var(--border-width-heavy) solid var(--orange);
   }
   .tu .bar {
     display: flex;
@@ -356,7 +342,7 @@ html > body[data-scroll-locked] {
     align-items: center;
     min-height: 40px;
     padding: 4px 12px;
-    border-bottom: var(--border-heavy) solid var(--rule);
+    border-bottom: var(--border-width-heavy) solid var(--rule);
     background:
       repeating-conic-gradient(var(--line) 0 25%, transparent 0 50%) 0 0/4px 4px,
       var(--page);
@@ -388,14 +374,14 @@ html > body[data-scroll-locked] {
   .tu button.bar {
     width: 100%;
     border: 0;
-    border-bottom: var(--border-heavy) solid var(--rule);
+    border-bottom: var(--border-width-heavy) solid var(--rule);
     cursor: pointer;
   }
   .tu button.sbar,
   .tu button.wbar {
     width: 100%;
     border: 0;
-    border-bottom: var(--border-thin) solid var(--line);
+    border-bottom: var(--border-width-thin) solid var(--line);
     cursor: pointer;
   }
   .tu .tb {
@@ -433,7 +419,7 @@ html > body[data-scroll-locked] {
 
   /* Mini app windows (the install terminal). */
   .tu .win {
-    border: var(--border-thin) solid var(--line);
+    border: var(--border-width-thin) solid var(--line);
     display: flex;
     flex-direction: column;
     min-width: 0;
@@ -442,7 +428,7 @@ html > body[data-scroll-locked] {
   .tu .wbar {
     min-height: 32px;
     padding: 4px 12px 8px;
-    border-bottom: var(--border-thin) solid var(--line);
+    border-bottom: var(--border-width-thin) solid var(--line);
     background:
       repeating-conic-gradient(var(--line) 0 25%, transparent 0 50%) left
         bottom/4px 4px repeat-x,
@@ -464,7 +450,7 @@ html > body[data-scroll-locked] {
     text-transform: uppercase;
     letter-spacing: 0.1em;
     color: var(--ink-muted);
-    margin: 44px 0 12px;
+    margin: 48px 0 12px;
     scroll-margin-top: calc(var(--tu-header-h) + 12px);
   }
   .tu .wslabel h1 {
@@ -476,7 +462,7 @@ html > body[data-scroll-locked] {
   .tu .wslabel::after {
     content: '';
     flex: 1;
-    height: var(--border-thin);
+    height: var(--border-width-thin);
     background: var(--line);
     order: 1;
   }
@@ -489,12 +475,12 @@ html > body[data-scroll-locked] {
     font-family: var(--font-tu-mono);
     font-size: var(--text-sm);
     background: var(--page);
-    border: var(--border-thin) solid var(--line);
+    border: var(--border-width-thin) solid var(--line);
     padding: 2px 4px;
     white-space: nowrap;
   }
   .tu .hero-strip {
-    border: var(--border-heavy) solid var(--rule);
+    border: var(--border-width-heavy) solid var(--rule);
     background:
       repeating-conic-gradient(var(--orange) 0 25%, transparent 0 50%) 0 0/4px
         4px,
@@ -536,7 +522,7 @@ html > body[data-scroll-locked] {
 
   /* Sub-panels: code blocks (callouts are components/ui/alert.tsx) */
   .tu .sub {
-    border: var(--border-thin) solid var(--line);
+    border: var(--border-width-thin) solid var(--line);
     background: var(--raised);
     display: flex;
     flex-direction: column;
@@ -546,7 +532,7 @@ html > body[data-scroll-locked] {
   .tu .sbar {
     min-height: 32px;
     padding: 4px 12px 8px;
-    border-bottom: var(--border-thin) solid var(--line);
+    border-bottom: var(--border-width-thin) solid var(--line);
     background:
       repeating-conic-gradient(var(--line) 0 25%, transparent 0 50%) left
         bottom/4px 4px repeat-x,
@@ -595,7 +581,7 @@ html > body[data-scroll-locked] {
     font-size: var(--text-label-strong);
     text-decoration: none;
     color: var(--ink-muted);
-    border-left: var(--border-heavy) solid transparent;
+    border-left: var(--border-width-heavy) solid transparent;
   }
   .tu .toc a.depth-3 {
     padding-left: 24px;
@@ -612,7 +598,7 @@ html > body[data-scroll-locked] {
     width: 100%;
     min-height: 72px;
     padding: 16px;
-    border: var(--border-thin) solid var(--line);
+    border: var(--border-width-thin) solid var(--line);
     background: var(--raised);
     color: var(--ink);
     text-align: left;
@@ -640,7 +626,7 @@ html > body[data-scroll-locked] {
   /* ── Article ───────────────────────────────────────────────────────────── */
 
   .tu .art {
-    padding: 40px 48px 48px;
+    padding: 48px;
     max-width: 780px;
   }
   .tu .art h1 {
@@ -696,14 +682,14 @@ html > body[data-scroll-locked] {
     margin: 0;
   }
   .tu .art blockquote {
-    border-left: var(--border-heavy) solid var(--line);
+    border-left: var(--border-width-heavy) solid var(--line);
     padding-left: 16px;
     color: var(--ink-muted);
     margin: 0 0 16px;
   }
   .tu .art hr {
     border: 0;
-    border-top: var(--border-thin) solid var(--line);
+    border-top: var(--border-width-thin) solid var(--line);
     margin: 32px 0;
   }
   .tu .art img {
@@ -714,14 +700,14 @@ html > body[data-scroll-locked] {
     font-family: var(--font-tu-mono);
     font-size: var(--text-sm);
     background: var(--page);
-    border: var(--border-thin) solid var(--line);
+    border: var(--border-width-thin) solid var(--line);
     padding: 2px 4px;
     overflow-wrap: anywhere;
   }
   .tu .art a {
     text-decoration: underline;
     text-decoration-color: var(--orange);
-    text-decoration-thickness: var(--border-heavy);
+    text-decoration-thickness: var(--border-width-heavy);
     text-underline-offset: 4px;
   }
   .tu .art a.pn {
@@ -759,7 +745,7 @@ html > body[data-scroll-locked] {
   .tu .tbl {
     overflow-x: auto;
     margin: 0 0 20px;
-    border: var(--border-thin) solid var(--line);
+    border: var(--border-width-thin) solid var(--line);
   }
   .tu table {
     width: 100%;
@@ -777,12 +763,12 @@ html > body[data-scroll-locked] {
     color: var(--ink-muted);
     text-align: left;
     padding: 8px 16px;
-    border-bottom: var(--border-thin) solid var(--line);
+    border-bottom: var(--border-width-thin) solid var(--line);
     background: var(--page);
   }
   .tu td {
     padding: 12px 16px;
-    border-bottom: var(--border-thin) solid var(--line);
+    border-bottom: var(--border-width-thin) solid var(--line);
     vertical-align: top;
     line-height: 1.5;
   }

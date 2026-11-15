@@ -4,7 +4,7 @@
 //
 // The merger has to know the design system's own utilities (global.css:
 // the type scale and border-heavy / border-thin). Unregistered, it reads
-// `text-label` as a colour and `border-heavy` as a border colour, and drops
+// `text-label` as a colour and `border-thin` as a border colour, and drops
 // them next to `text-foreground` or `border-input`.
 import { createCn } from 'cn/config'
 
@@ -23,9 +23,9 @@ export const cn = createCn({
         },
       ],
       'border-w': [{ border: ['heavy', 'thin'] }],
-      'border-w-t': [{ 'border-t': ['heavy'] }],
-      'border-w-b': [{ 'border-b': ['heavy'] }],
-      'border-w-l': [{ 'border-l': ['heavy'] }],
+      'border-w-t': [{ 'border-t': ['heavy', 'thin'] }],
+      'border-w-b': [{ 'border-b': ['heavy', 'thin'] }],
+      'border-w-l': [{ 'border-l': ['heavy', 'thin'] }],
     },
   },
 })

@@ -33,9 +33,9 @@ Wire it in Tailwind v4 with the shadcn convention: declare base and semantic val
 
 - Every color is `oklch()`. Lightness (L) is perceptual, so a step of 0.1 looks like the same step in either theme; chroma and hue stay put between themes.
 - Brand anchors are exact conversions of the site and logo: `page`, `raised`, `ink`, `orange`, `orange-deep`, `on-orange`, `code`, `code-ink`.
-- The derived colors, `ink-muted`, `line`, `red` and the dark `rule`, are generated with Adobe's Leonardo (`@adobe/leonardo-contrast-colors`, WCAG 2 contrast) as a scale from warm-gray and red key colors, solved against `page` in each theme. Targets: `ink-muted` 6:1, dark `rule` 3.4:1, `line` 1.4:1, `red` 5.2:1 light and 5.6:1 dark. To change one, change its ratio and regenerate; do not hand-edit the lightness.
-- Checked on `page` and `raised` in both themes: `ink` 14:1 or more, `ink-muted` 5.6:1 or more, `red` 5.2:1 or more, `rule` 3.2:1 or more (light `rule` is `ink`), `on-orange` on `orange` 5:1 or more. `orange` itself is 2.96:1 on the light `page`, kept to match the logo, so it is only ever a fill; text and focus rings use `orange-ink`.
-- Use WCAG 2 ratios as the gate; for text on orange or small body text, also eyeball it, since APCA would rate light-on-dark text more strictly.
+- The derived colors, `ink-muted`, `line`, `red` and the dark `rule`, are generated with Adobe's Leonardo (`@adobe/leonardo-contrast-colors`, WCAG 2 contrast) as a scale from warm-gray and red key colors, solved against `page` in each theme. Targets: `ink-muted` 6:1, dark `rule` 4.4:1, `line` 1.4:1, `red` 5.2:1 light and 5.6:1 dark. To change one, change its ratio and regenerate; do not hand-edit the lightness.
+- Checked on `page` and `raised` in both themes: `ink` 14:1 or more, `ink-muted` 5.6:1 or more, `red` 5.2:1 or more, `rule` 3.9:1 or more (light `rule` is `ink`), `on-orange` on `orange` 5:1 or more. `orange` itself is 2.96:1 on the light `page`, kept to match the logo, so it is only ever a fill; text and focus rings use `orange-ink`.
+- Use WCAG 2 ratios as the gate; for text on orange or small body text, also eyeball it, since APCA would rate light-on-dark text more strictly. `scripts/colors.mjs` also prints APCA advice, never a failure, using the published levels: Lc 75 for body text columns (18px/400 and up), Lc 60 for other content text, Lc 45 for large heavy text, Lc 30 for control borders and other non-text elements. Our 16px/400 prose is below the 18px/400 row of that table, so its true target is higher than 75.
 
 ## Using the colors
 
@@ -71,7 +71,7 @@ Defined in `@theme` in `global.css`; use these utilities, never `text-[Npx]`. `t
 
 - Page width is one token, `--width-page` (1320px), used as `max-w-page`. Spacing is Tailwind's 4px scale (`space-1` … `space-12`); use Tailwind's `p-*`, `gap-*` utilities. No half-steps (`gap-3.5`) and no arbitrary px; 2px is allowed for hairline offsets only (inline code padding). **Exception:** the 88px workspace numerals on `principles/page.draft.tsx` have no scale step, because they exist only on a draft page. Add a step when that page ships.
 - `radius` is 0, so every shadcn `rounded-*` is square. The one exception is keycaps (`radius-key`, 4px).
-- Borders: heavy (1.5px) for top-level tiles, the header and footer rules, and controls; thin (1px) for anything nested inside a tile: sub-windows, mini windows, callouts such as alerts, and separators. Both are utilities (`border-heavy`, `border-t-heavy`, `border-b-heavy`, `border-l-heavy`, `border-thin`) and the variables `--border-heavy` and `--border-thin`. No other widths, except the keycap's 3px foot.
+- Borders: heavy (2px) for top-level tiles, the header and footer rules, and controls; thin (1px) for anything nested inside a tile: sub-windows, mini windows, callouts such as alerts, and separators. Heavy is Tailwind's default width here (`--default-border-width` in `global.css`), so a plain `border`, `border-t` or `border-b` is heavy, in shadcn components too. Thin is `border-thin` (and `border-t-thin` and the like). Both widths are variables, `--border-width-heavy` and `--border-width-thin`. No other widths, except the keycap's 3px foot.
 - No shadows or gradients, and that includes third-party components: the search dialog's shadow is removed in `global.css`. Depth is rules and the 4px checker hatch (`line` on `page`, or `orange-deep` on `orange` when focused); the hatch is 4px everywhere.
 - Tiles: a `card` panel with a heavy `rule` frame and a hatched title bar holding a `label-strong` mono title. The focused tile gets an orange frame and bar. **Exception:** the orange frame on the light page is 2.96:1, under the 3:1 border rule. The frame is not the only cue: the lit tile also has the orange title bar and its text, and the frame passes in dark, so it is exempt. Do not use `orange-ink` for it; that would turn a bright accent into a dull one.
 
@@ -81,7 +81,7 @@ Use `assets/Logos/tauler-logo.svg` (light colors baked in). Do not redraw it, re
 
 ## Iconography
 
-No icon set. Use Lucide (shadcn's default) at 1.5px stroke when an icon is needed, in `foreground` or `muted-foreground`; otherwise mono text.
+No icon set. Use Lucide (shadcn's default) at a 2px stroke (the heavy rule width) when an icon is needed, in `foreground` or `muted-foreground`; otherwise mono text.
 
 
 ## Base colours
@@ -95,7 +95,7 @@ Light on `:root`, dark on `.dark`. `orange-ink` is `{orange}` in dark.
 | `ink` | `oklch(0.178 0.000 0.0)` | `oklch(0.939 0.007 97.4)` | Primary text and heavy rules on page and raised; also the logo ground. |
 | `ink-muted` | `oklch(0.435 0.008 88.7)` | `oklch(0.666 0.007 97.4)` | Secondary text on page and raised (6.2:1 light, 6.2:1 dark on page). Generated with Leonardo against page. |
 | `line` | `oklch(0.805 0.003 84.6)` | `oklch(0.313 0.005 91.6)` | Thin hairlines and separators. Decorative; never carries text. Generated with Leonardo against page. |
-| `rule` | `oklch(0.178 0.000 0.0)` | `oklch(0.525 0.008 88.7)` | Heavy 1.5px rules and control borders. Light: same as ink (the printed look); dark: generated with Leonardo against page at 3.4:1. |
+| `rule` | `oklch(0.178 0.000 0.0)` | `oklch(0.587 0.006 84.6)` | Heavy 2px rules and control borders. Light: same as ink (the printed look); dark: generated with Leonardo against page at 4.4:1, so it clears APCA Lc 30 for control borders on `page` and `raised`. |
 | `orange` | `oklch(0.632 0.186 39.2)` | `oklch(0.703 0.195 40.2)` | brand anchor (matches the logo). Fills only: primary buttons, focused title bars, the logo cell. Never small text or a focus ring on light (use orange-ink); 2.96:1 on the light page. |
 | `orange-deep` | `oklch(0.541 0.159 38.5)` | `oklch(0.577 0.160 40.8)` | Hatch partner of orange on a focused title bar; chart accent. |
 | `orange-ink` | `oklch(0.500 0.181 33.9)` | `{orange}` | Orange as text, link hover and focus ring: 5.2:1 on page, 5.9:1 on raised in light; the brand orange itself in dark (6:1+). Light value generated with Leonardo. |
@@ -109,11 +109,32 @@ Light on `:root`, dark on `.dark`. `orange-ink` is `{orange}` in dark.
 | `code-orange-soft` | `oklch(0.762 0.150 43.6)` | `oklch(0.762 0.150 43.6)` | syntax colour, same in both themes. Numbers and constants on code (7.6:1). |
 | `code-yellow` | `oklch(0.846 0.169 84.9)` | `oklch(0.846 0.169 84.9)` | syntax colour, same in both themes. Strings on code (10.5:1). |
 
+## Spacing allowlist
+
+Padding, margin and gap use Tailwind steps 0, 0.5 (hairlines only), 1 to 8, 12 and 16, plus `px` and `auto`.
+In our CSS the px values are 0, 1, 2, 4, 8, 12, 16, 20, 24, 28, 32, 48 and 64. Arbitrary values are not
+allowed. Sizing (`h-*`, `size-*`, `w-*`, `max-w-*`) is not restricted. `pnpm run check:spacing` enforces
+this and `components/ui` is exempt. Add `spacing-ok: reason` to a line for a documented exception.
+
+## Checks
+
+`pnpm run checks` runs three design-system checks: `check:colors` (contrast of every text pair, and the
+derived colours against the generator), `check:spacing`, and `check:ui-log` (every shadcn component is
+listed in `src/components/ui/EDITS.md`). This file and `global.css` are canonical; any token file kept in
+a design tool is generated from them. ADR 0050 explains the choices and `design-system-tests.md` has the
+evidence.
+
+## Brand colour as text
+
+A bright brand colour is a fill. Text, link hovers and focus rings use its text-safe variant
+(`orange-ink`). A new brand colour needs both.
+
 ## Changing a colour
 
 1. Edit the base value in `global.css`; never give a shadcn slot its own value.
 2. The derived colours (`ink-muted`, `line`, `red`, `orange-ink`, dark `rule`) come from Adobe's Leonardo
-   (`@adobe/leonardo-contrast-colors`, WCAG 2) solved against `page`: change the ratio, regenerate, do not
-   hand-edit lightness.
+   (`@adobe/leonardo-contrast-colors`, WCAG 2) solved against `page`. Change the ratio in
+   `scripts/colors.mjs`, run `node scripts/colors.mjs --print`, and paste the values; do not hand-edit
+   lightness.
 3. Check every text pair on `page` and `raised` in both themes: `ink` 7:1, `ink-muted`, `red` and
    `orange-ink` 4.5:1, `rule` 3:1.
