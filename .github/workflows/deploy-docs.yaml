@@ -35,9 +35,9 @@ jobs:
 
       # The browser assets are build products, not commits — see ADR 0024's consequences
       # and the `.gitignore` entry. That is what puts a Rust toolchain in a docs deploy.
-      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+      - uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable
         with:
-          toolchain: "1.99.1"
+          toolchain: "1.100.0"
           targets: wasm32-unknown-unknown
 
       - name: Install system dependencies

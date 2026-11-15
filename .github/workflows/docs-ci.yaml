@@ -54,9 +54,9 @@ jobs:
       # inside a try/catch (DemoColumn's own boot) fail silently instead,
       # which is what let this gap go unnoticed. Mirrors deploy-docs.yaml's
       # "Build the browser assets" step — same toolchain, same recipe.
-      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+      - uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable
         with:
-          toolchain: "1.99.1"
+          toolchain: "1.100.0"
           targets: wasm32-unknown-unknown
 
       # deploy-docs.yaml's own version of this step uses `sudo` and skips a C
