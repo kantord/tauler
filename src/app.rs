@@ -421,11 +421,12 @@ impl Figures {
     /// Store every drawing the current runtime sent as its key's Picture;
     /// whether any arrived. Drawings from a runtime dropped by a reload are
     /// ignored ([`tauler::d3_figure::draw::current_only`]).
-    fn store_drawn(&self) -> bool {
+    fn store_drawn(&mut self) -> bool {
         let mut any = false;
         let arrived =
             tauler::d3_figure::draw::current_only(self.generation, self.drawn_rx.try_iter());
         for drawn in arrived {
+            self.requests.arrived(&drawn.key);
             tauler::render::picture::set_picture(&drawn.key, drawn.svg);
             any = true;
         }
@@ -438,6 +439,17 @@ impl Figures {
         }
         any
     }
+}
+
+/// How long a Tick's repaint waits for the drawings it asked for, so the
+/// update and its Pictures land in one repaint instead of two (issue #686).
+const HOLD_FOR_DRAWINGS: std::time::Duration = std::time::Duration::from_millis(100);
+
+/// A Tick's eval whose repaint waits for its figures' drawings.
+struct Held {
+    out: tauler::jsx::EvalOutput,
+    trace: Option<Trace>,
+    since: std::time::Instant,
 }
 
 pub(crate) struct App {
@@ -506,6 +518,8 @@ pub(crate) struct App {
     #[cfg(target_os = "linux")]
     a11y_rx: mpsc::Receiver<(String, Vec<usize>)>,
     figures: Figures,
+    /// See [`HOLD_FOR_DRAWINGS`].
+    held: Option<Held>,
     /// The latest eval, as it came out of the evaluator: what a drawing that
     /// arrives is reconciled against, without evaluating again.
     last_eval: Option<tauler::jsx::EvalOutput>,
@@ -857,6 +871,7 @@ impl App {
             #[cfg(target_os = "linux")]
             a11y_rx,
             figures,
+            held: None,
             last_eval: None,
         };
         state.initial_load();
@@ -941,6 +956,7 @@ impl App {
             a11y,
             a11y_rx,
             figures,
+            held: None,
             last_eval: None,
         };
         state.initial_load();
@@ -1036,6 +1052,7 @@ impl App {
             outbox: Outbox::new(),
             presenter_thread: None,
             figures: Figures::new(notifier),
+            held: None,
             last_eval: None,
         };
         state.initial_load();
@@ -1050,9 +1067,67 @@ impl App {
         out: &tauler::jsx::EvalOutput,
         trace: Option<Trace>,
     ) -> bool {
+        // Newer than any held Tick: releasing that would paint the old output
+        // over this one.
+        self.held = None;
         self.last_eval = Some(out.clone());
         self.figures.request(out);
         self.reconcile_eval(out, trace)
+    }
+
+    /// A Tick's eval: like [`Self::apply_eval_result_dispatch`], but while a
+    /// figure it names is being drawn the repaint waits (at most
+    /// [`HOLD_FOR_DRAWINGS`]), so the update and the Picture arrive together.
+    /// [`Self::release_held`] ends the wait.
+    fn apply_tick_eval(
+        &mut self,
+        out: &tauler::jsx::EvalOutput,
+        trace: Option<Trace>,
+        interactive: bool,
+    ) {
+        self.last_eval = Some(out.clone());
+        self.figures.request(out);
+        // A reply to a person's input is never held (ADR 0042).
+        if interactive || !self.figures.requests.drawing() {
+            self.held = None;
+            self.reconcile_eval(out, trace);
+            return;
+        }
+        let since = match self.held.take() {
+            Some(h) => h.since,
+            None => {
+                // Before the timer starts, so its wake cannot precede expiry.
+                let since = std::time::Instant::now();
+                let notifier = self.figures.notifier.clone();
+                std::thread::spawn(move || {
+                    std::thread::sleep(HOLD_FOR_DRAWINGS);
+                    let _ = notifier.try_send(());
+                });
+                since
+            }
+        };
+        self.held = Some(Held {
+            out: out.clone(),
+            trace,
+            since,
+        });
+    }
+
+    /// Repaint the held eval once its drawings are in or the wait is over.
+    /// Whether it did.
+    ///
+    /// `force` releases it now: input must resolve its handlers against the
+    /// tree on screen, and handler ids belong to the newest eval's tree.
+    fn release_held(&mut self, force: bool) -> bool {
+        let Some(held) = &self.held else { return false };
+        let expired = force || held.since.elapsed() >= HOLD_FOR_DRAWINGS;
+        if self.figures.requests.drawing() && !expired {
+            return false;
+        }
+        self.figures.requests.give_up();
+        let Held { out, trace, .. } = self.held.take().expect("checked above");
+        self.reconcile_eval(&out, trace);
+        true
     }
 
     /// The reconcile half of [`Self::apply_eval_result_dispatch`]: also what a
@@ -1529,6 +1604,9 @@ impl App {
     #[cfg(target_os = "linux")]
     fn drain_a11y_actions(&mut self) {
         let actions: Vec<(String, Vec<usize>)> = self.a11y_rx.try_iter().collect();
+        if !actions.is_empty() {
+            self.release_held(true);
+        }
         for (panel_id, path) in actions {
             self.activate(panel_id, path);
         }
@@ -1580,6 +1658,7 @@ impl App {
         let mut changed = false;
 
         let mut answered: Vec<String> = Vec::new();
+        let mut interactive = false;
         while let Ok((key, value)) = self.item_rx.try_recv() {
             answered.push(key.0.clone());
             let stale = self.stream_values.read().unwrap().get(&key) != Some(&value);
@@ -1596,7 +1675,12 @@ impl App {
         let now = std::time::Instant::now();
         let mut tick_trace: Option<Trace> = None;
         for channel in answered {
-            let Answered { trace, next } = self.outbox.answered(now, &channel);
+            let Answered {
+                replied,
+                trace,
+                next,
+            } = self.outbox.answered(now, &channel);
+            interactive |= replied;
             if let (None, Some(mut t)) = (tick_trace.as_ref(), trace) {
                 t.mark_now("answered");
                 tick_trace = Some(t);
@@ -1624,7 +1708,7 @@ impl App {
             if let Some(eval_result) = eval_out {
                 match eval_result {
                     Ok(out) => {
-                        self.apply_eval_result_dispatch(&out, tick_trace);
+                        self.apply_tick_eval(&out, tick_trace, interactive);
                     }
                     Err(e) => tracing::error!(error = %e, "JSX re-eval error"),
                 }
@@ -1644,6 +1728,9 @@ impl App {
         // handler call. Acting event-by-event as they were drained is what made
         // a fast drag cost a QuickJS invocation per motion event.
         let events: Vec<PresenterEvent> = self.event_rx.try_iter().collect();
+        if !events.is_empty() {
+            self.release_held(true);
+        }
         for event in tauler::pointer::compress_motion(events) {
             match event {
                 PresenterEvent::NeedsRender => {} // no-op: reconciler handles rendering
@@ -1722,7 +1809,10 @@ impl App {
         // A drawing changes no eval output, only the Picture its key names, so
         // reconcile the latest output again: surfaces whose Picture stamp moved
         // repaint, the rest stay as they are.
-        if self.figures.store_drawn() {
+        let arrived = self.figures.store_drawn();
+        if self.release_held(false) {
+            // The held eval's repaint carries the arrivals too.
+        } else if arrived && self.held.is_none() {
             if let Some(out) = self.last_eval.take() {
                 self.reconcile_eval(&out, None);
                 self.last_eval = Some(out);
