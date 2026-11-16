@@ -270,8 +270,8 @@ importers:
         specifier: 4.0.2
         version: 4.0.2
       html-validate:
-        specifier: 11.21.0
-        version: 11.21.0
+        specifier: 11.21.1
+        version: 11.21.1
       oxfmt:
         specifier: 0.78.0
         version: 0.78.0
@@ -2005,8 +2005,8 @@ packages:
   hsluv@1.0.2:
     resolution: {integrity: sha512-HTYvUWwnkH63bzIWEz0wek//GCqSRv6Tqeo9RWhEvra3dVsjiPVIvPYZs7/LbCkEuR03lfJvqRyCSI5HXAMpqA==}
 
-  html-validate@11.21.0:
-    resolution: {integrity: sha512-W7lepYb8uGwVqaFUuq/bV2Pu0nAeW2YBzDWi+hNJaZ0LSjHCfMTSuCRwtpYvs5o4h9/FGpTB6KpJacCekM8XCQ==}
+  html-validate@11.21.1:
+    resolution: {integrity: sha512-wop9wWStH8hgsDVv7zTZPF3i2qAVLe1eVGrSVE72A8QURM6En1JytTtSMTj7H0URi2aeSCuXdA/+p+0DbwMrMQ==}
     engines: {node: ^22.22.0 || >= 24.8.0}
     hasBin: true
     peerDependencies:
@@ -4167,7 +4167,7 @@ snapshots:
 
   hsluv@1.0.2: {}
 
-  html-validate@11.21.0:
+  html-validate@11.21.1:
     dependencies:
       '@html-validate/stylish': 6.1.0
       '@sidvind/better-ajv-errors': 7.0.0(ajv@8.20.0)
