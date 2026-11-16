@@ -141,6 +141,11 @@ pub enum PresenterEvent {
     },
     /// A pointer event, routed back for hit-testing in the pipeline.
     Pointer(PointerEvent),
+    /// A panel's window was destroyed by something other than tauler (an
+    /// `xkill`, the compositor, a server restart). The presenter has already
+    /// dropped it; the pipeline must forget it too so the next reconcile
+    /// creates it again (issue #452).
+    SurfaceLost { id: String },
 }
 
 /// Owns the window state: one `DM::Panel` per live panel id. Does NOT own the
@@ -191,6 +196,14 @@ impl<DM: DisplayManager> Default for Presenter<DM> {
 impl<DM: DisplayManager> Presenter<DM> {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Drop a panel whose window no longer exists, handing back its handle so
+    /// the backend can release what it still holds. Unlike `Delete`, this never
+    /// asks the display to destroy anything.
+    pub fn lose(&mut self, id: &str) -> Option<DM::Panel> {
+        self.sizes.remove(id);
+        self.panels.remove(id)
     }
 
     /// Apply one command to the display. When an `UpdatePicture` frame carries a

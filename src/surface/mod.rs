@@ -359,6 +359,26 @@ impl SurfaceSets {
         errors
     }
 
+    /// Drop `id` from the store without running `exit`, because the window it
+    /// described is already gone — something other than tauler destroyed it
+    /// (issue #452). The next [`reconcile_all`](Self::reconcile_all) then sees
+    /// the surface as new and runs `enter` again, which creates it afresh.
+    ///
+    /// `OptativeSet` has no removal, so the set is rebuilt without the key.
+    pub fn forget(&mut self, id: &str) {
+        let key = id.to_string();
+        for set in [&mut self.wallpapers, &mut self.panels] {
+            if set.get(&key).is_some() {
+                *set = OptativeSet::with_initial_state(
+                    set.iter()
+                        .filter(|(k, _)| **k != key)
+                        .map(|(k, v)| (k.clone(), v.clone()))
+                        .collect::<Vec<_>>(),
+                );
+            }
+        }
+    }
+
     /// The last-reconciled spec for `id`, whichever set holds it.
     pub fn spec(&self, id: &str) -> Option<&SurfaceSpec> {
         let key = id.to_string();
@@ -872,6 +892,39 @@ mod tests {
             repaint.unwrap().backdrop.is_some(),
             "the repaint must carry this tick's wallpaper crop — a request built \
              before the wallpaper was painted would carry nothing"
+        );
+    }
+
+    /// Issue #452: a window destroyed from outside leaves its key in the store,
+    /// so the diff sees nothing to do and the panel never comes back.
+    #[test]
+    fn a_forgotten_panel_is_created_again_on_the_next_reconcile() {
+        let (mut tx, rx, _repaints) = test_outputs();
+        let mut sets = SurfaceSets::new();
+        let panel = make_spec_data("p1");
+
+        sets.reconcile_all(vec![panel.clone()], &mut HashMap::new(), &mut tx, None);
+        let _ = rx.try_iter().count();
+
+        sets.reconcile_all(vec![panel.clone()], &mut HashMap::new(), &mut tx, None);
+        assert_eq!(rx.try_iter().count(), 0, "an unchanged panel stays quiet");
+
+        sets.forget("p1");
+        assert!(sets.spec("p1").is_none());
+        sets.reconcile_all(vec![panel], &mut HashMap::new(), &mut tx, None);
+
+        let cmds: Vec<SurfaceCommand> = rx.try_iter().collect();
+        assert!(
+            cmds.iter()
+                .any(|c| matches!(c, SurfaceCommand::Create { spec, .. } if spec.id == "p1")),
+            "the panel must be created again; got {} commands",
+            cmds.len()
+        );
+        assert!(
+            !cmds
+                .iter()
+                .any(|c| matches!(c, SurfaceCommand::Delete { .. })),
+            "forgetting must not delete: the window is already gone"
         );
     }
 
