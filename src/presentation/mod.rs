@@ -213,6 +213,12 @@ impl<DM: DisplayManager> Presenter<DM> {
         match cmd {
             SurfaceCommand::Create { spec, frame } => {
                 let id = spec.id.clone();
+                // Overwriting the entry would drop the only handle to a live
+                // window. Reachable when a stale `SurfaceLost` makes the pipeline
+                // re-create a panel that was already re-created.
+                if let Some(old) = self.panels.remove(&id) {
+                    dm.delete_window(old)?;
+                }
                 let panel = dm.create_window(&spec, &frame)?;
                 self.sizes.insert(id.clone(), (frame.width, frame.height));
                 self.panels.insert(id, panel);
@@ -495,6 +501,29 @@ mod tests {
             dm.calls.iter().any(|c| c.starts_with("create:p1")),
             "dm.calls: {:?}",
             dm.calls
+        );
+    }
+
+    /// A second `Create` for a live id — a stale `SurfaceLost` makes the
+    /// pipeline ask for one — must not strand the first window with no handle.
+    #[test]
+    fn presenter_create_for_a_live_id_destroys_the_old_window_first() {
+        let mut p: Presenter<MockDM> = Presenter::new();
+        let mut dm = MockDM::new();
+        for _ in 0..2 {
+            p.apply(
+                SurfaceCommand::Create {
+                    spec: spec("p1"),
+                    frame: blank_frame(),
+                },
+                &mut dm,
+            )
+            .unwrap();
+        }
+        assert_eq!(
+            dm.calls,
+            ["create:p1:1", "delete:1", "create:p1:2"],
+            "the first window must be deleted, not orphaned"
         );
     }
 
