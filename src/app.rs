@@ -1803,6 +1803,17 @@ impl App {
                     }
                 }
                 PresenterEvent::Pointer(event) => self.on_pointer(event),
+                PresenterEvent::SurfaceLost { id } => {
+                    // The window is gone, so the store's record of it is a lie
+                    // that would keep the panel gone for the life of the process
+                    // (issue #452). Forget it and reconcile the latest output so
+                    // `enter` runs again now rather than at the next eval.
+                    self.surfaces.forget(&id);
+                    if let Some(out) = self.last_eval.take() {
+                        self.reconcile_eval(&out, None);
+                        self.last_eval = Some(out);
+                    }
+                }
             }
         }
 

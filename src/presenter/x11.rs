@@ -180,6 +180,28 @@ pub(crate) fn run_x11_presenter_thread(
                     let phase = PointerPhase::Release;
                     send_pointer(&event_tx, &pt, e.event, e.event_x, e.event_y, phase, held);
                 }
+                // `event == window` keeps this to the window itself: with
+                // STRUCTURE_NOTIFY the same event is not sent for children, but
+                // the check makes that explicit. Our own `Delete` removes the
+                // panel first, so its DestroyNotify finds nothing and is ignored.
+                x11rb::protocol::Event::DestroyNotify(e) if e.event == e.window => {
+                    let id = pt
+                        .presenter
+                        .panels
+                        .iter()
+                        .find(|(_, p)| p.win_id == e.window)
+                        .map(|(id, _)| id.clone());
+                    if let Some(id) = id {
+                        tracing::warn!(panel = %id, "panel window destroyed from outside; recreating");
+                        if let Some(panel) = pt.presenter.lose(&id) {
+                            let _ = x11rb::protocol::xproto::ConnectionExt::free_gc(
+                                &*pt.dm.conn,
+                                panel.gc,
+                            );
+                        }
+                        let _ = event_tx.send(PresenterEvent::SurfaceLost { id });
+                    }
+                }
                 x11rb::protocol::Event::Error(e) => {
                     tracing::error!(error = ?e, "X11 async error");
                 }

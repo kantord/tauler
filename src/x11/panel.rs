@@ -200,7 +200,10 @@ fn create_panel(
                 EventMask::EXPOSURE
                     | EventMask::BUTTON_PRESS
                     | EventMask::BUTTON_RELEASE
-                    | EventMask::BUTTON1_MOTION,
+                    | EventMask::BUTTON1_MOTION
+                    // DestroyNotify, so a window killed from outside is noticed
+                    // (issue #452).
+                    | EventMask::STRUCTURE_NOTIFY,
             ),
     )?;
 

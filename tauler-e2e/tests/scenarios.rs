@@ -59,6 +59,45 @@ fn sidebar_reserves_the_left_edge() -> Result<()> {
     Ok(())
 }
 
+/// Issue #452: a panel window destroyed by something other than tauler (here
+/// `xdotool windowclose`) must come back. Before the fix the surface store still held the key,
+/// so nothing ever re-entered it.
+#[test]
+#[ignore = "needs Docker and `just e2e-image`"]
+fn a_panel_killed_from_outside_comes_back() -> Result<()> {
+    let desktop = Desktop::start("sidebar", Screen::default())?;
+    let sidebar = rect(0, 0, 272, 1080);
+
+    wait_for("the sidebar to be mapped", || {
+        if desktop.root_windows()?.contains(&sidebar) {
+            Ok(())
+        } else {
+            anyhow::bail!("no sidebar yet\n{}", desktop.tauler_log())
+        }
+    })?;
+
+    let find_id = "xwininfo -root -children | grep ' 272x1080+0+0' | awk '{print $1}' | head -1";
+    let old_id = desktop.exec(&["sh", "-c", find_id])?.trim().to_string();
+    anyhow::ensure!(old_id.starts_with("0x"), "no sidebar window id: {old_id:?}");
+    // Not `xkill`: that is `XKillClient`, which severs tauler's whole connection
+    // and takes the process with it. `windowclose` destroys the one window, which
+    // is what a compositor or a misbehaving client does.
+    desktop.exec(&["xdotool", "windowclose", &old_id])?;
+
+    wait_for("the sidebar to be created again", || {
+        let new_id = desktop.exec(&["sh", "-c", find_id])?.trim().to_string();
+        if new_id.starts_with("0x") && new_id != old_id {
+            Ok(())
+        } else {
+            anyhow::bail!(
+                "sidebar window is {new_id:?}, killed one was {old_id}\n--- tauler log ---\n{}",
+                desktop.tauler_log()
+            )
+        }
+    })?;
+    Ok(())
+}
+
 #[test]
 #[ignore = "needs Docker and `just e2e-image`"]
 fn three_edge_stack_reserves_each_edge_in_order() -> Result<()> {
