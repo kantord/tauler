@@ -90,7 +90,7 @@ export function buildRoomScene() {
     }
 
     // polyline with rounded corners -> list of points; consecutive points become capsules (bent steel tube)
-    function rounded(pts, rad, closed) {
+    function rounded(pts, rad, closed, steps) {
       var out = [],
         n = pts.length
       function sub(a, b) {
@@ -118,7 +118,7 @@ export function buildRoomScene() {
         var r = Math.min(rad, li * 0.49, lo * 0.49)
         var s = addS(p, din, -r / li),
           e = addS(p, dout, r / lo)
-        var STEPS = 5
+        var STEPS = steps || 5
         for (var j = 0; j <= STEPS; j++) {
           var t = j / STEPS,
             u = 1 - t
@@ -133,9 +133,9 @@ export function buildRoomScene() {
       else out.push(pts[n - 1])
       return out
     }
-    Group.prototype.tube = function (pts, r, bend, mat, closed) {
+    Group.prototype.tube = function (pts, r, bend, mat, closed, steps) {
       // a tube of more than three capsules gets its own bounding box
-      var p = rounded(pts, bend, closed),
+      var p = rounded(pts, bend, closed, steps),
         self = this
       function add() {
         for (var i = 0; i < p.length - 1; i++)
@@ -144,34 +144,6 @@ export function buildRoomScene() {
       if (p.length > 4) cluster(this, KIND, add)
       else add()
       return this
-    }
-
-    function catmull(pts, n) {
-      // pts: [[z,y],...] -> n+1 samples
-      var out = []
-      for (var i = 0; i <= n; i++) {
-        var f = (i / n) * (pts.length - 1),
-          k = Math.min(Math.floor(f), pts.length - 2),
-          t = f - k
-        var p0 = pts[Math.max(k - 1, 0)],
-          p1 = pts[k],
-          p2 = pts[k + 1],
-          p3 = pts[Math.min(k + 2, pts.length - 1)]
-        var t2 = t * t,
-          t3 = t2 * t
-        out.push(
-          [0, 1].map(function (c) {
-            return (
-              0.5 *
-              (2 * p1[c] +
-                (-p0[c] + p2[c]) * t +
-                (2 * p0[c] - 5 * p1[c] + 4 * p2[c] - p3[c]) * t2 +
-                (-p0[c] + 3 * p1[c] - 3 * p2[c] + p3[c]) * t3)
-            )
-          }),
-        )
-      }
-      return out
     }
 
     var groups = []
@@ -437,104 +409,161 @@ export function buildRoomScene() {
       })
     })()
 
-    /* ---------------- lounge chairs (generic tubular-steel sling chairs) ---------------- */
+    /* ---------------- lounge chairs (tubular-steel and leather chairs, after the Wassily B3) ---------------- */
+    // Proportions measured from a photo of the B3 (frame centre lines, cm): 76 wide, 60 between the
+    // floor runners' ends, arm tubes 62 high. Per side one tube bent into a tall rounded rectangle
+    // (runner, front leg, arm, rear leg). A second tube per side rises from the seat's front corner
+    // 12 cm inside the front leg, arches out over to a thin arm rail under the arm tube, and runs back
+    // to the rear leg. The seat frame runs from the back frame's lower corners, narrowing toward the
+    // front. The back frame leans back 19 degrees and is as wide as the side frames. Leather: a seat
+    // strap, a top and a lower back strap with bare frame between them, and a flat band on each arm.
     function chair(name, px, pz, rot) {
       var g = G(name)
       g.pos = [px, 0, pz]
       g.rotY = rot
-      var S = 0.92,
-        W = 74 * S,
-        Zf = 36 * S,
-        Zb = -34 * S,
-        R = 1.25
-      function v(x, y, z) {
-        return [x, y * S, z]
+      var HW = 38, // side frame tube centres 76 cm apart
+        XB = 37.5, // back frame
+        XI = 25.5, // seat front corners and arm risers
+        R = 1.25,
+        FLOOR = 1.2 + R,
+        ZF = 29, // front leg
+        ZI = 27, // risers, arches and the seat's front tube
+        ZR = -31, // rear leg
+        ARM = 63,
+        RAIL = ARM - 2, // arm rail under the arm tube
+        SEATY = 40, // seat front tube
+        LEAN = 0.35, // back frame leans 20.5 degrees: sin
+        LEANC = 0.9367, // and cos
+        TOP = 75, // back frame top tube
+        BY = 38, // back frame lower edge
+        BU = (TOP - BY) / LEANC, // its length up the lean
+        ZB = ZR + 2.5 + BU * LEAN // its lower edge z
+      // tube along corners [x, y, z]
+      function tube(c, bend, steps, closed) {
+        g.tube(c, R, bend, MAT.CHROME, closed, steps)
       }
       ;[-1, 1].forEach(function (s) {
-        var x = (s * W) / 2
-        g.tube(
+        var x = s * HW
+        tube(
           [
-            v(x, 62, Zf - 2),
-            v(x, 1.2 + R, Zf),
-            v(x, 1.2 + R, Zb),
-            v(x, 80, Zb - 14 * S),
+            [x, FLOOR, ZR],
+            [x, FLOOR, ZF],
+            [x, ARM, ZF],
+            [x, ARM, ZR],
           ],
-          R,
-          7 * S,
-          MAT.CHROME,
+          5,
+          6,
+          true,
         )
-        g.tube([v(x, 62, Zf - 2), v(x, 62, Zb - 6 * S)], R, 5, MAT.CHROME)
-        g.tube(
-          [v(x * 0.97, 43, Zf - 1), v(x * 0.97, 37, Zb + 2)],
-          R * 0.9,
-          4,
-          MAT.CHROME,
+        g.cyl([x, 0, ZF - 3], [x, 1.2, ZF - 3], 1.2, MAT.LAMPHEAD)
+        g.cyl([x, 0, ZR + 3], [x, 1.2, ZR + 3], 1.2, MAT.LAMPHEAD)
+        // riser, arch and arm rail
+        tube(
+          [
+            [s * XI, SEATY, ZI],
+            [s * XI, RAIL, ZI],
+            [s * 35.5, RAIL, ZI],
+            [s * 35.5, RAIL, ZR + 2.5],
+          ],
+          4.5,
+          5,
+          false,
         )
-        g.capsule(
-          v(x, 62, 4 * S - 20 * S),
-          v(x, 62, 4 * S + 20 * S),
-          R + 0.6,
-          MAT.LEATHER,
-        )
-        var xs = s * (W / 2 + 0.3)
-        g.quad(
-          v(xs, 45.5, -21 * S),
-          v(xs, 45.5, 29 * S),
-          v(xs, 60.5, 29 * S),
-          v(xs, 60.5, -21 * S),
-          MAT.LEATHER,
-        )
-        g.cyl(v(x, 0, Zf - 2), v(x, 1.2, Zf - 2), 1.2, MAT.LAMPHEAD)
-        g.cyl(v(x, 0, Zb + 2), v(x, 1.2, Zb + 2), 1.2, MAT.LAMPHEAD)
-      })
-      g.tube([v(-W / 2, 43, Zf - 1), v(W / 2, 43, Zf - 1)], R, 1, MAT.CHROME)
-      g.tube(
-        [v(-W / 2, 80, Zb - 14 * S), v(W / 2, 80, Zb - 14 * S)],
-        R,
-        1,
-        MAT.CHROME,
-      )
-      g.tube([v(-W / 2, 1.2 + R, Zb), v(W / 2, 1.2 + R, Zb)], R, 1, MAT.CHROME)
-      // seat-and-back sling: strip of quads following a curved profile, sagging across the width
-      var prof = catmull(
-        [
-          [Zf + 1, 44.5],
-          [10 * S, 40],
-          [-15 * S, 35.5],
-          [-30 * S, 34],
-          [-38 * S, 50],
-          [-44 * S, 71],
-          [Zb - 13.5 * S, 81.5],
-        ].map(function (p) {
-          return [p[0], p[1] * S]
-        }),
-        18,
-      )
-      var cols = 4,
-        sw = W - 3.5,
-        sag = 3.5
-      function pt(i, j) {
-        var u = j / cols,
-          x = (u - 0.5) * sw
-        var sg =
-          sag *
-          (1 - Math.pow(2 * u - 1, 2)) *
-          Math.sin((Math.PI * i) / (prof.length - 1))
-        return [x, prof[i][1] - sg, prof[i][0] + sg * 0.3]
-      }
-      // the sling's quads in bounding boxes of three rows each
-      for (var i0 = 0; i0 < prof.length - 1; i0 += 3)
+        // arm band: lies on the arm tube and the rail, inner edge 1.7 cm lower, sagging 1 cm
         cluster(g, KIND, function () {
-          for (var i = i0; i < Math.min(prof.length - 1, i0 + 3); i++)
-            for (var j = 0; j < cols; j++)
+          ;[-0.35, 0.35].forEach(function (d) {
+            for (var i = 0; i < 2; i++) {
+              var z0 = ZF - 6 - 49.5 * (i / 2),
+                z1 = ZF - 6 - 49.5 * ((i + 1) / 2)
+              var y0 = 1 - Math.pow((i / 2) * 2 - 1, 2),
+                y1 = 1 - Math.pow(((i + 1) / 2) * 2 - 1, 2)
               g.quad(
-                pt(i, j),
-                pt(i, j + 1),
-                pt(i + 1, j + 1),
-                pt(i + 1, j),
+                [s * 28.5, ARM + d - y0, z0],
+                [s * 39, ARM + 1.7 + d - y0, z0],
+                [s * 39, ARM + 1.7 + d - y1, z1],
+                [s * 28.5, ARM + d - y1, z1],
                 MAT.LEATHER,
               )
+            }
+          })
         })
+      })
+      // leather wrapped round each arch and down the riser
+      cluster(g, KIND, function () {
+        ;[-1, 1].forEach(function (s) {
+          g.capsule(
+            [s * 28, RAIL, ZI],
+            [s * 34, RAIL, ZI],
+            R + 0.6,
+            MAT.LEATHER,
+          )
+          g.capsule(
+            [s * XI, RAIL - 2, ZI],
+            [s * XI, RAIL - 11, ZI],
+            R + 0.55,
+            MAT.LEATHER,
+          )
+        })
+      })
+      // seat frame: from the back frame's lower corners to the narrower front
+      tube(
+        [
+          [-XB, BY, ZB],
+          [-XI, SEATY, ZI],
+          [XI, SEATY, ZI],
+          [XB, BY, ZB],
+        ],
+        4,
+        4,
+        false,
+      )
+      // back frame: u runs up the lean from its lower edge
+      function bk(u, w) {
+        return [w * XB, BY + u * LEANC, ZB - u * LEAN]
+      }
+      tube([bk(0, -1), bk(0, 1), bk(BU, 1), bk(BU, -1)], 3, 3, true)
+      // straps: flat bands across a frame, bowed a little across the width, two skins a hair
+      // apart. P(t, w) is the point t along the band and w across it (-1 to 1); n is its unit normal.
+      function strap(P, t0, t1, n, sag, skin) {
+        function pt(t, w, d) {
+          var q = P(t, w),
+            o = d - sag * (1 - w * w)
+          return [q[0] + n[0] * o, q[1] + n[1] * o, q[2] + n[2] * o]
+        }
+        cluster(g, KIND, function () {
+          ;[-skin, skin].forEach(function (d) {
+            for (var j = 0; j < 2; j++) {
+              var wa = -1 + j,
+                wb = wa + 1
+              g.quad(
+                pt(t0, wa, d),
+                pt(t0, wb, d),
+                pt(t1, wb, d),
+                pt(t1, wa, d),
+                MAT.LEATHER,
+              )
+            }
+          })
+        })
+      }
+      var backN = [0, LEAN, LEANC]
+      function bs(u, w) {
+        return bk(u, w * 0.96)
+      }
+      strap(bs, 1.5, 12.5, backN, 0.8, 0.35) // lower back strap
+      strap(bs, BU - 11, BU - 0.1, backN, 0.8, 0.35) // top back strap
+      // seat strap: from the front tube back to the back frame, sagging 1.4 cm
+      strap(
+        function (f, w) {
+          var xe = XI + (XB - XI) * f
+          return [w * xe, SEATY + (BY - SEATY) * f, ZI + (ZB - ZI) * f]
+        },
+        0.03,
+        0.8,
+        [0, 1, 0],
+        1.4,
+        0.35,
+      )
       return g
     }
     chair('chairL', -162, 142, 1.05)

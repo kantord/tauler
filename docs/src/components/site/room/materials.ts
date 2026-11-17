@@ -144,11 +144,11 @@ vec3 ggxHalf(vec3 n, vec3 v, float a) {
  *   with the view (chatoyancy); over it a satin lacquer clearcoat with its
  *   own orange-peel normal (matNc), worn through, lighter and duller, on
  *   every edge.
- * - Leather: thick veg-tan saddle leather, tan (not dyed ochre), mottled in
- *   value and hue; darker, redder and burnished glossy where it is sat on
- *   and held (seat, lumbar, arm pads), lighter and drier where it rolls over
- *   the tubes; hide grain as 2D cells (cell2) of uneven size up close, each
- *   pebble its own facet in a net of rougher grooves; growth creases, and
+ * - Leather: thick saddle leather dyed mustard yellow (albedo 0.62, 0.40,
+ *   0.04), mottled in value and hue; deeper, more orange and burnished
+ *   glossy where it is sat on and held (seat, lumbar, arm pads), lighter
+ *   and drier where it rolls over the tubes; hide grain as 2D cells (cell2)
+ *   of uneven size up close, each pebble its own facet in a net of rougher grooves; growth creases, and
  *   wrinkles across the width where the sling sags; a burnished edge, a
  *   creased line and a saddle stitch along the sling's sides and round the
  *   arm slings.
@@ -287,16 +287,21 @@ void getMaterial(int id, vec3 p, vec3 n, out int type, out vec3 albedo, out vec3
 	else if (id == M_TEAK_DARK) { albedo = vec3(0.06, 0.03, 0.014) * (0.9 + 0.2 * N.x); rough = 0.45; }
 	else if (id == M_GAP) { type = DIFF; albedo = vec3(0.02, 0.012, 0.007); }
 	else if (id == M_LEATHER) {
-		// thick veg-tan saddle leather: the sling, its arm slings and the rolled arm pads
+		// thick saddle leather dyed mustard yellow: the sling, its arm bands and the rolled arm pads
 		vec3 ln = n * uGRot[hitGroup];
-		bool pad = abs(p.x) > 33.0, side = abs(ln.x) > 0.5;
+		// the pads wrap each arm rail's arch and the riser below it (z > 24.5, y > 47); the arm band is the flat
+		// strap on the arm tube, y > 58, from z = 23 to z = -26.5 and from x = 28.5 to 39
+		bool cap = p.z > 24.5 && p.y > 47.0, arm = !cap && p.y > 58.0 && abs(ln.y) > 0.8, pad = cap || arm, side = abs(ln.x) > 0.5;
 		vec2 uv = side ? p.zy : vec2(p.x, p.y - p.z);
-		float e = pad ? (side && p.y < 56.0 ? min(min(p.z + 19.3, 26.7 - p.z), min(p.y - 41.9, 55.7 - p.y)) : 9.0) : 32.3 - abs(p.x);
+		// distance to the side edge: the seat strap widens from x = +-25.5 at the front to +-37.5 at the back
+		// frame (41.7 cm of z); the back straps run to x = +-36
+		float eArm = min(min(abs(p.x) - 28.5, 39.0 - abs(p.x)), min(p.z + 26.5, 23.0 - p.z));
+		float e = (cap ? 9.0 : arm ? eArm : (p.y < 42.0 ? 25.5 + 12.0 * clamp((27.0 - p.z) / 41.7, 0.0, 1.0) : 36.0) - abs(p.x));
 		// darker, burnished and glossy where it is sat on and held; lighter and drier where it bends over the tubes
-		float use = clamp(0.5 + 0.6 * N.y, 0.0, 1.0) * clamp(pad ? smoothstep(50.0, 57.0, p.y) : smoothstep(44.0, 36.0, p.y) + 0.7 * exp(-pow((p.z + 28.0) / 9.0, 2.0)), 0.0, 1.0);
-		float bend = pad ? 0.0 : smoothstep(26.0, 33.0, p.z) + smoothstep(68.0, 74.0, p.y);
+		float use = clamp(0.5 + 0.6 * N.y, 0.0, 1.0) * clamp(pad ? smoothstep(52.0, 58.0, p.y) : smoothstep(41.0, 38.0, p.y) * exp(-pow((p.z - 10.0) / 16.0, 2.0)) + 0.7 * exp(-pow((p.z + 17.5) / 6.0, 2.0)) * smoothstep(54.0, 46.0, p.y), 0.0, 1.0);
+		float bend = pad ? 0.0 : smoothstep(22.0, 26.5, p.z) + smoothstep(70.0, 75.0, p.y);
 		float crease = smoothstep(0.95, 1.0, 1.0 - abs(N.z)) * smoothstep(-0.2, 0.4, N.y);
-		float sag = pad ? 0.0 : max(1.0 - p.x * p.x / 1100.0, 0.0) * exp(-pow((p.z + 25.0) / 9.0, 2.0)) * step(p.y, 58.0);
+		float sag = pad ? 0.0 : max(1.0 - p.x * p.x / 1296.0, 0.0) * exp(-pow((p.z + 17.0) / 6.0, 2.0)) * step(p.y, 52.0);
 		float wv = (p.y - p.z) * 1.7 + 4.0 * N.x, wr = sag * smoothstep(0.2, 1.0, sin(wv));
 		// hide grain: pebbles of uneven size, each its own facet, in a net of grooves
 		vec3 ch = vec3(0.5); vec2 cd; float gap = 0.12;
@@ -304,10 +309,10 @@ void getMaterial(int id, vec3 p, vec3 n, out int type, out vec3 albedo, out vec3
 		float groove = 1.0 - smoothstep(0.0, 0.25, gap);
 		// a burnished edge, a creased line and a saddle stitch along it
 		float st = smoothstep(0.09, 0.03, abs(e - 0.85)) * step(0.4, fract((uv.x + uv.y) / 0.55));
-		albedo = vec3(0.36, 0.18, 0.07) * (1.0 + 0.2 * N.x) * vec3(1.0 + 0.06 * N.y, 1.0, 1.0 - 0.12 * N.y) * (0.93 + 0.14 * seed.x);
-		albedo *= mix(vec3(1.0), vec3(0.6, 0.5, 0.42), use) * (1.0 + 0.2 * min(bend, 1.0)) * (1.0 - 0.16 * groove) * (1.0 - 0.1 * crease) * (1.0 - 0.1 * sag - 0.12 * wr);
+		albedo = vec3(0.62, 0.40, 0.04) * (1.0 + 0.2 * N.x) * vec3(1.0 + 0.06 * N.y, 1.0, 1.0 - 0.12 * N.y) * (0.93 + 0.14 * seed.x);
+		albedo *= mix(vec3(1.0), vec3(0.8, 0.62, 0.55), use) * (1.0 + 0.2 * min(bend, 1.0)) * (1.0 - 0.16 * groove) * (1.0 - 0.1 * crease) * (1.0 - 0.1 * sag - 0.12 * wr);
 		albedo *= (1.0 - 0.5 * smoothstep(0.35, 0.1, e)) * (1.0 - 0.25 * smoothstep(0.06, 0.0, abs(e - 0.5)));
-		albedo = mix(albedo, vec3(0.4, 0.29, 0.16), st);
+		albedo = mix(albedo, vec3(0.42, 0.26, 0.03), st);
 		rough = 0.48 - 0.2 * use + 0.12 * min(bend, 1.0) + 0.12 * groove + 0.08 * crease + 0.08 * wr + 0.1 * st;
 		matN = n + 0.3 * (ch - 0.5) * (1.0 - groove) + 0.15 * crease * (D - 0.5) + 0.35 * sag * cos(wv) * (uGRot[hitGroup] * vec3(0.0, 0.7, -0.7));
 	}
