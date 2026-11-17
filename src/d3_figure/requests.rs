@@ -45,6 +45,9 @@ pub struct Requests {
     /// Set by [`Self::after_reload`]: the next plan requests every key, even
     /// one in `previous`.
     redraw_all: bool,
+    /// Keys asked for whose drawing has not arrived: what the loop may hold a
+    /// repaint for. Only ever keys of the latest plan.
+    in_flight: HashSet<String>,
 }
 
 /// What to do after one eval.
@@ -85,7 +88,25 @@ impl Requests {
             }
         }
         self.previous = calls.iter().map(|c| c.key.clone()).collect();
+        self.in_flight.retain(|k| self.previous.contains(k));
+        self.in_flight
+            .extend(plan.draw.iter().map(|r| r.key.clone()));
         plan
+    }
+
+    /// A drawing for `key` arrived.
+    pub fn arrived(&mut self, key: &str) {
+        self.in_flight.remove(key);
+    }
+
+    /// Whether a figure the latest plan names is still being drawn.
+    pub fn drawing(&self) -> bool {
+        !self.in_flight.is_empty()
+    }
+
+    /// Stop waiting for what has not arrived: a drawing that fails never does.
+    pub fn give_up(&mut self) {
+        self.in_flight.clear();
     }
 
     /// After a layout reload: the new Draw runtime's `draw`s may differ, so the
@@ -93,6 +114,7 @@ impl Requests {
     /// figure whose key changed in the reload still falls back to its old one.
     pub fn after_reload(&mut self) {
         self.redraw_all = true;
+        self.in_flight.clear();
     }
 
     /// The keys of the latest plan's figures: the Pictures the loop keeps, and
@@ -111,6 +133,22 @@ impl Requests {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_requested_key_is_in_flight_until_it_arrives_or_is_superseded() {
+        let mut r = Requests::new();
+        assert!(!r.drawing());
+        r.plan(&[call("a"), call("b")]);
+        assert!(r.drawing());
+        r.arrived("a");
+        assert!(r.drawing());
+        r.plan(&[call("a"), call("c")]); // b is gone, c is new
+        r.arrived("c");
+        assert!(!r.drawing());
+        r.plan(&[call("d")]);
+        r.give_up();
+        assert!(!r.drawing());
+    }
 
     fn call(key: &str) -> FigureCall {
         FigureCall {

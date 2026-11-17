@@ -37,6 +37,9 @@ const REPLY_GRACE: Duration = Duration::from_millis(40);
 
 /// What an answer on a channel resolves to.
 pub struct Answered {
+    /// Whether an intent was in flight on the channel: the answer is a reply
+    /// to something a person did, whether or not tracing is on.
+    pub replied: bool,
     /// The Trace of the intent that was in flight — the one the answer is for.
     pub trace: Option<Trace>,
     /// The intent that was waiting, now in flight in its turn, with its Trace.
@@ -82,13 +85,19 @@ impl Outbox {
     /// the intent that was in flight, and whatever was waiting for the channel,
     /// which is then in flight in its turn.
     pub fn answered(&mut self, now: Instant, channel: &str) -> Answered {
-        let trace = self.in_flight.remove(channel).and_then(|(_, t)| t);
+        let sent = self.in_flight.remove(channel);
+        let replied = sent.is_some();
+        let trace = sent.and_then(|(_, t)| t);
         let next = self.waiting.remove(channel).map(|(intent, trace)| {
             self.in_flight
                 .insert(channel.to_string(), (now, trace.clone()));
             (intent, trace)
         });
-        Answered { trace, next }
+        Answered {
+            replied,
+            trace,
+            next,
+        }
     }
 
     /// Intents whose channel's grace has run out with no answer, so they are no
