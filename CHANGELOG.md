@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.12.0](https://github.com/kantord/tauler/compare/tauler-v0.11.3...tauler-v0.12.0) - 2026-11-18
+
+### Added
+
+- allow keeping arbitrary state between ticks ([#838](https://github.com/kantord/tauler/pull/838))
+
+### Fixed
+
+- A Surface never notices a window destroyed from outside ([#831](https://github.com/kantord/tauler/pull/831))
+- D3Figure: repaint once per update, not twice ([#830](https://github.com/kantord/tauler/pull/830))
+
 ## [0.11.3](https://github.com/kantord/tauler/compare/tauler-v0.11.2...tauler-v0.11.3) - 2026-11-15
 
 ### Fixed
