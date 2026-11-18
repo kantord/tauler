@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.15](https://github.com/kantord/tauler/compare/tauler-core-v0.3.14...tauler-core-v0.3.15) - 2026-11-18
+
+### Added
+
+- allow keeping arbitrary state between ticks ([#838](https://github.com/kantord/tauler/pull/838))
+
 ## [0.3.14](https://github.com/kantord/tauler/compare/tauler-core-v0.3.13...tauler-core-v0.3.14) - 2026-11-15
 
 ### Other
