@@ -296,16 +296,16 @@ pub struct Reconciler {
 impl Reconciler {
     /// Start sweeping `source` on its own thread.
     ///
-    /// `stream_values` and `globals` are the render loop's, read fresh each Sweep,
-    /// so the two runtimes evaluate the same layout against the same data — as
-    /// nearly as two evaluations at different moments can.
+    /// `stream_values` and `state` (the Stores) are the render loop's,
+    /// read fresh each Sweep, so the two runtimes evaluate the same layout against
+    /// the same data — as nearly as two evaluations at different moments can.
     pub fn spawn(
         source: String,
         ctx: Value,
         layout_path: Option<PathBuf>,
         stream_values: SharedStreamValues,
-        globals: crate::jsx::SharedGlobals,
         pkg_ctx: Option<crate::pkg::PackageContext>,
+        state: crate::jsx::SharedState,
     ) -> Self {
         let stop = Arc::new(AtomicBool::new(false));
         let stop_thread = Arc::clone(&stop);
@@ -326,11 +326,11 @@ impl Reconciler {
                         &source,
                         ctx,
                         layout_path.as_deref(),
-                        globals,
                         pkg_ctx,
+                        state,
                     ),
                     None => {
-                        JsxEvaluator::new_reconciler(&source, ctx, layout_path.as_deref(), globals)
+                        JsxEvaluator::new_reconciler(&source, ctx, layout_path.as_deref(), state)
                     }
                 };
                 let evaluator = match evaluator {
@@ -910,8 +910,8 @@ mod tests {
             serde_json::Value::Null,
             None,
             Arc::new(RwLock::new(HashMap::new())),
-            Default::default(),
             None,
+            Default::default(),
         );
         std::thread::sleep(std::time::Duration::from_millis(900));
         drop(reconciler);
@@ -963,17 +963,19 @@ mod tests {
     }
 
     /// The thing everyone will write first: a bar button that flips a Unit's
-    /// declared state. The click runs in the render runtime and mutates its
-    /// `globals`; unless the reconciler runtime reads the same store, the Unit
-    /// never notices and the light never moves.
+    /// declared state. The click runs in the render runtime and writes a Store;
+    /// unless the reconciler runtime reads the same store, the Unit never notices
+    /// and the light never moves.
     #[test]
-    fn the_reconciler_reads_the_bars_globals() {
+    fn the_reconciler_reads_the_bars_store() {
         let dir = tempfile::tempdir().unwrap();
         let state = dir.path().join("state.json");
         let log = dir.path().join("log");
         std::fs::write(&state, r#"[{"entity":"light.desk","state":"off"}]"#).unwrap();
         let source = format!(
             r#"
+            import {{ store }} from "tauler";
+            const lights = store({{ desk: false }});
             const Light = unit({{
               key: (i) => i.entity,
               value: (i) => i.state,
@@ -983,7 +985,7 @@ mod tests {
             export default function render() {{
               return (
                 <root>
-                  <Light entity="light.desk" state={{globals.desk ? "on" : "off"}} />
+                  <Light entity="light.desk" state={{lights.desk ? "on" : "off"}} />
                 </root>
               );
             }}"#,
@@ -996,7 +998,7 @@ mod tests {
             &source,
             serde_json::Value::Null,
             None,
-            bar.globals_handle(),
+            bar.state_handle(),
         )
         .unwrap();
 
@@ -1004,32 +1006,35 @@ mod tests {
         assert!(!crate::units::sweep(&reconciler, &HashMap::new()).made_progress());
 
         // The bar flips it, exactly as an `on_click` would.
-        bar.globals_handle()
-            .lock()
-            .unwrap()
-            .insert("desk".into(), serde_json::json!(true));
+        bar.state_handle().lock().unwrap().set(
+            "layout.jsx#lights",
+            "desk",
+            serde_json::json!(true),
+        );
 
         let report = crate::units::sweep(&reconciler, &HashMap::new());
 
-        assert_eq!(report.updated, 1, "the Unit must see the bar's globals");
+        assert_eq!(report.updated, 1, "the Unit must see the bar's Store");
         assert_eq!(std::fs::read_to_string(&log).unwrap(), "on\n");
     }
 
-    /// The bar owns `globals`. A hook that assigns to one is trying to report,
+    /// The bar owns every Store. A hook that assigns to one is trying to report,
     /// and hooks do not report — the next `observe` is what says whether
     /// anything happened (ADR 0035).
     #[test]
-    fn a_hook_may_not_write_to_globals() {
+    fn a_hook_may_not_write_to_a_store() {
         let dir = tempfile::tempdir().unwrap();
         let log = dir.path().join("log");
         let source = format!(
             r#"
+            import {{ store }} from "tauler";
+            const lights = store({{ tried: false }});
             const Light = unit({{
               key: (i) => i.entity,
               value: (i) => i.state,
               reconciler: optativeSet({{ observe: () => [] }}),
               enterOne: (i) => {{
-                globals.tried = true;
+                lights.tried = true;
                 sh`printf x >> {}`;
               }},
             }});
@@ -1104,8 +1109,8 @@ mod tests {
             serde_json::Value::Null,
             None,
             Arc::new(RwLock::new(HashMap::new())),
-            Default::default(),
             None,
+            Default::default(),
         );
 
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);

@@ -115,9 +115,9 @@ The round trip is the whole design. `on_change` builds an intent, the intent rea
 next tick renders it. Nothing is optimistic, and there is never a second answer to "what is
 the volume".
 
-That also means a control needs somebody to talk to. A slider that only filtered a chart on
-screen would still need a Module, a stream or `globals` behind it, because it has nowhere
-of its own to keep the number.
+That also means a control needs somebody to hold its value. A slider that only filters a
+chart on screen has no subprocess to talk to, so it keeps the number in a
+[Store](/docs/data/#store): `on_change` writes it, and the next tick renders it.
 
 `on_change` takes the value the pointer is over and returns intents — one, or an array of
 them, the same shape every [event handler](/docs/data/#event-handlers) takes. `<Slider>`
@@ -273,9 +273,10 @@ changed. Give the figure a new key when what it shows changes,
 and the simplest way to get one is to derive it from the data, as `LoadChart` does from its
 newest sample. A figure with no `key` fails with an error that names it.
 
-A key must follow from what the render sees: the data, the streams and the globals. A key
-built from `Math.random()`, `Date.now()` or state kept
-at module scope is not drawn on the desktop, and Tauler logs a warning.
+A key must follow from what the render sees: the data, the streams and the
+[Stores](/docs/data/#store). A key built from `Math.random()`, `Date.now()`, state kept
+at module scope, or a Store value that the render itself changes on every tick is not
+drawn on the desktop, and Tauler logs a warning.
 
 A key can also be an object or an array. Tauler names it by a hash of its JSON, so you can
 pass the figure's inputs directly:

@@ -152,6 +152,7 @@ fn main() {
                     ctx.clone(),
                     Some(&layout_path),
                     pkg.clone(),
+                    Default::default(),
                 )
                 .expect("compiles");
                 let out = ev.eval(&HashMap::new()).expect("eval");
@@ -187,9 +188,14 @@ fn main() {
     for city in &cities {
         let source = template.replace("__CITY__", city);
         let t = Instant::now();
-        let ev =
-            JsxEvaluator::new_with_packages(&source, ctx.clone(), Some(&layout_path), pkg.clone())
-                .expect("compiles");
+        let ev = JsxEvaluator::new_with_packages(
+            &source,
+            ctx.clone(),
+            Some(&layout_path),
+            pkg.clone(),
+            Default::default(),
+        )
+        .expect("compiles");
         let load = ms(t);
 
         let t = Instant::now();

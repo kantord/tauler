@@ -35,6 +35,11 @@ Nothing survives between ticks except `globals`, which is a deliberate escape ha
 one thing that makes the layout function impure. Everything else must be derivable from the
 current stream values.
 
+> Partly superseded by [ADR 0051](./0051-a-layout-file-keeps-state-in-stores-and-rust-owns-them.md).
+> The paragraph above no longer holds: `globals` is removed, and what survives between
+> Ticks is what the layout file's Stores hold. Rust owns that state, so a Tick is a pure
+> function of the current stream values and the Stores. Everything else in this ADR stands.
+
 Anyone arriving from React will expect the wrong thing here, in the direction of assuming
 more machinery than exists. The differences matter more than the similarities.
 

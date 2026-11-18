@@ -336,7 +336,8 @@ Used:
 </root>
 ```
 
-`render` runs again every Sweep, reading whatever it wants — a color out of `globals`,
+`render` runs again every Sweep, reading whatever it wants — a color out of a
+[Store](/docs/data/#store),
 today's wallpaper, anything the rest of your layout already reaches. Change what it
 returns and the next Sweep rewrites `tauler.rasi` to match. Launch rofi with `rofi -theme
 ~/.config/rofi/tauler.rasi` and it picks up the new file the next time it opens — rofi
@@ -508,21 +509,27 @@ shared closure only removes the *redundant-signal* half of that problem, not the
 
 ## Driving a Unit from your layout
 
-A Unit reads the same `globals` your layout does, so a button can change what a Unit
-declares:
+A Unit reads the same [Stores](/docs/data/#store) your layout does, so a button can change
+what a Unit declares:
 
 ```jsx
-<root>
-  <Light entity="light.desk" state={globals.desk ? 'on' : 'off'} />
-  <panel id="bar" anchor="top" width={1920} height={32}>
-    <button on_click={() => { globals.desk = !globals.desk }}>desk</button>
-  </panel>
-</root>
+import { store } from "tauler";
+
+const lights = store({ desk: false });
+
+export default () => (
+  <root>
+    <Light entity="light.desk" state={lights.desk ? 'on' : 'off'} />
+    <panel id="bar" anchor="top" width={1920} height={32}>
+      <button on_click={() => { lights.desk = !lights.desk }}>desk</button>
+    </panel>
+  </root>
+);
 ```
 
-The click updates `globals`. The next Sweep sees the new declaration and acts.
+The click writes the Store. The next Sweep sees the new declaration and acts.
 
-`globals` is **read-only inside a hook**. Your layout owns it. A hook that assigns to it throws.
+A Store is **read-only inside a hook**. Your layout owns it. A hook that assigns to it throws.
 If a hook needs to record something, the thing to record it in is the world — and `observe`
 is what reads it back.
 

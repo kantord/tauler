@@ -4,6 +4,11 @@ A Control component renders the value it is given and emits intents when touched
 stores a value of its own. Whatever the control adjusts — a Module, a stream, `globals` —
 owns the value, and the control sees the result only on the next tick.
 
+> Partly superseded by [ADR 0051](./0051-a-layout-file-keeps-state-in-stores-and-rust-owns-them.md).
+> The two sections below no longer hold: tauler now has a value store, the Store, and a
+> control with no external owner keeps its value there. `globals` is removed. The rule
+> above stands: a Control component still renders the value it is given and holds none.
+
 ## Why not a value store
 
 The obvious alternative was a runtime-held, key-addressed state system: Observable's

@@ -43,6 +43,32 @@ pub fn use_string_stream(bin: String, script: Option<String>) -> String {
     STREAM_VALUES.with(|v| v.borrow().get(&(bin, script)).cloned().unwrap_or_default())
 }
 
+// DECISION (issue #271): on a page the Stores are the page's, in JavaScript
+// (`tauler-web/js/state.js`), and nothing here holds them. No evaluator is built on
+// this path — the page runs the layout on its own engine — so there is no constructor
+// to hand a `StateStore` to. The page supplies the five `__tauler_state_*` functions
+// `globals.rs` documents over a Map, and runs every render and handler the way the
+// desktop does (`withState`). An example reaches `store` as a layout file does:
+// `tauler-docgen` puts it through the compile pass (`store_pass.rs`, `example_js` in
+// `tauler-docgen/src/web.rs`) and the import map resolves `"tauler"` to the source in
+// `globals::TAULER_MODULE_JS`. State lasts as long as the page; nothing is saved.
+// Tests: `tests/page_state_test.rs` in the `tauler` crate runs `state.js` against the
+// shared globals; `an_example_that_declares_a_store_gets_its_identity` and
+// `the_import_map_resolves_tauler_to_its_module` in `tauler-docgen/src/web.rs`.
+// Rejected: the desktop's `StateStore` compiled to wasm behind the same five names,
+// as the Transport's stream map is above — one implementation of "equal" and of
+// rollback, but `StateStore` would have to move into this crate, and each read would
+// cross into wasm and convert through `serde_wasm_bindgen`.
+//
+// RISK: `state.js` compares values as JSON text, the desktop as `serde_json` values,
+// so two objects that differ only in key order are a change on a page and none on a
+// desktop. No page test runs a Store in a real browser: no published example declares
+// one, and an example's `# JSX` block is the body of its render function, where
+// `store(...)` is refused.
+// Kill: a published example needs a Store — then the example format gets a place for
+// module-scope code, and `docs/tests` gets a spec that clicks it.
+// Cost: small.
+
 /// `globalThis.registerModule` — accepts and ignores.
 ///
 /// On a desktop this is what makes tauler spawn a subprocess. A page's transports are

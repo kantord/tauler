@@ -700,6 +700,7 @@ fn generate_web(
     web::write_ui_modules(&args.web_dir)?;
     web::write_constants(&args.web_dir)?;
     web::write_d3_module(&args.web_dir)?;
+    web::write_tauler_module(&args.web_dir)?;
 
     let runtime = workspace_root().join("tauler-web/js/runtime.js");
     fs::copy(&runtime, args.web_dir.join("runtime.js"))?;
@@ -708,6 +709,10 @@ fn generate_web(
     // file rather than growing runtime.js (ADR 0037).
     let units = workspace_root().join("tauler-web/js/units.js");
     fs::copy(&units, args.web_dir.join("units.js"))?;
+
+    // The page's half of `store(...)`, which runtime.js imports.
+    let state = workspace_root().join("tauler-web/js/state.js");
+    fs::copy(&state, args.web_dir.join("state.js"))?;
 
     let fonts_dir = args.web_dir.join("fonts");
     fs::create_dir_all(&fonts_dir)?;

@@ -22,8 +22,9 @@
 //!
 //! Everything a layout file can reach is registered here — in `JSX_GLOBALS_JS` and in the
 //! setup below: `useStringStream`, `useJSONStream`, `useEvents`, `Module`, `I3Layout`,
-//! `Panel`, `themeColor`, `measureText`, `globals` and `ctx`. rquickjs grants nothing by default, so that
-//! list is exhaustive by construction rather than by audit (ADR 0008).
+//! `Panel`, `themeColor`, `measureText` and `ctx`, and `store` as the one export of the
+//! module `"tauler"`. rquickjs grants nothing by default, so that list is exhaustive by
+//! construction rather than by audit (ADR 0008).
 //!
 //! Each module also gets its own `import.meta.dirname`, `.filename` and `.url`: the
 //! layout file when it is declared, every import in `SchemaAwareLoader`. They are set
@@ -33,9 +34,10 @@
 use std::collections::HashMap;
 
 use std::path::Path;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 use tauler_core::flatten::flatten_passthrough;
-use tauler_core::globals::JSX_GLOBALS_JS;
+use tauler_core::globals::{JSX_GLOBALS_JS, TAULER_MODULE, TAULER_MODULE_JS};
 
 /// Shared map of stream values: keyed by `(bin, script)`, holds the latest stdout line.
 type StreamValues = Arc<RwLock<HashMap<(String, Option<String>), String>>>;
@@ -57,14 +59,13 @@ pub struct EvalOutput {
 }
 
 /// The inputs an eval ran with, so the draw runtime can evaluate the same render
-/// again ([`JsxEvaluator::eval_inputs`]): `globals` as they were before the
-/// render, so a render that writes them does not change its own snapshot, and
-/// every stream value, since a figure's `draw` may read streams the render did
-/// not. A tree with no `<D3Figure>` keeps no stream values, since nothing
-/// draws from its snapshot. `ctx` is not here: every runtime is built from the same one.
+/// again: every stream value, since a figure's `draw` may read streams the render
+/// did not. A tree with no `<D3Figure>` keeps no stream values, since nothing
+/// draws from its snapshot. `ctx` is not here: every runtime is built from the same
+/// one. Neither are the Stores: the draw runtime reads the app's store as it is when
+/// it evaluates (the last `RISK:` in `src/state.rs`).
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct EvalInputs {
-    pub globals: serde_json::Map<String, serde_json::Value>,
     pub stream_values: HashMap<(String, Option<String>), String>,
 }
 
@@ -279,22 +280,6 @@ fn dispatch_hook_source() -> &'static str {
         },
       });
 
-    globalThis.__tauler_readonly = (obj, name) =>
-      new Proxy(obj, {
-        set(_t, prop) {
-          throw new TypeError(
-            "`" + name + "." + String(prop) + "` is read-only in a hook. " +
-            "The bar owns " + name + ". A hook can only read " + name + "."
-          );
-        },
-        deleteProperty(_t, prop) {
-          throw new TypeError(
-            "`" + name + "." + String(prop) + "` is read-only in a hook. " +
-            "A hook cannot delete it."
-          );
-        },
-      });
-
     globalThis.__tauler_dispatch_hook = (unitIndex, hook, one, payload) => {
       const unit = globalThis.__tauler_units[unitIndex];
       if (!unit) return 0;
@@ -391,10 +376,263 @@ fn warn_handler_once(id: i64, error: &impl std::fmt::Display) {
     }
 }
 
+/// A JSON value as a JS one. A number, string, boolean or null is built directly; only an
+/// object or array goes through serde.
+fn js_of_state<'js>(
+    ctx: &rquickjs::Ctx<'js>,
+    value: &serde_json::Value,
+) -> rquickjs::Result<rquickjs::Value<'js>> {
+    use rquickjs::IntoJs;
+    use serde_json::Value as J;
+    match value {
+        J::Null => Ok(rquickjs::Value::new_null(ctx.clone())),
+        J::Bool(b) => Ok(rquickjs::Value::new_bool(ctx.clone(), *b)),
+        J::Number(n) => match n.as_i64().and_then(|i| i32::try_from(i).ok()) {
+            Some(i) => Ok(rquickjs::Value::new_int(ctx.clone(), i)),
+            None => Ok(rquickjs::Value::new_float(
+                ctx.clone(),
+                n.as_f64().unwrap_or(f64::NAN),
+            )),
+        },
+        J::String(s) => s.as_str().into_js(ctx),
+        J::Array(_) | J::Object(_) => {
+            rquickjs_serde::to_value(ctx.clone(), value).map_err(|_| rquickjs::Error::Unknown)
+        }
+    }
+}
+
+/// A JS value as a JSON one; `None` for `undefined`. The reverse of [`js_of_state`].
+fn state_of_js<'js>(
+    ctx: &rquickjs::Ctx<'js>,
+    value: rquickjs::Value<'js>,
+) -> rquickjs::Result<Option<serde_json::Value>> {
+    use serde_json::Value as J;
+    if value.is_undefined() {
+        return Ok(None);
+    }
+    if value.is_null() {
+        return Ok(Some(J::Null));
+    }
+    if let Some(b) = value.as_bool() {
+        return Ok(Some(J::Bool(b)));
+    }
+    if let Some(i) = value.as_int() {
+        return Ok(Some(J::from(i)));
+    }
+    if let Some(s) = value.as_string() {
+        return Ok(Some(J::String(s.to_string()?)));
+    }
+    rquickjs_serde::from_value(value).map(Some).map_err(|e| {
+        rquickjs::Exception::throw_type(ctx, &format!("state holds only JSON values: {e}"))
+    })
+}
+
+/// What one runtime may do to the Stores it is handed (issue #271).
+///
+/// DECISION: the reconciler and draw runtimes are refused by the host functions, not by
+/// the Proxy in `JSX_GLOBALS_JS`. `__tauler_state_set` throws there, and
+/// `__tauler_state_declare` stores nothing, so a default never replaces or fills what
+/// the render runtime saved. Reason: every write a layout file can make ends in
+/// `__tauler_state_set` — an assignment, a `delete`, and a nested value changed in place
+/// (the flush after a render) — so one check covers all of them, and the Proxy stays
+/// the same string in every runtime and on a page. Rejected: a read-only Proxy for
+/// these runtimes — a nested in-place write never passes through a Proxy trap.
+///
+/// DECISION: in those two runtimes a write made by the layout's own evaluation (its
+/// module scope or its render) is not refused. `__tauler_state_set` stores nothing and
+/// answers [`UNSAVED`]; the Proxy keeps the value in its mirror, so the rest of that
+/// evaluation reads it, and `__tauler_state_drop_unsaved` empties those mirrors when
+/// the evaluation ends ([`JsxEvaluator::end_evaluation`]), so the next one starts from
+/// the store. A write from a Unit hook or from `draw` code still throws: both run
+/// after the evaluation ended. Reason: these runtimes run the same render the render
+/// runtime does, and a render that writes a Store is allowed there (workspace memory,
+/// a scroll clamp); throwing here left that layout's Units unreconciled and its
+/// D3Figures undrawn. Tests: `store_render_time_write_in_the_reconciler_runtime_*`,
+/// `store_render_time_write_in_the_draw_runtime_*`,
+/// `store_module_scope_write_in_the_reconciler_runtime_loads_and_stores_nothing`,
+/// `store_write_from_a_unit_hook_changes_nothing` and
+/// `store_written_by_a_handler_is_read_by_the_draw_runtime_which_cannot_write_it`.
+/// Rejected: a copy of the whole store for each such evaluation, written freely and
+/// thrown away — exact with no JavaScript, and the per-evaluation copy issue #271
+/// removes.
+///
+/// These runtimes also open no transaction: a store has one journal, and it belongs to
+/// the render runtime's handler or render, which may be in the middle of one on another
+/// thread.
+#[derive(Clone, Copy, PartialEq)]
+enum StateAccess {
+    /// The render runtime: declares, reads and writes.
+    ReadWrite,
+    /// Reads only. `runtime` names who was refused, in the error a write throws.
+    ReadOnly { runtime: &'static str },
+}
+
+impl StateAccess {
+    const RECONCILER: Self = Self::ReadOnly {
+        runtime: "the reconciler runtime, where Unit hooks run",
+    };
+    const DRAW: Self = Self::ReadOnly {
+        runtime: "the draw runtime, where a D3Figure's draw runs",
+    };
+}
+
+/// What the compile pass writes after every State identity, and what
+/// `__tauler_state_declare` asks for (the `DECISION` in `tauler-core/src/store_pass.rs`): new for
+/// every evaluator, and never handed to JavaScript except inside that rewritten call.
+fn new_store_token() -> String {
+    use std::hash::BuildHasher;
+    // `RandomState` is seeded by the operating system once per process and differs
+    // per instance; no random-number crate is a dependency of this one.
+    format!(
+        "{:016x}",
+        std::collections::hash_map::RandomState::new().hash_one(0u8)
+    )
+}
+
+/// What `__tauler_state_set` answers in place of a version when it stored nothing
+/// ([`StateAccess`]); `JSX_GLOBALS_JS` tests for "below zero".
+const UNSAVED: f64 = -1.0;
+
+/// The host half of `store(...)` (`JSX_GLOBALS_JS` documents the five functions).
+fn register_state_host<'js>(
+    ctx: &rquickjs::Ctx<'js>,
+    state: &crate::state::SharedState,
+    access: StateAccess,
+    token: &str,
+    evaluating: &Arc<AtomicBool>,
+) -> rquickjs::Result<()> {
+    use rquickjs::{Ctx, Function, Value};
+    let globals = ctx.globals();
+
+    let store = Arc::clone(state);
+    let expected = token.to_string();
+    globals.set(
+        "__tauler_state_declare",
+        Function::new(
+            ctx.clone(),
+            move |ctx: Ctx<'js>,
+                  identity: String,
+                  default: Value<'js>,
+                  token: rquickjs::function::Opt<Value<'js>>|
+                  -> rquickjs::Result<()> {
+                let written_by_the_pass = token
+                    .0
+                    .and_then(|token| token.as_string().and_then(|t| t.to_string().ok()))
+                    .is_some_and(|token| token == expected);
+                if !written_by_the_pass {
+                    return Err(rquickjs::Exception::throw_type(
+                        &ctx,
+                        "store() takes exactly one argument, the default value, and must be \
+                         the whole value of a top-level const: `const name = store({...})`; \
+                         tauler adds the identity",
+                    ));
+                }
+                let default: serde_json::Map<String, serde_json::Value> =
+                    rquickjs_serde::from_value(default).map_err(|e| {
+                        rquickjs::Exception::throw_type(
+                            &ctx,
+                            &format!("store(): the default must be a JSON object: {e}"),
+                        )
+                    })?;
+                if access == StateAccess::ReadWrite {
+                    store.lock().unwrap().declare(&identity, default);
+                }
+                Ok(())
+            },
+        )?,
+    )?;
+
+    let store = Arc::clone(state);
+    globals.set(
+        "__tauler_state_get",
+        Function::new(
+            ctx.clone(),
+            move |ctx: Ctx<'js>,
+                  identity: String,
+                  key: String,
+                  have: f64,
+                  same: Value<'js>|
+                  -> rquickjs::Result<Value<'js>> {
+                let store = store.lock().unwrap();
+                match store.get(&identity, &key) {
+                    None => Ok(Value::new_undefined(ctx)),
+                    Some((value, version))
+                        if (value.is_object() || value.is_array()) && version as f64 == have =>
+                    {
+                        Ok(same)
+                    }
+                    Some((value, _)) => js_of_state(&ctx, value),
+                }
+            },
+        )?,
+    )?;
+
+    let store = Arc::clone(state);
+    globals.set(
+        "__tauler_state_version",
+        Function::new(ctx.clone(), move |identity: String, key: String| -> f64 {
+            store.lock().unwrap().version(&identity, &key) as f64
+        })?,
+    )?;
+
+    let store = Arc::clone(state);
+    let evaluating = Arc::clone(evaluating);
+    globals.set(
+        "__tauler_state_set",
+        Function::new(
+            ctx.clone(),
+            move |ctx: Ctx<'js>,
+                  identity: String,
+                  key: String,
+                  value: Value<'js>|
+                  -> rquickjs::Result<f64> {
+                if let StateAccess::ReadOnly { runtime } = access {
+                    if evaluating.load(Ordering::Relaxed) {
+                        return Ok(UNSAVED);
+                    }
+                    return Err(rquickjs::Exception::throw_type(
+                        &ctx,
+                        &format!(
+                            "a Store cannot be written from {runtime}: \
+                             `{identity}` key `{key}`"
+                        ),
+                    ));
+                }
+                let value = state_of_js(&ctx, value)?;
+                let mut store = store.lock().unwrap();
+                match value {
+                    Some(value) => store.set(&identity, &key, value),
+                    None => store.remove(&identity, &key),
+                };
+                Ok(store.version(&identity, &key) as f64)
+            },
+        )?,
+    )?;
+
+    let store = Arc::clone(state);
+    globals.set(
+        "__tauler_state_keys",
+        Function::new(ctx.clone(), move |identity: String| -> Vec<String> {
+            store.lock().unwrap().keys(&identity)
+        })?,
+    )?;
+    Ok(())
+}
+
+/// What calling a handler did (see [`JsxEvaluator::invoke_handler_outcome`]).
+#[derive(Debug, Default, PartialEq)]
+pub struct HandlerOutcome {
+    /// The intents it returned, if any.
+    pub intents: Option<serde_json::Value>,
+    /// Whether any Store changed. A handler that threw changed none.
+    pub state_changed: bool,
+}
+
 /// A persistent JSX evaluator that compiles the layout source once and re-evaluates
 /// cheaply on each tick by calling the pre-compiled render function.
-/// The store behind a layout file's `globals`, shareable between the two runtimes.
-pub type SharedGlobals = Arc<Mutex<serde_json::Map<String, serde_json::Value>>>;
+/// The owner of every Store's value, above any evaluator (issue #271): the one
+/// [`crate::state::StateStore`]. Every constructor but [`JsxEvaluator::new`] takes one.
+pub use crate::state::SharedState;
 
 pub struct JsxEvaluator {
     context: rquickjs::Context,
@@ -402,13 +640,20 @@ pub struct JsxEvaluator {
     stream_values: StreamValues,
     calls: StreamCalls,
     module_calls: Arc<Mutex<Vec<(String, serde_json::Value)>>>,
-    global_state: SharedGlobals,
+    /// What `store(...)` in the layout file reads and writes (`crate::state`): the
+    /// caller's, except for [`Self::new`], which builds its own.
+    state: SharedState,
+    state_access: StateAccess,
+    /// Whether the layout's own code is running: its module scope while the evaluator
+    /// is built, its render during an eval. What a runtime that only reads does with a
+    /// write depends on it ([`StateAccess`]).
+    evaluating: Arc<AtomicBool>,
     /// Always `Some` after construction; `None` only transiently during `drop`.
     render_fn: Option<Persistent<Function<'static>>>,
     loaded_paths: Arc<Mutex<Vec<PathBuf>>>,
     /// `Some` only for the draw runtime ([`JsxEvaluator::new_draw`]). It also
     /// changes [`JsxEvaluator::eval`]: figures its tree does not show are
-    /// forgotten, and `globals` are read but never written back.
+    /// forgotten.
     draw: Option<DrawState>,
 }
 
@@ -435,15 +680,13 @@ impl Drop for JsxEvaluator {
     }
 }
 
-/// No-op resolver/loader pair used in place of a filesystem resolver when
-/// `JsxEvaluator::new` is called with `layout_path: None`. `build_runtime` always
-/// composes its builtin resolver/loader with a second one, so this pair stands in
-/// for "no filesystem access at all" — matching the pre-`build_runtime` behavior,
-/// where the `None` branch registered only `builtin_resolver`/`builtin_loader` and
-/// any relative/`./`-style import simply failed to resolve.
-struct NoFsResolver;
+/// Makes `import { store } from "tauler"` resolve, in every runtime and with or without
+/// a filesystem: tried before the resolver and the loader of the layout's own imports.
+/// The module's source is `TAULER_MODULE_JS`; the `DECISION` beside `__tauler_store` in
+/// `tauler-core/src/globals.rs` says why it is source and not a native module.
+struct TaulerModule;
 
-impl Resolver for NoFsResolver {
+impl Resolver for TaulerModule {
     fn resolve<'js>(
         &mut self,
         _ctx: &rquickjs::Ctx<'js>,
@@ -451,20 +694,26 @@ impl Resolver for NoFsResolver {
         name: &str,
         _attrs: Option<rquickjs::loader::ImportAttributes<'js>>,
     ) -> rquickjs::Result<String> {
-        Err(rquickjs::Error::new_resolving(base, name))
+        if name == TAULER_MODULE {
+            Ok(TAULER_MODULE.to_string())
+        } else {
+            Err(rquickjs::Error::new_resolving(base, name))
+        }
     }
 }
 
-struct NoFsLoader;
-
-impl Loader for NoFsLoader {
+impl Loader for TaulerModule {
     fn load<'js>(
         &mut self,
-        _ctx: &rquickjs::Ctx<'js>,
+        ctx: &rquickjs::Ctx<'js>,
         name: &str,
         _attrs: Option<rquickjs::loader::ImportAttributes<'js>>,
     ) -> rquickjs::Result<rquickjs::Module<'js, rquickjs::module::Declared>> {
-        Err(rquickjs::Error::new_loading(name))
+        if name == TAULER_MODULE {
+            rquickjs::Module::declare(ctx.clone(), TAULER_MODULE, TAULER_MODULE_JS)
+        } else {
+            Err(rquickjs::Error::new_loading(name))
+        }
     }
 }
 
@@ -501,9 +750,91 @@ const SCHEMA_FILE_SUFFIX: &str = ".schema.yaml";
 /// file `d3` supplies. `d3` is `None` exactly when `GitPackageResolver` has no
 /// `PackageContext`, so nothing resolves to that name then.
 struct SchemaAwareLoader {
-    inner: optative_script::loader::ConfinedFsLoader,
     loaded_paths: Arc<Mutex<Vec<PathBuf>>>,
     d3: Option<Arc<crate::d3_figure::fetch::Fetcher>>,
+    modules: ModuleNames,
+    /// What the Store pass writes after each identity ([`new_store_token`]).
+    store_token: String,
+}
+
+/// Names a loaded file the way a State identity spells it (issue #271): stable across
+/// machines, checkouts and Package updates, so no absolute path and no commit.
+struct ModuleNames {
+    /// The layout file's directory, canonical — imports arrive canonical.
+    layout_dir: PathBuf,
+    /// Where Package checkouts live, canonical. `None` without Package support.
+    cache_root: Option<PathBuf>,
+}
+
+impl ModuleNames {
+    fn new(layout_dir: &Path, cache_root: Option<&Path>) -> Self {
+        let canonical = |p: &Path| p.canonicalize().unwrap_or_else(|_| p.to_path_buf());
+        Self {
+            layout_dir: canonical(layout_dir),
+            cache_root: cache_root.map(canonical),
+        }
+    }
+
+    /// `components/Desk.jsx` for a file under the layout's directory;
+    /// `@gh/owner/repo/index.jsx` for a file in a Package's checkout
+    /// (`<cache_root>/gh/<owner>/<repo>/<ref>/index.jsx`): the import specifier, then
+    /// the path inside the Package, and never the ref.
+    ///
+    /// SPEC: updating a Package to a new commit keeps the state of every Store whose
+    /// file and name did not move.
+    fn name_of(&self, path: &Path) -> String {
+        let joined = |parts: std::path::Components<'_>| {
+            parts
+                .map(|c| c.as_os_str().to_string_lossy())
+                .collect::<Vec<_>>()
+                .join("/")
+        };
+        let in_package = self
+            .cache_root
+            .as_ref()
+            .and_then(|root| path.strip_prefix(root).ok())
+            .and_then(|relative| {
+                let mut parts = relative.components();
+                let gh = parts.next()?.as_os_str().to_str()?;
+                let owner = parts.next()?.as_os_str().to_str()?.to_owned();
+                let repo = parts.next()?.as_os_str().to_str()?.to_owned();
+                let _ref = parts.next()?;
+                (gh == "gh").then(|| format!("@gh/{owner}/{repo}/{}", joined(parts)))
+            });
+        if let Some(name) = in_package {
+            return name;
+        }
+        match path.strip_prefix(&self.layout_dir) {
+            Ok(relative) => joined(relative.components()),
+            // The resolver confines every import to one of the two roots above, so this
+            // is unreachable today; the full path keeps identities distinct if it is not.
+            Err(_) => path.to_string_lossy().into_owned(),
+        }
+    }
+}
+
+/// What `optative_script::engine::is_script_file` (private to that crate) answers:
+/// the extensions `transform_source` is run on. A plain `.js` import is declared as-is,
+/// so it cannot hold JSX — and therefore gets no Store pass either.
+fn is_script_file(name: &str) -> bool {
+    matches!(
+        name.rsplit_once('.').map(|(_, e)| e),
+        Some("jsx" | "tsx" | "ts" | "mts")
+    )
+}
+
+/// Runs the Store pass on one file; a refusal becomes a thrown `SyntaxError` that reads
+/// `<module>:<line>: <what is wrong>`, which is what the load then fails with.
+fn name_stores<'js>(
+    ctx: &rquickjs::Ctx<'js>,
+    source: &str,
+    path: &str,
+    module: &str,
+    token: &str,
+) -> rquickjs::Result<String> {
+    tauler_core::store_pass::rewrite(source, path, module, token).map_err(|e| {
+        rquickjs::Exception::throw_syntax(ctx, &format!("{module}:{}: {}", e.line, e.message))
+    })
 }
 
 /// The reserved module name the `"d3"` specifier resolves to. Not a path, so it
@@ -520,11 +851,14 @@ impl SchemaAwareLoader {
     fn new(
         loaded_paths: Arc<Mutex<Vec<PathBuf>>>,
         d3: Option<Arc<crate::d3_figure::fetch::Fetcher>>,
+        modules: ModuleNames,
+        store_token: String,
     ) -> Self {
         Self {
-            inner: optative_script::loader::ConfinedFsLoader::new(Arc::clone(&loaded_paths)),
             loaded_paths,
             d3,
+            modules,
+            store_token,
         }
     }
 
@@ -566,7 +900,7 @@ impl Loader for SchemaAwareLoader {
         &mut self,
         ctx: &rquickjs::Ctx<'js>,
         name: &str,
-        attrs: Option<rquickjs::loader::ImportAttributes<'js>>,
+        _attrs: Option<rquickjs::loader::ImportAttributes<'js>>,
     ) -> rquickjs::Result<rquickjs::Module<'js, rquickjs::module::Declared>> {
         if name == D3_MODULE_NAME {
             return self.load_d3(ctx);
@@ -575,7 +909,23 @@ impl Loader for SchemaAwareLoader {
             return self.load_linkedom(ctx);
         }
         if !name.ends_with(SCHEMA_FILE_SUFFIX) {
-            let module = self.inner.load(ctx, name, attrs)?;
+            // DECISION (issue #271): this branch is `ConfinedFsLoader::load` written out
+            // (read, record the path, transform, declare) with the Store pass before the
+            // transform. Reason: that loader transforms and declares in one call with no
+            // hook between, but `transform_source` is public, so its five lines are
+            // cheaper to own than a new `optative-script` release. Rejected: a
+            // `transform` hook on `ConfinedFsLoader` — right eventually, not needed now.
+            let source =
+                std::fs::read_to_string(name).map_err(|_| rquickjs::Error::new_loading(name))?;
+            self.loaded_paths.lock().unwrap().push(PathBuf::from(name));
+            let source = if is_script_file(name) {
+                let module_name = self.modules.name_of(Path::new(name));
+                let named = name_stores(ctx, &source, name, &module_name, &self.store_token)?;
+                optative_script::jsx::transform_source(&named, name)
+            } else {
+                source
+            };
+            let module = rquickjs::Module::declare(ctx.clone(), name, source)?;
             set_import_meta(&module, Path::new(name))?;
             return Ok(module);
         }
@@ -877,12 +1227,48 @@ impl JsxEvaluator {
     /// `layout_path` is the layout file itself: relative imports resolve from its
     /// directory, and it is what the layout's `import.meta` reports. `None` means no
     /// filesystem at all — no imports, and an `import.meta` with nothing on it.
+    ///
+    /// Its Stores live in a store of its own, gone with the evaluator: for a caller
+    /// that never rebuilds one and runs no other runtime (a screenshot, a test).
+    /// Anything else owns a store and uses [`Self::new_with_state`].
     pub fn new(
         source: &str,
         ctx: serde_json::Value,
         layout_path: Option<&Path>,
     ) -> Result<Self, JsError> {
-        Self::with_effects(source, ctx, layout_path, Effects::Denied, None, false)
+        Self::new_with_state(source, ctx, layout_path, SharedState::default())
+    }
+
+    /// The render runtime, reading and declaring its Stores in `state`, which the
+    /// caller owns and keeps across reloads (issue #271).
+    ///
+    /// DECISION: the owner arrives through the constructor, not through a setter after
+    /// it. Reason: a Store is
+    /// declared while the layout module loads, inside the constructor, so a setter
+    /// would be too late for the saved value to win over the default.
+    pub fn new_with_state(
+        source: &str,
+        ctx: serde_json::Value,
+        layout_path: Option<&Path>,
+        state: SharedState,
+    ) -> Result<Self, JsError> {
+        Self::with_effects(
+            source,
+            ctx,
+            layout_path,
+            Effects::Denied,
+            None,
+            StateAccess::ReadWrite,
+            state,
+        )
+    }
+
+    /// The State identities this evaluator's load declared, in declaration order.
+    pub fn state_identities(&self) -> Vec<String> {
+        self.context.with(|ctx| {
+            ctx.eval::<Vec<String>, _>("globalThis.__tauler_state_identities")
+                .unwrap_or_default()
+        })
     }
 
     /// The render runtime, with `@gh/owner/repo` Package imports resolved through
@@ -898,6 +1284,7 @@ impl JsxEvaluator {
         ctx: serde_json::Value,
         layout_path: Option<&Path>,
         pkg_ctx: crate::pkg::PackageContext,
+        state: SharedState,
     ) -> Result<Self, JsError> {
         Self::with_effects(
             source,
@@ -905,34 +1292,35 @@ impl JsxEvaluator {
             layout_path,
             Effects::Denied,
             Some(pkg_ctx),
-            false,
+            StateAccess::ReadWrite,
+            state,
         )
     }
 
-    /// The `globals` this evaluator reads and writes.
-    ///
-    /// Handed to the reconciler runtime so both evaluations of the layout file
-    /// see the same answer to "what has the user asked for". Without it a bar
-    /// button that flips a Unit's declared state changes only the render side's
-    /// copy, and the Unit never notices — the most obvious thing anyone will
-    /// write, silently broken.
-    pub fn globals_handle(&self) -> SharedGlobals {
-        Arc::clone(&self.global_state)
+    /// The [`crate::state::StateStore`] behind this evaluator's `store(...)` calls.
+    pub fn state_handle(&self) -> SharedState {
+        Arc::clone(&self.state)
     }
 
     /// The reconciler runtime: the same layout file, evaluated off the loop, with
     /// `sh` and friends registered so a Unit's hooks can run, and reading the bar's
-    /// `globals`.
+    /// Stores. `state` is the store the render runtime was built with; here it is
+    /// read only ([`StateAccess`]).
     pub fn new_reconciler(
         source: &str,
         ctx: serde_json::Value,
         layout_path: Option<&Path>,
-        globals: SharedGlobals,
+        state: SharedState,
     ) -> Result<Self, JsError> {
-        let mut evaluator =
-            Self::with_effects(source, ctx, layout_path, Effects::Allowed, None, false)?;
-        evaluator.global_state = globals;
-        Ok(evaluator)
+        Self::with_effects(
+            source,
+            ctx,
+            layout_path,
+            Effects::Allowed,
+            None,
+            StateAccess::RECONCILER,
+            state,
+        )
     }
 
     /// The reconciler runtime, with `@gh/owner/repo` Package imports resolved
@@ -941,24 +1329,22 @@ impl JsxEvaluator {
         source: &str,
         ctx: serde_json::Value,
         layout_path: Option<&Path>,
-        globals: SharedGlobals,
         pkg_ctx: crate::pkg::PackageContext,
+        state: SharedState,
     ) -> Result<Self, JsError> {
-        let mut evaluator = Self::with_effects(
+        Self::with_effects(
             source,
             ctx,
             layout_path,
             Effects::Allowed,
             Some(pkg_ctx),
-            false,
-        )?;
-        evaluator.global_state = globals;
-        Ok(evaluator)
+            StateAccess::RECONCILER,
+            state,
+        )
     }
 
     /// The draw runtime (see `crate::d3_figure`): the same layout file, with no
-    /// shell or filesystem builtins and a private `globals` store that each
-    /// request's [`EvalInputs`] fills. Its
+    /// shell or filesystem builtins. Its
     /// `registerFigure` keeps each D3Figure's `draw` by key for
     /// [`Self::draw_figure`], and its timers never fire. `pkg_ctx` supplies the
     /// d3 and linkedom files.
@@ -967,23 +1353,29 @@ impl JsxEvaluator {
     /// load and every draw is [`DrawError::NotReady`]. Production always passes
     /// one.
     ///
-    /// Its [`Self::eval`] differs in two ways. A figure stays registered across
+    /// Its [`Self::eval`] differs in one way. A figure stays registered across
     /// evals (one built at module scope registers only once, at load) until an
     /// eval's tree no longer shows its key, so [`DrawError::UnknownKey`] means
-    /// "not in the latest eval". And `globals` come from each request's
-    /// [`EvalInputs`] ([`Self::eval_inputs`]), held in a private store that is
-    /// never shared and never written back: the bar owns them. They are not made
-    /// read-only (as [`Self::eval_units`] does), because a render that assigns to
-    /// `globals` is legal on the bar, and throwing here would leave that layout's
-    /// figures undrawable.
+    /// "not in the latest eval".
+    ///
+    /// `state` is the store the render runtime was built with, read live and read
+    /// only ([`StateAccess`]).
     pub fn new_draw(
         source: &str,
         ctx: serde_json::Value,
         layout_path: Option<&Path>,
         pkg_ctx: Option<crate::pkg::PackageContext>,
+        state: SharedState,
     ) -> Result<Self, JsError> {
-        let mut evaluator =
-            Self::with_effects(source, ctx, layout_path, Effects::Denied, pkg_ctx, true)?;
+        let mut evaluator = Self::with_effects(
+            source,
+            ctx,
+            layout_path,
+            Effects::Denied,
+            pkg_ctx,
+            StateAccess::DRAW,
+            state,
+        )?;
         evaluator.draw = Some(DrawState::default());
         Ok(evaluator)
     }
@@ -1085,9 +1477,14 @@ impl JsxEvaluator {
         layout_path: Option<&Path>,
         effects: Effects,
         pkg_ctx: Option<crate::pkg::PackageContext>,
-        draw: bool,
+        state_access: StateAccess,
+        state: SharedState,
     ) -> Result<Self, JsError> {
+        let draw = state_access == StateAccess::DRAW;
         let loaded_paths: Arc<Mutex<Vec<PathBuf>>> = Arc::new(Mutex::new(Vec::new()));
+        let store_token = new_store_token();
+        // The layout's module scope runs inside this constructor.
+        let evaluating = Arc::new(AtomicBool::new(true));
 
         let (runtime, context) = if let Some(path) = layout_path {
             // Relative imports resolve from, and stay confined to, the layout file's
@@ -1095,17 +1492,25 @@ impl JsxEvaluator {
             let dir = path.parent().unwrap_or(path);
             optative_script::build_runtime(
                 crate::ui::registry::UI_COMPONENTS,
-                GitPackageResolver::new(dir.to_path_buf(), pkg_ctx.clone()),
-                SchemaAwareLoader::new(
-                    Arc::clone(&loaded_paths),
-                    pkg_ctx.map(|pkg_ctx| pkg_ctx.d3),
+                (
+                    TaulerModule,
+                    GitPackageResolver::new(dir.to_path_buf(), pkg_ctx.clone()),
+                ),
+                (
+                    TaulerModule,
+                    SchemaAwareLoader::new(
+                        Arc::clone(&loaded_paths),
+                        pkg_ctx.as_ref().map(|pkg_ctx| Arc::clone(&pkg_ctx.d3)),
+                        ModuleNames::new(dir, pkg_ctx.as_ref().map(|c| c.cache_root.as_path())),
+                        store_token.clone(),
+                    ),
                 ),
             )
         } else {
             optative_script::build_runtime(
                 crate::ui::registry::UI_COMPONENTS,
-                NoFsResolver,
-                NoFsLoader,
+                TaulerModule,
+                TaulerModule,
             )
         }
         // No `Ctx` exists yet, so nothing was thrown: rquickjs's own text is all there is.
@@ -1123,6 +1528,9 @@ impl JsxEvaluator {
             let module_calls_inner = Arc::clone(&module_calls);
             with_described(&context, |qjs_ctx| {
                 qjs_ctx.eval::<(), _>(JSX_GLOBALS_JS)?;
+                // Behind `store` (`JSX_GLOBALS_JS`): the first sight of an
+                // identity saves its default, every later one finds the saved value.
+                register_state_host(&qjs_ctx, &state, state_access, &store_token, &evaluating)?;
                 optative_script::register_h(&qjs_ctx)?;
                 // The reconciler vocabulary, registered but not wired as an `esto`
                 // module: a layout file reaches `unit` the way it reaches
@@ -1279,7 +1687,44 @@ impl JsxEvaluator {
                     "globalThis.registerFigure = () => {};"
                 })?;
 
-                let js_source = optative_script::jsx::transform_source(source, "layout.jsx");
+                // DECISION (issue #271): the Store pass (`tauler_core::store_pass`) runs here on
+                // the layout file and in `SchemaAwareLoader::load` on every import, both
+                // before `transform_source`. Reason: tauler already owns both call sites —
+                // `optative-script` only supplies the public `transform_source` — so no
+                // new release of it is needed. Evidence: the `store_*` tests below load a
+                // layout, an import, a re-export, a `.ts` file and a Package through
+                // these two sites; `store_pass_cost` measured, for a 6.3 kB component
+                // file in an unoptimised test build over two runs, 4 µs per load when the
+                // file never says `store` (the common case: it is not parsed) and 0.9 to
+                // 1.3 ms when it does, about 0.7 of what `transform_source` costs on the
+                // same file (1.4 to 1.9 ms). Paid once per file per load, never per
+                // tick. The six `oxc_*` crates it uses are already in `Cargo.lock`
+                // through `optative-script`: no new package.
+                // Rejected: identity from the loader alone (one Store per file, as its
+                // default export) — it needs no parser, but a file could hold one Store
+                // and would lose the default export a component file needs.
+                //
+                // SPEC: `<module>` is the path relative to the layout file's directory —
+                // for the layout file itself its file name — or `@gh/owner/repo/<path
+                // in the Package>` for a Package's file (`ModuleNames::name_of`).
+                //
+                // The line in a refusal counts lines of `source`. For a
+                // `layout.op.mdx` that is the body after the frontmatter
+                // (`layout_source::parse_source` hands it over byte for byte), so the
+                // line is low by the frontmatter's length — the same offset every
+                // QuickJS error in a layout file already has. Imports are exact.
+                // Both are fixed together in
+                // https://github.com/kantord/tauler/issues/837.
+                //
+                // The docs site runs the same pass on every example before its own
+                // transform (`example_js` in `tauler-docgen/src/web.rs`).
+                let layout_module = layout_path
+                    .and_then(|path| path.file_name())
+                    .map(|name| name.to_string_lossy().into_owned())
+                    .unwrap_or_else(|| "layout.jsx".to_string());
+                let named =
+                    name_stores(&qjs_ctx, source, "layout.jsx", &layout_module, &store_token)?;
+                let js_source = optative_script::jsx::transform_source(&named, "layout.jsx");
                 let module = rquickjs::Module::declare(qjs_ctx.clone(), "layout.jsx", js_source)?;
                 if let Some(path) = layout_path {
                     set_import_meta(&module, path)?;
@@ -1301,18 +1746,51 @@ impl JsxEvaluator {
             })?;
         }
 
-        let global_state = Arc::new(Mutex::new(serde_json::Map::new()));
-        Ok(Self {
+        // DECISION (issue #271): state outlives this evaluator because its owner is an
+        // argument (`state`), built above every evaluator and handed to each one; a
+        // reload builds a new evaluator around the same owner. Evidence:
+        // `a_store_keeps_its_value_across_a_rebuilt_evaluator` below, and every
+        // construction site is handed the app's owner: `App::initial_load`,
+        // `App::handle_layout_reload` and the two `spawn_*` beside them in `src/app.rs`,
+        // `Reconciler::spawn` in `src/units.rs`, `DrawRuntime::spawn` in
+        // `src/d3_figure/draw.rs`, and `taulerbox/src/main.rs`.
+        // The Kill did not fire: no evaluator is built where an `Arc` cannot be passed.
+        // Rejected: reading the old evaluator's state out before dropping it — a failed
+        // reload keeps the old evaluator, so two would briefly own the state.
+        //
+        // A state whose identity the new load did not declare is dropped only after
+        // that load succeeded (`drop_undeclared_states` in `src/app.rs`).
+        let evaluator = Self {
             context,
             runtime,
             stream_values,
             calls,
             module_calls,
-            global_state,
+            state,
+            state_access,
+            evaluating,
             render_fn: stored_render_fn,
             loaded_paths,
             draw: None,
-        })
+        };
+        evaluator.context.with(|ctx| evaluator.end_evaluation(&ctx));
+        Ok(evaluator)
+    }
+
+    /// The layout's own code has stopped running. In a runtime that only reads, the
+    /// writes it made were kept in this runtime alone, and are forgotten here
+    /// ([`StateAccess`]).
+    fn end_evaluation<'js>(&self, ctx: &rquickjs::Ctx<'js>) {
+        self.evaluating.store(false, Ordering::Relaxed);
+        if self.state_access == StateAccess::ReadWrite {
+            return;
+        }
+        if let Ok(drop_unsaved) = ctx
+            .globals()
+            .get::<_, Function>("__tauler_state_drop_unsaved")
+        {
+            let _ = drop_unsaved.call::<_, ()>(());
+        }
     }
 
     /// Drop last tick's handler functions. The capture slot holds its own reference,
@@ -1352,6 +1830,11 @@ impl JsxEvaluator {
         self.invoke_handler(CAPTURED_HANDLER, pointer)
     }
 
+    /// [`Self::invoke_captured_handler`], as [`Self::invoke_handler_outcome`].
+    pub fn invoke_captured_handler_outcome(&self, pointer: &serde_json::Value) -> HandlerOutcome {
+        self.invoke_handler_outcome(CAPTURED_HANDLER, pointer)
+    }
+
     /// A handler that throws is reported and dispatches nothing — a gesture that does
     /// nothing beats a bar that dies (ADR 0021). Reported once per handler, because this
     /// sits on the input path: a mapper that throws would otherwise log on every motion
@@ -1361,31 +1844,117 @@ impl JsxEvaluator {
         id: i64,
         pointer: &serde_json::Value,
     ) -> Option<serde_json::Value> {
+        self.invoke_handler_outcome(id, pointer).intents
+    }
+
+    /// [`Self::invoke_handler`], and whether the handler changed any state. The handler
+    /// runs inside one [`crate::state::StateStore`] transaction: nested values it was
+    /// handed are compared and written back when it returns, and everything is rolled
+    /// back when it throws.
+    pub fn invoke_handler_outcome(&self, id: i64, pointer: &serde_json::Value) -> HandlerOutcome {
+        // DECISION: this only reports; the caller (`App::resolve`) turns a change into
+        // a flag and a Notifier ping, and the next Pass ticks. The Kill (a click's write
+        // not on screen within one Pass of the click) is not met and the loop keeps its
+        // order: see `StateWake` in `src/app.rs` for the order of events and the test.
         self.context.with(|ctx| {
-            let f = ctx
-                .globals()
-                .get::<_, Function>("__tauler_invoke_handler")
-                .ok()?;
-            let arg = rquickjs_serde::to_value(ctx.clone(), pointer).ok()?;
+            let Ok(f) = ctx.globals().get::<_, Function>("__tauler_invoke_handler") else {
+                return HandlerOutcome::default();
+            };
+            let Ok(arg) = rquickjs_serde::to_value(ctx.clone(), pointer) else {
+                return HandlerOutcome::default();
+            };
+            if self.begin_state(&ctx).is_err() {
+                return HandlerOutcome::default();
+            }
             let out = f
                 .call::<_, rquickjs::Value>((id, arg))
-                .catch(&ctx)
-                .map_err(|e| warn_handler_once(id, &e))
-                .ok()?;
-            let intents: serde_json::Value = rquickjs_serde::from_value(out).ok()?;
-            (!intents.is_null()).then_some(intents)
+                .and_then(|out| self.flush_state(&ctx).map(|()| out))
+                .catch(&ctx);
+            match out {
+                Ok(out) => {
+                    let state_changed = self.commit_state();
+                    let intents = rquickjs_serde::from_value::<serde_json::Value>(out)
+                        .ok()
+                        .filter(|intents| !intents.is_null());
+                    HandlerOutcome {
+                        intents,
+                        state_changed,
+                    }
+                }
+                Err(e) => {
+                    warn_handler_once(id, &e);
+                    self.abort_state(&ctx);
+                    HandlerOutcome::default()
+                }
+            }
         })
     }
 
-    /// Evaluate against `inputs` instead of this evaluator's own `globals` and
-    /// the loop's stream values: the draw runtime's way of naming the same
-    /// figures the render that produced `inputs` named.
-    pub fn eval_inputs(&self, inputs: &EvalInputs) -> Result<EvalOutput, JsError> {
-        self.global_state
-            .lock()
-            .unwrap()
-            .clone_from(&inputs.globals);
-        self.eval(&inputs.stream_values)
+    /// Start one handler's or one render's transaction, and tell the runtime where the
+    /// store's clock stands so it knows whether what it mirrors is still true.
+    ///
+    /// A runtime that only reads ([`StateAccess`]) opens no transaction: it has nothing
+    /// to undo, and the journal is the render runtime's.
+    fn begin_state<'js>(&self, ctx: &rquickjs::Ctx<'js>) -> rquickjs::Result<()> {
+        let clock = {
+            let mut state = self.state.lock().unwrap();
+            if self.state_access == StateAccess::ReadWrite {
+                state.begin();
+            }
+            state.clock()
+        };
+        ctx.globals().set("__tauler_state_now", clock as f64)
+    }
+
+    /// Keep what one handler or one render wrote. `true` when any state changed.
+    fn commit_state(&self) -> bool {
+        self.state_access == StateAccess::ReadWrite && self.state.lock().unwrap().commit()
+    }
+
+    /// Write back every nested value that was handed out and changed in place.
+    fn flush_state<'js>(&self, ctx: &rquickjs::Ctx<'js>) -> rquickjs::Result<()> {
+        ctx.globals()
+            .get::<_, Function>("__tauler_state_flush")?
+            .call::<_, ()>(())
+    }
+
+    /// Undo a handler or render that threw: the store rolls back, and the runtime
+    /// forgets the nested values it handed out, which may hold half a change.
+    fn abort_state<'js>(&self, ctx: &rquickjs::Ctx<'js>) {
+        if let Ok(abort) = ctx.globals().get::<_, Function>("__tauler_state_abort") {
+            let _ = abort.call::<_, ()>(());
+        }
+        if self.state_access == StateAccess::ReadWrite {
+            self.state.lock().unwrap().rollback();
+        }
+    }
+
+    /// Call the layout's default export inside one [`crate::state::StateStore`]
+    /// transaction: committed when it returns, rolled back when it throws.
+    fn render_in_transaction<'js>(
+        &self,
+        ctx: &rquickjs::Ctx<'js>,
+    ) -> rquickjs::Result<rquickjs::Value<'js>> {
+        let render_fn = self.render_fn.as_ref().unwrap().clone().restore(ctx)?;
+        self.begin_state(ctx)?;
+        self.evaluating.store(true, Ordering::Relaxed);
+        let rendered = render_fn
+            .call::<_, rquickjs::Value>(())
+            .and_then(|value| self.flush_state(ctx).map(|()| value));
+        if rendered.is_err() {
+            // Before `end_evaluation`: it forgets the nested values handed out.
+            self.abort_state(ctx);
+        }
+        self.end_evaluation(ctx);
+        match rendered {
+            Ok(value) => {
+                // A render-time write pings nothing, so whether it changed anything
+                // is not asked.
+                self.commit_state();
+                Ok(value)
+            }
+            Err(e) => Err(e),
+        }
     }
 
     pub fn eval(
@@ -1401,25 +1970,15 @@ impl JsxEvaluator {
         self.reset_handlers();
 
         with_described(&self.context, |qjs_ctx| {
-            // Snapshotted before the render, which may write `globals`.
-            let start_globals = self.global_state.lock().unwrap().clone();
-            let globals_val = rquickjs_serde::to_value(qjs_ctx.clone(), &start_globals)
-                .map_err(|_| rquickjs::Error::Unknown)?;
-            qjs_ctx.globals().set("globals", globals_val)?;
-
-            let render_fn = self.render_fn.as_ref().unwrap().clone().restore(&qjs_ctx)?;
-            let value: rquickjs::Value = render_fn.call::<(), rquickjs::Value>(())?;
-
-            // The draw runtime's `globals` come from each request's inputs; never kept.
-            if self.draw.is_none() {
-                let updated_globals: rquickjs::Value = qjs_ctx.globals().get("globals")?;
-                if let Ok(new_state) = rquickjs_serde::from_value::<
-                    serde_json::Map<String, serde_json::Value>,
-                >(updated_globals)
-                {
-                    *self.global_state.lock().unwrap() = new_state;
-                }
-            }
+            // For a Store nothing is copied in here and only what changed is written
+            // back (`render_in_transaction`; tests `store_*`).
+            // SPEC: a render-time write pings nothing.
+            // SPEC: the draw runtime's inputs carry state by version, so a draw
+            // evaluates with the Stores the eval that asked read, and an unchanged
+            // state is not cloned per tick. Not built: [`EvalInputs`] carries no state
+            // and the draw runtime reads the store as it is (the last `RISK:` in
+            // `src/state.rs`).
+            let value = self.render_in_transaction(&qjs_ctx)?;
 
             let json_str = qjs_ctx
                 .json_stringify(value)?
@@ -1459,10 +2018,7 @@ impl JsxEvaluator {
                 stream_calls: self.calls.lock().unwrap().clone(),
                 module_calls: self.module_calls.lock().unwrap().clone(),
                 figure_calls,
-                inputs: Arc::new(EvalInputs {
-                    globals: start_globals,
-                    stream_values,
-                }),
+                inputs: Arc::new(EvalInputs { stream_values }),
             })
         })
     }
@@ -1489,19 +2045,9 @@ impl JsxEvaluator {
         self.reset_handlers();
 
         with_described(&self.context, |qjs_ctx| {
-            let globals_val =
-                rquickjs_serde::to_value(qjs_ctx.clone(), &*self.global_state.lock().unwrap())
-                    .map_err(|_| rquickjs::Error::Unknown)?;
-            qjs_ctx.globals().set("__tauler_globals_raw", globals_val)?;
-            // The bar owns `globals`; the reconciler only reads them. A hook that
-            // assigns to one is trying to report, and hooks do not report — the
-            // next `observe` is what says whether anything happened (ADR 0035).
-            qjs_ctx.eval::<(), _>(
-                "globalThis.globals = __tauler_readonly(__tauler_globals_raw, 'globals');",
-            )?;
-
-            let render_fn = self.render_fn.as_ref().unwrap().clone().restore(&qjs_ctx)?;
-            let tree: rquickjs::Value = render_fn.call::<(), rquickjs::Value>(())?;
+            // A Store is the bar's: this render reads it, and what it writes stays in
+            // this runtime ([`StateAccess`]).
+            let tree = self.render_in_transaction(&qjs_ctx)?;
 
             let collect: Function = qjs_ctx.globals().get("__tauler_collect_units")?;
             let batches: rquickjs::Value = collect.call((tree,))?;
@@ -2313,10 +2859,9 @@ return <div><D3Figure key={42} width={1} height={2} draw={() => {}} /></div>;
     }
 
     #[test]
-    fn an_eval_records_the_globals_it_started_from_and_every_stream() {
+    fn an_eval_with_a_figure_records_every_stream() {
         let evaluator = JsxEvaluator::new(
             r#"export default function render() {
-globals.n = (globals.n ?? 0) + 1;
 return <div><D3Figure key={useStringStream("/bin/sh", "a")} width={1} height={1} draw={() => {}} /></div>;
 }"#,
             serde_json::Value::Null,
@@ -2327,19 +2872,9 @@ return <div><D3Figure key={useStringStream("/bin/sh", "a")} width={1} height={1}
         let b = ("/bin/sh".to_string(), Some("b".to_string()));
         let streams = HashMap::from([(a, "1".to_string()), (b, "unread".to_string())]);
 
-        let first = evaluator.eval(&streams).unwrap();
-        let second = evaluator.eval(&streams).unwrap();
+        let out = evaluator.eval(&streams).unwrap();
 
-        assert!(
-            first.inputs.globals.is_empty(),
-            "{:?}",
-            first.inputs.globals
-        );
-        assert_eq!(
-            serde_json::Value::Object(second.inputs.globals.clone()),
-            serde_json::json!({ "n": 1 })
-        );
-        assert_eq!(second.inputs.stream_values, streams);
+        assert_eq!(out.inputs.stream_values, streams);
     }
 
     #[test]
@@ -2471,30 +3006,6 @@ return <div><D3Figure key={{p: x, q: [x]}} width={10} height={20} draw={() => {}
         // The first 16 hex chars of sha256('{"p":{"a":1},"q":[{"a":1}]}').
         let keys: Vec<&str> = out.figure_calls.iter().map(|c| c.key.as_str()).collect();
         assert_eq!(keys, ["json-f2f7ebe41634361f@10x20"], "got: {}", out.layout);
-    }
-
-    #[test]
-    fn globals_object_persists_value_across_eval_calls() {
-        let evaluator = JsxEvaluator::new(
-            r#"export default function render() {
-globals.count ??= 0;
-globals.count += 1;
-return <span class="text-white">{String(globals.count)}</span>;
-}"#,
-            serde_json::Value::Null,
-            None,
-        )
-        .unwrap();
-
-        let streams = std::collections::HashMap::new();
-        let r1 = evaluator.eval(&streams).unwrap().layout;
-        assert_eq!(r1["children"][0], "1");
-
-        let r2 = evaluator.eval(&streams).unwrap().layout;
-        assert_eq!(r2["children"][0], "2");
-
-        let r3 = evaluator.eval(&streams).unwrap().layout;
-        assert_eq!(r3["children"][0], "3");
     }
 
     #[test]
@@ -2640,6 +3151,7 @@ export default function render() { return <span class="text-white">{String(Widge
             serde_json::Value::Null,
             Some(&layout_dir.join("layout.jsx")),
             pkg_ctx,
+            Default::default(),
         )
         .unwrap_or_else(|e| panic!("expected the warm Package to resolve, got: {e}"))
         .eval(&std::collections::HashMap::new())
@@ -2690,6 +3202,7 @@ export default function render() { return <span class="text-white">{String(Widge
             serde_json::Value::Null,
             Some(&layout_dir.join("layout.jsx")),
             pkg_ctx,
+            Default::default(),
         )
         .unwrap_or_else(|e| {
             panic!("expected the multi-file Package's internal import to resolve, got: {e}")
@@ -2729,6 +3242,7 @@ export default function render() { return <span class="text-white">{String(Widge
             serde_json::Value::Null,
             Some(&dir.join("layout.jsx")),
             pkg_ctx,
+            Default::default(),
         );
 
         assert!(
@@ -2803,6 +3317,7 @@ export default function render() { return <span class="text-white">{String(Widge
             serde_json::Value::Null,
             Some(&layout_dir.join("layout.jsx")),
             pkg_ctx,
+            Default::default(),
         )
         .unwrap_or_else(|e| panic!("expected the Development-mode Package to resolve, got: {e}"))
         .eval(&std::collections::HashMap::new())
@@ -3077,7 +3592,7 @@ return <div class="flex">
             r#"export default function render() { throw new Error("boom while rendering"); }"#,
             serde_json::Value::Null,
             None,
-            Arc::new(Mutex::new(serde_json::Map::new())),
+            Default::default(),
         )
         .unwrap();
         let err = evaluator
@@ -3306,6 +3821,7 @@ export default function render() { return <div><span>{String(indexDir)}</span><s
             serde_json::Value::Null,
             Some(&layout_path),
             pkg_ctx,
+            Default::default(),
         )
         .unwrap_or_else(|e| panic!("expected the warm Package to resolve, got: {e}"))
         .eval(&std::collections::HashMap::new())
@@ -3359,6 +3875,7 @@ export default function render() { return <Volume />; }"#;
             serde_json::Value::Null,
             Some(&layout_path),
             pkg_ctx,
+            Default::default(),
         )
         .unwrap_or_else(|e| panic!("expected the warm Package to resolve, got: {e}"))
         .eval(&std::collections::HashMap::new())
@@ -3394,6 +3911,7 @@ export default function render() { return <span class="text-white">{String(scale
             serde_json::Value::Null,
             Some(dir.path()),
             pkg_ctx,
+            Default::default(),
         )
         .unwrap_or_else(|e| panic!("expected \"d3\" to resolve, got: {e}"))
         .eval(&std::collections::HashMap::new())
@@ -3413,6 +3931,7 @@ export default function render() { return <span class="text-white">{String(scale
             serde_json::Value::Null,
             Some(dir.path()),
             pkg_ctx,
+            Default::default(),
         );
 
         assert!(result.is_err(), "a cold d3 must fail resolution");
@@ -3444,6 +3963,7 @@ export default function render() { return <span class="text-white">{String(scale
             serde_json::Value::Null,
             Some(dir.path()),
             pkg_ctx,
+            Default::default(),
         );
 
         assert!(result.is_err(), "a cold d3 must fail resolution");
@@ -3487,6 +4007,7 @@ return <div><D3Figure key="k" width={{10}} height={{20}} draw={{{draw}}} /></div
             serde_json::Value::Null,
             Some(dir.path()),
             Some(pkg_ctx),
+            Default::default(),
         )
         .unwrap_or_else(|e| panic!("the draw runtime should start, got: {e}"));
         evaluator
@@ -3498,22 +4019,27 @@ return <div><D3Figure key="k" width={{10}} height={{20}} draw={{{draw}}} /></div
     #[test]
     fn the_render_and_draw_runtimes_name_the_same_figures_for_the_same_inputs() {
         let source = r#"export default function render() {
-globals.n = (globals.n ?? 0) + 1;
-return <div><D3Figure key={"k" + globals.n + "/" + useStringStream("/bin/sh", "v")} width={10} height={20} draw={() => {}} /></div>;
+return <div><D3Figure key={"k/" + useStringStream("/bin/sh", "v")} width={10} height={20} draw={() => {}} /></div>;
 }"#;
         let streams = HashMap::from([(
             ("/bin/sh".to_string(), Some("v".to_string())),
             "7".to_string(),
         )]);
         let render = JsxEvaluator::new(source, serde_json::Value::Null, None).unwrap();
-        render.eval(&streams).unwrap();
         let out = render.eval(&streams).unwrap();
         let keys = |calls: &[FigureCall]| calls.iter().map(|c| c.key.clone()).collect::<Vec<_>>();
-        assert_eq!(keys(&out.figure_calls), ["k2/7@10x20"]);
-        let draw = JsxEvaluator::new_draw(source, serde_json::Value::Null, None, None).unwrap();
+        assert_eq!(keys(&out.figure_calls), ["k/7@10x20"]);
+        let draw = JsxEvaluator::new_draw(
+            source,
+            serde_json::Value::Null,
+            None,
+            None,
+            Default::default(),
+        )
+        .unwrap();
 
-        let first = draw.eval_inputs(&out.inputs).unwrap();
-        let second = draw.eval_inputs(&out.inputs).unwrap();
+        let first = draw.eval(&out.inputs.stream_values).unwrap();
+        let second = draw.eval(&out.inputs.stream_values).unwrap();
 
         assert_eq!(first.figure_calls, out.figure_calls);
         assert_eq!(second.figure_calls, out.figure_calls);
@@ -3540,7 +4066,7 @@ return <div><D3Figure key={"k" + useStringStream("/bin/sh", "a")} width={10} hei
             .eval(&streams)
             .unwrap();
         let (draw, _dir) = ready_draw_evaluator(source);
-        draw.eval_inputs(&out.inputs).unwrap();
+        draw.eval(&out.inputs.stream_values).unwrap();
 
         let svg = draw
             .draw_figure("k1@10x20", 10.0, 20.0, GENEROUS_LIMIT)
@@ -3768,6 +4294,7 @@ return <div>
             serde_json::Value::Null,
             Some(dir.path()),
             Some(pkg_ctx),
+            Default::default(),
         )
         .unwrap_or_else(|e| panic!("the draw runtime should start without d3, got: {e}"));
         evaluator
@@ -3803,6 +4330,7 @@ return <div>
             serde_json::Value::Null,
             Some(dir.path()),
             Some(pkg_ctx),
+            Default::default(),
         )
         .unwrap_or_else(|e| panic!("the draw runtime should start, got: {e}"));
         evaluator
@@ -3839,7 +4367,16 @@ return <div>
                 )
                 .unwrap(),
             ),
-            text(JsxEvaluator::new_draw(&source, serde_json::Value::Null, None, None).unwrap()),
+            text(
+                JsxEvaluator::new_draw(
+                    &source,
+                    serde_json::Value::Null,
+                    None,
+                    None,
+                    Default::default(),
+                )
+                .unwrap(),
+            ),
         ]
     }
 
@@ -3944,5 +4481,1084 @@ return <div>
             r#"[measureText("a\nb\tc", { family: "sans-serif", size: 11 }), measureText("a b c", { family: "sans-serif", size: 11 })]"#,
         );
         assert_eq!(render[0], render[1]);
+    }
+
+    // ---- `store(...)` over `crate::state` (issue #271) ----
+    //
+    // The compile pass names each Store (`layout.jsx#<name>`: these layouts have no
+    // path).
+
+    /// One Store, one element carrying a handler per kind of write, and the Store's
+    /// contents as the element's text so an eval shows what the render read.
+    const STORE_LAYOUT: &str = r#"
+import { store } from 'tauler'; const desk = store({ count: 0, items: [], note: { text: "a" } });
+export default () => (
+  <div
+    on_click={() => { desk.count += 1; return { channel: "c", event: desk.count }; }}
+    on_push={() => { desk.items.push("x"); }}
+    on_same={() => { desk.count = desk.count; desk.items.length; }}
+    on_throw={() => { desk.count = 99; desk.items.push("lost"); throw new Error("boom"); }}
+    on_replace={() => { const old = desk.items; desk.items = ["new"]; old.push("stale"); }}
+  >{JSON.stringify({ count: desk.count, items: desk.items })}</div>
+);
+"#;
+
+    fn store_evaluator(source: &str) -> JsxEvaluator {
+        JsxEvaluator::new(source, serde_json::Value::Null, None).unwrap()
+    }
+
+    fn eval_again(e: &JsxEvaluator) -> EvalOutput {
+        e.eval(&std::collections::HashMap::new()).unwrap()
+    }
+
+    /// Evaluate, then call the handler the root element carries under `prop`.
+    fn fire(e: &JsxEvaluator, prop: &str) -> HandlerOutcome {
+        let out = eval_again(e);
+        let id = out.layout[prop]["$handler"]
+            .as_i64()
+            .unwrap_or_else(|| panic!("no handler under {prop}: {}", out.layout));
+        e.invoke_handler_outcome(id, &serde_json::Value::Null)
+    }
+
+    /// What the render read from the Store, parsed back out of the element's text.
+    fn rendered_store(e: &JsxEvaluator) -> serde_json::Value {
+        let layout = eval_again(e).layout.to_string();
+        let start = layout.find(r#"{\"count\""#).expect("the store as text");
+        let end = start + layout[start..].find("}").expect("its end") + 1;
+        serde_json::from_str(&layout[start..end].replace(r#"\""#, "\"")).expect("JSON")
+    }
+
+    fn desk(e: &JsxEvaluator) -> serde_json::Value {
+        serde_json::Value::Object(
+            e.state_handle()
+                .lock()
+                .unwrap()
+                .snapshot("layout.jsx#desk")
+                .expect("declared"),
+        )
+    }
+
+    #[test]
+    fn store_a_handlers_top_level_write_survives_the_next_eval() {
+        let e = store_evaluator(STORE_LAYOUT);
+        let outcome = fire(&e, "on_click");
+        assert!(outcome.state_changed);
+        assert_eq!(
+            outcome.intents,
+            Some(serde_json::json!([{ "channel": "c", "event": 1 }]))
+        );
+        assert_eq!(desk(&e)["count"], 1);
+        assert_eq!(rendered_store(&e)["count"], 1);
+        fire(&e, "on_click");
+        assert_eq!(rendered_store(&e)["count"], 2);
+    }
+
+    #[test]
+    fn store_a_handlers_nested_push_survives_the_next_eval() {
+        let e = store_evaluator(STORE_LAYOUT);
+        assert!(fire(&e, "on_push").state_changed);
+        assert_eq!(desk(&e)["items"], serde_json::json!(["x"]));
+        assert_eq!(rendered_store(&e)["items"], serde_json::json!(["x"]));
+        assert!(fire(&e, "on_push").state_changed);
+        assert_eq!(rendered_store(&e)["items"], serde_json::json!(["x", "x"]));
+    }
+
+    #[test]
+    fn store_a_handler_that_writes_what_is_there_reports_no_change() {
+        let e = store_evaluator(STORE_LAYOUT);
+        assert!(!fire(&e, "on_same").state_changed);
+    }
+
+    #[test]
+    fn store_a_handler_that_throws_after_a_write_leaves_state_unchanged() {
+        let e = store_evaluator(STORE_LAYOUT);
+        fire(&e, "on_push");
+        let before = desk(&e);
+        let outcome = fire(&e, "on_throw");
+        assert_eq!(outcome, HandlerOutcome::default());
+        assert_eq!(desk(&e), before);
+        // The runtime's own copy of `items` held the half-made push; it must not be
+        // what the next render reads.
+        assert_eq!(
+            rendered_store(&e),
+            serde_json::json!({ "count": 0, "items": ["x"] })
+        );
+    }
+
+    /// A nested value that a top-level write replaced is no longer the state, so a
+    /// later change to it in place is not written back over its replacement.
+    #[test]
+    fn store_a_replaced_nested_value_is_not_written_back() {
+        let e = store_evaluator(STORE_LAYOUT);
+        assert!(fire(&e, "on_replace").state_changed);
+        assert_eq!(desk(&e)["items"], serde_json::json!(["new"]));
+    }
+
+    #[test]
+    fn store_a_render_time_write_survives_the_next_eval() {
+        let e = store_evaluator(
+            r#"
+import { store } from 'tauler'; const seen = store({ renders: 0, log: [] });
+export default () => {
+  seen.renders += 1;
+  seen.log.push(seen.renders);
+  return <div>{String(seen.renders)}</div>;
+};
+"#,
+        );
+        eval_again(&e);
+        eval_again(&e);
+        let out = eval_again(&e);
+        assert!(out.layout.to_string().contains("\"3\""), "{}", out.layout);
+        let state = e.state_handle();
+        let state = state.lock().unwrap();
+        assert_eq!(state.get("layout.jsx#seen", "renders").unwrap().0, 3);
+        assert_eq!(
+            state.get("layout.jsx#seen", "log").unwrap().0,
+            &serde_json::json!([1, 2, 3])
+        );
+    }
+
+    #[test]
+    fn store_a_render_that_throws_leaves_state_unchanged() {
+        let e = store_evaluator(
+            r#"
+import { store } from 'tauler'; const s = store({ n: 0, list: [] });
+export default () => {
+  s.n += 1;
+  s.list.push(s.n);
+  if (s.n === 2) throw new Error("second render fails");
+  return <div />;
+};
+"#,
+        );
+        eval_again(&e);
+        assert!(e.eval(&std::collections::HashMap::new()).is_err());
+        let state = e.state_handle();
+        let state = state.lock().unwrap();
+        assert_eq!(state.get("layout.jsx#s", "n").unwrap().0, 1);
+        assert_eq!(
+            state.get("layout.jsx#s", "list").unwrap().0,
+            &serde_json::json!([1])
+        );
+    }
+
+    /// A read is answered from the runtime's own mirror while the store's clock stands,
+    /// so a write from anywhere else has to move it.
+    #[test]
+    fn store_a_write_from_outside_the_runtime_is_read_by_the_next_eval() {
+        let e = store_evaluator(
+            r#"
+import { store } from 'tauler'; const s = store({ n: 1, gone: true });
+export default () => <div>{"n=" + s.n + " gone=" + s.gone + " keys=" + Object.keys(s)}</div>;
+"#,
+        );
+        assert!(eval_again(&e)
+            .layout
+            .to_string()
+            .contains("n=1 gone=true keys=gone,n"));
+        {
+            let state = e.state_handle();
+            let mut state = state.lock().unwrap();
+            state.set("layout.jsx#s", "n", serde_json::json!(2));
+            state.remove("layout.jsx#s", "gone");
+        }
+        let out = eval_again(&e).layout.to_string();
+        assert!(out.contains("n=2 gone=undefined keys=n"), "{out}");
+    }
+
+    /// `key in store` says whether the key exists — before and after the key was read,
+    /// for a nested value and for `null`, and after a delete.
+    #[test]
+    fn store_in_operator_says_whether_a_key_exists() {
+        let e = store_evaluator(
+            r#"
+import { store } from 'tauler'; const s = store({ n: 1, list: [1], nothing: null, gone: true });
+export default () => {
+  const before = ["n", "list", "nothing", "missing"].map((k) => k in s);
+  s.n; s.list; s.nothing; s.missing;
+  const after = ["n", "list", "nothing", "missing"].map((k) => k in s);
+  delete s.gone;
+  return <div>{before.join(",") + ";" + after.join(",") + ";" + ("gone" in s)}</div>;
+};
+"#,
+        );
+        let out = eval_again(&e).layout.to_string();
+        assert!(
+            out.contains("true,true,true,false;true,true,true,false;false"),
+            "{out}"
+        );
+    }
+
+    /// The same nested JS value is handed out again while its version stands, and a
+    /// write from outside this runtime replaces it.
+    #[test]
+    fn store_a_nested_value_is_reused_until_its_version_moves() {
+        let e = store_evaluator(
+            r#"
+import { store } from 'tauler'; const s = store({ list: [1], other: 0 });
+let last;
+export default () => {
+  const same = last === s.list;
+  last = s.list;
+  return <div>{same ? "same" : "fresh"}{JSON.stringify(s.list)}{Object.keys(s).join(",")}</div>;
+};
+"#,
+        );
+        assert!(eval_again(&e).layout.to_string().contains("fresh"));
+        assert!(eval_again(&e).layout.to_string().contains("same"));
+        // Another key's write moves no version of `list`.
+        e.state_handle()
+            .lock()
+            .unwrap()
+            .set("layout.jsx#s", "other", serde_json::json!(1));
+        assert!(eval_again(&e).layout.to_string().contains("same"));
+        e.state_handle()
+            .lock()
+            .unwrap()
+            .set("layout.jsx#s", "list", serde_json::json!([1, 2]));
+        let out = eval_again(&e).layout.to_string();
+        assert!(out.contains("fresh") && out.contains("[1,2]"), "{out}");
+        assert!(out.contains("list,other"), "{out}");
+    }
+
+    // ---- Stores: the compile pass and the owner above the evaluator (issue #271) ----
+
+    /// Writes `files` (relative path, contents) into a fresh directory and returns it
+    /// with the path of `layout.jsx` inside it.
+    fn store_fixture(files: &[(&str, &str)]) -> (tempfile::TempDir, PathBuf) {
+        let dir = tempfile::tempdir().expect("tempdir");
+        for (name, contents) in files {
+            let path = dir.path().join(name);
+            std::fs::create_dir_all(path.parent().unwrap()).expect("create dir");
+            std::fs::write(path, contents).expect("write fixture");
+        }
+        let layout = dir.path().join("layout.jsx");
+        (dir, layout)
+    }
+
+    fn load_fixture(files: &[(&str, &str)]) -> Result<JsxEvaluator, JsError> {
+        let (_dir, layout) = store_fixture(files);
+        let source = std::fs::read_to_string(&layout).expect("layout.jsx is in the fixture");
+        JsxEvaluator::new(&source, serde_json::Value::Null, Some(&layout))
+    }
+
+    #[test]
+    fn store_in_the_layout_file_is_named_by_file_and_variable() {
+        let evaluator = load_fixture(&[(
+            "layout.jsx",
+            r#"import { store } from 'tauler'; const history = store({ entries: [] });
+export const desk = store({ open: false });
+export default function render() { return <div>{String(desk.open)}{history.entries.length}</div>; }"#,
+        )])
+        .expect("layout loads");
+        assert_eq!(
+            evaluator.state_identities(),
+            ["layout.jsx#history", "layout.jsx#desk"]
+        );
+    }
+
+    /// With no layout path there is no file name; the module is `layout.jsx`.
+    #[test]
+    fn store_in_a_layout_without_a_path_is_named_layout_jsx() {
+        let evaluator = JsxEvaluator::new(
+            "import { store } from 'tauler'; const a = store({ n: 1 });\nexport default function render() { return <div>{a.n}</div>; }",
+            serde_json::Value::Null,
+            None,
+        )
+        .expect("layout loads");
+        assert_eq!(evaluator.state_identities(), ["layout.jsx#a"]);
+    }
+
+    #[test]
+    fn store_in_an_import_is_named_by_its_path_from_the_layout() {
+        let evaluator = load_fixture(&[
+            (
+                "components/Desk.jsx",
+                "import { store } from 'tauler'; export const desk = store({ open: false });\nconst seen = store({ n: 0 });\nexport const n = () => seen.n;",
+            ),
+            (
+                "layout.jsx",
+                r#"import { desk } from "./components/Desk";
+export default function render() { return <div>{String(desk.open)}</div>; }"#,
+            ),
+        ])
+        .expect("layout loads");
+        assert_eq!(
+            evaluator.state_identities(),
+            ["components/Desk.jsx#desk", "components/Desk.jsx#seen"]
+        );
+    }
+
+    /// A re-export is not a second declaration: one identity, the defining file's, and
+    /// both import paths reach the same object.
+    #[test]
+    fn store_re_exported_from_a_second_file_keeps_the_defining_files_identity() {
+        let evaluator = load_fixture(&[
+            ("a.jsx", "import { store } from 'tauler'; export const desk = store({ open: false });"),
+            ("b.jsx", "export { desk } from './a';\nexport { desk as renamed } from './a';"),
+            (
+                "layout.jsx",
+                r#"import { desk as direct } from "./a";
+import { desk, renamed } from "./b";
+export default function render() { return <div>{String(direct === desk && desk === renamed)}</div>; }"#,
+            ),
+        ])
+        .expect("layout loads");
+        assert_eq!(evaluator.state_identities(), ["a.jsx#desk"]);
+        let layout = evaluator.eval(&HashMap::new()).unwrap().layout;
+        assert!(layout.to_string().contains("true"), "got: {layout}");
+    }
+
+    #[test]
+    fn store_inside_a_function_fails_the_load_with_file_and_line() {
+        let in_import = load_fixture(&[
+            (
+                "components/Bad.jsx",
+                "import { store } from 'tauler'; export function Bad() {\n  const local = store({ n: 0 });\n  return <div>{local.n}</div>;\n}",
+            ),
+            (
+                "layout.jsx",
+                "import { Bad } from './components/Bad';\nexport default function render() { return <Bad />; }",
+            ),
+        ])
+        .err()
+        .expect("the load must fail")
+        .to_string();
+        assert!(
+            in_import.contains(
+                "components/Bad.jsx:2: store() must be the whole value of a top-level `const`"
+            ),
+            "got: {in_import}"
+        );
+
+        let in_layout = load_fixture(&[(
+            "layout.jsx",
+            "import { store } from 'tauler'; export default function render() {\n\n  let s = store({});\n  return <div />;\n}",
+        )])
+        .err()
+        .expect("the load must fail")
+        .to_string();
+        assert!(
+            in_layout.contains("layout.jsx:3: store()"),
+            "got: {in_layout}"
+        );
+    }
+
+    /// `.ts` and `.tsx` imports: an `as` cast inside the default, one around the whole
+    /// call, a type argument and a type annotation all leave the call nameable.
+    #[test]
+    fn store_in_typescript_files_is_named() {
+        let evaluator = load_fixture(&[
+            (
+                "state.ts",
+                "type Desk = { open: boolean; tags: string[] };\n\
+                 import { store } from 'tauler'; export const desk = store({ open: false, tags: [] as string[] });\n\
+                 export const cast = store({ n: 0 }) as { n: number };\n\
+                 export const typed = store<Desk>({ open: true, tags: [] } as Desk);\n\
+                 export const annotated: Desk = store({ open: true, tags: [] });",
+            ),
+            (
+                "Panel.tsx",
+                "import { desk } from './state';\n\
+                 import { store } from 'tauler'; const panel = store({ width: 0 as number });\n\
+                 export const Panel = (props: { label: string }) => <div>{props.label}{String(desk.open)}{panel.width}</div>;",
+            ),
+            (
+                "layout.jsx",
+                "import { Panel } from './Panel';\nexport default function render() { return <Panel label=\"x\" />; }",
+            ),
+        ])
+        .expect("layout loads");
+        assert_eq!(
+            evaluator.state_identities(),
+            [
+                "state.ts#desk",
+                "state.ts#cast",
+                "state.ts#typed",
+                "state.ts#annotated",
+                "Panel.tsx#panel"
+            ]
+        );
+        evaluator.eval(&HashMap::new()).expect("renders");
+    }
+
+    /// What happens to a file with its own `store`: nothing. Its calls resolve to its
+    /// own function, so the pass neither names them nor refuses the one inside a
+    /// function, and tauler's `store` is never called — no identity is declared.
+    #[test]
+    fn a_file_with_its_own_store_function_is_left_alone() {
+        let evaluator = load_fixture(&[
+            (
+                "own.jsx",
+                "function store(value) { return { mine: value }; }\n\
+                 export const top = store(1);\n\
+                 export function nested() { return store(2); }",
+            ),
+            (
+                "imported.jsx",
+                "import { store } from './helper';\nexport const viaImport = store(3);",
+            ),
+            ("helper.jsx", "export const store = (value) => ({ helper: value });"),
+            (
+                "layout.jsx",
+                r#"import { top, nested } from "./own";
+import { viaImport } from "./imported";
+export default function render() { return <div>{JSON.stringify([top, nested(), viaImport])}</div>; }"#,
+            ),
+        ])
+        .expect("a file's own `store` must not fail the load");
+        assert!(evaluator.state_identities().is_empty());
+        let layout = evaluator.eval(&HashMap::new()).unwrap().layout.to_string();
+        assert!(
+            layout.contains(r#"[{\"mine\":1},{\"mine\":2},{\"helper\":3}]"#),
+            "got: {layout}"
+        );
+    }
+
+    /// The other half of the above: tauler's `store` reached through an alias is a call
+    /// the pass cannot see, and the runtime refuses it when it runs.
+    #[test]
+    fn store_through_an_alias_throws_at_load() {
+        let err = load_fixture(&[(
+            "layout.jsx",
+            "import { store } from 'tauler';\nconst make = store;\nconst a = make({});\nexport default function render() { return <div />; }",
+        )])
+        .err()
+        .expect("the load must fail")
+        .to_string();
+        assert!(
+            err.contains("store() must be the whole value of a top-level const"),
+            "got: {err}"
+        );
+    }
+
+    /// No layout file can choose an identity. Whatever way `store` is reached and
+    /// whatever is passed after the default, the host asks for the token the compile
+    /// pass was given, and a layout file cannot read it.
+    #[test]
+    fn store_called_with_a_hand_written_identity_is_refused() {
+        for body in [
+            // Through an alias, which the pass does not follow.
+            "import { store } from 'tauler';\nconst make = store;\nconst a = make({}, 'mine#a');",
+            // With a guess at the third argument.
+            "import { store } from 'tauler';\nconst make = store;\nconst a = make({}, 'mine#a', 'token');",
+            // Through the namespace, which is not the binding the pass looks for.
+            "import * as t from 'tauler';\nconst a = t.store({}, 'mine#a');",
+            // The function behind the module, by its name on `globalThis`.
+            "const a = globalThis.__tauler_store({}, 'mine#a');",
+            // The identity of a Store that exists, to reach it without importing it.
+            "import { store } from 'tauler';\nconst real = store({ n: 1 });\nconst make = store;\nconst a = make({}, 'layout.jsx#real');",
+        ] {
+            let state = SharedState::default();
+            let err = JsxEvaluator::new_with_state(
+                &format!("{body}\nexport default () => <div />;"),
+                serde_json::Value::Null,
+                None,
+                Arc::clone(&state),
+            )
+            .err()
+            .unwrap_or_else(|| panic!("the load must fail: {body}"))
+            .to_string();
+            assert!(
+                err.contains("store() takes exactly one argument"),
+                "{body}\ngot: {err}"
+            );
+            assert_eq!(state.lock().unwrap().snapshot("mine#a"), None, "{body}");
+        }
+    }
+
+    /// `globals` is gone (ADR 0051): a layout file that still names it does not load,
+    /// and the error says what replaced it. A file's own `globals` is nobody's business.
+    #[test]
+    fn a_layout_that_names_globals_fails_to_load_and_points_at_store() {
+        let (_dir, layout) = store_fixture(&[
+            (
+                "components/Old.jsx",
+                "export const Old = () => {\n  globals.n = 1;\n  return <div />;\n};",
+            ),
+            (
+                "layout.jsx",
+                "import { Old } from './components/Old';\nexport default () => <Old />;",
+            ),
+        ]);
+        let source = std::fs::read_to_string(&layout).unwrap();
+        for (source, path, at) in [
+            (
+                "export default () => <div>{globals.count ?? 0}</div>;",
+                None,
+                "layout.jsx:1: ",
+            ),
+            (
+                source.as_str(),
+                Some(layout.as_path()),
+                "components/Old.jsx:2: ",
+            ),
+        ] {
+            let err = JsxEvaluator::new(source, serde_json::Value::Null, path)
+                .err()
+                .expect("the load must fail")
+                .to_string();
+            assert!(
+                err.contains(at) && err.contains("`globals` was removed") && err.contains("store"),
+                "got: {err}"
+            );
+        }
+
+        JsxEvaluator::new(
+            "const globals = { n: 1 };\nexport default () => <div>{globals.n}</div>;",
+            serde_json::Value::Null,
+            None,
+        )
+        .expect("a file's own `globals` loads");
+    }
+
+    /// `store` is not a global: only the import reaches it.
+    #[test]
+    fn store_is_not_on_global_this() {
+        let e = store_evaluator(
+            "export default () => <div>{typeof globalThis.store + ',' + typeof store}</div>;",
+        );
+        let layout = eval_again(&e).layout.to_string();
+        assert!(layout.contains("undefined,undefined"), "{layout}");
+    }
+
+    #[test]
+    fn store_called_without_the_import_fails_the_load_and_says_what_to_import() {
+        let err = JsxEvaluator::new(
+            "const desk = store({ open: false });\nexport default () => <div />;",
+            serde_json::Value::Null,
+            None,
+        )
+        .err()
+        .expect("the load must fail")
+        .to_string();
+        assert!(
+            err.contains("layout.jsx:1: store is not a global")
+                && err.contains(r#"import { store } from "tauler""#),
+            "got: {err}"
+        );
+    }
+
+    #[test]
+    fn store_imported_under_another_name_is_named() {
+        let e = store_evaluator(
+            "import { store as s } from 'tauler';\nconst desk = s({ open: true });\nexport default () => <div>{String(desk.open)}</div>;",
+        );
+        assert_eq!(e.state_identities(), ["layout.jsx#desk"]);
+        assert!(eval_again(&e).layout.to_string().contains("true"));
+    }
+
+    /// The import resolves in the reconciler and draw runtimes too, with a filesystem
+    /// (a layout path) and without one.
+    #[test]
+    fn store_import_resolves_in_every_runtime() {
+        let source = "import { store } from 'tauler';\nconst desk = store({ open: true });\nexport default () => <div>{String(desk.open)}</div>;";
+        let (_dir, layout) = store_fixture(&[("layout.jsx", source)]);
+        for path in [None, Some(layout.as_path())] {
+            let state = SharedState::default();
+            JsxEvaluator::new_with_state(source, serde_json::Value::Null, path, Arc::clone(&state))
+                .expect("render runtime");
+            JsxEvaluator::new_reconciler(source, serde_json::Value::Null, path, Arc::clone(&state))
+                .expect("reconciler runtime");
+            JsxEvaluator::new_draw(source, serde_json::Value::Null, path, None, state)
+                .expect("draw runtime");
+        }
+    }
+
+    /// A Package's Store is named by its specifier and its path in the Package, with no
+    /// commit in it, so it cannot collide with the importer's `layout.op.mdx#desk`.
+    #[test]
+    fn store_in_a_package_is_named_by_its_specifier_without_the_ref() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let (layout_dir, pkg_ctx, _) = warm_package(
+            tmp.path(),
+            &[
+                ("state/desk.jsx", "import { store } from 'tauler'; export const desk = store({ open: false });", false),
+                (
+                    "index.jsx",
+                    "import { store } from 'tauler'; export { desk } from './state/desk.jsx';\nconst hidden = store({ n: 0 });\nexport const n = () => hidden.n;",
+                    false,
+                ),
+            ],
+        );
+        let layout_source = r#"import { desk as theirs } from "@gh/fixture/repo";
+import { store } from 'tauler'; const desk = store({ open: true });
+export default function render() { return <div>{String(theirs.open)}{String(desk.open)}</div>; }"#;
+        let layout_path = layout_dir.join("layout.op.mdx");
+        std::fs::write(&layout_path, layout_source).expect("write layout file");
+        let evaluator = JsxEvaluator::new_with_packages(
+            layout_source,
+            serde_json::Value::Null,
+            Some(&layout_path),
+            pkg_ctx,
+            Default::default(),
+        )
+        .expect("layout loads");
+        assert_eq!(
+            evaluator.state_identities(),
+            [
+                "@gh/fixture/repo/state/desk.jsx#desk",
+                "@gh/fixture/repo/index.jsx#hidden",
+                "layout.op.mdx#desk"
+            ]
+        );
+    }
+
+    /// The central claim of the reload risk: two evaluators built from the same source
+    /// around one owner are one state. The second is what a reload builds.
+    #[test]
+    fn a_store_keeps_its_value_across_a_rebuilt_evaluator() {
+        let source = r#"import { store } from 'tauler'; const counter = store({ n: 0 });
+export default function render() { counter.n += 1; return <div>{"n=" + counter.n}</div>; }"#;
+        let state = SharedState::default();
+
+        let first =
+            JsxEvaluator::new_with_state(source, serde_json::Value::Null, None, Arc::clone(&state))
+                .unwrap();
+        first.eval(&HashMap::new()).unwrap();
+        let layout = first.eval(&HashMap::new()).unwrap().layout.to_string();
+        assert!(layout.contains("n=2"), "got: {layout}");
+        drop(first);
+        assert_eq!(
+            state
+                .lock()
+                .unwrap()
+                .get("layout.jsx#counter", "n")
+                .unwrap()
+                .0,
+            2
+        );
+
+        let second =
+            JsxEvaluator::new_with_state(source, serde_json::Value::Null, None, state).unwrap();
+        let layout = second.eval(&HashMap::new()).unwrap().layout.to_string();
+        assert!(
+            layout.contains("n=3"),
+            "the rebuilt evaluator starts from 2; got: {layout}"
+        );
+
+        // Without a shared owner the same rebuild starts over.
+        let fresh = JsxEvaluator::new(source, serde_json::Value::Null, None).unwrap();
+        let layout = fresh.eval(&HashMap::new()).unwrap().layout.to_string();
+        assert!(layout.contains("n=1"), "got: {layout}");
+    }
+
+    /// Not an assertion: prints what the pass adds to one file's load, for the DECISION
+    /// at the layout's `transform_source` call. Run with `--nocapture`.
+    #[test]
+    fn store_pass_cost() {
+        let component = "export function Row({ label, value }) {\n  return <div class=\"flex gap-2\"><span>{label}</span><span>{value}</span></div>;\n}\n";
+        let plain: String = (0..50)
+            .map(|i| component.replace("Row", &format!("Row{i}")))
+            .collect();
+        let with_store = format!("import {{ store }} from 'tauler'; export const desk = store({{ open: false }});\n{plain}");
+        let median = |f: &dyn Fn()| {
+            let mut samples: Vec<std::time::Duration> = (0..200)
+                .map(|_| {
+                    let t = std::time::Instant::now();
+                    f();
+                    t.elapsed()
+                })
+                .collect();
+            samples.sort();
+            samples[samples.len() / 2]
+        };
+        let skip = median(&|| {
+            tauler_core::store_pass::rewrite(&plain, "a.jsx", "a.jsx", "t").unwrap();
+        });
+        let pass = median(&|| {
+            tauler_core::store_pass::rewrite(&with_store, "a.jsx", "a.jsx", "t").unwrap();
+        });
+        let transform = median(&|| {
+            optative_script::jsx::transform_source(&with_store, "a.jsx");
+        });
+        eprintln!(
+            "store_pass_cost: {} bytes; no `store` in file: {skip:?}; with a Store: {pass:?}; transform_source alone: {transform:?}",
+            with_store.len()
+        );
+    }
+
+    /// Every string leaf of a layout tree, in document order.
+    fn layout_texts(node: &serde_json::Value, out: &mut Vec<String>) {
+        match node {
+            serde_json::Value::String(text) => out.push(text.clone()),
+            serde_json::Value::Array(items) => {
+                items.iter().for_each(|i| layout_texts(i, out));
+            }
+            serde_json::Value::Object(map) => {
+                if let Some(children) = map.get("children") {
+                    layout_texts(children, out);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    // ---- The compile pass, the Proxy and the owner together (issue #271) ----
+
+    /// A Store the compile pass names in an import, written by a handler into the
+    /// `StateStore`, and found again by a second evaluator built on the same owner from
+    /// the same source, which is what a reload builds.
+    #[test]
+    fn store_written_by_a_handler_survives_a_rebuilt_evaluator() {
+        let (_dir, layout) = store_fixture(&[
+            (
+                "state/desk.jsx",
+                "import { store } from 'tauler'; export const desk = store({ open: false });",
+            ),
+            (
+                "layout.jsx",
+                r#"import { desk } from "./state/desk";
+export default function render() {
+    return <div on_click={() => { desk.open = !desk.open; }}>
+        <span>{`open=${desk.open}`}</span>
+    </div>;
+}"#,
+            ),
+        ]);
+        let source = std::fs::read_to_string(&layout).expect("layout.jsx is in the fixture");
+        let build = |state: SharedState| {
+            JsxEvaluator::new_with_state(&source, serde_json::Value::Null, Some(&layout), state)
+                .unwrap_or_else(|e| panic!("expected the layout to load, got: {e}"))
+        };
+        let texts = |evaluator: &JsxEvaluator| {
+            let mut texts = Vec::new();
+            layout_texts(&eval_again(evaluator).layout, &mut texts);
+            texts
+        };
+        let state = SharedState::default();
+
+        let first = build(Arc::clone(&state));
+        // No identity was written by hand: the pass named the Store after its file.
+        assert_eq!(first.state_identities(), ["state/desk.jsx#desk"]);
+        let before = eval_again(&first).layout;
+        let mut shown = Vec::new();
+        layout_texts(&before, &mut shown);
+        assert_eq!(shown, ["open=false"]);
+
+        let handler = |node: &serde_json::Value| {
+            node["on_click"]["$handler"]
+                .as_i64()
+                .unwrap_or_else(|| panic!("no handler on {node}"))
+        };
+        let store_write = first.invoke_handler_outcome(handler(&before), &serde_json::Value::Null);
+        assert!(store_write.state_changed, "the Store's handler");
+        assert_eq!(
+            state
+                .lock()
+                .unwrap()
+                .get("state/desk.jsx#desk", "open")
+                .unwrap()
+                .0,
+            true
+        );
+        assert_eq!(texts(&first), ["open=true"]);
+        drop(first);
+
+        let second = build(state);
+        assert_eq!(
+            texts(&second),
+            ["open=true"],
+            "the rebuilt evaluator starts from what the first one left"
+        );
+    }
+
+    // ---- The reconciler and draw runtimes read the app's store (issue #271, P3) ----
+
+    /// A render runtime whose only handler flips `desk.open`, on `state`.
+    const DESK_RENDER: &str = r#"
+import { store } from 'tauler'; const desk = store({ open: false, items: [] });
+export default () => <div on_click={() => { desk.open = !desk.open; }}>{`open=${desk.open}`}</div>;
+"#;
+
+    /// Build [`DESK_RENDER`] on `state` and run its handler once: `desk.open` is true.
+    fn desk_opened_by_a_handler(state: &SharedState) -> JsxEvaluator {
+        let render = JsxEvaluator::new_with_state(
+            DESK_RENDER,
+            serde_json::Value::Null,
+            None,
+            Arc::clone(state),
+        )
+        .unwrap();
+        let shown = eval_again(&render).layout;
+        let id = shown["on_click"]["$handler"].as_i64().expect("a handler");
+        let outcome = render.invoke_handler_outcome(id, &serde_json::Value::Null);
+        assert!(outcome.state_changed, "precondition: the handler wrote");
+        render
+    }
+
+    fn desk_snapshot(
+        state: &SharedState,
+        render: &JsxEvaluator,
+    ) -> serde_json::Map<String, serde_json::Value> {
+        let identities = render.state_identities();
+        assert_eq!(identities.len(), 1, "one Store: {identities:?}");
+        state
+            .lock()
+            .unwrap()
+            .snapshot(&identities[0])
+            .expect("the Store is declared")
+    }
+
+    fn reconciler_on(state: &SharedState, source: &str) -> JsxEvaluator {
+        JsxEvaluator::new_reconciler(source, serde_json::Value::Null, None, Arc::clone(state))
+            .unwrap_or_else(|e| panic!("expected the reconciler runtime to load, got: {e}"))
+    }
+
+    const DESK_UNIT: &str = r#"
+const Light = unit({
+  key: (i) => i.entity,
+  value: (i) => i.state,
+  reconciler: optativeSet({ observe: () => [] }),
+});
+"#;
+
+    #[test]
+    fn store_written_by_a_handler_is_read_by_the_reconciler_runtime() {
+        let state = SharedState::default();
+        let source = format!(
+            r#"import {{ store }} from 'tauler'; const desk = store({{ open: false, items: [] }});
+{DESK_UNIT}
+export default () => <root>
+  <Light entity="light.desk" state={{desk.open ? "on" : "off"}} />
+  <div on_click={{() => {{ desk.open = !desk.open; }}}} />
+</root>;"#
+        );
+        let render = JsxEvaluator::new_with_state(
+            &source,
+            serde_json::Value::Null,
+            None,
+            Arc::clone(&state),
+        )
+        .unwrap();
+        let reconciler = reconciler_on(&state, &source);
+        let declared = |evaluator: &JsxEvaluator| {
+            let batches = evaluator.eval_units(&HashMap::new()).unwrap();
+            batches[0].items[0]["state"].clone()
+        };
+        assert_eq!(declared(&reconciler), "off");
+
+        let shown = eval_again(&render).layout;
+        let id = shown["children"][0]["on_click"]["$handler"]
+            .as_i64()
+            .unwrap_or_else(|| panic!("no handler in {shown}"));
+        render.invoke_handler_outcome(id, &serde_json::Value::Null);
+
+        assert_eq!(
+            declared(&reconciler),
+            "on",
+            "the next Unit evaluation reads what the handler wrote"
+        );
+    }
+
+    /// Every kind of write a render can make, and the Store as JSON after it, starting
+    /// from what [`desk_opened_by_a_handler`] leaves: `{"items":[],"open":true}`.
+    const RENDER_TIME_WRITES: [(&str, &str); 6] = [
+        ("desk.open = false;", r#"{"items":[],"open":false}"#),
+        ("delete desk.open;", r#"{"items":[]}"#),
+        ("desk.items.push(1);", r#"{"items":[1],"open":true}"#),
+        ("desk.added = 1;", r#"{"added":1,"items":[],"open":true}"#),
+        (
+            "desk.items = [2]; desk.items.push(3);",
+            r#"{"items":[2,3],"open":true}"#,
+        ),
+        ("desk.open = 1; desk.open = 2;", r#"{"items":[],"open":2}"#),
+    ];
+
+    /// A layout whose render reads `desk`, makes `write`, reads it again, and shows
+    /// both readings: as a Unit's declared state and as text.
+    fn render_that_writes(write: &str) -> String {
+        format!(
+            "import {{ store }} from 'tauler'; const desk = store({{ open: false, items: [] }});\n\
+             {DESK_UNIT}\n\
+             export default () => {{\n\
+               const before = JSON.stringify(desk);\n\
+               {write}\n\
+               const shown = before + ' -> ' + JSON.stringify(desk);\n\
+               return <root><Light entity=\"light.desk\" state={{shown}} /><div>{{shown}}</div></root>;\n\
+             }};"
+        )
+    }
+
+    /// P2 in a runtime that only reads: the render's own write is what the rest of that
+    /// render reads, the store never gets it, and the next evaluation starts from the
+    /// store again.
+    #[test]
+    fn store_render_time_write_in_the_reconciler_runtime_is_kept_for_that_evaluation_only() {
+        let state = SharedState::default();
+        let render = desk_opened_by_a_handler(&state);
+        let saved = desk_snapshot(&state, &render);
+
+        for (write, after) in RENDER_TIME_WRITES {
+            let reconciler = reconciler_on(&state, &render_that_writes(write));
+            for evaluation in 1..=2 {
+                let batches = reconciler
+                    .eval_units(&HashMap::new())
+                    .unwrap_or_else(|e| panic!("`{write}` threw: {e}"));
+                assert_eq!(
+                    batches[0].items[0]["state"],
+                    format!(r#"{{"items":[],"open":true}} -> {after}"#),
+                    "`{write}`, evaluation {evaluation}"
+                );
+                assert_eq!(desk_snapshot(&state, &render), saved, "after `{write}`");
+            }
+        }
+    }
+
+    #[test]
+    fn store_render_time_write_in_the_draw_runtime_is_kept_for_that_evaluation_only() {
+        let state = SharedState::default();
+        let render = desk_opened_by_a_handler(&state);
+        let saved = desk_snapshot(&state, &render);
+
+        for (write, after) in RENDER_TIME_WRITES {
+            let draw = JsxEvaluator::new_draw(
+                &render_that_writes(write),
+                serde_json::Value::Null,
+                None,
+                None,
+                Arc::clone(&state),
+            )
+            .unwrap();
+            for evaluation in 1..=2 {
+                let shown = draw
+                    .eval(&HashMap::new())
+                    .unwrap_or_else(|e| panic!("`{write}` threw: {e}"))
+                    .layout;
+                let mut texts = Vec::new();
+                layout_texts(&shown, &mut texts);
+                assert_eq!(
+                    texts,
+                    [format!(r#"{{"items":[],"open":true}} -> {after}"#)],
+                    "`{write}`, evaluation {evaluation}"
+                );
+                assert_eq!(desk_snapshot(&state, &render), saved, "after `{write}`");
+            }
+        }
+    }
+
+    /// A render that throws after a write leaves nothing behind in a runtime that only
+    /// reads either.
+    #[test]
+    fn store_render_time_write_in_the_reconciler_runtime_is_dropped_when_the_render_throws() {
+        let state = SharedState::default();
+        let render = desk_opened_by_a_handler(&state);
+        let source = format!(
+            "import {{ store }} from 'tauler'; const desk = store({{ open: false, items: [] }});\n\
+             {DESK_UNIT}\n\
+             let renders = 0;\n\
+             export default () => {{\n\
+               const before = JSON.stringify(desk);\n\
+               if (renders++ === 0) {{ desk.open = false; desk.items.push(1); throw new Error('boom'); }}\n\
+               return <root><Light entity=\"light.desk\" state={{before}} /></root>;\n\
+             }};"
+        );
+        let reconciler = reconciler_on(&state, &source);
+        reconciler
+            .eval_units(&HashMap::new())
+            .expect_err("the first render throws");
+        let batches = reconciler.eval_units(&HashMap::new()).unwrap();
+        assert_eq!(batches[0].items[0]["state"], r#"{"items":[],"open":true}"#);
+        drop(render);
+    }
+
+    /// Module scope is the layout's own evaluation too: a write there does not stop
+    /// the reconciler runtime from loading, and does not reach the store.
+    #[test]
+    fn store_module_scope_write_in_the_reconciler_runtime_loads_and_stores_nothing() {
+        let state = SharedState::default();
+        let reconciler = reconciler_on(
+            &state,
+            "import { store } from 'tauler'; const desk = store({ n: 0 });\ndesk.n = 5;\n\
+             export default () => <root />;",
+        );
+        reconciler.eval_units(&HashMap::new()).unwrap();
+        let identities = reconciler.state_identities();
+        assert_eq!(state.lock().unwrap().snapshot(&identities[0]), None);
+    }
+
+    #[test]
+    fn store_write_from_a_unit_hook_changes_nothing() {
+        let state = SharedState::default();
+        let render = desk_opened_by_a_handler(&state);
+        let saved = desk_snapshot(&state, &render);
+        let source = r#"import { store } from 'tauler'; const desk = store({ open: false, items: [] });
+const Light = unit({
+  key: (i) => i.entity,
+  value: (i) => i.state,
+  reconciler: optativeSet({ observe: () => [] }),
+  enter: (items) => { desk.open = false; },
+});
+export default () => <root><Light entity="light.desk" state="on" /></root>;"#;
+        let reconciler = reconciler_on(&state, source);
+        let batches = reconciler.eval_units(&HashMap::new()).unwrap();
+        let items = serde_json::Value::Array(batches[0].items.clone());
+
+        let ran = reconciler.dispatch_unit_hook(batches[0].unit_index, "enter", "enterOne", &items);
+
+        assert_eq!(ran, 0, "the hook threw");
+        assert_eq!(desk_snapshot(&state, &render), saved);
+    }
+
+    #[test]
+    fn store_declared_in_the_reconciler_runtime_stores_no_default() {
+        // Nothing declared it yet: the reconciler's declaration leaves the store empty.
+        let empty = SharedState::default();
+        let other_default = "import { store } from 'tauler'; const desk = store({ open: false, items: [], extra: 1 });\n\
+                             export default () => <root />;";
+        let reconciler = reconciler_on(&empty, other_default);
+        reconciler.eval_units(&HashMap::new()).unwrap();
+        let identities = reconciler.state_identities();
+        assert_eq!(empty.lock().unwrap().snapshot(&identities[0]), None);
+
+        // Declared by the render runtime: a default with a new key fills nothing.
+        let state = SharedState::default();
+        let render = desk_opened_by_a_handler(&state);
+        let saved = desk_snapshot(&state, &render);
+        reconciler_on(&state, other_default)
+            .eval_units(&HashMap::new())
+            .unwrap();
+        assert_eq!(desk_snapshot(&state, &render), saved);
+    }
+
+    #[test]
+    fn store_written_by_a_handler_is_read_by_the_draw_runtime_which_cannot_write_it() {
+        let state = SharedState::default();
+        let render = desk_opened_by_a_handler(&state);
+        let saved = desk_snapshot(&state, &render);
+        let draw_on = |source: &str| {
+            JsxEvaluator::new_draw(
+                source,
+                serde_json::Value::Null,
+                None,
+                None,
+                Arc::clone(&state),
+            )
+            .unwrap()
+        };
+
+        let shown = draw_on(DESK_RENDER).eval(&HashMap::new()).unwrap().layout;
+        let mut texts = Vec::new();
+        layout_texts(&shown, &mut texts);
+        assert_eq!(texts, ["open=true"]);
+
+        // `draw` code runs outside the render, so its write is refused.
+        let draw = draw_on(
+            "import { store } from 'tauler'; const desk = store({ open: false, items: [] });\n\
+             export default () => <div><D3Figure key=\"k\" width={10} height={10} draw={() => { desk.open = false; }} /></div>;",
+        );
+        draw.eval(&HashMap::new()).unwrap();
+        let error = draw.context.with(|ctx| {
+            ctx.eval::<(), _>("__tauler_figures.values().next().value.draw()")
+                .catch(&ctx)
+                .expect_err("a write from draw code must throw")
+                .to_string()
+        });
+        assert!(
+            error.contains("a Store cannot be written from the draw runtime"),
+            "threw: {error}"
+        );
+        assert_eq!(desk_snapshot(&state, &render), saved);
     }
 }
