@@ -288,13 +288,89 @@ Injected by Rust before each evaluation. Read-only.
 | `ctx.dpi` | display DPI |
 | `ctx.theme` | the active theme: `{ name, mode, colors }` — see [Colours as values](/docs/themes/#colours-as-values), and `themeColor` for a colour at an alpha |
 
-## `globals`
+## `store`
 
-A plain JS object that persists in the JavaScript context between ticks. It is the only way
-to accumulate state across renders — tracking which workspaces have unread notifications
-across a stream of events, say.
+A Store is an object your layout keeps between ticks. Everything else is rebuilt from the
+current stream values on every tick; a Store is where you put what has to be remembered:
+whether a drawer is open, which workspaces have unread notifications, the value of a
+slider that no subprocess owns.
 
-Use it sparingly. Every tick is otherwise a pure function of the current stream values, and
-`globals` is the one thing that breaks that. Prefer deriving what you need from the current
-values, and reach for `globals` only when you genuinely need to remember something over
-time.
+```jsx
+import { store } from "tauler";
+
+const desk = store({ open: false, pinned: [] });
+
+export default () => (
+  <root>
+    <panel id="bar" anchor="top" width={1920} height={32}>
+      <div on_click={() => { desk.open = !desk.open; }}>
+        {desk.open ? "close" : "open"}
+      </div>
+      {desk.open && <Drawer pinned={desk.pinned} />}
+    </panel>
+  </root>
+);
+```
+
+### Declare it
+
+Call `store` with the default value, as the whole value of a `const` at the top level of
+a file:
+
+```jsx
+const desk = store({ open: false, pinned: [] });
+export const filters = store({ range: "1h" });
+```
+
+- The default is an object. What it holds must be JSON: numbers, strings, booleans,
+  `null`, arrays and objects.
+- A file can declare several Stores, and export them. Every file that imports a Store
+  gets the same one.
+- `store(...)` anywhere else — inside a function, in a `let`, as an array element — fails
+  the load, with the file and the line. So does a second argument.
+- `store` is an import, not a global. A file that calls it without
+  `import { store } from "tauler"` fails the load with a message that says so.
+
+Tauler finds a Store again by the file that declares it and the name of its `const`. You
+never write a key for it, and two files can both call theirs `state`.
+
+### Read and write it
+
+Read a Store like any object, anywhere: in a component, in a handler, at the top level
+of a file.
+
+Write it with a plain assignment. Changing a nested value in place works too:
+
+```jsx
+desk.open = true;
+desk.pinned.push("mail");
+delete desk.note;
+```
+
+### What causes a tick
+
+- A write from an event handler causes one tick, so the screen shows the new value.
+  Several handlers that write at once still cause one tick, and a handler that leaves
+  every value as it was causes none. A handler that only writes a Store does not have to
+  return intents.
+- A write made while the layout renders is kept and causes no tick. It shows on the next
+  tick that something else causes. This is the place for bookkeeping that follows the
+  data, like remembering which workspace was focused last.
+- A handler or a render that throws leaves every Store as it was before it ran.
+
+### What it survives
+
+A Store keeps its value when the layout file is saved and reloaded. A key you add to the
+default appears with its default value; the keys you already had keep theirs. Renaming
+the `const`, or moving it to another file, starts that Store from its default again.
+A Store you delete is forgotten.
+
+A Store does not survive a restart of Tauler.
+
+### Hooks and draw code read it
+
+A [Unit](/docs/units/#driving-a-unit-from-your-layout)'s hooks and a
+[`<D3Figure>`](/docs/components/#change-the-key-when-the-drawing-should-change)'s `draw`
+read the same Stores your layout does. They cannot write them: an assignment there
+throws. A write does not run either of them sooner. A Unit sees the new value at its
+next Sweep, and a figure is drawn again when its `key` changes.

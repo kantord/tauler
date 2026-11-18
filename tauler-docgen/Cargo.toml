@@ -17,7 +17,9 @@ path = "src/main.rs"
 clap = { version = "=4.6.7", features = ["derive"] }
 # For the component table and the ES-module shims it generates. The `quickjs` feature is
 # off: this binary only reads metadata, it never registers anything into a realm.
-tauler-core = { path = "../tauler-core" }
+# `store-pass` is the compile pass every example goes through, as a layout file does
+# on a desktop.
+tauler-core = { path = "../tauler-core", features = ["store-pass"] }
 # The same JSX transform the desktop runs, so the browser never needs one (ADR 0025).
 optative-script = "=0.0.13"
 

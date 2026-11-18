@@ -60,9 +60,14 @@ fn main() {
             "theme": theme.ctx_json(),
         });
         let t = Instant::now();
-        let ev =
-            JsxEvaluator::new_with_packages(&source, ctx.clone(), Some(&layout_path), pkg.clone())
-                .expect("compiles");
+        let ev = JsxEvaluator::new_with_packages(
+            &source,
+            ctx.clone(),
+            Some(&layout_path),
+            pkg.clone(),
+            Default::default(),
+        )
+        .expect("compiles");
         let load = ms(t);
         let first = ev.eval(&HashMap::new()).expect("eval");
         let t = Instant::now();

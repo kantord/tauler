@@ -1292,8 +1292,15 @@ fn main() -> anyhow::Result<()> {
         "screen_width": INITIAL_WINDOW_WIDTH,
         "screen_height": INITIAL_WINDOW_HEIGHT,
     });
-    let evaluator =
-        tauler::jsx::JsxEvaluator::new(&loaded.js_source, ctx_json.clone(), Some(&args.layout))?;
+    // One store for the process: this evaluator writes it and the reconciler below
+    // reads it. taulerbox never reloads, so state lasts as long as the window.
+    let state = tauler::jsx::SharedState::default();
+    let evaluator = tauler::jsx::JsxEvaluator::new_with_state(
+        &loaded.js_source,
+        ctx_json.clone(),
+        Some(&args.layout),
+        Arc::clone(&state),
+    )?;
 
     // The reconciler runtime: its own thread, its own QuickJS runtime, sweeping
     // forever for as long as this binding lives. `stream_values` starts empty —
@@ -1305,8 +1312,8 @@ fn main() -> anyhow::Result<()> {
         ctx_json,
         Some(args.layout.clone()),
         stream_values,
-        evaluator.globals_handle(),
         None,
+        state,
     );
 
     let eval_output = evaluator.eval(&HashMap::new())?;

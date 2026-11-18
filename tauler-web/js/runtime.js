@@ -4,10 +4,12 @@
 // that produces markup and the globals a layout file is evaluated against all come from
 // wasm — this file assigns them into the page's realm and drives the tick.
 //
-// The one exception is `estoH`, and it is deliberate: see the comment above it.
+// The exceptions are `estoH` and the Stores, and both are deliberate: see the comment
+// above `estoH`, and `state.js`.
 
 import init, * as wasm from './tauler_web.js'
 import { ESTO_FRAGMENT } from './constants.js'
+import { installStateHost, withState } from './state.js'
 
 /**
  * `h`'s dispatch, in JavaScript — a twin of `optative_script::runtime::h_fn`, and the only
@@ -146,6 +148,8 @@ export function boot(wasmUrl) {
     globalThis.__tauler_measure_text = measureTextInCanvas
     globalThis.__esto_h = estoH
     globalThis.Fragment = { [ESTO_FRAGMENT]: true }
+    // Behind `store`, which a layout file imports from "tauler" (`state.js`).
+    installStateHost()
 
     // The shared source, byte for byte what QuickJS is given.
     ;(0, eval)(wasm.taulerGlobalsJs())
@@ -301,7 +305,7 @@ export class Mount {
    */
   #evaluate() {
     globalThis.ctx = { ...globalThis.ctx, theme: wasm.taulerThemeCtx(this.#theme) }
-    return this.#render()
+    return withState(() => this.#render())
   }
 
   /** The element a render path names, or null. */
@@ -364,7 +368,9 @@ export class Mount {
     if (!handler) return
     const intents = Array.isArray(handler)
       ? handler
-      : globalThis.__tauler_intents(globalThis.__tauler_handlers[handler.$handler](payload))
+      : globalThis.__tauler_intents(
+          withState(() => globalThis.__tauler_handlers[handler.$handler](payload)),
+        )
     for (const intent of intents ?? []) deliver(intent)
     this.tick()
   }

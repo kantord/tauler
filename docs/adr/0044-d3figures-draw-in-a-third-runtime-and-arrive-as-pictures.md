@@ -82,6 +82,14 @@ a pending key is always one the newest batch names, so that eval names every pen
 The draw evaluator's `globals` are its own, filled from the snapshot and never written back.
 Taking the snapshot costs ~4 µs per eval.
 
+> Partly superseded by [ADR 0051](./0051-a-layout-file-keeps-state-in-stores-and-rust-owns-them.md).
+> `globals` is removed, so the snapshot holds only the Stream values. The Draw runtime
+> reads the layout file's Stores as they are when it evaluates, not as they were before
+> the render that asked, and a write its own render makes stays in that evaluation. A
+> render that changes a Store on every Tick and builds a figure's key from it therefore
+> names a key the Draw runtime's eval does not, and that figure is not drawn. The rest
+> of this amendment stands for Stream values.
+
 `ctx` is not in the snapshot. The render, reconciler and Draw runtimes are all built from
 the same `ctx` together, on every layout load, so it cannot differ between them; a future
 `ctx` refresh has to reach all of them at once.

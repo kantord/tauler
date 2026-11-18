@@ -18,6 +18,8 @@ pub mod dom;
 pub mod flatten;
 pub mod globals;
 pub mod preview;
+#[cfg(feature = "store-pass")]
+pub mod store_pass;
 pub mod theme;
 pub mod ui;
 pub mod units_reconcile;

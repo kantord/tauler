@@ -196,6 +196,246 @@ pub const JSX_GLOBALS_JS: &str = r#"
     // floating point turns 0.1 steps into 0.30000000000000004.
     globalThis.__tauler_snap = (v, step) =>
         Math.round((step > 0 ? Math.round(v / step) * step : v) * 1e6) / 1e6;
+    // ---- State: issue #271 (see `src/state.rs`). ----
+    //
+    // DECISION: a Store is a JavaScript object written here, over five host functions
+    // (`__tauler_state_declare/get/version/set/keys`) and one number the host keeps
+    // current (`__tauler_state_now`), and not a Rust-defined object type.
+    // Reason: this string also runs on the browser's own engine (ADR 0027), where there
+    // is no Rust to define one; the page supplies the same five functions over a Map
+    // (`tauler-web/js/state.js`).
+    // Rejected: an rquickjs exotic class (0.14 has the hooks) — desktop only.
+    //
+    //   __tauler_store(default, identity, token)   // both added by the compile pass
+    //     -> a Proxy over one state. Top-level `get` returns a number, string or
+    //        boolean straight from the host; an object or array is converted once and
+    //        reused until that key's version moves. Top-level `set` goes to the host.
+    //
+    // A Store's State identity is `<module>#<name>`, as the compile pass writes it
+    // (`tauler-core/src/store_pass.rs`), so renaming a Store's variable resets that
+    // state and no other (`renaming_a_stores_const_resets_that_store_and_no_other` in
+    // `src/app.rs`).
+    //
+    // DECISION: the name is `store`, and a layout file gets it with
+    // `import { store } from "tauler"`, not as a global like `useEvents`. Reason: the
+    // import gives TypeScript a place to find the types. Exactness of the compile pass
+    // does not argue either way: it tells tauler's `store` from a file's own by scope
+    // analysis. Rejected: a global.
+    //
+    // DECISION: the module `"tauler"` is the one line of source in `TAULER_MODULE_JS`
+    // below, which re-exports `__tauler_store` from this string. Each host only has to
+    // make the specifier resolve to that source: a resolver and loader pair on a
+    // desktop (`TaulerModule` in `src/jsx.rs`), an import-map entry and a file in a
+    // page (`tauler-docgen/src/web.rs`). Reason: the function itself stays in the one
+    // string both engines run (ADR 0027), so the module cannot differ between them.
+    // Tests: `store_import_resolves_in_every_runtime` and `store_is_not_on_global_this`
+    // in `src/jsx.rs`. Rejected: a native rquickjs module (`ModuleDef`) — desktop only,
+    // and the page would need a second definition of `store`.
+    //
+    // DECISION: `store` called without an identity throws here; that is a call the
+    // compile pass did not write (through an alias, `const s = store; s({})`). A call
+    // with an identity the pass did not write is refused by the host, which is the
+    // only place that knows the token: see `tauler-core/src/store_pass.rs`. Tests:
+    // `store_through_an_alias_throws_at_load` and
+    // `store_called_with_a_hand_written_identity_is_refused` in `src/jsx.rs`.
+    //
+    // What the host supplies:
+    //   __tauler_state_declare(identity, default, token): stores `default` for an
+    //          identity it has not seen, fills the keys a saved value lacks, and throws
+    //          when `token` is not the one the compile pass was given
+    //   __tauler_state_get(identity, key, have, same)
+    //       -> a primitive as it is; `undefined` for a missing key; `same` (handed back
+    //          untouched) when the key holds an object or array whose version is `have`;
+    //          otherwise that object or array, freshly converted
+    //   __tauler_state_version(identity, key) -> the key's version; 0 for a missing key
+    //   __tauler_state_set(identity, key, value) -> the key's version after the write;
+    //          `undefined` as the value deletes the key. A host that only reads
+    //          (the reconciler and draw runtimes) answers -1 for a write the layout's
+    //          own evaluation makes, and stores nothing: this runtime then keeps the
+    //          value until `__tauler_state_drop_unsaved`, which that host calls when
+    //          the evaluation ends. It throws for a write from anywhere else.
+    //   __tauler_state_keys(identity) -> the top-level keys
+    //   __tauler_state_now: the host's clock, set by the host before each handler and
+    //          each render. It moves whenever any state changes, from any runtime.
+    globalThis.__tauler_state_now = 0;
+    // One record per nested value this runtime holds: `{ id, key, st, v, value, json,
+    // touched }`. `json` is the value as it was when the host last agreed with it.
+    // Every record handed out since the last flush, each once.
+    globalThis.__tauler_state_touched = [];
+    globalThis.__tauler_state_touch = (rec) => {
+        if (!rec.touched) {
+            rec.touched = true;
+            __tauler_state_touched.push(rec);
+        }
+        return rec.value;
+    };
+    // Every state holding a write the host did not store (it answered -1).
+    globalThis.__tauler_state_unsaved = [];
+    // Forget every write the host did not store: the next read asks the host again.
+    globalThis.__tauler_state_drop_unsaved = () => {
+        const unsaved = __tauler_state_unsaved;
+        for (let i = 0; i < unsaved.length; i++) {
+            const st = unsaved[i];
+            st.at = -1;
+            for (const [key, rec] of st.cache) if (rec.v < 0) st.cache.delete(key);
+        }
+        unsaved.length = 0;
+    };
+    // This runtime wrote `st` and the host answered with version `v`. One step past
+    // the clock means nobody else wrote in between, so what `st` mirrors still stands.
+    // Below zero means the host stored nothing: the clock did not move, and the mirror
+    // is the only place the value is.
+    globalThis.__tauler_state_wrote = (st, v) => {
+        if (v < 0) __tauler_state_unsaved.push(st);
+        if (v <= __tauler_state_now) return;
+        if (v === __tauler_state_now + 1 && st.at === __tauler_state_now) st.at = v;
+        __tauler_state_now = v;
+    };
+    // After a handler or a render that returned: a nested value changed in place
+    // (`desk.items.push(x)`) never passed through the Proxy, so each one handed out is
+    // serialized and compared with what it was, and written to the host when it differs.
+    globalThis.__tauler_state_flush = () => {
+        const touched = __tauler_state_touched;
+        for (let i = 0; i < touched.length; i++) {
+            const rec = touched[i];
+            rec.touched = false;
+            // Replaced by a top-level write since it was handed out: not the state.
+            if (rec.st.cache.get(rec.key) !== rec) continue;
+            const json = JSON.stringify(rec.value);
+            if (json !== rec.json) {
+                rec.v = __tauler_state_set(rec.id, rec.key, rec.value);
+                rec.json = json;
+                __tauler_state_wrote(rec.st, rec.v);
+            }
+        }
+        touched.length = 0;
+    };
+    // After a handler or a render that threw: the host rolls its values back (which
+    // moves its clock, so every mirror is refilled), and every nested value handed out
+    // may hold half a change, so none is kept.
+    globalThis.__tauler_state_abort = () => {
+        const touched = __tauler_state_touched;
+        for (let i = 0; i < touched.length; i++) {
+            const rec = touched[i];
+            rec.touched = false;
+            if (rec.st.cache.get(rec.key) === rec) rec.st.cache.delete(rec.key);
+        }
+        touched.length = 0;
+    };
+    // The identities `store` declared in this runtime, in order.
+    globalThis.__tauler_state_identities = [];
+    // Declare `identity` to the host, which keeps a saved value and takes `initial`
+    // only for what is missing, and answer with a Proxy over it. One call per identity:
+    // the compile pass names a Store after its module and its `const`, and a module
+    // runs once.
+    globalThis.__tauler_store = (initial, identity, token) => {
+        if (typeof identity !== "string")
+            throw new Error("store() must be the whole value of a top-level const: `const name = store({...})`");
+        __tauler_state_declare(identity, initial ?? {}, token);
+        __tauler_state_identities.push(identity);
+        const st = {
+            // key -> record, for every nested value this runtime has converted.
+            cache: new Map(),
+            // key -> primitive | record | undefined (no such key), valid while the
+            // host's clock is `at`.
+            mirror: new Map(),
+            at: -1,
+            keys: null,
+        };
+        const { cache, mirror } = st;
+        const record = (key, value, v) => {
+            const json = JSON.stringify(value);
+            const rec = { id: identity, key, st, touched: false, value, v, json };
+            cache.set(key, rec);
+            mirror.set(key, rec);
+            return rec;
+        };
+        // Before the mirror is read or written: empty it when the clock has moved.
+        const refresh = () => {
+            if (st.at !== __tauler_state_now) {
+                mirror.clear();
+                st.keys = null;
+                st.at = __tauler_state_now;
+            }
+        };
+        const read = (key) => {
+            refresh();
+            const hit = mirror.get(key);
+            if (hit !== undefined || mirror.has(key)) {
+                return hit !== null && typeof hit === "object"
+                    ? __tauler_state_touch(hit)
+                    : hit;
+            }
+            const rec = cache.get(key);
+            const got = __tauler_state_get(identity, key, rec ? rec.v : -1, cache);
+            if (got === cache) {
+                mirror.set(key, rec);
+                return __tauler_state_touch(rec);
+            }
+            if (got === null || typeof got !== "object") {
+                if (rec) cache.delete(key);
+                mirror.set(key, got);
+                return got;
+            }
+            return __tauler_state_touch(
+                record(key, got, __tauler_state_version(identity, key)),
+            );
+        };
+        const write = (key, value) => {
+            const v = __tauler_state_set(identity, key, value);
+            refresh();
+            if (v < 0) {
+                // The host will not list a key it did not store.
+                const rest = keys().filter((k) => k !== key);
+                st.keys = value === undefined ? rest : [...rest, key].sort();
+            } else {
+                st.keys = null;
+            }
+            if (value === null || typeof value !== "object") {
+                cache.delete(key);
+                mirror.set(key, value);
+            } else {
+                // The author still holds `value` and may change it after assigning it.
+                __tauler_state_touch(record(key, value, v));
+            }
+            __tauler_state_wrote(st, v);
+        };
+        const keys = () => {
+            refresh();
+            if (st.keys === null) st.keys = __tauler_state_keys(identity);
+            return st.keys;
+        };
+        // Whether `key` exists, without converting or handing out a nested value: from
+        // the mirror while it stands, otherwise from the key's version (0: no such key).
+        const has = (key) => {
+            if (st.at === __tauler_state_now) {
+                const hit = mirror.get(key);
+                if (hit !== undefined) return true;
+                if (mirror.has(key)) return false;
+            }
+            return __tauler_state_version(identity, key) !== 0;
+        };
+        return new Proxy({}, {
+            get: (_, key) => (typeof key === "string" ? read(key) : undefined),
+            set: (_, key, value) => {
+                if (typeof key !== "string") return false;
+                write(key, value);
+                return true;
+            },
+            has: (_, key) => typeof key === "string" && has(key),
+            deleteProperty: (_, key) => {
+                if (typeof key === "string") write(key, undefined);
+                return true;
+            },
+            ownKeys: keys,
+            getOwnPropertyDescriptor: (_, key) => {
+                const value = typeof key === "string" ? read(key) : undefined;
+                return value === undefined
+                    ? undefined
+                    : { value, writable: true, enumerable: true, configurable: true };
+            },
+        });
+    };
     globalThis.__tauler_invoke_handler = (id, pointer) => {
         const fn = id < 0 ? __tauler_captured : __tauler_handlers[id];
         if (typeof fn !== "function") return null;
@@ -436,3 +676,13 @@ pub const JSX_GLOBALS_JS: &str = r#"
         return { "bin@": bin, ...rest };
     };
 "#;
+
+/// The specifier a layout file imports `store` from.
+pub const TAULER_MODULE: &str = "tauler";
+
+/// The whole source of the module [`TAULER_MODULE`] names, in every engine (the
+/// `DECISION` in [`JSX_GLOBALS_JS`] says why it is source). The call is forwarded and
+/// not bound at import: a page may load this module before it evaluates
+/// [`JSX_GLOBALS_JS`].
+pub const TAULER_MODULE_JS: &str =
+    "export const store = (...args) => globalThis.__tauler_store(...args);\n";

@@ -441,6 +441,50 @@ impl Figures {
     }
 }
 
+/// Whether a handler has changed state that no Tick has shown yet (issue #271, see
+/// `src/state.rs`).
+///
+/// DECISION: a handler's state write sets a flag and pings the Notifier; the next Pass
+/// reads the flag where it reads "did a stream value change" and ticks. Reason:
+/// [`App::tick`] decides whether to tick before it drains the presenter's events, which
+/// is where handlers run, so the write is always made after that Pass's decision; the
+/// ping ends the wait that follows, and the Pass it starts sees the flag. The loop's
+/// order does not move. Evidence: `a_handlers_state_write_ticks_once_in_the_pass_after_it`
+/// below drives the real `DataLoop::run` with this type in `App::tick`'s order: five
+/// handler calls drained by one Pass cause exactly one Tick, in the Pass after, and it
+/// reads all five writes. Rejected: evaluating again at the end of the same Pass — it
+/// saves one Coalescing floor (2 ms) and lets a Pass tick twice, once for streams and
+/// once for state, with a present between them.
+/// SPEC: handlers that run in one Pass cause one Tick however many of them write, and a
+/// handler that changes nothing causes none.
+struct StateWake {
+    dirty: bool,
+    notifier: mpsc::SyncSender<()>,
+}
+
+impl StateWake {
+    fn new(notifier: mpsc::SyncSender<()>) -> Self {
+        Self {
+            dirty: false,
+            notifier,
+        }
+    }
+
+    /// A handler returned; `state_changed` is what it reported.
+    fn handler_ran(&mut self, state_changed: bool) {
+        if state_changed && !self.dirty {
+            self.dirty = true;
+            // Full means a ping is already waiting, which is all this asks for.
+            let _ = self.notifier.try_send(());
+        }
+    }
+
+    /// Whether to tick for state, asked once per Pass.
+    fn take(&mut self) -> bool {
+        std::mem::take(&mut self.dirty)
+    }
+}
+
 /// How long a Tick's repaint waits for the drawings it asked for, so the
 /// update and its Pictures land in one repaint instead of two (issue #686).
 const HOLD_FOR_DRAWINGS: std::time::Duration = std::time::Duration::from_millis(100);
@@ -450,6 +494,43 @@ struct Held {
     out: tauler::jsx::EvalOutput,
     trace: Option<Trace>,
     since: std::time::Instant,
+}
+
+/// The render evaluator for one load of the layout, on the app's store: a Store the
+/// load declares finds the value an earlier load left in `state`.
+fn render_evaluator(
+    source: &str,
+    ctx: serde_json::Value,
+    layout_path: &std::path::Path,
+    pkg_ctx: Option<tauler::pkg::PackageContext>,
+    state: &tauler::jsx::SharedState,
+) -> Result<tauler::jsx::JsxEvaluator, tauler::jsx::JsError> {
+    let state = Arc::clone(state);
+    match pkg_ctx {
+        Some(pkg_ctx) => tauler::jsx::JsxEvaluator::new_with_packages(
+            source,
+            ctx,
+            Some(layout_path),
+            pkg_ctx,
+            state,
+        ),
+        None => tauler::jsx::JsxEvaluator::new_with_state(source, ctx, Some(layout_path), state),
+    }
+}
+
+/// Forget every state the layout now in use did not declare. Called once a reload has
+/// succeeded; a failed reload keeps the old evaluator and never gets here, so it drops
+/// nothing.
+///
+/// DECISION: "declared" is what the render evaluator declared, by the end of the eval
+/// that decided the reload. Reason: the reconciler and draw runtimes load the same
+/// layout file and their `store(...)` calls store nothing (`StateAccess` in
+/// `src/jsx.rs`), so no state exists that only they could name; and they are built
+/// later, on their own threads, so waiting for their sets would make the drop depend
+/// on when a thread starts.
+fn drop_undeclared_states(state: &tauler::jsx::SharedState, evaluator: &tauler::jsx::JsxEvaluator) {
+    let declared = evaluator.state_identities();
+    state.lock().unwrap().retain_identities(&declared);
 }
 
 pub(crate) struct App {
@@ -481,6 +562,10 @@ pub(crate) struct App {
     /// against the same data on its own schedule (ADR 0034).
     stream_values: tauler::units::SharedStreamValues,
     jsx_evaluator: Option<tauler::jsx::JsxEvaluator>,
+    /// Every Store of the layout (issue #271, `src/state.rs`). Owned here so it
+    /// outlives each evaluator a reload replaces; the reconciler and draw runtimes
+    /// are handed the same one, to read.
+    state: tauler::jsx::SharedState,
     /// Dropped and respawned on every layout reload; `None` until the first
     /// layout loads.
     reconciler: Option<tauler::units::Reconciler>,
@@ -518,6 +603,7 @@ pub(crate) struct App {
     #[cfg(target_os = "linux")]
     a11y_rx: mpsc::Receiver<(String, Vec<usize>)>,
     figures: Figures,
+    state_wake: StateWake,
     /// See [`HOLD_FOR_DRAWINGS`].
     held: Option<Held>,
     /// The latest eval, as it came out of the evaluator: what a drawing that
@@ -850,6 +936,7 @@ impl App {
             stream_values: Default::default(),
             reconciler: None,
             jsx_evaluator: None,
+            state: Default::default(),
             handle,
             jsx_ctx,
             item_rx: rx.item_rx,
@@ -870,6 +957,7 @@ impl App {
             a11y,
             #[cfg(target_os = "linux")]
             a11y_rx,
+            state_wake: StateWake::new(figures.notifier.clone()),
             figures,
             held: None,
             last_eval: None,
@@ -937,6 +1025,7 @@ impl App {
             stream_values: Default::default(),
             reconciler: None,
             jsx_evaluator: None,
+            state: Default::default(),
             handle,
             jsx_ctx,
             item_rx: rx.item_rx,
@@ -955,6 +1044,7 @@ impl App {
             presenter_thread: Some(presenter_thread),
             a11y,
             a11y_rx,
+            state_wake: StateWake::new(figures.notifier.clone()),
             figures,
             held: None,
             last_eval: None,
@@ -1035,6 +1125,7 @@ impl App {
             stream_values: Default::default(),
             reconciler: None,
             jsx_evaluator: None,
+            state: Default::default(),
             handle,
             jsx_ctx,
             item_rx: rx.item_rx,
@@ -1051,6 +1142,7 @@ impl App {
             capture: None,
             outbox: Outbox::new(),
             presenter_thread: None,
+            state_wake: StateWake::new(notifier.clone()),
             figures: Figures::new(notifier),
             held: None,
             last_eval: None,
@@ -1229,15 +1321,13 @@ impl App {
         let source = loaded.js_source;
         let t = std::time::Instant::now();
         let ctx = jsx_ctx_with_theme(&self.jsx_ctx, &self.theme);
-        let evaluator = match self.package_context() {
-            Some(pkg_ctx) => tauler::jsx::JsxEvaluator::new_with_packages(
-                &source,
-                ctx,
-                Some(&layout_path),
-                pkg_ctx,
-            ),
-            None => tauler::jsx::JsxEvaluator::new(&source, ctx, Some(&layout_path)),
-        };
+        let evaluator = render_evaluator(
+            &source,
+            ctx,
+            &layout_path,
+            self.package_context(),
+            &self.state,
+        );
         let evaluator = match evaluator {
             Ok(e) => e,
             Err(e) => {
@@ -1269,17 +1359,17 @@ impl App {
     /// load, which ADR 0034 already accounts for; the cost of guessing wrong the
     /// other way would be a Unit that silently never reconciles.
     fn spawn_reconciler(&mut self, source: &str, layout_path: &std::path::Path, theme: &Theme) {
-        let Some(globals) = self.jsx_evaluator.as_ref().map(|e| e.globals_handle()) else {
+        if self.jsx_evaluator.is_none() {
             return;
-        };
+        }
         self.reconciler = None;
         self.reconciler = Some(tauler::units::Reconciler::spawn(
             source.to_string(),
             jsx_ctx_with_theme(&self.jsx_ctx, theme),
             Some(layout_path.to_path_buf()),
             std::sync::Arc::clone(&self.stream_values),
-            globals,
             self.package_context(),
+            Arc::clone(&self.state),
         ));
     }
 
@@ -1306,6 +1396,7 @@ impl App {
             self.figures.drawn_tx.clone(),
             self.figures.notifier.clone(),
             self.figures.generation,
+            Arc::clone(&self.state),
         ));
         self.figures.requests.after_reload();
         if let Some(out) = &self.last_eval {
@@ -1354,15 +1445,17 @@ impl App {
         // The theme the layout is evaluated against is the one it will be drawn with.
         let theme = theme_after_reload(&self.theme, theme_source.load(), theme_source.mode);
         let ctx = jsx_ctx_with_theme(&self.jsx_ctx, &theme);
-        let evaluator = match self.package_context() {
-            Some(pkg_ctx) => tauler::jsx::JsxEvaluator::new_with_packages(
-                &loaded.js_source,
-                ctx,
-                Some(&layout_path),
-                pkg_ctx,
-            ),
-            None => tauler::jsx::JsxEvaluator::new(&loaded.js_source, ctx, Some(&layout_path)),
-        };
+        // Built on the store `initial_load` used, so it finds every state the old
+        // evaluator left. The old one is still alive while this one loads (a failed
+        // reload keeps it), so for that moment two evaluators hold the store; only the
+        // new one's load declares, and nothing ticks in between.
+        let evaluator = render_evaluator(
+            &loaded.js_source,
+            ctx,
+            &layout_path,
+            self.package_context(),
+            &self.state,
+        );
         let evaluator = match evaluator {
             Ok(evaluator) => evaluator,
             Err(e) => {
@@ -1405,6 +1498,11 @@ impl App {
         // Every figure keeps its Picture until the new runtime's drawing
         // replaces it; `store_drawn` drops the old layout's Pictures then.
         self.spawn_draw_runtime(&loaded.js_source, &layout_path, &self.theme.clone());
+        // After the old layout's reconciler and draw runtimes are gone, so neither
+        // reads a Store that has just vanished.
+        if let Some(evaluator) = self.jsx_evaluator.as_ref() {
+            drop_undeclared_states(&self.state, evaluator);
+        }
         self.reconcile_theme_file_watch(theme_source.file);
         tracing::info!("layout reloaded");
         true
@@ -1438,13 +1536,22 @@ impl App {
     /// Resolve a handler to the intents it wants sent, calling into JavaScript if it is
     /// a function rather than an array (`docs/adr/0021`).
     fn resolve(
-        &self,
+        &mut self,
         value: &serde_json::Value,
         pointer: &serde_json::Value,
     ) -> Option<serde_json::Value> {
         match read_handler(value)? {
             Handler::Intents(intents) => Some(intents),
-            Handler::Function(id) => self.jsx_evaluator.as_ref()?.invoke_handler(id, pointer),
+            Handler::Function(id) => {
+                let outcome = self
+                    .jsx_evaluator
+                    .as_ref()?
+                    .invoke_handler_outcome(id, pointer);
+                // A state-only write moves no stream, so nothing else would tick for
+                // it (issue #271; the order of events is on [`StateWake`]).
+                self.state_wake.handler_ran(outcome.state_changed);
+                outcome.intents
+            }
         }
     }
 
@@ -1563,11 +1670,15 @@ impl App {
             return;
         }
         let pointer = capture.pointer((event.x, event.y), event.buttons);
-        let Some(intents) = self
+        let Some(outcome) = self
             .jsx_evaluator
             .as_ref()
-            .and_then(|e| e.invoke_captured_handler(&pointer))
+            .map(|e| e.invoke_captured_handler_outcome(&pointer))
         else {
+            return;
+        };
+        self.state_wake.handler_ran(outcome.state_changed);
+        let Some(intents) = outcome.intents else {
             return;
         };
         if self.capture.as_mut().is_some_and(|c| c.is_new(&intents)) {
@@ -1655,7 +1766,8 @@ impl App {
             Ordering::Relaxed,
         );
 
-        let mut changed = false;
+        // A handler that changed state in an earlier Pass asked for this Tick.
+        let mut changed = self.state_wake.take();
 
         let mut answered: Vec<String> = Vec::new();
         let mut interactive = false;
@@ -1839,6 +1951,7 @@ impl Drop for App {
 
 #[cfg(test)]
 mod tests {
+    use super::StateWake;
     use super::{
         apply_eval_result, eval_with_reloaded_fonts, load_layout_or_exit, make_mod_init_value,
         merge_module_props, stream_calls_to_specs, theme_after_reload, theme_file_watch_desired,
@@ -1892,6 +2005,295 @@ mod tests {
             },
             command_rx,
         )
+    }
+
+    /// A handler's state write reaches the screen in the Pass after the one that ran
+    /// it, and handlers drained by one Pass cause one Tick between them (issue #271).
+    ///
+    /// `App` needs a display server, so this is not `App::tick` itself: it is the real
+    /// loop (`DataLoop::run`), a real evaluator and the real [`StateWake`], with the two
+    /// steps of `App::tick` that matter restated in its order — decide whether to tick,
+    /// then drain the presenter's events and run their handlers.
+    #[test]
+    fn a_handlers_state_write_ticks_once_in_the_pass_after_it() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        use std::sync::Arc;
+        use std::time::{Duration, Instant};
+
+        const CLICKS: usize = 5;
+        #[derive(Debug)]
+        enum Seen {
+            /// The Pass that ran the handlers, and when the last one returned.
+            Handlers { pass: u32, at: Instant },
+            /// A Tick: its Pass, when, and the count the render read.
+            Tick { pass: u32, at: Instant, count: i64 },
+        }
+
+        let (mut data_loop, _handle) = DataLoop::new();
+        let notifier = data_loop.notifier();
+        // What the presenter does for a press: queue the event, then ping.
+        let (click_tx, click_rx) = mpsc::channel::<()>();
+        let (seen_tx, seen_rx) = mpsc::channel::<Seen>();
+        let stop = Arc::new(AtomicBool::new(false));
+        let stop_for_run = Arc::clone(&stop);
+        let wake_notifier = notifier.clone();
+
+        let run = std::thread::spawn(move || {
+            let evaluator = tauler::jsx::JsxEvaluator::new(
+                r#"
+import { store } from 'tauler'; const desk = store({ count: 0 });
+export default () => <div on_click={() => { desk.count += 1; }} data-count={desk.count} />;
+"#,
+                serde_json::Value::Null,
+                None,
+            )
+            .expect("layout compiles");
+            let streams = HashMap::new();
+            let mut last = evaluator.eval(&streams).expect("first eval");
+            let mut wake = StateWake::new(wake_notifier);
+            let mut pass = 0u32;
+            data_loop.run(
+                stop_for_run,
+                |_item| {},
+                || {
+                    pass += 1;
+                    // `App::tick`: the tick decision comes first...
+                    if wake.take() {
+                        last = evaluator.eval(&streams).expect("eval");
+                        let _ = seen_tx.send(Seen::Tick {
+                            pass,
+                            at: Instant::now(),
+                            count: last.layout["data-count"].as_i64().expect("a count"),
+                        });
+                    }
+                    // ...and the presenter's events, with their handlers, after it.
+                    let clicks = click_rx.try_iter().count();
+                    for _ in 0..clicks {
+                        let id = last.layout["on_click"]["$handler"]
+                            .as_i64()
+                            .expect("a handler");
+                        let outcome =
+                            evaluator.invoke_handler_outcome(id, &serde_json::Value::Null);
+                        wake.handler_ran(outcome.state_changed);
+                    }
+                    if clicks > 0 {
+                        let _ = seen_tx.send(Seen::Handlers {
+                            pass,
+                            at: Instant::now(),
+                        });
+                    }
+                },
+            );
+        });
+
+        // Let the loop finish its first Pass and block, as an idle bar does.
+        std::thread::sleep(Duration::from_millis(100));
+        for _ in 0..CLICKS {
+            click_tx.send(()).unwrap();
+        }
+        let _ = notifier.try_send(());
+
+        let wait = Duration::from_secs(5);
+        let Seen::Handlers {
+            pass: handler_pass,
+            at: handled,
+        } = seen_rx.recv_timeout(wait).expect("the handlers ran")
+        else {
+            panic!("a Tick came before any handler ran");
+        };
+        let Seen::Tick {
+            pass: tick_pass,
+            at: ticked,
+            count,
+        } = seen_rx.recv_timeout(wait).expect("a Tick followed")
+        else {
+            panic!("handlers ran twice");
+        };
+        // Nothing else may tick: wait out a supervision interval's worth of Passes.
+        let extra = seen_rx.recv_timeout(Duration::from_millis(900));
+        stop.store(true, Ordering::Relaxed);
+        let _ = notifier.try_send(());
+        let _ = run.join();
+
+        assert_eq!(tick_pass, handler_pass + 1, "the Tick is the next Pass's");
+        assert_eq!(count, CLICKS as i64, "one Tick reads every handler's write");
+        assert!(extra.is_err(), "a second Tick or handler run: {extra:?}");
+        let latency = ticked.duration_since(handled);
+        println!("state write -> Tick: {latency:?}");
+        assert!(
+            latency < Duration::from_millis(100),
+            "the Tick waited for the supervision timer, not the ping: {latency:?}"
+        );
+    }
+
+    // ---- `App`'s store across reloads (issue #271, P4) ----
+    //
+    // `App` needs a display server, so these are not `App::handle_layout_reload`
+    // itself: they are its steps that touch state, in its order, through the two
+    // functions it calls — `render_evaluator` on the app's store, an eval that decides
+    // whether the reload goes ahead, and `drop_undeclared_states` only when it did.
+
+    /// What `App` keeps of a layout: the evaluator in use and the store that outlives it.
+    struct Loaded {
+        dir: tempfile::TempDir,
+        state: tauler::jsx::SharedState,
+        evaluator: tauler::jsx::JsxEvaluator,
+    }
+
+    impl Loaded {
+        /// `App::initial_load`.
+        fn initial(source: &str) -> Self {
+            let dir = tempfile::tempdir().expect("tempdir");
+            let state = tauler::jsx::SharedState::default();
+            let evaluator = super::render_evaluator(
+                source,
+                serde_json::Value::Null,
+                &dir.path().join("layout.jsx"),
+                None,
+                &state,
+            )
+            .expect("the first layout loads");
+            evaluator.eval(&HashMap::new()).expect("first eval");
+            Self {
+                dir,
+                state,
+                evaluator,
+            }
+        }
+
+        /// `App::handle_layout_reload`: whether the new layout was installed.
+        fn reload(&mut self, source: &str) -> bool {
+            let Ok(evaluator) = super::render_evaluator(
+                source,
+                serde_json::Value::Null,
+                &self.dir.path().join("layout.jsx"),
+                None,
+                &self.state,
+            ) else {
+                return false;
+            };
+            if evaluator.eval(&HashMap::new()).is_err() {
+                return false;
+            }
+            self.evaluator = evaluator;
+            super::drop_undeclared_states(&self.state, &self.evaluator);
+            true
+        }
+
+        fn layout(&self) -> serde_json::Value {
+            self.evaluator.eval(&HashMap::new()).expect("eval").layout
+        }
+
+        fn click(&self) {
+            let id = self.layout()["on_click"]["$handler"]
+                .as_i64()
+                .expect("a handler");
+            let outcome = self
+                .evaluator
+                .invoke_handler_outcome(id, &serde_json::Value::Null);
+            assert!(outcome.state_changed, "precondition: the handler wrote");
+        }
+
+        fn has_state(&self, identity: &str) -> bool {
+            self.state.lock().unwrap().snapshot(identity).is_some()
+        }
+    }
+
+    const COUNTER: &str = r#"
+import { store } from 'tauler'; const desk = store({ count: 0 });
+const scratch = store({ note: "" });
+export default () => <div on_click={() => { desk.count += 1; }} data-count={desk.count} />;
+"#;
+
+    #[test]
+    fn a_store_written_by_a_handler_survives_a_layout_reload() {
+        let mut app = Loaded::initial(COUNTER);
+        app.click();
+        assert_eq!(app.layout()["data-count"], 1);
+
+        let edited = COUNTER.replace("data-count", "data-clicks");
+        assert!(app.reload(&edited), "the edited layout loads");
+
+        assert_eq!(
+            app.layout()["data-clicks"],
+            1,
+            "the reloaded layout renders what the handler wrote before the reload"
+        );
+    }
+
+    #[test]
+    fn a_failed_reload_keeps_the_evaluator_and_every_state() {
+        let mut app = Loaded::initial(COUNTER);
+        app.click();
+
+        // Neither declares `scratch`: one does not compile, one throws in its render.
+        for broken in [
+            "import { store } from 'tauler'; const desk = store({ count: 0 });\nexport default () => <div",
+            "import { store } from 'tauler'; const desk = store({ count: 0 });\nexport default () => { throw new Error('no'); };",
+        ] {
+            assert!(!app.reload(broken), "must not load: {broken}");
+            assert_eq!(
+                app.layout()["data-count"],
+                1,
+                "the layout already in use still renders the written value"
+            );
+            assert!(app.has_state("layout.jsx#desk"));
+            assert!(
+                app.has_state("layout.jsx#scratch"),
+                "a failed reload drops nothing"
+            );
+        }
+    }
+
+    #[test]
+    fn a_reload_drops_the_states_the_new_layout_did_not_declare() {
+        let mut app = Loaded::initial(COUNTER);
+        app.click();
+        assert!(app.has_state("layout.jsx#scratch"), "precondition");
+
+        let without_scratch = COUNTER.replace("const scratch = store({ note: \"\" });", "");
+        assert!(app.reload(&without_scratch));
+
+        assert!(!app.has_state("layout.jsx#scratch"));
+        assert_eq!(app.layout()["data-count"], 1, "a declared state is kept");
+
+        // Declared again later, it starts from its default: nothing was kept.
+        assert!(app.reload(COUNTER));
+        assert_eq!(
+            app.state
+                .lock()
+                .unwrap()
+                .get("layout.jsx#scratch", "note")
+                .map(|(value, _)| value.clone()),
+            Some(serde_json::json!(""))
+        );
+    }
+
+    /// A State identity is the module and the name of the `const`, so a renamed Store
+    /// is a new one: it starts from its default, the old name is dropped, and the
+    /// Store beside it is not touched.
+    #[test]
+    fn renaming_a_stores_const_resets_that_store_and_no_other() {
+        let mut app = Loaded::initial(COUNTER);
+        app.click();
+        app.state
+            .lock()
+            .unwrap()
+            .set("layout.jsx#scratch", "note", serde_json::json!("kept"));
+
+        let renamed = COUNTER.replace("desk", "table");
+        assert!(app.reload(&renamed), "the renamed layout loads");
+
+        assert_eq!(app.layout()["data-count"], 0, "`table` starts over");
+        assert!(!app.has_state("layout.jsx#desk"), "the old name is dropped");
+        assert_eq!(
+            app.state
+                .lock()
+                .unwrap()
+                .get("layout.jsx#scratch", "note")
+                .map(|(value, _)| value.clone()),
+            Some(serde_json::json!("kept"))
+        );
     }
 
     fn make_eval_output(layout: serde_json::Value) -> tauler::jsx::EvalOutput {

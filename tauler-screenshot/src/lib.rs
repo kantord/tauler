@@ -169,6 +169,9 @@ pub fn render(jsx_source: &str, options: &Options) -> Result<Screenshot, Error> 
     // `ctx.theme` is the theme the classes below are resolved against, so `themeColor` and
     // `bg-primary` paint the same palette.
     let ctx = serde_json::json!({ "theme": theme.ctx_json() });
+    // DECISION (issue #271): a screenshot gets a fresh, empty `StateStore` per render
+    // (what plain `new` builds): every Store shows its default. Reason: one evaluation,
+    // no handler ever runs. Rejected: a way to seed state — no caller needs one yet.
     let eval_output = JsxEvaluator::new(jsx_source, ctx, None)
         .map_err(|e| Error(e.to_string()))?
         .eval(&HashMap::new())

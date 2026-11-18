@@ -6,6 +6,8 @@
 //!   the same `optative-script` the desktop uses. Doing it here is ADR 0027: every example
 //!   is known at build time, so the browser needs no JSX transformer.
 //! - **`d3.js`** — the ES module `"d3"` resolves to: d3's UMD build, re-exported by name.
+//! - **`tauler.js`** — the ES module `"tauler"` resolves to, where `store` comes from:
+//!   the same source the desktop declares under that name.
 //! - **`classes.txt`** — the Tailwind utilities the resolved trees carry. Harvested rather
 //!   than scanned, because `theme/resolver.rs` has already rewritten `bg-background` into
 //!   `bg-[#hex]` by the time anything renders.
@@ -84,7 +86,7 @@ fn module_file_name(specifier: &str) -> String {
     format!("{}.js", specifier.trim_start_matches("@ui/"))
 }
 
-/// The import map that resolves `@ui/*` and `d3`. Inlined, because an import map has to be
+/// The import map that resolves `@ui/*`, `d3` and `tauler`. Inlined, because an import map has to be
 /// in the document before the first module loads.
 pub fn import_map_json() -> String {
     let mut imports: Vec<String> = tauler_core::ui::registry::web_module_sources()
@@ -97,6 +99,10 @@ pub fn import_map_json() -> String {
         })
         .collect();
     imports.push("    \"d3\": \"/tauler/d3.js\"".to_string());
+    imports.push(format!(
+        "    \"{}\": \"/tauler/tauler.js\"",
+        tauler_core::globals::TAULER_MODULE
+    ));
     format!("{{\n  \"imports\": {{\n{}\n  }}\n}}\n", imports.join(",\n"))
 }
 
@@ -131,6 +137,16 @@ pub fn write_d3_module(out_dir: &Path) -> io::Result<()> {
     fs::write(out_dir.join("d3.js"), d3_module_source())
 }
 
+/// Write the module `"tauler"` resolves to: the source the desktop loads under that name
+/// (`TaulerModule` in `src/jsx.rs`), so `import { store } from "tauler"` means the same
+/// function in a page.
+pub fn write_tauler_module(out_dir: &Path) -> io::Result<()> {
+    fs::write(
+        out_dir.join("tauler.js"),
+        tauler_core::globals::TAULER_MODULE_JS,
+    )
+}
+
 /// The Fragment marker, so the page's `h` recognises the one the transform emits.
 pub fn write_constants(out_dir: &Path) -> io::Result<()> {
     fs::write(
@@ -142,13 +158,34 @@ pub fn write_constants(out_dir: &Path) -> io::Result<()> {
     )
 }
 
+/// What the Store pass writes after each identity in an example. A desktop makes a new
+/// one per evaluator and refuses a declaration without it; a page does not ask for it
+/// (`tauler-web/js/state.js` says why), so any text does.
+const PAGE_STORE_TOKEN: &str = "page";
+
+/// One example as the JavaScript a page runs: the Store pass and then the JSX transform,
+/// the two steps a desktop puts every layout file through (`src/jsx.rs`). `name` is the
+/// example's file name without its extension; its Stores are named
+/// `examples/<name>.jsx#<const>`.
+pub fn example_js(name: &str, source: &str) -> io::Result<String> {
+    let file = format!("{name}.jsx");
+    let module = format!("examples/{file}");
+    let named = tauler_core::store_pass::rewrite(source, &file, &module, PAGE_STORE_TOKEN)
+        .map_err(|e| {
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("{module}:{}: {}", e.line, e.message),
+            )
+        })?;
+    Ok(optative_script::jsx::transform_source(&named, &file))
+}
+
 /// Transform one example to JavaScript and write it.
 pub fn write_example(out_dir: &Path, component: &Component, source: &str) -> io::Result<()> {
     let dir = out_dir.join("examples");
     fs::create_dir_all(&dir)?;
     let name = component.export_name.to_lowercase();
-    let js = optative_script::jsx::transform_source(source, &format!("{name}.jsx"));
-    fs::write(dir.join(format!("{name}.js")), js)
+    fs::write(dir.join(format!("{name}.js")), example_js(&name, source)?)
 }
 
 /// Write the harvested class list and the stylesheet input that compiles it.
@@ -297,6 +334,48 @@ mod tests {
 
     /// A layout file's imports have to work unaltered, so every module the registry knows
     /// about has to be resolvable.
+    /// An example goes through the Store pass, so a Store it declares gets its State
+    /// identity on a page as on a desktop.
+    #[test]
+    fn an_example_that_declares_a_store_gets_its_identity() {
+        let js = example_js(
+            "slider",
+            "import { store } from \"tauler\";\nconst volume = store({ muted: true });\nexport default function render() { return <div>{String(volume.muted)}</div>; }\n",
+        )
+        .unwrap();
+        assert!(
+            js.contains(r#"store({ muted: true }, "examples/slider.jsx#volume", "page")"#),
+            "got {js}"
+        );
+    }
+
+    /// What the pass refuses on a desktop it refuses here, with the file and the line.
+    #[test]
+    fn an_example_the_store_pass_refuses_fails_the_build() {
+        for (source, what) in [
+            (
+                "export default function render() {\n  return <div>{globals.n}</div>;\n}\n",
+                "examples/card.jsx:2: `globals` was removed",
+            ),
+            (
+                "import { store } from \"tauler\";\nexport default function render() {\n  const s = store({});\n  return <div />;\n}\n",
+                "examples/card.jsx:3: store() must be the whole value",
+            ),
+        ] {
+            let error = example_js("card", source).unwrap_err().to_string();
+            assert!(error.contains(what), "got {error}");
+        }
+    }
+
+    #[test]
+    fn the_import_map_resolves_tauler_to_its_module() {
+        let map = import_map_json();
+        assert!(
+            map.contains("\"tauler\": \"/tauler/tauler.js\""),
+            "got {map}"
+        );
+    }
+
     #[test]
     fn the_import_map_covers_every_ui_module() {
         let map = import_map_json();

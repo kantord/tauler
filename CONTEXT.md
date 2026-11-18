@@ -197,11 +197,27 @@ addresses directly by its own family name with no theme involved.
 _Avoid_: theme font, font token
 
 **Tick**:
-One full re-evaluation of the layout file, triggered by any stream value changing. Every
-tick rebuilds the whole tree from scratch; nothing survives between ticks except
-`globals`. A **Pass** may happen without one, and usually does.
+One full re-evaluation of the layout file, triggered by a stream value changing or by a
+Handler writing to a **Store**. Every tick rebuilds the whole tree from scratch; nothing
+survives between ticks except what the layout file's Stores hold. A **Pass** may happen
+without one, and usually does.
 _Avoid_: frame, render pass, update, re-render; pass (that is the loop turn, not the
 re-evaluation)
+
+**Store**:
+A JSON object a layout file declares at the top level of a module to keep between Ticks,
+shared by every component that imports it. What a Store holds is the only thing this
+glossary calls state. See ADR 0051.
+_Avoid_: globals, atom, slice, context
+_Elsewhere_: store (zustand, Svelte, Redux), atom (Jotai)
+
+**State identity**:
+What finds the same Store again on the next Tick, after a layout reload, and from another
+runtime. It comes from the module that declares the Store and the name it is declared
+under; no person writes one.
+_Avoid_: key (that is one field of a Store, or what identifies an Item), id, name
+_Elsewhere_: an atom's `key` (Recoil) and a store's id (Pinia), both of which a person
+writes
 
 **Shell node**:
 A node that describes structure rather than content: `root`, `panel`, `wallpaper`, `dom`.
@@ -369,14 +385,15 @@ _Elsewhere_: figure (Observable Plot), view (Vega), an `<svg>` ref handed to d3 
 
 **Control component**:
 A Display component that also emits intents. It never holds a value: it renders the value
-it is given and remembers nothing.
+it is given and remembers nothing. What owns the value is a Module, a Stream or a **Store**.
 _Avoid_: input, interactive component, widget
 _Elsewhere_: controlled component (React). Observable's `viewof` is the opposite — see
-ADR 0012.
+ADR 0012 and ADR 0051.
 
 **Handler**:
 What an element does when the pointer reaches it: either an array of intents, or a function
-from the pointer to one. `on_click` and `on_drag` both take either — see ADR 0021.
+from the pointer to one. A function may also write to a **Store**. `on_click` and `on_drag`
+both take either — see ADR 0021.
 _Avoid_: callback, listener, action, binding
 _Elsewhere_: event handler (DOM), except that ours may be plain data
 
@@ -477,7 +494,8 @@ _Avoid_: instance, entry, record
 The set of Items the world currently holds, as a Unit reports it. The only thing that
 establishes what is really there: a hook's return value is not one, and neither is the fact
 that a hook was run. See ADR 0035.
-_Avoid_: state, snapshot, current state, actual state
+_Avoid_: state (unqualified, that is what a **Store** holds), snapshot, current state,
+actual state
 
 **Sweep**:
 One turn of a Unit's reconciliation: observe, diff against what the layout declared, run

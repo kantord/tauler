@@ -103,8 +103,14 @@ pub fn draw_figures(
     calls: &[FigureCall],
 ) -> Drawn {
     let t = Instant::now();
-    let ev = JsxEvaluator::new_draw(source, ctx, Some(layout_path), Some(pkg.clone()))
-        .expect("draw runtime compiles");
+    let ev = JsxEvaluator::new_draw(
+        source,
+        ctx,
+        Some(layout_path),
+        Some(pkg.clone()),
+        Default::default(),
+    )
+    .expect("draw runtime compiles");
     ev.eval(&HashMap::new()).expect("draw runtime eval");
     let setup_ms = ms(t);
 

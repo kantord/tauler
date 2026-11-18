@@ -4,8 +4,8 @@
 //!
 //! Built the way the reconciler thread is (`units::Reconciler`, ADR 0034): it
 //! loads the same layout file and evaluates it with the inputs of the eval that
-//! asked ([`crate::jsx::EvalInputs`]: the globals before that render and the
-//! Stream values), not with the bar's current ones. Each round
+//! asked ([`crate::jsx::EvalInputs`]: its Stream values), not with the bar's
+//! current ones. Each round
 //! evaluates once, with the newest batch's inputs: a pending key is always one
 //! the newest batch names, so that eval names every figure still pending. The
 //! loop spawns a new one on every layout load and drops the old one, which
@@ -135,6 +135,7 @@ impl DrawRuntime {
         drawn: mpsc::Sender<Drawn>,
         notify: mpsc::SyncSender<()>,
         generation: u64,
+        state: crate::jsx::SharedState,
     ) -> Self {
         let (requests, request_rx) = mpsc::channel::<Batch>();
         let stop = Arc::new(AtomicBool::new(false));
@@ -148,6 +149,7 @@ impl DrawRuntime {
                         ctx.clone(),
                         layout_path.as_deref(),
                         pkg_ctx.clone(),
+                        Arc::clone(&state),
                     )
                 };
                 run(
@@ -297,7 +299,7 @@ fn run(
         let Some(inputs) = queue.latest.as_deref() else {
             continue;
         };
-        if let Err(e) = evaluator.eval_inputs(inputs) {
+        if let Err(e) = evaluator.eval(&inputs.stream_values) {
             report_once(&mut reported_error, "the draw runtime's eval failed", &e);
             continue;
         }
@@ -439,6 +441,7 @@ return <div><D3Figure key="k" width={10} height={20}
             drawn_tx,
             notify_tx,
             GENERATION,
+            Default::default(),
         );
         Running {
             runtime,
@@ -563,7 +566,7 @@ return <div>{{Array.from({{ length: {n} }}, (_, i) =>
     /// Asks for `draw`, naming exactly its keys as the ones on screen.
     fn ask(runtime: &DrawRuntime, draw: Vec<DrawRequest>) {
         let named = draw.iter().map(|r| r.key.clone()).collect();
-        // These layouts read neither streams nor `globals`.
+        // These layouts read no streams.
         runtime.request(named, draw, Default::default());
     }
 
@@ -645,6 +648,7 @@ return <div>{{Array.from({{ length: {n} }}, (_, i) =>
             drawn_tx,
             notify_tx,
             GENERATION,
+            Default::default(),
         );
 
         // 200 requests over ~1.2 s on Linux: about three polls' worth. Sleeps are
@@ -777,10 +781,12 @@ return <div>{{Array.from({{ length: {n} }}, (_, i) =>
     }
 
     #[test]
-    fn a_render_that_writes_globals_still_draws() {
-        let layout = r#"export default function render() {
-globals.n = (globals.n ?? 0) + 1;
-return <div><D3Figure key={"g" + globals.n} width={10} height={20}
+    fn a_render_that_writes_a_store_still_draws() {
+        let layout = r#"import { store } from "tauler";
+const seen = store({ renders: 0 });
+export default function render() {
+seen.renders += 1;
+return <div><D3Figure key="g" width={10} height={20}
   draw={(svg) => svg.append("circle").attr("r", 3)} /></div>;
 }"#;
         let dir = tempfile::tempdir().expect("tempdir");
@@ -799,10 +805,10 @@ return <div><D3Figure key={"g" + globals.n} width={10} height={20}
         loop {
             let left = deadline.saturating_duration_since(Instant::now());
             let drawn = running.drawn.recv_timeout(left).expect(
-                "the second eval's figure should be drawn: the draw runtime evaluates \
-                 with the globals that eval started from, not the ones it left behind",
+                "the figure should be drawn: a render that writes a Store must not \
+                 throw in the draw runtime",
             );
-            if drawn.key == "g2@10x20" {
+            if drawn.key == "g@10x20" {
                 break;
             }
         }
@@ -881,13 +887,14 @@ return <div>{{Array.from({{ length: {MANY} }}, (_, i) =>
             serde_json::Value::Null,
             Some(dir.path()),
             Some(d3_only_pkg_ctx(dir.path(), fake_d3_fetcher(&d3_dir))),
+            Default::default(),
         )
         .expect("the draw evaluator builds");
         evaluator
             .ensure_drawing_ready()
             .expect("precondition: the fake d3 files load");
         evaluator
-            .eval_inputs(&Default::default())
+            .eval(&Default::default())
             .expect("the draw runtime's eval");
         let (drawn_tx, drawn) = mpsc::channel();
         let (notify_tx, _notified) = mpsc::sync_channel(1);
