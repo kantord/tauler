@@ -402,7 +402,7 @@ impl StateStore {
 
     /// How many states are held.
     #[cfg(test)]
-    pub fn len(&self) -> usize {
+    pub(crate) fn len(&self) -> usize {
         self.entries.len()
     }
 
