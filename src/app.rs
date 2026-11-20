@@ -522,6 +522,26 @@ fn render_evaluator(
 /// succeeded; a failed reload keeps the old evaluator and never gets here, so it drops
 /// nothing.
 ///
+/// DECISION (local Stores, `tauler-core/src/local_store.rs`): a local Store is
+/// declared by a render, not by a module load, so "declared" is what the new
+/// evaluator's modules declared and what its last render that returned declared
+/// (`JsxEvaluator::state_identities`). Reason: with the modules alone every local
+/// Store would be dropped by every reload. Tests:
+/// `a_local_store_survives_a_layout_reload_and_is_dropped_with_its_component` and
+/// `a_failed_reload_keeps_every_local_store` below.
+///
+/// RISK (accepted, owner: the maintainer): a reload empties every Stream, and the eval
+/// that decides it runs with none
+/// (`handle_layout_reload`), so a component that is only written once a Stream has a
+/// value is not written by that eval, and its local Stores are dropped by the reload
+/// (`a_reload_drops_a_local_store_whose_component_needs_a_stream_value` below). It is
+/// the rule "a render that does not declare it drops it" applied to that eval, and the
+/// first Tick after the reload would drop them anyway, for the same reason.
+/// Kill: a layout edit that resets the open rows of a stream-fed list is felt in use —
+/// then the Streams keep their last values across a reload, or the drop after a
+/// reload keeps every `local://` identity until the first Tick with stream values.
+/// Cost: small.
+///
 /// DECISION: "declared" is what the render evaluator declared, by the end of the eval
 /// that decided the reload. Reason: the reconciler and draw runtimes load the same
 /// layout file and their `store(...)` calls store nothing (`StateAccess` in
@@ -2278,6 +2298,71 @@ export default () => <div on_click={() => { desk.count += 1; }} data-count={desk
                 .map(|(value, _)| value.clone()),
             Some(serde_json::json!(""))
         );
+    }
+
+    // ---- Local Stores across reloads (`tauler-core/src/local_store.rs`, P5) ----
+
+    const LOCAL_COUNTER: &str = r#"
+import { store } from 'tauler';
+function Counter() {
+    const s = store({ count: 0 });
+    return <div on_click={() => { s.count += 1; }} data-count={s.count} />;
+}
+export default () => <Counter />;
+"#;
+
+    const LOCAL_COUNTER_IDENTITY: &str = "local://layout.jsx#Counter > layout.jsx#Counter.s";
+
+    #[test]
+    fn a_local_store_survives_a_layout_reload_and_is_dropped_with_its_component() {
+        let mut app = Loaded::initial(LOCAL_COUNTER);
+        app.click();
+        assert_eq!(app.layout()["data-count"], 1);
+
+        let edited = LOCAL_COUNTER.replace("data-count", "data-clicks");
+        assert!(app.reload(&edited), "the edited layout loads");
+        assert_eq!(app.layout()["data-clicks"], 1);
+        assert!(app.has_state(LOCAL_COUNTER_IDENTITY));
+
+        // The component is renamed: its Store is a new one, and the old one is dropped.
+        let renamed = LOCAL_COUNTER.replace("Counter", "Clicks");
+        assert!(app.reload(&renamed));
+        assert_eq!(app.layout()["data-count"], 0);
+        assert!(!app.has_state(LOCAL_COUNTER_IDENTITY));
+        assert!(app.has_state(&LOCAL_COUNTER_IDENTITY.replace("Counter", "Clicks")));
+    }
+
+    #[test]
+    fn a_failed_reload_keeps_every_local_store() {
+        let mut app = Loaded::initial(LOCAL_COUNTER);
+        app.click();
+
+        // One does not compile, one throws in its render before it declares anything.
+        for broken in [
+            "export default () => <div",
+            "export default () => { throw new Error('no'); };",
+        ] {
+            assert!(!app.reload(broken), "must not load: {broken}");
+        }
+        assert!(app.has_state(LOCAL_COUNTER_IDENTITY));
+        assert_eq!(app.layout()["data-count"], 1);
+    }
+
+    /// The RISK beside `drop_undeclared_states`: the eval that decides a reload has no
+    /// stream values, so it does not write a component that needs one.
+    #[test]
+    fn a_reload_drops_a_local_store_whose_component_needs_a_stream_value() {
+        let source = LOCAL_COUNTER.replace(
+            "export default () => <Counter />;",
+            "export default () => useStringStream('rows') === '' ? <div /> : <Counter />;",
+        );
+        let mut app = Loaded::initial(&source);
+        let rows = HashMap::from([(("rows".to_string(), None), "a".to_string())]);
+        app.evaluator.eval(&rows).expect("eval");
+        assert!(app.has_state(LOCAL_COUNTER_IDENTITY), "precondition");
+
+        assert!(app.reload(&source));
+        assert!(!app.has_state(LOCAL_COUNTER_IDENTITY));
     }
 
     /// A State identity is the module and the name of the `const`, so a renamed Store

@@ -14,6 +14,9 @@
 //! `globals`, which Stores replaced. The product no longer has that copy, so the group
 //! does it here (see [`bench_bulk_copy`]).
 //!
+//! `eval_with_local` is what a Store declared inside a function costs, and what a layout
+//! with none pays for the machinery (`tauler-core/src/local_store.rs` quotes it).
+//!
 //! Nothing here needs a display server.
 
 use std::collections::HashMap;
@@ -291,11 +294,101 @@ fn bench_bulk_copy(c: &mut Criterion) {
     }
 }
 
+/// Layouts for what a local Store costs (`tauler-core/src/local_store.rs`): name, and
+/// the layout file after its `import { store } from "tauler"`.
+///
+/// The first of each pair has no local Store, and is what every layout pays for the
+/// stack of component instances and for named calls; it also loads on a build from
+/// before local Stores, which is how the "before" figures in `local_store.rs` were
+/// measured. `{STORE}` and `{DECL}` are filled in by [`local_cases`].
+const LOCAL_ROWS: &str = r#"
+function Row({ label }) {
+    {STORE}
+    return <div class="flex gap-2"><span>{label}</span><span>{VALUE}</span></div>;
+}
+const names = Array.from({ length: 60 }, (_, i) => "row" + i);
+export default () => <div>{names.map((name) => <Row key={name} label={name} />)}</div>;
+"#;
+
+/// Six chains of ten components, one inside the other: identities up to eleven links.
+const LOCAL_DEEP: &str = r#"
+function Level({ depth }) {
+    {STORE}
+    return depth > 0 ? <div><Level depth={depth - 1} /></div> : <span>{VALUE}</span>;
+}
+function Chain() { return <Level depth={9} />; }
+const chains = ["a", "b", "c", "d", "e", "f"];
+export default () => <div>{chains.map((name) => <Chain key={name} />)}</div>;
+"#;
+
+/// A thousand calls that are the whole value of a `{DECL}`: `const` gets each its name
+/// from the compile pass, `let` is left as written.
+const LOCAL_CALLS: &str = r#"
+function next(i) { return i + 1; }
+function Work() {
+    let sum = 0;
+    for (let i = 0; i < 1000; i++) { {DECL} v = next(i); sum += v; }
+    return <span>{String(sum)}</span>;
+}
+export default () => <Work />;
+"#;
+
+/// What [`LOCAL_ROWS`] renders, written with no component: the same elements, so the
+/// difference between the two is what sixty component calls cost.
+const LOCAL_ELEMENTS: &str = r#"
+const names = Array.from({ length: 60 }, (_, i) => "row" + i);
+export default () => <div>{names.map((name) =>
+    <div class="flex gap-2"><span>{name}</span><span>x</span></div>)}</div>;
+"#;
+
+fn local_cases() -> Vec<(&'static str, String)> {
+    let fill = |layout: &str, store: &str, value: &str| {
+        layout.replace("{STORE}", store).replace("{VALUE}", value)
+    };
+    let declare = "const s = store({ open: false });";
+    vec![
+        ("rows_60/no_component", LOCAL_ELEMENTS.to_string()),
+        ("rows_60/no_store", fill(LOCAL_ROWS, "", "\"x\"")),
+        (
+            "rows_60/store_each_unread",
+            fill(LOCAL_ROWS, declare, "\"x\""),
+        ),
+        (
+            "rows_60/store_each_read",
+            fill(LOCAL_ROWS, declare, "String(s.open)"),
+        ),
+        ("deep_6x10/no_store", fill(LOCAL_DEEP, "", "\"x\"")),
+        (
+            "deep_6x10/store_each_unread",
+            fill(LOCAL_DEEP, declare, "\"x\""),
+        ),
+        ("calls_1000/plain", LOCAL_CALLS.replace("{DECL}", "let")),
+        ("calls_1000/named", LOCAL_CALLS.replace("{DECL}", "const")),
+    ]
+}
+
+/// One eval per iteration of each [`local_cases`] layout.
+fn bench_local(c: &mut Criterion) {
+    let streams = HashMap::new();
+    let ctx =
+        json!({ "output": "DP-1", "dpi": 140.0, "screen_width": 2560, "screen_height": 1440 });
+    let mut group = c.benchmark_group("eval_with_local");
+    for (name, layout) in local_cases() {
+        group.bench_function(name, |b| {
+            // Built here, not above: a filter then decides which layouts are loaded.
+            let source = format!("import {{ store }} from \"tauler\";\n{layout}");
+            let evaluator = JsxEvaluator::new(&source, ctx.clone(), None).expect("layout compiles");
+            b.iter(|| std::hint::black_box(evaluator.eval(&streams).expect("eval")));
+        });
+    }
+    group.finish();
+}
+
 criterion_group! {
     name = benches;
     config = Criterion::default()
         .warm_up_time(std::time::Duration::from_secs(1))
         .measurement_time(std::time::Duration::from_secs(3));
-    targets = bench_store, bench_bulk_copy
+    targets = bench_store, bench_bulk_copy, bench_local
 }
 criterion_main!(benches);

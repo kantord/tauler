@@ -16,24 +16,22 @@
 //! Not built: nothing wakes the reconciler or redraws a D3Figure when a Store changes
 //! (the last `RISK:` below). Every `RISK:` left here is open.
 //!
-//! TERM: Store — a JSON object a layout file declares at module scope with `store(...)`,
-//! shared by every component that imports it.
+//! TERM: Store — a JSON object a layout file declares with `store(...)`. Declared at
+//! module scope it is shared by every component that imports it, and that is the Store
+//! this file's design is about; declared inside a function it is a local Store
+//! (`tauler-core/src/local_store.rs`). This module holds both, and an identity is an
+//! opaque string here but for one rule: a write to a local Store that is not held is
+//! ignored ([`LOCAL_IDENTITY_PREFIX`]).
 //! Avoid: globals, atom, slice, context.
 //!
 //! TERM: State identity — the string that finds the same Store again on the next tick,
 //! after a reload, and from another runtime: `<module>#<name>`, written by the compile
-//! pass. No person writes one.
+//! pass, for a shared Store; `local://` and a chain of names for a local one. No
+//! person writes one.
 //! Avoid: key (that is one top-level key of a state, or the JSX `key` prop), id, name.
 //!
-//! DECISION: Local state (state one component instance keeps) is out of scope for this
-//! change. A tracer showed that an instance can be identified by the chain of component
-//! functions that wrote it (function name plus `key`), maintained by a wrapper around `h`
-//! in the prelude with no change to `optative-script`; it kept state through a reordered
-//! keyed list, a keyed sibling appearing in front, and a prop change. It left two
-//! problems unsolved: two components with the same function name from different modules
-//! share one state silently when used as alternatives, and a render prop gets the chain
-//! of the component that calls it, so a Package that restructures its internals resets
-//! the importer's state.
+//! A Store declared inside a function is local to a component instance:
+//! `tauler-core/src/local_store.rs` holds that design.
 //!
 //! ## Paths
 //!
@@ -214,6 +212,26 @@ use std::sync::{Arc, Mutex};
 
 use serde_json::Value;
 
+/// What the State identity of every local Store starts with, and no other identity
+/// does (`__tauler_local_store` in `tauler-core/src/local_store.rs` writes it).
+///
+/// DECISION: a write to a local Store this store does not hold is ignored: no entry is
+/// made, nothing is recorded, and the handler that wrote it does not throw. A local
+/// Store is held from the render that declares it to the render that drops it; a
+/// handler a press captured can run after that drop, and an entry made then would
+/// have no render to drop it. Reason for ignoring: the handler's other writes (to a
+/// shared Store, to a held local Store) are kept and its intents are still
+/// dispatched; a throw would roll those back for a press on something that is no
+/// longer on screen. A shared identity is written whether or not it is held, as
+/// before. A page has the same rule in `__tauler_state_set` in
+/// `tauler-web/js/state.js`. Tests:
+/// `state_set_to_a_local_identity_that_is_not_held_stores_nothing` below,
+/// `local_store_a_handler_held_past_its_render_writes_nothing_to_a_dropped_store` in
+/// `src/jsx.rs`, and
+/// `a_handler_held_past_its_render_writes_nothing_to_a_dropped_local_store` in
+/// `tests/page_state_test.rs`. Rejected: throwing in the handler.
+pub const LOCAL_IDENTITY_PREFIX: &str = "local://";
+
 /// One [`StateStore`], shared between an evaluator's host functions and its owner.
 pub type SharedState = Arc<Mutex<StateStore>>;
 
@@ -268,9 +286,14 @@ impl StateStore {
 
     /// First sight of `identity`: store `default`. Seen before: keep what is saved and
     /// add only the top-level keys `default` has and the saved state lacks.
+    ///
+    /// First sight moves the clock even when `default` is empty: a runtime that only
+    /// reads answers from its own default until the identity is held (`Defaults` in
+    /// `src/jsx.rs`), and must ask again from then on.
     pub fn declare(&mut self, identity: &str, default: serde_json::Map<String, Value>) {
         if !self.entries.contains_key(identity) {
             self.entries.insert(identity.to_string(), BTreeMap::new());
+            self.tick_clock();
             self.record(Undo::Declared(identity.to_string()));
         }
         for (key, value) in default {
@@ -298,6 +321,11 @@ impl StateStore {
         self.get(identity, key).map_or(0, |(_, version)| version)
     }
 
+    /// Whether a state is held under `identity`: declared, and not dropped since.
+    pub fn holds(&self, identity: &str) -> bool {
+        self.entries.contains_key(identity)
+    }
+
     /// The top-level keys of one state, sorted.
     pub fn keys(&self, identity: &str) -> Vec<String> {
         self.entries
@@ -319,8 +347,14 @@ impl StateStore {
 
     /// Write one top-level key. `true` when the stored value changed; an equal value
     /// changes nothing and moves no version.
+    ///
+    /// A local Store that is not held (never declared, or dropped) is not written:
+    /// nothing is stored and the answer is `false` ([`LOCAL_IDENTITY_PREFIX`]).
     pub fn set(&mut self, identity: &str, key: &str, value: Value) -> bool {
         if !self.entries.contains_key(identity) {
+            if identity.starts_with(LOCAL_IDENTITY_PREFIX) {
+                return false;
+            }
             self.entries.insert(identity.to_string(), BTreeMap::new());
         }
         let previous = match self.entries[identity].get(key) {
@@ -355,6 +389,23 @@ impl StateStore {
         true
     }
 
+    /// Forget one whole state: a local Store the render that just returned did not
+    /// declare (`tauler-core/src/local_store.rs`). `true` when it existed. No rollback
+    /// brings it back: the drop is the last thing a render's transaction does.
+    pub fn drop_identity(&mut self, identity: &str) -> bool {
+        let existed = self.entries.remove(identity).is_some();
+        if existed {
+            self.tick_clock();
+        }
+        existed
+    }
+
+    /// How many states are held.
+    #[cfg(test)]
+    pub fn len(&self) -> usize {
+        self.entries.len()
+    }
+
     /// Forget every state whose identity is not in `declared`. Not part of a
     /// transaction: a reload calls it between Ticks, and nothing undoes a reload.
     pub fn retain_identities(&mut self, declared: &[String]) {
@@ -380,9 +431,10 @@ impl StateStore {
 
     /// Put every state back as it was at [`Self::begin`]. A restored key gets a new
     /// version, not its old one: a runtime may have converted the value that is being
-    /// thrown away under a version in between.
+    /// thrown away under a version in between. A state that was declared since then
+    /// stops being held.
     ///
-    /// A page has the same rule a second time, in the `catch` of `withState` in
+    /// A page has the same rules a second time, in the `catch` of `withState` in
     /// `tauler-web/js/state.js`. Change the two together.
     pub fn rollback(&mut self) {
         let Some(journal) = self.journal.take() else {
@@ -391,7 +443,10 @@ impl StateStore {
         for undo in journal.into_iter().rev() {
             match undo {
                 Undo::Declared(identity) => {
+                    // The identity stops being held, which moves the clock as
+                    // [`Self::drop_identity`] does.
                     self.entries.remove(&identity);
+                    self.tick_clock();
                 }
                 Undo::Key {
                     identity,
@@ -436,6 +491,29 @@ mod tests {
         assert!(store.version("s", "n") > version);
     }
 
+    /// A local Store is held from its declaration to its drop; a write outside that
+    /// makes no entry. A shared identity is written as before.
+    #[test]
+    fn state_set_to_a_local_identity_that_is_not_held_stores_nothing() {
+        let local = "local://a.jsx#Row > a.jsx#Row.s";
+        let mut store = StateStore::new();
+        store.begin();
+        assert!(!store.set(local, "n", json!(1)));
+        assert!(!store.remove(local, "n"));
+        assert!(!store.commit(), "nothing changed");
+        assert_eq!((store.len(), store.clock()), (0, 0));
+
+        store.declare(local, object(json!({ "n": 0 })));
+        assert!(store.set(local, "n", json!(1)));
+        assert!(store.set(local, "new", json!(1)));
+        assert!(store.drop_identity(local));
+        assert!(!store.set(local, "n", json!(2)));
+        assert_eq!(store.len(), 0);
+
+        assert!(store.set("a.jsx#desk", "n", json!(1)));
+        assert_eq!(store.len(), 1);
+    }
+
     #[test]
     fn state_set_moves_only_the_version_of_the_key_it_wrote() {
         let mut store = StateStore::new();
@@ -471,6 +549,32 @@ mod tests {
         );
     }
 
+    /// A runtime that only reads answers from its own kept default while the store
+    /// holds nothing under an identity (`Defaults` in `src/jsx.rs`), and keeps that
+    /// answer while the clock stands. So the clock moves when an identity starts or
+    /// stops being held, even when its default is empty.
+    #[test]
+    fn state_declare_of_a_new_identity_moves_the_clock_even_when_the_default_is_empty() {
+        let mut store = StateStore::new();
+        store.declare("empty", object(json!({})));
+        let declared = store.clock();
+        assert!(declared > 0, "a mirror of a kept default must be refilled");
+
+        store.declare("empty", object(json!({})));
+        assert_eq!(store.clock(), declared, "seen before: nothing moves");
+
+        store.begin();
+        store.declare("fresh", object(json!({})));
+        let inside = store.clock();
+        assert!(inside > declared);
+        store.rollback();
+        assert!(!store.holds("fresh"));
+        assert!(
+            store.clock() > inside,
+            "a declaration that is undone moves the clock again"
+        );
+    }
+
     #[test]
     fn state_retain_identities_forgets_the_rest_and_moves_the_clock() {
         let mut store = StateStore::new();
@@ -487,6 +591,20 @@ mod tests {
         let clock = store.clock();
         store.retain_identities(&["kept".to_string()]);
         assert_eq!(store.clock(), clock, "nothing forgotten moves nothing");
+    }
+
+    #[test]
+    fn state_drop_identity_forgets_one_state_and_moves_the_clock() {
+        let mut store = StateStore::new();
+        store.declare("kept", object(json!({ "n": 1 })));
+        store.declare("gone", object(json!({ "n": 2 })));
+        let clock = store.clock();
+
+        assert!(store.drop_identity("gone"));
+        assert!(!store.drop_identity("never"));
+        assert_eq!(store.snapshot("gone"), None);
+        assert_eq!(store.snapshot("kept"), Some(object(json!({ "n": 1 }))));
+        assert!(store.clock() > clock, "a mirror of `gone` must be refilled");
     }
 
     #[test]

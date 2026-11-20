@@ -117,7 +117,9 @@ the volume".
 
 That also means a control needs somebody to hold its value. A slider that only filters a
 chart on screen has no subprocess to talk to, so it keeps the number in a
-[Store](/docs/data/#store): `on_change` writes it, and the next tick renders it.
+[Store](/docs/data/#store): `on_change` writes it, and the next tick renders it. A
+reusable control that holds its own value declares
+[a Store of its own](/docs/data/#a-store-of-its-own-for-each-component).
 
 `on_change` takes the value the pointer is over and returns intents — one, or an array of
 them, the same shape every [event handler](/docs/data/#event-handlers) takes. `<Slider>`

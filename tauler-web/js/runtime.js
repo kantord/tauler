@@ -57,6 +57,9 @@ function reportError(where, error) {
 
 let booted = null
 
+/** How many Mounts this page has made: each one's number is in its local Stores' identities. */
+let mounts = 0
+
 /**
  * Each D3Figure's latest registration, by key. A page runs `draw` itself, so this is where a
  * tick finds the function for a placeholder that has no drawing yet.
@@ -157,10 +160,10 @@ export function boot(wasmUrl) {
     // Assembled as `jsx.rs` assembles it, against the same `__tauler_flatten_node` the
     // shared globals just defined: each node must be flat by the time a Rust component
     // consumes it as `children`.
-    globalThis.h = (type, props, ...children) =>
-      globalThis.__tauler_flatten_node(
-        estoH(type, globalThis.__tauler_register_handlers(type, props), ...children),
-      )
+    // The assembly itself is the shared globals' (`__tauler_h` in
+    // `tauler-core/src/local_store.rs`), which also keeps the component now running on
+    // the stack a local Store is named from; only the factory differs per engine.
+    globalThis.h = globalThis.__tauler_h(estoH)
 
     // Last: each shim calls a `__ui_*` global that has to exist already.
     ;(0, eval)(wasm.taulerBootstrapJs())
@@ -184,6 +187,11 @@ export class Mount {
    * desktop gives a failing key one warning too (`src/d3_figure/draw.rs`). A new key — the
    * author's fix, or new data — is a new figure and gets drawn. */
   #failed = new Set()
+
+  /** This Mount's render as the shared globals wrap it; made on the first tick, after boot. */
+  #rendering = null
+  /** The first link of every local Store's identity beneath this Mount. */
+  #root = `mount:${++mounts}`
 
   constructor(element, render, theme = 'dark') {
     this.#element = element
@@ -305,7 +313,12 @@ export class Mount {
    */
   #evaluate() {
     globalThis.ctx = { ...globalThis.ctx, theme: wasm.taulerThemeCtx(this.#theme) }
-    return withState(() => this.#render())
+    // Every Mount runs in one realm, so two Mounts of one layout file build the same
+    // local identities. `__tauler_rendering` (`tauler-core/src/local_store.rs`) gives
+    // each its own first link and its own set of declarations, so they share no local
+    // Store and neither drops the other's.
+    this.#rendering ??= globalThis.__tauler_rendering(() => this.#render(), this.#root)
+    return withState(this.#rendering)
   }
 
   /** The element a render path names, or null. */

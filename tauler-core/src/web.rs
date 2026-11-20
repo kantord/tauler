@@ -46,7 +46,7 @@ pub fn use_string_stream(bin: String, script: Option<String>) -> String {
 // DECISION (issue #271): on a page the Stores are the page's, in JavaScript
 // (`tauler-web/js/state.js`), and nothing here holds them. No evaluator is built on
 // this path — the page runs the layout on its own engine — so there is no constructor
-// to hand a `StateStore` to. The page supplies the five `__tauler_state_*` functions
+// to hand a `StateStore` to. The page supplies the `__tauler_state_*` functions
 // `globals.rs` documents over a Map, and runs every render and handler the way the
 // desktop does (`withState`). An example reaches `store` as a layout file does:
 // `tauler-docgen` puts it through the compile pass (`store_pass.rs`, `example_js` in
@@ -55,7 +55,7 @@ pub fn use_string_stream(bin: String, script: Option<String>) -> String {
 // Tests: `tests/page_state_test.rs` in the `tauler` crate runs `state.js` against the
 // shared globals; `an_example_that_declares_a_store_gets_its_identity` and
 // `the_import_map_resolves_tauler_to_its_module` in `tauler-docgen/src/web.rs`.
-// Rejected: the desktop's `StateStore` compiled to wasm behind the same five names,
+// Rejected: the desktop's `StateStore` compiled to wasm behind the same names,
 // as the Transport's stream map is above — one implementation of "equal" and of
 // rollback, but `StateStore` would have to move into this crate, and each read would
 // cross into wasm and convert through `serde_wasm_bindgen`.
