@@ -593,7 +593,12 @@ mod tests {
     const NERD_FOLDER: &str = "\u{e5ff}";
 
     fn ink(pixels: &[u8]) -> usize {
-        pixels.chunks_exact(4).filter(|px| px[3] != 0).count()
+        pixels
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .filter(|px| px[3] != 0)
+            .count()
     }
 
     /// Ink for `text` rendered against an explicit font set. Tests can't rely on

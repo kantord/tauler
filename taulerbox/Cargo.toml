@@ -61,6 +61,3 @@ vnc-rs = "=0.6.1"
 # channel; see `spawn_vnc_worker`'s doc comment for why that side needs an
 # async-`recv`-able channel rather than a plain `std::sync::mpsc`).
 tokio = { version = "=1.54.1", features = ["rt-multi-thread", "macros", "net", "time", "sync"] }
-
-[dev-dependencies]
-rstest = "=0.28.0"

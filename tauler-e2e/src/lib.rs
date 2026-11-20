@@ -40,8 +40,6 @@ pub enum Backend {
 }
 
 impl Backend {
-    pub const ALL: [Backend; 2] = [Backend::I3, Backend::Sway];
-
     pub fn image_name(self) -> &'static str {
         match self {
             Backend::I3 => "tauler-e2e-i3",
@@ -517,14 +515,6 @@ fn crate_dir() -> PathBuf {
 }
 
 /// Where captures land on the host, and what gets bind-mounted at `/out`.
-/// `target/e2e/<scenario>/`, created. The container sees it as `/out/<scenario>`, so a test can
-/// leave a file there for a fixture's `startup` to read before the desktop exists.
-pub fn scenario_out_dir(scenario: &str) -> Result<PathBuf> {
-    let dir = out_root()?.join(scenario);
-    std::fs::create_dir_all(&dir)?;
-    Ok(dir)
-}
-
 fn out_root() -> Result<PathBuf> {
     let dir = crate_dir()
         .parent()

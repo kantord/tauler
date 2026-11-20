@@ -3597,8 +3597,7 @@ return <div class="flex">
         .unwrap();
         let err = evaluator
             .eval_units(&std::collections::HashMap::new())
-            .err()
-            .expect("a reconciler render that throws must fail");
+            .expect_err("a reconciler render that throws must fail");
         assert!(
             err.to_string().contains("boom while rendering"),
             "Display must carry the thrown message, got: {err}"

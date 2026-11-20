@@ -22,7 +22,12 @@ jobs:
       - name: Check formatting
         run: cargo fmt --all --check
       - name: Clippy
-        run: cargo clippy --workspace -- -D warnings
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: Install cargo-machete
+        run: cargo install cargo-machete --locked --version 0.10.1
+      - name: Check for unused dependencies
+        run: cargo machete --with-metadata
 
       # ADR 0010's "third measurement": the wasm-clean subset is a crate boundary, and
       # this is what makes that a claim a compiler enforces rather than a convention. A
@@ -174,7 +179,7 @@ jobs:
             target
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
       - name: Clippy
-        run: cargo clippy --workspace -- -D warnings
+        run: cargo clippy --workspace --all-targets -- -D warnings
 
       # ADR 0010's "third measurement": the wasm-clean subset is a crate boundary, and
       # this is what makes that a claim a compiler enforces rather than a convention. A

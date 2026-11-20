@@ -166,7 +166,7 @@ mod tests {
         assert_eq!(parse_enwiro_env(environ), None);
     }
 
-    fn hints(pairs: &[(&str, zbus::zvariant::Value<'static>)]) -> HashMap<String, OwnedVariant> {
+    fn hints(pairs: &[(&str, zbus::Variant<'static>)]) -> HashMap<String, OwnedVariant> {
         pairs
             .iter()
             .map(|(k, v)| {
@@ -184,7 +184,7 @@ mod tests {
     fn stack_tag_reads_the_canonical_synchronous_hint() {
         let h = hints(&[(
             "x-canonical-private-synchronous",
-            zbus::zvariant::Value::new("i3wm.set-light-brightness.notification"),
+            zbus::Variant::new("i3wm.set-light-brightness.notification"),
         )]);
         assert_eq!(
             stack_tag(&h),
@@ -194,13 +194,13 @@ mod tests {
 
     #[test]
     fn stack_tag_reads_the_dunst_hint() {
-        let h = hints(&[("x-dunst-stack-tag", zbus::zvariant::Value::new("volume"))]);
+        let h = hints(&[("x-dunst-stack-tag", zbus::Variant::new("volume"))]);
         assert_eq!(stack_tag(&h), Some("volume".to_string()));
     }
 
     #[test]
     fn stack_tag_is_none_without_either_hint() {
-        let h = hints(&[("urgency", zbus::zvariant::Value::new(1u8))]);
+        let h = hints(&[("urgency", zbus::Variant::new(1u8))]);
         assert_eq!(stack_tag(&h), None);
     }
 
@@ -208,10 +208,7 @@ mod tests {
     // "untagged", never panic the daemon.
     #[test]
     fn stack_tag_ignores_a_non_string_hint() {
-        let h = hints(&[(
-            "x-canonical-private-synchronous",
-            zbus::zvariant::Value::new(7u32),
-        )]);
+        let h = hints(&[("x-canonical-private-synchronous", zbus::Variant::new(7u32))]);
         assert_eq!(stack_tag(&h), None);
     }
 

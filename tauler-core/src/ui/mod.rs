@@ -60,19 +60,6 @@ pub struct ElementNode {
     pub children: Vec<Node>,
 }
 
-/// Merge two Tailwind class strings by appending `extra` after `base`.
-///
-/// Correct because takumi applies declarations in order via plain field assignment
-/// (`style.$longhand = value`), so later classes win. Appending `extra` last means
-/// the caller's overrides take precedence over `base`.
-pub fn tw_merge(base: &str, extra: &str) -> String {
-    if extra.is_empty() {
-        base.to_string()
-    } else {
-        format!("{base} {extra}")
-    }
-}
-
 pub trait IntoNodes {
     fn into_nodes(self) -> Vec<Node>;
 }
