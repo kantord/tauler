@@ -167,6 +167,12 @@ const PAGE_STORE_TOKEN: &str = "page";
 /// the two steps a desktop puts every layout file through (`src/jsx.rs`). `name` is the
 /// example's file name without its extension; its Stores are named
 /// `examples/<name>.jsx#<const>`.
+///
+/// DECISION (local Stores, `tauler-core/src/local_store.rs`): an example gets the whole
+/// pass, as a desktop file does: its Stores are named, its top-level functions are
+/// tagged and its `const name = f(...)` calls carry their names. Reason: the pass
+/// needs nothing but the one file, so an example with no import
+/// graph loses nothing. Test: `an_example_with_a_local_store_gets_the_whole_pass`.
 pub fn example_js(name: &str, source: &str) -> io::Result<String> {
     let file = format!("{name}.jsx");
     let module = format!("examples/{file}");
@@ -349,6 +355,23 @@ mod tests {
         );
     }
 
+    #[test]
+    fn an_example_with_a_local_store_gets_the_whole_pass() {
+        let js = example_js(
+            "menu",
+            "import { store } from \"tauler\";\nfunction toggle() { const s = store({ open: false }); return s; }\nexport default function Menu() { const menu = toggle(); return <div>{String(menu.open)}</div>; }\n",
+        )
+        .unwrap();
+        for written in [
+            r#"__tauler_local_store({ open: false }, "examples/menu.jsx#toggle.s", "page")"#,
+            r#"__tauler_call("menu", toggle"#,
+            r#"__tauler_name(toggle, "examples/menu.jsx#toggle")"#,
+            r#"__tauler_name(Menu, "examples/menu.jsx#Menu")"#,
+        ] {
+            assert!(js.contains(written), "no `{written}` in {js}");
+        }
+    }
+
     /// What the pass refuses on a desktop it refuses here, with the file and the line.
     #[test]
     fn an_example_the_store_pass_refuses_fails_the_build() {
@@ -358,7 +381,7 @@ mod tests {
                 "examples/card.jsx:2: `globals` was removed",
             ),
             (
-                "import { store } from \"tauler\";\nexport default function render() {\n  const s = store({});\n  return <div />;\n}\n",
+                "import { store } from \"tauler\";\nexport default function render() {\n  let s = store({});\n  return <div />;\n}\n",
                 "examples/card.jsx:3: store() must be the whole value",
             ),
         ] {

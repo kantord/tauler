@@ -9,7 +9,8 @@
 //! It lives in this crate rather than beside the QuickJS evaluator for exactly that
 //! reason — the browser has no rquickjs to reach through.
 
-pub const JSX_GLOBALS_JS: &str = r#"
+pub const JSX_GLOBALS_JS: &str = concat!(
+    r#"
     // `h`'s per-node reshape: the factory's `{type, props, children}` into the layout
     // tree's flat shape. In JavaScript rather than a Rust callback because it is pure data
     // movement and the boundary is not free — as a callback it converted every node to
@@ -198,11 +199,11 @@ pub const JSX_GLOBALS_JS: &str = r#"
         Math.round((step > 0 ? Math.round(v / step) * step : v) * 1e6) / 1e6;
     // ---- State: issue #271 (see `src/state.rs`). ----
     //
-    // DECISION: a Store is a JavaScript object written here, over five host functions
-    // (`__tauler_state_declare/get/version/set/keys`) and one number the host keeps
+    // DECISION: a Store is a JavaScript object written here, over six host functions
+    // (`__tauler_state_declare/get/version/set/keys/drop`) and one number the host keeps
     // current (`__tauler_state_now`), and not a Rust-defined object type.
     // Reason: this string also runs on the browser's own engine (ADR 0027), where there
-    // is no Rust to define one; the page supplies the same five functions over a Map
+    // is no Rust to define one; the page supplies the same functions over a Map
     // (`tauler-web/js/state.js`).
     // Rejected: an rquickjs exotic class (0.14 has the hooks) — desktop only.
     //
@@ -246,7 +247,10 @@ pub const JSX_GLOBALS_JS: &str = r#"
     //   __tauler_state_get(identity, key, have, same)
     //       -> a primitive as it is; `undefined` for a missing key; `same` (handed back
     //          untouched) when the key holds an object or array whose version is `have`;
-    //          otherwise that object or array, freshly converted
+    //          otherwise that object or array, freshly converted. A host that only
+    //          reads answers from the default it was declared, under a version below
+    //          zero, while no state is held under `identity` (`Defaults` in
+    //          `src/jsx.rs`); `version` and `keys` answer the same way.
     //   __tauler_state_version(identity, key) -> the key's version; 0 for a missing key
     //   __tauler_state_set(identity, key, value) -> the key's version after the write;
     //          `undefined` as the value deletes the key. A host that only reads
@@ -254,7 +258,13 @@ pub const JSX_GLOBALS_JS: &str = r#"
     //          own evaluation makes, and stores nothing: this runtime then keeps the
     //          value until `__tauler_state_drop_unsaved`, which that host calls when
     //          the evaluation ends. It throws for a write from anywhere else.
+    //          A write to a local Store that is not held is ignored, and the answer
+    //          is the key's version as it stands (`LOCAL_IDENTITY_PREFIX` in
+    //          `src/state.rs`).
     //   __tauler_state_keys(identity) -> the top-level keys
+    //   __tauler_state_drop(identity): forgets one whole state (a local Store the
+    //          last render did not declare). A host that only reads forgets the
+    //          default it kept and changes no state.
     //   __tauler_state_now: the host's clock, set by the host before each handler and
     //          each render. It moves whenever any state changes, from any runtime.
     globalThis.__tauler_state_now = 0;
@@ -309,6 +319,8 @@ pub const JSX_GLOBALS_JS: &str = r#"
             }
         }
         touched.length = 0;
+        // A render, not a handler: the local Stores it did not declare are dropped.
+        if (__tauler_local.pending !== null) __tauler_local_settle();
     };
     // After a handler or a render that threw: the host rolls its values back (which
     // moves its clock, so every mirror is refilled), and every nested value handed out
@@ -321,18 +333,28 @@ pub const JSX_GLOBALS_JS: &str = r#"
             if (rec.st.cache.get(rec.key) === rec) rec.st.cache.delete(rec.key);
         }
         touched.length = 0;
+        // A render that threw drops nothing; the next render forgets what it declared.
+        __tauler_local.pending = null;
     };
-    // The identities `store` declared in this runtime, in order.
+    // The identities `store` declared while this runtime's modules loaded, in order:
+    // the shared Stores. A local Store is declared by a render and is not here
+    // (`__tauler_state_declared` in `local_store.rs` lists both).
     globalThis.__tauler_state_identities = [];
-    // Declare `identity` to the host, which keeps a saved value and takes `initial`
-    // only for what is missing, and answer with a Proxy over it. One call per identity:
-    // the compile pass names a Store after its module and its `const`, and a module
-    // runs once.
+    // `store`, as a layout file calls it once the compile pass has added the last two
+    // arguments. A declaration at the top level of a module (`<module>#<const>`) is
+    // declared to the host, which keeps a saved value and takes `initial` only for
+    // what is missing: one call per identity, because a module runs once. A
+    // declaration inside a function is a local Store: the pass makes it a call of
+    // `__tauler_local_store` (`tauler-core/src/local_store.rs`), not of this.
     globalThis.__tauler_store = (initial, identity, token) => {
         if (typeof identity !== "string")
-            throw new Error("store() must be the whole value of a top-level const: `const name = store({...})`");
+            throw new Error("store() must be the whole value of a const: `const name = store({...})`");
         __tauler_state_declare(identity, initial ?? {}, token);
         __tauler_state_identities.push(identity);
+        return __tauler_state_proxy(identity);
+    };
+    // A Proxy over the state the host holds under `identity`, which is declared.
+    globalThis.__tauler_state_proxy = (identity) => {
         const st = {
             // key -> record, for every nested value this runtime has converted.
             cache: new Map(),
@@ -675,7 +697,9 @@ pub const JSX_GLOBALS_JS: &str = r#"
         if (typeof child === 'function') return child(useJSONStream(bin), useEvents(bin, rest));
         return { "bin@": bin, ...rest };
     };
-"#;
+"#,
+    crate::local_store::local_store_js!()
+);
 
 /// The specifier a layout file imports `store` from.
 pub const TAULER_MODULE: &str = "tauler";

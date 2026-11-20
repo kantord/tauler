@@ -205,19 +205,43 @@ _Avoid_: frame, render pass, update, re-render; pass (that is the loop turn, not
 re-evaluation)
 
 **Store**:
-A JSON object a layout file declares at the top level of a module to keep between Ticks,
-shared by every component that imports it. What a Store holds is the only thing this
-glossary calls state. See ADR 0051.
+A JSON object a layout file declares with `store(...)` to keep between Ticks. Where it is
+declared decides who shares it: a **shared Store** or a **local Store**. What a Store holds
+is the only thing this glossary calls state. See ADR 0051.
 _Avoid_: globals, atom, slice, context
 _Elsewhere_: store (zustand, Svelte, Redux), atom (Jotai)
 
+**Shared Store**:
+A **Store** declared at the top level of a module: one value, shared by every component
+that imports it, kept until a layout reload that no longer declares it. A function that
+declares a Store, called through a `const` at the top level of a module, declares a shared
+Store too.
+_Avoid_: global store, module store
+_Elsewhere_: a module-level store (zustand), a top-level atom (Jotai)
+
+**Local Store**:
+A **Store** declared inside a function. Each **component instance** that reaches the
+declaration has its own value, and the value is dropped by the first Tick that does not
+reach the declaration.
+_Avoid_: hook, hook state, `useLocal`, component state
+_Elsewhere_: `useState` (React), `$state` in a component (Svelte), except that neither is
+found again by name
+
+**Component instance**:
+One place a component is written: the components whose code wrote it, outermost first, and
+its `key` prop among siblings written by the same component. A **local Store** is kept
+once per component instance. See ADR 0051.
+_Avoid_: instance alone (that is avoided for **Item**), fiber, node, mounted component
+_Elsewhere_: a component instance or fiber (React), which is a position in the output tree
+
 **State identity**:
 What finds the same Store again on the next Tick, after a layout reload, and from another
-runtime. It comes from the module that declares the Store and the name it is declared
-under; no person writes one.
-_Avoid_: key (that is one field of a Store, or what identifies an Item), id, name
+runtime. For a shared Store it comes from the module that declares it and the name it is
+declared under; for a local Store, from its **component instance** and names in the code
+as well. No person writes one. See ADR 0051.
+_Avoid_: key (that is one field of a Store, a JSX prop, or what identifies an Item), id, name
 _Elsewhere_: an atom's `key` (Recoil) and a store's id (Pinia), both of which a person
-writes
+writes; a hook's call order (React), which this replaces with names
 
 **Shell node**:
 A node that describes structure rather than content: `root`, `panel`, `wallpaper`, `dom`.

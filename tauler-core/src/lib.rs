@@ -17,6 +17,7 @@
 pub mod dom;
 pub mod flatten;
 pub mod globals;
+pub mod local_store;
 pub mod preview;
 #[cfg(feature = "store-pass")]
 pub mod store_pass;

@@ -493,18 +493,118 @@ fn new_store_token() -> String {
 /// ([`StateAccess`]); `JSX_GLOBALS_JS` tests for "below zero".
 const UNSAVED: f64 = -1.0;
 
-/// The host half of `store(...)` (`JSX_GLOBALS_JS` documents the five functions).
+/// The version a runtime that only reads answers for a key it reads from a default
+/// ([`Defaults`]). No stored key has it: the store's clock starts above zero.
+const DEFAULT_VERSION: f64 = -2.0;
+
+/// The default of every Store one runtime declared and did not store: what a runtime
+/// that only reads ([`StateAccess`]) answers while the store holds nothing under an
+/// identity. Empty in the render runtime, which stores every default.
+///
+/// DECISION: a runtime that only reads keeps each declaration's default here, beside
+/// its host functions, and reads from it only while the store holds no state at all
+/// under that identity. Reason: a local Store is declared to the store by the render
+/// runtime's first render that reaches it, and a reconciler or draw evaluation can
+/// reach the declaration first (its Streams are newer); it then read `undefined` for
+/// every key, and `s.items.length` threw. The rule is "no state held", not "this key
+/// is missing": a key the render runtime deleted must stay deleted here too. Nothing
+/// is written to the store, and the store's clock moves when the render runtime
+/// declares, which empties the runtime's mirror, so the next read is the stored value.
+/// A default is forgotten when this runtime's render stops declaring the Store
+/// (`__tauler_state_drop`). Test:
+/// `local_store_a_read_only_runtime_reads_the_default_until_the_store_holds_a_value`.
+/// A handler or render that throws forgets the defaults it added
+/// ([`Defaults::forget_added`]): that drop visits only what the last render that
+/// returned declared. Test:
+/// `local_store_a_read_only_runtime_keeps_no_default_from_a_render_that_threw`.
+/// Rejected: storing the default from these runtimes — the store has one journal, the
+/// render runtime's, and its drop rule would not know the entry. A page needs none of
+/// this: it has one runtime, which stores every default (`tauler-web/js/state.js`).
+#[derive(Default)]
+struct Defaults(std::sync::Mutex<KeptDefaults>);
+
+#[derive(Default)]
+struct KeptDefaults {
+    by_identity: HashMap<String, serde_json::Map<String, serde_json::Value>>,
+    /// The identities that got their first default since [`Defaults::begin`].
+    added: Vec<String>,
+}
+
+impl Defaults {
+    /// The identities that have a default, sorted.
+    #[cfg(test)]
+    fn identities(&self) -> Vec<String> {
+        let kept = self.0.lock().unwrap();
+        let mut identities: Vec<String> = kept.by_identity.keys().cloned().collect();
+        identities.sort();
+        identities
+    }
+
+    fn insert(&self, identity: String, default: serde_json::Map<String, serde_json::Value>) {
+        let mut kept = self.0.lock().unwrap();
+        if kept.by_identity.insert(identity.clone(), default).is_none() {
+            kept.added.push(identity);
+        }
+    }
+
+    fn remove(&self, identity: &str) {
+        self.0.lock().unwrap().by_identity.remove(identity);
+    }
+
+    /// One handler or one render starts: every default kept so far stays.
+    fn begin(&self) {
+        self.0.lock().unwrap().added.clear();
+    }
+
+    /// The handler or render threw: forget the defaults it added.
+    fn forget_added(&self) {
+        let mut kept = self.0.lock().unwrap();
+        for identity in std::mem::take(&mut kept.added) {
+            kept.by_identity.remove(&identity);
+        }
+    }
+
+    /// `key` of `identity`'s default, when the store holds nothing under `identity`.
+    fn get(
+        &self,
+        store: &crate::state::StateStore,
+        identity: &str,
+        key: &str,
+    ) -> Option<serde_json::Value> {
+        if store.holds(identity) {
+            return None;
+        }
+        let kept = self.0.lock().unwrap();
+        kept.by_identity.get(identity)?.get(key).cloned()
+    }
+
+    /// The same for the sorted keys of the default.
+    fn keys(&self, store: &crate::state::StateStore, identity: &str) -> Option<Vec<String>> {
+        if store.holds(identity) {
+            return None;
+        }
+        let kept = self.0.lock().unwrap();
+        let mut keys: Vec<String> = kept.by_identity.get(identity)?.keys().cloned().collect();
+        keys.sort();
+        Some(keys)
+    }
+}
+
+/// The host half of `store(...)` (`JSX_GLOBALS_JS` documents the host functions).
 fn register_state_host<'js>(
     ctx: &rquickjs::Ctx<'js>,
     state: &crate::state::SharedState,
     access: StateAccess,
     token: &str,
     evaluating: &Arc<AtomicBool>,
+    defaults: &Arc<Defaults>,
 ) -> rquickjs::Result<()> {
     use rquickjs::{Ctx, Function, Value};
     let globals = ctx.globals();
+    let defaults = Arc::clone(defaults);
 
     let store = Arc::clone(state);
+    let kept = Arc::clone(&defaults);
     let expected = token.to_string();
     globals.set(
         "__tauler_state_declare",
@@ -523,7 +623,7 @@ fn register_state_host<'js>(
                     return Err(rquickjs::Exception::throw_type(
                         &ctx,
                         "store() takes exactly one argument, the default value, and must be \
-                         the whole value of a top-level const: `const name = store({...})`; \
+                         the whole value of a const: `const name = store({...})`; \
                          tauler adds the identity",
                     ));
                 }
@@ -536,6 +636,8 @@ fn register_state_host<'js>(
                     })?;
                 if access == StateAccess::ReadWrite {
                     store.lock().unwrap().declare(&identity, default);
+                } else {
+                    kept.insert(identity, default);
                 }
                 Ok(())
             },
@@ -543,6 +645,7 @@ fn register_state_host<'js>(
     )?;
 
     let store = Arc::clone(state);
+    let kept = Arc::clone(&defaults);
     globals.set(
         "__tauler_state_get",
         Function::new(
@@ -555,7 +658,16 @@ fn register_state_host<'js>(
                   -> rquickjs::Result<Value<'js>> {
                 let store = store.lock().unwrap();
                 match store.get(&identity, &key) {
-                    None => Ok(Value::new_undefined(ctx)),
+                    None => match kept.get(&store, &identity, &key) {
+                        None => Ok(Value::new_undefined(ctx)),
+                        Some(value)
+                            if (value.is_object() || value.is_array())
+                                && have == DEFAULT_VERSION =>
+                        {
+                            Ok(same)
+                        }
+                        Some(value) => js_of_state(&ctx, &value),
+                    },
                     Some((value, version))
                         if (value.is_object() || value.is_array()) && version as f64 == have =>
                     {
@@ -568,10 +680,15 @@ fn register_state_host<'js>(
     )?;
 
     let store = Arc::clone(state);
+    let kept = Arc::clone(&defaults);
     globals.set(
         "__tauler_state_version",
         Function::new(ctx.clone(), move |identity: String, key: String| -> f64 {
-            store.lock().unwrap().version(&identity, &key) as f64
+            let store = store.lock().unwrap();
+            match store.version(&identity, &key) {
+                0 if kept.get(&store, &identity, &key).is_some() => DEFAULT_VERSION,
+                version => version as f64,
+            }
         })?,
     )?;
 
@@ -609,11 +726,31 @@ fn register_state_host<'js>(
         )?,
     )?;
 
+    // A local Store the render that just returned did not declare
+    // (`__tauler_local_settle` in `tauler-core/src/local_store.rs`). Only the render
+    // runtime decides: the other two never drop ([`StateAccess`]); they forget the
+    // default they kept for it ([`Defaults`]).
+    let store = Arc::clone(state);
+    let kept = Arc::clone(&defaults);
+    globals.set(
+        "__tauler_state_drop",
+        Function::new(ctx.clone(), move |identity: String| {
+            if access == StateAccess::ReadWrite {
+                store.lock().unwrap().drop_identity(&identity);
+            } else {
+                kept.remove(&identity);
+            }
+        })?,
+    )?;
+
     let store = Arc::clone(state);
     globals.set(
         "__tauler_state_keys",
         Function::new(ctx.clone(), move |identity: String| -> Vec<String> {
-            store.lock().unwrap().keys(&identity)
+            let store = store.lock().unwrap();
+            defaults
+                .keys(&store, &identity)
+                .unwrap_or_else(|| store.keys(&identity))
         })?,
     )?;
     Ok(())
@@ -648,6 +785,8 @@ pub struct JsxEvaluator {
     /// is built, its render during an eval. What a runtime that only reads does with a
     /// write depends on it ([`StateAccess`]).
     evaluating: Arc<AtomicBool>,
+    /// The defaults a runtime that only reads keeps ([`Defaults`]).
+    defaults: Arc<Defaults>,
     /// Always `Some` after construction; `None` only transiently during `drop`.
     render_fn: Option<Persistent<Function<'static>>>,
     loaded_paths: Arc<Mutex<Vec<PathBuf>>>,
@@ -813,16 +952,6 @@ impl ModuleNames {
     }
 }
 
-/// What `optative_script::engine::is_script_file` (private to that crate) answers:
-/// the extensions `transform_source` is run on. A plain `.js` import is declared as-is,
-/// so it cannot hold JSX — and therefore gets no Store pass either.
-fn is_script_file(name: &str) -> bool {
-    matches!(
-        name.rsplit_once('.').map(|(_, e)| e),
-        Some("jsx" | "tsx" | "ts" | "mts")
-    )
-}
-
 /// Runs the Store pass on one file; a refusal becomes a thrown `SyntaxError` that reads
 /// `<module>:<line>: <what is wrong>`, which is what the load then fails with.
 fn name_stores<'js>(
@@ -909,6 +1038,10 @@ impl Loader for SchemaAwareLoader {
             return self.load_linkedom(ctx);
         }
         if !name.ends_with(SCHEMA_FILE_SUFFIX) {
+            // QuickJS asks for an import only after the importer's source is declared,
+            // so the Store pass runs on a file before any file it imports has been read.
+            // The pass needs nothing from another file, and runs on a plain `.js`
+            // import too, which gets no transform (`tauler-core/src/store_pass.rs`).
             // DECISION (issue #271): this branch is `ConfinedFsLoader::load` written out
             // (read, record the path, transform, declare) with the Store pass before the
             // transform. Reason: that loader transforms and declares in one call with no
@@ -918,12 +1051,12 @@ impl Loader for SchemaAwareLoader {
             let source =
                 std::fs::read_to_string(name).map_err(|_| rquickjs::Error::new_loading(name))?;
             self.loaded_paths.lock().unwrap().push(PathBuf::from(name));
-            let source = if is_script_file(name) {
-                let module_name = self.modules.name_of(Path::new(name));
-                let named = name_stores(ctx, &source, name, &module_name, &self.store_token)?;
+            let module_name = self.modules.name_of(Path::new(name));
+            let named = name_stores(ctx, &source, name, &module_name, &self.store_token)?;
+            let source = if tauler_core::store_pass::is_script_file(name) {
                 optative_script::jsx::transform_source(&named, name)
             } else {
-                source
+                named
             };
             let module = rquickjs::Module::declare(ctx.clone(), name, source)?;
             set_import_meta(&module, Path::new(name))?;
@@ -1263,10 +1396,12 @@ impl JsxEvaluator {
         )
     }
 
-    /// The State identities this evaluator's load declared, in declaration order.
+    /// The State identities this evaluator holds a declaration of: what its load
+    /// declared, in declaration order, then the local Stores its last render that
+    /// returned declared (`tauler-core/src/local_store.rs`).
     pub fn state_identities(&self) -> Vec<String> {
         self.context.with(|ctx| {
-            ctx.eval::<Vec<String>, _>("globalThis.__tauler_state_identities")
+            ctx.eval::<Vec<String>, _>("globalThis.__tauler_state_declared()")
                 .unwrap_or_default()
         })
     }
@@ -1485,6 +1620,7 @@ impl JsxEvaluator {
         let store_token = new_store_token();
         // The layout's module scope runs inside this constructor.
         let evaluating = Arc::new(AtomicBool::new(true));
+        let defaults = Arc::new(Defaults::default());
 
         let (runtime, context) = if let Some(path) = layout_path {
             // Relative imports resolve from, and stay confined to, the layout file's
@@ -1530,7 +1666,14 @@ impl JsxEvaluator {
                 qjs_ctx.eval::<(), _>(JSX_GLOBALS_JS)?;
                 // Behind `store` (`JSX_GLOBALS_JS`): the first sight of an
                 // identity saves its default, every later one finds the saved value.
-                register_state_host(&qjs_ctx, &state, state_access, &store_token, &evaluating)?;
+                register_state_host(
+                    &qjs_ctx,
+                    &state,
+                    state_access,
+                    &store_token,
+                    &evaluating,
+                    &defaults,
+                )?;
                 optative_script::register_h(&qjs_ctx)?;
                 // The reconciler vocabulary, registered but not wired as an `esto`
                 // module: a layout file reaches `unit` the way it reaches
@@ -1568,8 +1711,16 @@ impl JsxEvaluator {
                 //
                 // The reshape itself is `JSX_GLOBALS_JS`'s, evaluated above: both engines
                 // run the same source (ADR 0027). Only `Fragment` needs interpolating.
+                //
+                // DECISION (local Stores, `tauler-core/src/local_store.rs`): the line that
+                // assembled `h` here and in `tauler-web/js/runtime.js` is now the shared
+                // `__tauler_h`, given each engine's factory. It also keeps the component
+                // now running on the stack a local Store is named from. Reason: the two
+                // assemblies cannot differ when there is one. Rejected: one more global
+                // between `type` and `__esto_h`, as first sketched — a closure per
+                // component call, where pushing around the factory call needs none.
                 qjs_ctx.eval::<(), _>(format!(
-                    "globalThis.h = (type, props, ...children) => __tauler_flatten_node(__esto_h(type, __tauler_register_handlers(type, props), ...children));
+                    "globalThis.h = __tauler_h(__esto_h);
                     globalThis.Fragment = {{ {}: true }};",
                     optative_script::tags::ESTO_FRAGMENT
                 ))?;
@@ -1693,12 +1844,8 @@ impl JsxEvaluator {
                 // `optative-script` only supplies the public `transform_source` — so no
                 // new release of it is needed. Evidence: the `store_*` tests below load a
                 // layout, an import, a re-export, a `.ts` file and a Package through
-                // these two sites; `store_pass_cost` measured, for a 6.3 kB component
-                // file in an unoptimised test build over two runs, 4 µs per load when the
-                // file never says `store` (the common case: it is not parsed) and 0.9 to
-                // 1.3 ms when it does, about 0.7 of what `transform_source` costs on the
-                // same file (1.4 to 1.9 ms). Paid once per file per load, never per
-                // tick. The six `oxc_*` crates it uses are already in `Cargo.lock`
+                // these two sites (`tauler-core/src/store_pass.rs` holds what the pass
+                // costs). The six `oxc_*` crates it uses are already in `Cargo.lock`
                 // through `optative-script`: no new package.
                 // Rejected: identity from the loader alone (one Store per file, as its
                 // default export) — it needs no parser, but a file could hold one Store
@@ -1740,6 +1887,12 @@ impl JsxEvaluator {
                     )?;
                 }
                 let render_fn: Function = module.get("default")?;
+                // Gives each render its stack of component instances and its set of
+                // local Store declarations (`tauler-core/src/local_store.rs`).
+                let render_fn: Function = qjs_ctx
+                    .globals()
+                    .get::<_, Function>("__tauler_rendering")?
+                    .call((render_fn,))?;
                 stored_render_fn = Some(Persistent::save(&qjs_ctx, render_fn));
 
                 Ok(())
@@ -1769,6 +1922,7 @@ impl JsxEvaluator {
             state,
             state_access,
             evaluating,
+            defaults,
             render_fn: stored_render_fn,
             loaded_paths,
             draw: None,
@@ -1791,6 +1945,12 @@ impl JsxEvaluator {
         {
             let _ = drop_unsaved.call::<_, ()>(());
         }
+    }
+
+    /// The identities this runtime keeps a default for ([`Defaults`]), sorted.
+    #[cfg(test)]
+    fn kept_defaults(&self) -> Vec<String> {
+        self.defaults.identities()
     }
 
     /// Drop last tick's handler functions. The capture slot holds its own reference,
@@ -1903,6 +2063,7 @@ impl JsxEvaluator {
             }
             state.clock()
         };
+        self.defaults.begin();
         ctx.globals().set("__tauler_state_now", clock as f64)
     }
 
@@ -1919,7 +2080,8 @@ impl JsxEvaluator {
     }
 
     /// Undo a handler or render that threw: the store rolls back, and the runtime
-    /// forgets the nested values it handed out, which may hold half a change.
+    /// forgets the nested values it handed out, which may hold half a change, and the
+    /// defaults it kept since [`Self::begin_state`] ([`Defaults`]).
     fn abort_state<'js>(&self, ctx: &rquickjs::Ctx<'js>) {
         if let Ok(abort) = ctx.globals().get::<_, Function>("__tauler_state_abort") {
             let _ = abort.call::<_, ()>(());
@@ -1927,10 +2089,14 @@ impl JsxEvaluator {
         if self.state_access == StateAccess::ReadWrite {
             self.state.lock().unwrap().rollback();
         }
+        self.defaults.forget_added();
     }
 
     /// Call the layout's default export inside one [`crate::state::StateStore`]
     /// transaction: committed when it returns, rolled back when it throws.
+    ///
+    /// `render_fn` is the layout's default export inside `__tauler_rendering`, and the
+    /// flush drops local Stores ("Dropping" in `tauler-core/src/local_store.rs`).
     fn render_in_transaction<'js>(
         &self,
         ctx: &rquickjs::Ctx<'js>,
@@ -4811,11 +4977,11 @@ export default function render() { return <div>{String(direct === desk && desk =
     }
 
     #[test]
-    fn store_inside_a_function_fails_the_load_with_file_and_line() {
+    fn store_that_is_not_the_whole_value_of_a_const_fails_the_load_with_file_and_line() {
         let in_import = load_fixture(&[
             (
                 "components/Bad.jsx",
-                "import { store } from 'tauler'; export function Bad() {\n  const local = store({ n: 0 });\n  return <div>{local.n}</div>;\n}",
+                "import { store } from 'tauler'; export function Bad() {\n  return <div>{store({ n: 0 }).n}</div>;\n}",
             ),
             (
                 "layout.jsx",
@@ -4826,9 +4992,8 @@ export default function render() { return <div>{String(direct === desk && desk =
         .expect("the load must fail")
         .to_string();
         assert!(
-            in_import.contains(
-                "components/Bad.jsx:2: store() must be the whole value of a top-level `const`"
-            ),
+            in_import
+                .contains("components/Bad.jsx:2: store() must be the whole value of a `const`"),
             "got: {in_import}"
         );
 
@@ -4928,7 +5093,7 @@ export default function render() { return <div>{JSON.stringify([top, nested(), v
         .expect("the load must fail")
         .to_string();
         assert!(
-            err.contains("store() must be the whole value of a top-level const"),
+            err.contains("store() must be the whole value of a const"),
             "got: {err}"
         );
     }
@@ -5174,7 +5339,7 @@ export default function render() { counter.n += 1; return <div>{"n=" + counter.n
             optative_script::jsx::transform_source(&with_store, "a.jsx");
         });
         eprintln!(
-            "store_pass_cost: {} bytes; no `store` in file: {skip:?}; with a Store: {pass:?}; transform_source alone: {transform:?}",
+            "store_pass_cost: {} bytes; no Store in file: {skip:?}; with a Store: {pass:?}; transform_source alone: {transform:?}",
             with_store.len()
         );
     }
@@ -5560,5 +5725,1349 @@ export default () => <root><Light entity="light.desk" state="on" /></root>;"#;
             "threw: {error}"
         );
         assert_eq!(desk_snapshot(&state, &render), saved);
+    }
+
+    // ---- Local Stores (`tauler-core/src/local_store.rs`: paths P1 to P6) ----
+    //
+    // Every test evaluates one evaluator several times: an identity is only worth
+    // anything across Ticks.
+
+    /// `label=n`, counting clicks in a local Store.
+    const LOCAL_COUNTER: (&str, &str) = (
+        "components/Counter.jsx",
+        r#"import { store } from "tauler";
+export function Counter({ label }) {
+    const s = store({ n: 0 });
+    return <span on_click={() => { s.n += 1; }}>{`${label ?? "-"}=${s.n}`}</span>;
+}
+export function Outer({ children }) { return <div>{children}</div>; }
+"#,
+    );
+
+    /// A function that declares a local Store, in a plain `.js` file: `name=n`, where
+    /// `n` counts the renders this value has lived through.
+    const LOCAL_TICKS: (&str, &str) = (
+        "lib/ticks.js",
+        r#"import { store } from "tauler";
+export function ticks(name) {
+    const s = store({ n: 0 });
+    s.n += 1;
+    return `${name}=${s.n}`;
+}
+"#,
+    );
+
+    const LOCAL_IMPORTS: &str = "import { Counter, Outer } from './components/Counter';\nimport { ticks } from './lib/ticks.js';\n";
+
+    struct LocalLayout {
+        _dir: tempfile::TempDir,
+        path: PathBuf,
+        source: String,
+        state: SharedState,
+        evaluator: JsxEvaluator,
+    }
+
+    impl LocalLayout {
+        /// `layout` (after [`LOCAL_IMPORTS`]) beside [`LOCAL_COUNTER`], [`LOCAL_TICKS`]
+        /// and `files`.
+        fn try_new(layout: &str, files: &[(&str, &str)]) -> Result<Self, JsError> {
+            let source = format!("{LOCAL_IMPORTS}{layout}");
+            let mut all = vec![LOCAL_COUNTER, LOCAL_TICKS, ("layout.jsx", source.as_str())];
+            all.extend_from_slice(files);
+            let (dir, path) = store_fixture(&all);
+            let state = SharedState::default();
+            let evaluator = JsxEvaluator::new_with_state(
+                &source,
+                serde_json::Value::Null,
+                Some(&path),
+                Arc::clone(&state),
+            )?;
+            Ok(Self {
+                _dir: dir,
+                path,
+                source,
+                state,
+                evaluator,
+            })
+        }
+
+        fn new(layout: &str) -> Self {
+            Self::try_new(layout, &[])
+                .unwrap_or_else(|e| panic!("expected the layout to load, got: {e}"))
+        }
+
+        /// What a reload builds: a new evaluator for `layout` on the same store.
+        fn rebuilt(&mut self, layout: &str) {
+            self.source = format!("{LOCAL_IMPORTS}{layout}");
+            self.evaluator = JsxEvaluator::new_with_state(
+                &self.source,
+                serde_json::Value::Null,
+                Some(&self.path),
+                Arc::clone(&self.state),
+            )
+            .unwrap_or_else(|e| panic!("expected the layout to load, got: {e}"));
+        }
+
+        fn eval(&self, streams: &[(&str, &str)]) -> Result<serde_json::Value, String> {
+            let streams = streams
+                .iter()
+                .map(|(bin, value)| ((bin.to_string(), None), value.to_string()))
+                .collect();
+            self.evaluator
+                .eval(&streams)
+                .map(|out| out.layout)
+                .map_err(|e| e.to_string())
+        }
+
+        /// One Tick: the texts it rendered, or the error it threw.
+        fn tick(&self, streams: &[(&str, &str)]) -> Result<Vec<String>, String> {
+            let mut texts = Vec::new();
+            layout_texts(&self.eval(streams)?, &mut texts);
+            Ok(texts)
+        }
+
+        /// Evaluate and run the `nth` `on_click` handler of the tree, in document order.
+        fn click(&self, streams: &[(&str, &str)], nth: usize) -> HandlerOutcome {
+            let ids = self.handlers(streams);
+            self.evaluator
+                .invoke_handler_outcome(ids[nth], &serde_json::Value::Null)
+        }
+
+        /// Evaluate, and the ids of the tree's `on_click` handlers in document order.
+        fn handlers(&self, streams: &[(&str, &str)]) -> Vec<i64> {
+            fn handlers(node: &serde_json::Value, out: &mut Vec<i64>) {
+                match node {
+                    serde_json::Value::Array(items) => {
+                        items.iter().for_each(|i| handlers(i, out));
+                    }
+                    serde_json::Value::Object(map) => {
+                        if let Some(id) = map.get("on_click").and_then(|h| h["$handler"].as_i64()) {
+                            out.push(id);
+                        }
+                        if let Some(children) = map.get("children") {
+                            handlers(children, out);
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            let mut ids = Vec::new();
+            handlers(&self.eval(streams).expect("eval"), &mut ids);
+            ids
+        }
+
+        /// The local identities the last render declared, without their prefix.
+        fn identities(&self) -> Vec<String> {
+            let mut identities: Vec<String> = self
+                .evaluator
+                .state_identities()
+                .into_iter()
+                .filter_map(|id| Some(id.strip_prefix(crate::state::LOCAL_IDENTITY_PREFIX)?.into()))
+                .collect();
+            identities.sort();
+            identities
+        }
+
+        fn stored(&self) -> usize {
+            self.state.lock().unwrap().len()
+        }
+    }
+
+    /// P1 and P4: two instances told apart by `key`, a handler's write, one Tick.
+    #[test]
+    fn local_store_two_keyed_instances_keep_their_own_values() {
+        let layout = LocalLayout::new(
+            r#"export default function render() {
+                return <div><Counter key="left" label="l" /><Counter key="right" label="r" /></div>;
+            }"#,
+        );
+        assert_eq!(layout.tick(&[]).unwrap(), ["l=0", "r=0"]);
+        assert_eq!(
+            layout.identities(),
+            [
+                "components/Counter.jsx#Counter[left] > components/Counter.jsx#Counter.s",
+                "components/Counter.jsx#Counter[right] > components/Counter.jsx#Counter.s",
+            ]
+        );
+        let outcome = layout.click(&[], 1);
+        assert!(outcome.state_changed, "a handler's write causes a Tick");
+        assert_eq!(layout.tick(&[]).unwrap(), ["l=0", "r=1"]);
+        layout.click(&[], 0);
+        layout.click(&[], 1);
+        assert_eq!(layout.tick(&[]).unwrap(), ["l=1", "r=2"]);
+        assert_eq!(layout.tick(&[]).unwrap(), ["l=1", "r=2"], "unchanged stays");
+        assert_eq!(layout.stored(), 2);
+    }
+
+    /// P2: a function from a plain `.js` file declares the Store; it is called from two
+    /// components and twice in one, and each call has its own value under the name of
+    /// its `const`. Swapping the two calls (a rebuilt evaluator, as an edit gives)
+    /// moves no value.
+    #[test]
+    fn local_store_a_function_called_twice_in_one_component_is_told_apart_by_its_consts() {
+        let body = |first: &str, second: &str| {
+            format!(
+                r#"function Menu({{ skip }}) {{
+                    const {first} = ticks("{first}");
+                    if (skip) return <div>{{{first}}}</div>;
+                    const {second} = ticks("{second}");
+                    return <div>{{menu}}{{help}}</div>;
+                }}
+                function Other() {{ const menu = ticks("other"); return <div>{{menu}}</div>; }}
+                export default function render() {{
+                    return <div><Menu skip={{useStringStream("skip") === "1"}} /><Other /></div>;
+                }}"#
+            )
+        };
+        let mut layout = LocalLayout::new(&body("menu", "help"));
+        assert_eq!(layout.tick(&[]).unwrap(), ["menu=1", "help=1", "other=1"]);
+        assert_eq!(
+            layout.identities(),
+            [
+                "layout.jsx#Menu > help > lib/ticks.js#ticks.s",
+                "layout.jsx#Menu > menu > lib/ticks.js#ticks.s",
+                "layout.jsx#Other > menu > lib/ticks.js#ticks.s",
+            ]
+        );
+        assert_eq!(layout.tick(&[]).unwrap(), ["menu=2", "help=2", "other=2"]);
+
+        // The lines swap: with a counter of calls `help` would read `menu`'s value.
+        layout.rebuilt(&body("help", "menu"));
+        assert_eq!(layout.tick(&[]).unwrap(), ["menu=3", "help=3", "other=3"]);
+        // The first call alone: nothing shifts into its place.
+        assert_eq!(
+            layout.tick(&[("skip", "1")]).unwrap(),
+            ["help=4", "other=4"]
+        );
+    }
+
+    const LOCAL_ROWS: &str = r#"export default function render() {
+        const order = useStringStream("order").split(",").filter(Boolean);
+        return <div>{order.map((name) => <Counter key={name} label={name} />)}</div>;
+    }"#;
+
+    /// P3: rows are components with `key`; a reordered list and a row appearing in
+    /// front move no value.
+    #[test]
+    fn local_store_rows_of_a_list_keep_their_values_by_key() {
+        let layout = LocalLayout::new(LOCAL_ROWS);
+        let abc = [("order", "a,b,c")];
+        assert_eq!(layout.tick(&abc).unwrap(), ["a=0", "b=0", "c=0"]);
+        layout.click(&abc, 1);
+        layout.click(&abc, 2);
+        layout.click(&abc, 2);
+        assert_eq!(layout.tick(&abc).unwrap(), ["a=0", "b=1", "c=2"]);
+        assert_eq!(
+            layout.tick(&[("order", "c,a,b")]).unwrap(),
+            ["c=2", "a=0", "b=1"]
+        );
+        assert_eq!(
+            layout.tick(&[("order", "new,c,a,b")]).unwrap(),
+            ["new=0", "c=2", "a=0", "b=1"]
+        );
+    }
+
+    /// Dropping: a local Store the render did not declare is dropped at once, so a row
+    /// that comes back starts from its default and nothing is left behind.
+    #[test]
+    fn local_store_a_row_that_leaves_the_list_is_dropped_and_starts_over() {
+        let layout = LocalLayout::new(LOCAL_ROWS);
+        let ab = [("order", "a,b")];
+        layout.tick(&ab).unwrap();
+        layout.click(&ab, 0);
+        layout.click(&ab, 1);
+        assert_eq!(layout.tick(&ab).unwrap(), ["a=1", "b=1"]);
+        assert_eq!(layout.stored(), 2);
+
+        assert_eq!(layout.tick(&[("order", "b")]).unwrap(), ["b=1"]);
+        assert_eq!(layout.stored(), 1, "a's Store is gone from the store");
+        assert_eq!(layout.tick(&ab).unwrap(), ["a=0", "b=1"]);
+    }
+
+    /// A handler a press captured outlives its render. When a later render dropped the
+    /// local Store it writes, the write is ignored: no entry comes back, the handler's
+    /// other writes are kept, and a write that only reached the dropped Store causes no
+    /// Tick. A held local Store and a shared Store are written as before.
+    #[test]
+    fn local_store_a_handler_held_past_its_render_writes_nothing_to_a_dropped_store() {
+        let layout = LocalLayout::new(
+            r#"import { store } from "tauler";
+            const total = store({ n: 0 });
+            function Row({ name, both }) {
+                const s = store({ n: 0 });
+                const press = () => {
+                    s.n = (s.n ?? 0) + 1;
+                    s.tags = [name];
+                    delete s.gone;
+                    if (both) total.n += 1;
+                };
+                return <span on_click={press}>{`${name}=${s.n}`}</span>;
+            }
+            export default function render() {
+                const order = useStringStream("order").split(",").filter(Boolean);
+                const both = useStringStream("both") === "1";
+                return <div>{order.map((name) => <Row key={name} name={name} both={both} />)}<span>{`total=${total.n}`}</span></div>;
+            }"#,
+        );
+        let ab = [("order", "a,b")];
+        let b = [("order", "b")];
+        let row_a = "local://layout.jsx#Row[a] > layout.jsx#Row.s";
+
+        // The press is on row `a`; the next render has no row `a`.
+        let ids = layout.handlers(&ab);
+        layout.evaluator.capture_handler(ids[0]);
+        assert_eq!(layout.tick(&b).unwrap(), ["b=0", "total=0"]);
+        assert_eq!(layout.stored(), 2, "row b's and `total`");
+        let outcome = layout
+            .evaluator
+            .invoke_captured_handler_outcome(&serde_json::Value::Null);
+        assert!(!outcome.state_changed, "nothing changed, so no Tick");
+        assert_eq!(layout.stored(), 2, "no entry without an owner");
+        assert!(layout.state.lock().unwrap().snapshot(row_a).is_none());
+        assert_eq!(layout.tick(&b).unwrap(), ["b=0", "total=0"]);
+        assert_eq!(layout.tick(&ab).unwrap(), ["a=0", "b=0", "total=0"]);
+
+        // The same with a write to a shared Store beside it: that write is kept.
+        let both = [("order", "a,b"), ("both", "1")];
+        let ids = layout.handlers(&both);
+        layout.evaluator.capture_handler(ids[0]);
+        layout.tick(&b).unwrap();
+        let outcome = layout
+            .evaluator
+            .invoke_captured_handler_outcome(&serde_json::Value::Null);
+        assert!(outcome.state_changed, "`total` changed");
+        assert!(layout.state.lock().unwrap().snapshot(row_a).is_none());
+        assert_eq!(layout.tick(&b).unwrap(), ["b=0", "total=1"]);
+
+        // A held local Store is written as before, by a captured handler too.
+        let ids = layout.handlers(&ab);
+        layout.evaluator.capture_handler(ids[1]);
+        assert!(layout.click(&ab, 0).state_changed);
+        assert!(
+            layout
+                .evaluator
+                .invoke_captured_handler_outcome(&serde_json::Value::Null)
+                .state_changed
+        );
+        assert_eq!(layout.tick(&ab).unwrap(), ["a=1", "b=1", "total=1"]);
+        assert_eq!(
+            layout.state.lock().unwrap().snapshot(row_a).unwrap()["tags"],
+            serde_json::json!(["a"])
+        );
+    }
+
+    /// Nothing grows per Tick: neither the store nor the runtime's list of identities,
+    /// however many keys come and go.
+    #[test]
+    fn local_store_keys_that_come_and_go_leave_nothing_behind() {
+        let layout = LocalLayout::new(LOCAL_ROWS);
+        for i in 0..50 {
+            let order = format!("k{i},k{}", i + 1);
+            assert_eq!(layout.tick(&[("order", &order)]).unwrap().len(), 2);
+            assert_eq!(layout.stored(), 2, "tick {i}");
+            assert_eq!(layout.evaluator.state_identities().len(), 2, "tick {i}");
+        }
+        layout.tick(&[("order", "")]).unwrap();
+        assert_eq!(layout.stored(), 0);
+        assert!(layout.evaluator.state_identities().is_empty());
+    }
+
+    fn assert_declared_twice(err: &str, identity: &str) {
+        assert!(
+            err.contains(&format!(
+                "the local Store `{identity}` is declared twice in one render"
+            )),
+            "{err}"
+        );
+        assert!(
+            err.contains("Make the repeated part a component with its own `key`"),
+            "{err}"
+        );
+    }
+
+    /// Rule 2, one check for every way of reaching one declaration twice.
+    #[test]
+    fn local_store_declared_twice_in_one_render_throws_and_says_what_to_do() {
+        for (body, identity) in [
+            // Two siblings with no `key`.
+            (
+                "return <div><Counter /><Counter /></div>;",
+                "components/Counter.jsx#Counter > components/Counter.jsx#Counter.s",
+            ),
+            // Two siblings with one `key`.
+            (
+                r#"return <div><Counter key="x" /><Counter key="x" /></div>;"#,
+                "components/Counter.jsx#Counter[x] > components/Counter.jsx#Counter.s",
+            ),
+            // A `.map()` with no `key`.
+            (
+                r#"return <div>{["a", "b"].map((name) => <Counter label={name} />)}</div>;"#,
+                "components/Counter.jsx#Counter > components/Counter.jsx#Counter.s",
+            ),
+            // The body of a loop: one `const`, reached twice.
+            (
+                r#"const out = []; for (const name of ["a", "b"]) { const row = ticks(name); out.push(row); } return <div>{out}</div>;"#,
+                "row > lib/ticks.js#ticks.s",
+            ),
+            // A function called twice with no `const` of its own.
+            (
+                r#"return <div>{ticks("a")}{ticks("b")}</div>;"#,
+                "lib/ticks.js#ticks.s",
+            ),
+            // A component called twice as a plain function.
+            (
+                "return <div>{Counter({})}{Counter({})}</div>;",
+                "components/Counter.jsx#Counter.s",
+            ),
+        ] {
+            let layout =
+                LocalLayout::new(&format!("export default function render() {{ {body} }}"));
+            let err = layout.tick(&[]).unwrap_err();
+            assert_declared_twice(&err, identity);
+            assert_eq!(
+                layout.stored(),
+                0,
+                "a render that threw declared nothing: {body}"
+            );
+        }
+    }
+
+    /// The Store is two links down; the identity in the message shows which link
+    /// repeats.
+    #[test]
+    fn local_store_beneath_a_repeated_component_names_the_whole_chain() {
+        let layout = LocalLayout::new(
+            r#"function Row() { return <div><Counter /></div>; }
+            function Board() { return <div><Row /><Row /></div>; }
+            export default function render() { return <Board />; }"#,
+        );
+        assert_declared_twice(
+            &layout.tick(&[]).unwrap_err(),
+            "layout.jsx#Board > layout.jsx#Row > components/Counter.jsx#Counter > components/Counter.jsx#Counter.s",
+        );
+    }
+
+    /// The rule is about Stores, not about repetition: nothing here declares one twice.
+    #[test]
+    fn local_store_repeated_components_with_no_store_beneath_do_not_throw() {
+        let layout = LocalLayout::new(
+            r#"function Plain({ label }) { return <span>{label}</span>; }
+            export default function render() {
+                return <div>
+                    <Plain label="1" /><Plain label="2" />
+                    {["x", "y"].map((name) => <Plain label={name} />)}
+                    <Outer><Counter key="l" label="l" /></Outer>
+                    <Outer><Counter key="r" label="r" /></Outer>
+                </div>;
+            }"#,
+        );
+        assert_eq!(
+            layout.tick(&[]).unwrap(),
+            ["1", "2", "x", "y", "l=0", "r=0"]
+        );
+    }
+
+    /// A Tick that threw leaves the stack empty and the store as it was: the next one
+    /// renders, and what the throwing render wrote is rolled back.
+    #[test]
+    fn local_store_a_render_that_throws_rolls_back_and_drops_nothing() {
+        let layout = LocalLayout::new(
+            r#"function Shown() { const text = ticks("t"); return <span>{text}</span>; }
+            export default function render() {
+                const mode = useStringStream("mode");
+                if (mode === "twice") return <div><Shown /><Shown /></div>;
+                if (mode === "throw") return <div><Shown />{(() => { throw new Error("boom"); })()}</div>;
+                if (mode === "hidden") return <div><Counter /></div>;
+                return <div><Shown /><Counter /></div>;
+            }"#,
+        );
+        assert_eq!(layout.tick(&[]).unwrap(), ["t=1", "-=0"]);
+        layout.click(&[], 0);
+        assert_eq!(layout.tick(&[]).unwrap(), ["t=3", "-=1"]);
+
+        // Both wrote `n` before they threw; neither declared the Counter's Store.
+        assert!(layout.tick(&[("mode", "twice")]).is_err());
+        let thrown = layout.tick(&[("mode", "throw")]).unwrap_err();
+        assert!(thrown.starts_with("Error: boom"), "{thrown}");
+        assert_eq!(layout.stored(), 2, "a render that threw dropped nothing");
+        assert_eq!(layout.tick(&[]).unwrap(), ["t=4", "-=1"]);
+
+        // A render that returned without `Shown` drops its Store, and only that one.
+        assert_eq!(layout.tick(&[("mode", "hidden")]).unwrap(), ["-=1"]);
+        assert_eq!(layout.stored(), 1);
+        assert_eq!(layout.tick(&[]).unwrap(), ["t=1", "-=1"]);
+    }
+
+    /// Rule 1 allows a condition around a declaration: it is the same Store whenever it
+    /// is reached, and dropped while it is not.
+    #[test]
+    fn local_store_declared_under_a_condition_is_one_store_while_it_is_reached() {
+        let layout = LocalLayout::new(
+            r#"import { store } from "tauler";
+            function Panel({ open }) {
+                const always = store({ n: 0 });
+                always.n += 1;
+                if (!open) return <span>{`closed ${always.n}`}</span>;
+                const detail = store({ n: 0 });
+                detail.n += 1;
+                return <span>{`open ${always.n} ${detail.n}`}</span>;
+            }
+            export default function render() {
+                return <Panel open={useStringStream("open") === "1"} />;
+            }"#,
+        );
+        let open = [("open", "1")];
+        assert_eq!(layout.tick(&open).unwrap(), ["open 1 1"]);
+        assert_eq!(layout.tick(&open).unwrap(), ["open 2 2"]);
+        assert_eq!(layout.tick(&[]).unwrap(), ["closed 3"]);
+        assert_eq!(layout.tick(&open).unwrap(), ["open 4 1"]);
+    }
+
+    /// A component inside itself and a function that calls itself: each level is one
+    /// more link, so each has its own value.
+    #[test]
+    fn local_store_recursion_gives_each_level_its_own_store() {
+        let layout = LocalLayout::new(
+            r#"import { store } from "tauler";
+            function Tree({ depth }) {
+                const s = store({ n: depth * 10 });
+                return <div><span>{`tree${depth}=${s.n}`}</span>{depth > 0 && <Tree depth={depth - 1} />}</div>;
+            }
+            function nest(depth) {
+                const s = store({ n: depth * 100 });
+                if (depth === 0) return [`nest0=${s.n}`];
+                const inner = nest(depth - 1);
+                return [`nest${depth}=${s.n}`, ...inner];
+            }
+            function Nested() { const all = nest(2); return <div>{all}</div>; }
+            export default function render() { return <div><Tree depth={2} /><Nested /></div>; }"#,
+        );
+        assert_eq!(
+            layout.tick(&[]).unwrap(),
+            [
+                "tree2=20",
+                "tree1=10",
+                "tree0=0",
+                "nest2=200",
+                "nest1=100",
+                "nest0=0"
+            ]
+        );
+        assert_eq!(
+            layout.identities(),
+            [
+                "layout.jsx#Nested > all > inner > inner > layout.jsx#nest.s",
+                "layout.jsx#Nested > all > inner > layout.jsx#nest.s",
+                "layout.jsx#Nested > all > layout.jsx#nest.s",
+                "layout.jsx#Tree > layout.jsx#Tree > layout.jsx#Tree > layout.jsx#Tree.s",
+                "layout.jsx#Tree > layout.jsx#Tree > layout.jsx#Tree.s",
+                "layout.jsx#Tree > layout.jsx#Tree.s",
+            ]
+        );
+    }
+
+    /// The chain is the authors, not the parents in the output tree: a child written in
+    /// `render` is `render`'s, whatever it is nested in, and a component passed as
+    /// `children` ran before the component that receives it.
+    #[test]
+    fn local_store_the_chain_is_the_authors_not_the_parents() {
+        let layout = LocalLayout::new(
+            r#"function Row() { return <Outer><Counter label="in-row" /></Outer>; }
+            function Card() { return <Outer><Outer><Counter label="card" /></Outer></Outer>; }
+            export default function render() {
+                return <div>
+                    <Outer><Counter label="child" /></Outer>
+                    <Row key="a" /><Row key="b" />
+                    <Card />
+                </div>;
+            }"#,
+        );
+        assert_eq!(
+            layout.tick(&[]).unwrap(),
+            ["child=0", "in-row=0", "in-row=0", "card=0"]
+        );
+        let counter = "components/Counter.jsx#Counter > components/Counter.jsx#Counter.s";
+        assert_eq!(
+            layout.identities(),
+            [
+                counter.to_string(),
+                format!("layout.jsx#Card > {counter}"),
+                format!("layout.jsx#Row[a] > {counter}"),
+                format!("layout.jsx#Row[b] > {counter}"),
+            ]
+        );
+        layout.click(&[], 2);
+        assert_eq!(
+            layout.tick(&[]).unwrap(),
+            ["child=0", "in-row=0", "in-row=1", "card=0"]
+        );
+    }
+
+    /// A keyed sibling appearing in front leaves the other alone, and a prop change
+    /// keeps the value: neither is part of an identity.
+    #[test]
+    fn local_store_a_sibling_in_front_and_a_prop_change_move_no_value() {
+        let layout = LocalLayout::new(
+            r#"export default function render() {
+                const show = useStringStream("show") === "1";
+                return <div>{show && <Counter key="a" label="a" />}<Counter key="b" label={useStringStream("label")} /></div>;
+            }"#,
+        );
+        let hidden = [("label", "one")];
+        layout.tick(&hidden).unwrap();
+        layout.click(&hidden, 0);
+        assert_eq!(layout.tick(&hidden).unwrap(), ["one=1"]);
+        assert_eq!(
+            layout.tick(&[("show", "1"), ("label", "two")]).unwrap(),
+            ["a=0", "two=1"]
+        );
+    }
+
+    /// `key` is already a prop of `<D3Figure>`, where it may be an object: only a
+    /// string or a number is part of a link, and it is encoded so that no key can
+    /// spell another link.
+    #[test]
+    fn local_store_only_a_string_or_a_number_key_is_part_of_a_link() {
+        let layout = LocalLayout::new(
+            r#"function A() { return <Counter key={{ a: 1 }} />; }
+            function B() { return <Counter key={7} />; }
+            function C() { return <Counter key="x] > y" />; }
+            export default function render() { return <div><A /><B /><C /></div>; }"#,
+        );
+        layout.tick(&[]).unwrap();
+        let counter = "components/Counter.jsx#Counter.s";
+        assert_eq!(
+            layout.identities(),
+            [
+                format!("layout.jsx#A > components/Counter.jsx#Counter > {counter}"),
+                format!("layout.jsx#B > components/Counter.jsx#Counter[7] > {counter}"),
+                format!(
+                    "layout.jsx#C > components/Counter.jsx#Counter[x%5D%20%3E%20y] > {counter}"
+                ),
+            ]
+        );
+
+        // Half of a surrogate pair cannot be encoded: the error names the declaration.
+        let layout = LocalLayout::new(
+            r#"export default function render() { return <Counter key={"\ud800"} />; }"#,
+        );
+        let err = layout.tick(&[]).unwrap_err();
+        assert!(
+            err.contains(&format!(
+                "`{counter}` is declared beneath a component whose `key` is not valid text"
+            )),
+            "{err}"
+        );
+    }
+
+    /// An element built at the top level of a module has no author and no render: the
+    /// load fails, so it cannot be placed in two components and share one Store. The
+    /// same when a function called there builds it, declared before or after the call.
+    #[test]
+    fn local_store_beneath_an_element_built_at_the_top_level_of_a_module_fails_the_load() {
+        for built in [
+            "const built = <Counter />;",
+            "function build() { return <Counter />; }\nconst built = build();",
+            "const built = build();\nfunction build() { return <Late />; }\nfunction Late() { return <Counter />; }",
+        ] {
+            let err = LocalLayout::try_new(
+                &format!(
+                    "{built}\nexport default function render() {{ return <div>{{built}}</div>; }}"
+                ),
+                &[],
+            )
+            .err()
+            .expect("the load must fail")
+            .to_string();
+            assert!(
+                err.contains("can only be declared while a component renders"),
+                "{built}: {err}"
+            );
+        }
+    }
+
+    /// The accepted limit (a): a render prop runs when the receiver calls it, so the
+    /// receiver is the author; the built-in `<Module>` is one such receiver and has a
+    /// name. Called twice, the receiver declares one identity twice.
+    #[test]
+    fn local_store_a_render_prop_gets_the_chain_of_the_component_that_calls_it() {
+        let layout = LocalLayout::new(
+            r#"function Recv({ render }) { return <div>{render("r")}</div>; }
+            function Twice({ render }) { return <div>{render("1")}{render("2")}</div>; }
+            export default function render() {
+                const keyed = useStringStream("keyed") === "1";
+                return <div>
+                    <Recv render={(label) => <Counter label={label} />} />
+                    <Module bin="some-bin">{() => <Counter label="m" />}</Module>
+                    <Twice render={(n) => keyed ? <Counter key={n} label={n} /> : <Counter label="once" />} />
+                </div>;
+            }"#,
+        );
+        let counter = "components/Counter.jsx#Counter.s";
+        assert_declared_twice(
+            &layout.tick(&[]).unwrap_err(),
+            &format!("layout.jsx#Twice > components/Counter.jsx#Counter > {counter}"),
+        );
+        assert_eq!(
+            layout.tick(&[("keyed", "1")]).unwrap(),
+            ["r=0", "m=0", "1=0", "2=0"]
+        );
+        assert_eq!(
+            layout.identities(),
+            [
+                format!("layout.jsx#Recv > components/Counter.jsx#Counter > {counter}"),
+                format!("layout.jsx#Twice > components/Counter.jsx#Counter[1] > {counter}"),
+                format!("layout.jsx#Twice > components/Counter.jsx#Counter[2] > {counter}"),
+                format!("tauler#Module > components/Counter.jsx#Counter > {counter}"),
+            ]
+        );
+    }
+
+    /// What a function's `.name` alone could not tell apart: two components of one name
+    /// from two modules, side by side and as alternatives.
+    #[test]
+    fn local_store_components_of_one_name_from_two_modules_do_not_share() {
+        let toggle = |module: &str| {
+            format!(
+                r#"import {{ store }} from "tauler";
+export function Toggle() {{
+    const s = store({{ first: "{module}", n: 0 }});
+    s.n += 1;
+    return <span>{{`{module}:${{s.first}}:${{s.n}}`}}</span>;
+}}"#
+            )
+        };
+        let layout = LocalLayout::try_new(
+            r#"import { Toggle as ToggleA } from "./a.jsx";
+            import { Toggle as ToggleB } from "./b.jsx";
+            export default function render() {
+                const which = useStringStream("which");
+                if (which === "both") return <div><ToggleA /><ToggleB /></div>;
+                return which === "a" ? <ToggleA /> : <ToggleB />;
+            }"#,
+            &[("a.jsx", &toggle("a")), ("b.jsx", &toggle("b"))],
+        )
+        .unwrap_or_else(|e| panic!("{e}"));
+        assert_eq!(
+            layout.tick(&[("which", "both")]).unwrap(),
+            ["a:a:1", "b:b:1"]
+        );
+        assert_eq!(layout.tick(&[("which", "a")]).unwrap(), ["a:a:2"]);
+        // `b` was dropped by the Tick that did not show it, and never read `a`'s.
+        assert_eq!(layout.tick(&[("which", "b")]).unwrap(), ["b:b:1"]);
+    }
+
+    /// How a component gets its name: every way of binding a function at the top level
+    /// of a file, in `.jsx`, `.tsx` and `.ts`, and a default export with no name.
+    #[test]
+    fn local_store_every_function_bound_at_the_top_level_of_a_file_is_a_named_component() {
+        let layout = LocalLayout::try_new(
+            r#"import Anonymous from "./anonymous.jsx";
+            import ArrowDefault from "./arrow.tsx";
+            import { Typed } from "./typed.tsx";
+            import { Made } from "./made.tsx";
+            import { store } from "tauler";
+            const Arrow = () => { const s = store({ v: "arrow" }); return <span>{s.v}</span>; };
+            export const Expression = function () { const s = store({ v: "expression" }); return <span>{s.v}</span>; };
+            export default function render() {
+                return <div><Arrow /><Expression /><Anonymous /><ArrowDefault /><Typed label="typed" /><Made /></div>;
+            }"#,
+            &[
+                (
+                    "anonymous.jsx",
+                    "import { store } from 'tauler';\nexport default function () { const s = store({ v: 'anonymous' }); return <span>{s.v}</span>; }",
+                ),
+                (
+                    "arrow.tsx",
+                    "import { store } from 'tauler';\nexport default () => { const s = store({ v: 'default arrow' }); return <span>{s.v}</span>; };",
+                ),
+                (
+                    "typed.tsx",
+                    "import { store } from 'tauler';\ntype Props = { label: string };\nexport const Typed = ({ label }: Props) => { const s = store({ v: label }) as { v: string }; return <span>{s.v}</span>; };",
+                ),
+                (
+                    "made.tsx",
+                    "import { make } from './make.ts';\nexport function Made() { const made = make<string>('made'); return <span>{made}</span>; }",
+                ),
+                (
+                    "make.ts",
+                    "import { store } from 'tauler';\nexport function make<T>(v: T): T { const s = store({ v }); return s.v as T; }",
+                ),
+            ],
+        )
+        .unwrap_or_else(|e| panic!("{e}"));
+        assert_eq!(
+            layout.tick(&[]).unwrap(),
+            [
+                "arrow",
+                "expression",
+                "anonymous",
+                "default arrow",
+                "typed",
+                "made"
+            ]
+        );
+        assert_eq!(
+            layout.identities(),
+            [
+                "anonymous.jsx#default > anonymous.jsx#default.s",
+                "arrow.tsx#default > arrow.tsx#default.s",
+                "layout.jsx#Arrow > layout.jsx#Arrow.s",
+                "layout.jsx#Expression > layout.jsx#Expression.s",
+                "made.tsx#Made > made > make.ts#make.s",
+                "typed.tsx#Typed > typed.tsx#Typed.s",
+            ]
+        );
+    }
+
+    /// A component the compile pass cannot name (defined inside a function, or made by
+    /// a call) is loud when a Store is declared beneath it, never a silent share, and
+    /// costs nothing otherwise.
+    #[test]
+    fn local_store_beneath_a_component_with_no_name_throws_and_says_where_to_move_it() {
+        for (body, name) in [
+            (
+                "function Host() { const Inline = () => <Counter />; return <Inline />; }",
+                "Inline",
+            ),
+            (
+                "const wrap = (C) => (props) => <C {...props} />; const Wrapped = wrap(Counter); function Host() { return <Wrapped />; }",
+                "(a function with no name)",
+            ),
+        ] {
+            let layout = LocalLayout::new(&format!(
+                "{body}\nexport default function render() {{ return <Host />; }}"
+            ));
+            let err = layout.tick(&[]).unwrap_err();
+            assert!(
+                err.contains(&format!("is declared beneath the component `{name}`, which tauler cannot name")),
+                "{err}"
+            );
+            assert!(err.contains("at the top level of its file"), "{err}");
+        }
+        let layout = LocalLayout::new(
+            r#"function Host() { const Inline = ({ label }) => <span>{label}</span>; return <div><Inline label="a" /><Inline label="b" /></div>; }
+            export default function render() { return <Host />; }"#,
+        );
+        assert_eq!(layout.tick(&[]).unwrap(), ["a", "b"]);
+    }
+
+    /// A function that declares a Store, called by a handler: no component is
+    /// rendering, so there is no instance for the Store to belong to.
+    #[test]
+    fn local_store_declared_from_a_handler_throws_and_changes_nothing() {
+        let layout = LocalLayout::new(
+            r#"export default function render() {
+                return <div on_click={() => { const late = ticks("late"); }}>{String(1)}</div>;
+            }"#,
+        );
+        let outcome = layout.click(&[], 0);
+        assert!(!outcome.state_changed);
+        assert_eq!(layout.stored(), 0);
+        assert_eq!(layout.tick(&[]).unwrap(), ["1"]);
+    }
+
+    /// P5: a reload builds a second evaluator on the same store. A local Store keeps
+    /// its value, and a key the edit added to its default is filled in.
+    #[test]
+    fn local_store_a_key_added_to_the_default_is_filled_in_by_a_reload() {
+        let source = |default: &str| {
+            format!(
+                r#"import {{ store }} from "tauler";
+                function Count() {{ const s = store({default}); s.n += 1; return <div>{{`${{s.n}} ${{s.added}}`}}</div>; }}
+                export default function render() {{ return <Count />; }}"#
+            )
+        };
+        let mut layout = LocalLayout::new(&source("{ n: 0 }"));
+        assert_eq!(layout.tick(&[]).unwrap(), ["1 undefined"]);
+        layout.rebuilt(&source("{ n: 0, added: 'later' }"));
+        assert_eq!(layout.tick(&[]).unwrap(), ["2 later"]);
+    }
+
+    /// The call wrapper changes nothing a layout can see: arguments are evaluated once,
+    /// in the author's order, before the callee runs; spread and defaults work; `this`
+    /// is `undefined` as in any module; a promise comes back as a promise; and a name
+    /// left by a call that threw is gone when the error is caught.
+    #[test]
+    fn local_store_a_named_call_behaves_as_the_call_the_author_wrote() {
+        let layout = LocalLayout::new(
+            r#"const log = [];
+            const note = (text) => { log.push(text); return text; };
+            function join(a, b = "default", ...rest) { log.push("join"); return [a, b, ...rest, String(this)].join(","); }
+            function fail() { throw new Error("thrown inside"); }
+            async function later() { return 1; }
+            function Probe() {
+                log.length = 0;
+                const joined = join(note("a"), note("b"), ...[note("c"), note("d")]);
+                const short = join("only");
+                let caught = "";
+                try { const never = fail(); } catch (e) { caught = e.message; }
+                const promise = later();
+                const after = ticks("after");
+                return <div>{joined}{short}{caught}{String(promise instanceof Promise)}{log.join(" ")}{after}</div>;
+            }
+            export default function render() { return <Probe />; }"#,
+        );
+        assert_eq!(
+            layout.tick(&[]).unwrap(),
+            [
+                "a,b,c,d,undefined",
+                "only,default,undefined",
+                "thrown inside",
+                "true",
+                "a b c d join join",
+                "after=1",
+            ]
+        );
+        assert_eq!(
+            layout.identities(),
+            ["layout.jsx#Probe > after > lib/ticks.js#ticks.s"],
+            "`never` is not left on the stack by the call that threw"
+        );
+    }
+
+    // ---- A plain `.js` import ----
+
+    /// The refusals for `globals` and for a `store` that was not imported are not made
+    /// in a plain `.js` import (`tauler-core/src/store_pass.rs` tests the rule).
+    #[test]
+    fn local_store_a_plain_js_import_that_names_globals_and_calls_a_global_store_loads() {
+        let vendored = (
+            "lib/vendored.js",
+            "const g = typeof globals !== 'undefined' ? globals : { n: 5 };\n\
+             export const n = typeof store === 'function' ? store(g).n : g.n;\n",
+        );
+        let layout = LocalLayout::try_new(
+            "import { n } from './lib/vendored.js';\n\
+             export default function render() { return <div>{String(n)}</div>; }",
+            &[vendored],
+        )
+        .unwrap_or_else(|e| panic!("expected the layout to load, got: {e}"));
+        assert_eq!(layout.tick(&[]).unwrap(), ["5"]);
+    }
+
+    /// A default export written `export default function () {...}` is a declaration:
+    /// JavaScript makes it before any module code runs, so a module that imports it in
+    /// a cycle may call it while it loads. The compile pass keeps that, and the
+    /// function's `.name`.
+    #[test]
+    fn an_unnamed_default_function_is_callable_from_an_import_cycle_while_loading() {
+        let first = (
+            "lib/first.js",
+            "import { early } from './second.js';
+             export default function () { return 'hoisted'; }
+             export { early };
+",
+        );
+        let second = (
+            "lib/second.js",
+            "import first from './first.js';
+             export const early = first();
+",
+        );
+        let layout = LocalLayout::try_new(
+            "import first, { early } from './lib/first.js';
+             export default function render() { return <div>{`${early}/${first.name}`}</div>; }",
+            &[first, second],
+        )
+        .unwrap_or_else(|e| panic!("expected the layout to load, got: {e}"));
+        assert_eq!(layout.tick(&[]).unwrap(), ["hoisted/default"]);
+    }
+
+    // ---- A call whose value is destructured ----
+
+    /// A function that declares a Store two calls down, and gives back an object.
+    const LOCAL_BOTH: &str =
+        "function both(name) { const text = ticks(name); return { text, list: [text] }; }\n";
+
+    fn assert_destructured(err: &str, place: &str) {
+        assert!(
+            err.contains(&format!(
+                "store(): `lib/ticks.js#ticks.s` is declared beneath a call whose value is \
+                 destructured, at `{place}`"
+            )),
+            "{err}"
+        );
+        assert!(
+            err.contains("`const menu = toggle(); const { open, flip } = menu;`"),
+            "{err}"
+        );
+    }
+
+    /// A destructured call has no one name to be found by, so a Store declared beneath
+    /// it throws and says what to write; written that way, it works.
+    #[test]
+    fn local_store_beneath_a_destructured_call_throws_and_says_to_assign_it_first() {
+        for (line, declaration) in [
+            (5, "const { text } = both(\"a\");"),
+            (5, "const [text] = both(\"a\").list;"),
+            (5, "let { text } = both(\"a\");"),
+            (5, "const { text } =\n both(\"a\");"),
+        ] {
+            // `.list` after the call is not a call that is the whole value.
+            let throws = !declaration.contains(".list");
+            let layout = LocalLayout::new(&format!(
+                "{LOCAL_BOTH}function Menu() {{\n {declaration}\n return <div>{{text}}</div>;\n}}\n\
+                 export default function render() {{ return <Menu />; }}"
+            ));
+            if !throws {
+                // No name and no marker: one such call works, as any call with no `const`.
+                assert_eq!(layout.tick(&[]).unwrap(), ["a=1"], "{declaration}");
+                continue;
+            }
+            let err = layout.tick(&[]).unwrap_err();
+            assert_destructured(&err, &format!("layout.jsx:{line}"));
+            assert_eq!(layout.stored(), 0, "{declaration}");
+        }
+
+        let layout = LocalLayout::new(&format!(
+            "{LOCAL_BOTH}function Menu() {{
+                const menu = both(\"a\");
+                const {{ text }} = menu;
+                return <div>{{text}}</div>;
+            }}
+            export default function render() {{ return <Menu />; }}"
+        ));
+        assert_eq!(layout.tick(&[]).unwrap(), ["a=1"]);
+        assert_eq!(layout.tick(&[]).unwrap(), ["a=2"]);
+        assert_eq!(
+            layout.identities(),
+            ["layout.jsx#Menu > menu > text > lib/ticks.js#ticks.s"]
+        );
+    }
+
+    /// A destructured call of a function that declares no Store is the call the author
+    /// wrote: the same value, arguments once and in order, and nothing left behind by
+    /// one that threw.
+    #[test]
+    fn local_store_a_destructured_call_of_a_function_with_no_store_works_as_written() {
+        let layout = LocalLayout::new(
+            r#"const log = [];
+            const note = (text) => { log.push(text); return text; };
+            function split(a, b = "default", ...rest) { log.push("split"); return { first: a, others: [b, ...rest], self: String(this) }; }
+            function fail() { throw new Error("thrown inside"); }
+            const { first: top } = split("top");
+            function Probe() {
+                log.length = 0;
+                const { first, others, self } = split(note("a"), note("b"), ...[note("c")]);
+                let [one, two = "two"] = split("only").others;
+                const [b, c] = (() => others)();
+                let caught = "";
+                try { const { never } = fail(); } catch (e) { caught = e.message; }
+                const after = ticks("after");
+                return <div>{top}{first}{others.join("+")}{self}{one}{two}{b}{c}{caught}{log.join(" ")}{after}</div>;
+            }
+            export default function render() { return <Probe />; }"#,
+        );
+        assert_eq!(
+            layout.tick(&[]).unwrap(),
+            [
+                "top",
+                "a",
+                "b+c",
+                "undefined",
+                "default",
+                "two",
+                "b",
+                "c",
+                "thrown inside",
+                "a b c split split",
+                "after=1",
+            ]
+        );
+        assert_eq!(
+            layout.identities(),
+            ["layout.jsx#Probe > after > lib/ticks.js#ticks.s"],
+            "the destructured call that threw left nothing that stops a later declaration"
+        );
+    }
+
+    /// The same call at the top level of a module would declare a shared Store with no
+    /// name: it fails the load with the same message.
+    #[test]
+    fn local_store_beneath_a_destructured_call_at_the_top_level_fails_the_load() {
+        let err = LocalLayout::try_new(
+            &format!(
+                "{LOCAL_BOTH}const {{ text }} = both(\"menu\");\n\
+                 export default function render() {{ return <div>{{text}}</div>; }}"
+            ),
+            &[],
+        )
+        .err()
+        .expect("the load must fail")
+        .to_string();
+        assert_destructured(&err, "layout.jsx:4");
+    }
+
+    // ---- A function that declares a Store, called at the top level of a module ----
+
+    const LOCAL_FACTORY: &str = r#"const menu = ticks("menu");
+        export const help = ticks("help");
+        export default function render() { return <div>{menu}{help}</div>; }"#;
+
+    /// No component is running, so the identity is only names and the value is shared:
+    /// two `const`s, two shared Stores, declared once by the load and kept like any
+    /// shared Store, through renders that do not declare them and through a reload.
+    #[test]
+    fn local_store_declared_through_a_top_level_const_is_a_shared_store() {
+        let mut layout = LocalLayout::new(LOCAL_FACTORY);
+        let declared = [
+            "local://layout.jsx#menu > lib/ticks.js#ticks.s",
+            "local://layout.jsx#help > lib/ticks.js#ticks.s",
+        ];
+        assert_eq!(layout.evaluator.state_identities(), declared);
+        assert_eq!(layout.tick(&[]).unwrap(), ["menu=1", "help=1"]);
+        assert_eq!(layout.tick(&[]).unwrap(), ["menu=1", "help=1"]);
+        assert_eq!(layout.stored(), 2, "a render drops nothing a load declared");
+        assert_eq!(layout.evaluator.state_identities(), declared);
+
+        // A reload: the load declares them again and finds the saved values.
+        layout.rebuilt(LOCAL_FACTORY);
+        let kept = layout.evaluator.state_identities();
+        layout.state.lock().unwrap().retain_identities(&kept);
+        assert_eq!(layout.tick(&[]).unwrap(), ["menu=2", "help=2"]);
+        assert_eq!(layout.stored(), 2);
+    }
+
+    /// One identity twice at the top level of a module: the function behind one
+    /// `const` reaches the declaration twice. And a call with no `const` there has no
+    /// name to be shared under.
+    #[test]
+    fn local_store_declared_twice_at_the_top_level_of_a_module_fails_the_load() {
+        let err = LocalLayout::try_new(
+            r#"function pair() { return [ticks("a"), ticks("b")]; }
+            const both = pair();
+            export default function render() { return <div>{both}</div>; }"#,
+            &[],
+        )
+        .err()
+        .expect("the load must fail")
+        .to_string();
+        assert!(
+            err.contains(
+                "the shared Store `layout.jsx#both > lib/ticks.js#ticks.s` is declared twice while its file loads"
+            ),
+            "{err}"
+        );
+
+        let err = LocalLayout::try_new(
+            r#"ticks("no const");
+            export default function render() { return <div />; }"#,
+            &[],
+        )
+        .err()
+        .expect("the load must fail")
+        .to_string();
+        assert!(
+            err.contains("can only be declared while a component renders"),
+            "{err}"
+        );
+        assert!(err.contains("assign the call"), "{err}");
+    }
+
+    // ---- The reconciler and draw runtimes (P6) ----
+
+    const LOCAL_RUNTIMES: &str = r#"import { store } from "tauler";
+const Light = unit({
+  key: (i) => i.entity,
+  value: (i) => i.state,
+  reconciler: optativeSet({ observe: () => [] }),
+});
+function nest(depth) {
+    const s = store({ on: false });
+    if (depth === 0) return s;
+    const inner = nest(depth - 1);
+    return inner;
+}
+function Switch({ name }) {
+    const s = store({ on: false });
+    const deep = nest(1);
+    return <root>
+        <Light entity={name} state={s.on ? "on" : "off"} />
+        <div on_click={() => { s.on = !s.on; }}>{`${name}=${s.on}`}</div>
+    </root>;
+}
+export default function render() {
+    const names = useStringStream("names").split(",").filter(Boolean);
+    return <root>{names.map((name) => <Switch key={name} name={name} />)}</root>;
+}"#;
+
+    /// One layout, three runtimes: each builds the same identities; the reconciler
+    /// runtime reads what a handler wrote; and a runtime that only reads never drops
+    /// and never stores a default, whatever its own render declares.
+    #[test]
+    fn local_store_identities_are_the_same_in_every_runtime_and_only_the_render_runtime_drops() {
+        let state = SharedState::default();
+        let both: HashMap<_, _> = HashMap::from([(("names".to_string(), None), "a,b".to_string())]);
+        let only_a: HashMap<_, _> = HashMap::from([(("names".to_string(), None), "a".to_string())]);
+        let render = JsxEvaluator::new_with_state(
+            LOCAL_RUNTIMES,
+            serde_json::Value::Null,
+            None,
+            Arc::clone(&state),
+        )
+        .unwrap();
+        let reconciler = reconciler_on(&state, LOCAL_RUNTIMES);
+        let draw = JsxEvaluator::new_draw(
+            LOCAL_RUNTIMES,
+            serde_json::Value::Null,
+            None,
+            None,
+            Arc::clone(&state),
+        )
+        .unwrap();
+
+        // A runtime that only reads declares nothing to the store.
+        reconciler.eval_units(&both).unwrap();
+        draw.eval(&both).unwrap();
+        assert_eq!(state.lock().unwrap().len(), 0);
+
+        let shown = render.eval(&both).unwrap().layout;
+        let declared = render.state_identities();
+        assert_eq!(declared.len(), 6, "{declared:?}");
+        assert_eq!(reconciler.state_identities(), declared);
+        assert_eq!(draw.state_identities(), declared);
+        assert_eq!(state.lock().unwrap().len(), 6);
+
+        // The second Switch's handler writes; the reconciler's next evaluation reads it.
+        let id = shown["children"][1]["children"][0]["on_click"]["$handler"]
+            .as_i64()
+            .unwrap_or_else(|| panic!("no handler in {shown}"));
+        assert!(
+            render
+                .invoke_handler_outcome(id, &serde_json::Value::Null)
+                .state_changed
+        );
+        let batches = reconciler.eval_units(&both).unwrap();
+        let states: Vec<&serde_json::Value> = batches
+            .iter()
+            .flat_map(|batch| batch.items.iter())
+            .collect();
+        assert_eq!(
+            serde_json::to_string(&states)
+                .unwrap()
+                .matches("\"on\"")
+                .count(),
+            1,
+            "{states:?}"
+        );
+
+        // Their renders stop declaring `b`'s Stores: nothing leaves the store.
+        reconciler.eval_units(&only_a).unwrap();
+        draw.eval(&only_a).unwrap();
+        assert_eq!(reconciler.state_identities().len(), 3);
+        assert_eq!(state.lock().unwrap().len(), 6);
+        // The render runtime's does: its three are dropped.
+        render.eval(&only_a).unwrap();
+        assert_eq!(state.lock().unwrap().len(), 3);
+    }
+    const LOCAL_DEFAULTS: &str = r#"import { store } from "tauler";
+const Light = unit({
+  key: (i) => i.entity,
+  value: (i) => i.state,
+  reconciler: optativeSet({ observe: () => [] }),
+});
+function Row({ name }) {
+    const s = store({ n: 7, items: ["x", "y"], note: { text: "default" } });
+    const press = () => { s.n += 1; s.items.push("z"); delete s.note; };
+    const text = `${name}=${s.n}/${s.items.length}/${s.note ? s.note.text : "none"}/${Object.keys(s).join("+")}/${"note" in s}`;
+    return <root><Light entity={name} state={text} /><div on_click={press}>{text}</div></root>;
+}
+export default function render() { return <root><Row key="a" name="a" /></root>; }"#;
+
+    /// A runtime that only reads may reach a local Store's declaration before the
+    /// render runtime has declared it. It then reads the declaration's default, nested
+    /// values and keys included, and stores nothing; once the store holds the Store it
+    /// reads what the store holds, and a key the render runtime deleted stays deleted.
+    #[test]
+    fn local_store_a_read_only_runtime_reads_the_default_until_the_store_holds_a_value() {
+        let state = SharedState::default();
+        let streams = HashMap::new();
+        let render = JsxEvaluator::new_with_state(
+            LOCAL_DEFAULTS,
+            serde_json::Value::Null,
+            None,
+            Arc::clone(&state),
+        )
+        .unwrap();
+        let reconciler = reconciler_on(&state, LOCAL_DEFAULTS);
+        let draw = JsxEvaluator::new_draw(
+            LOCAL_DEFAULTS,
+            serde_json::Value::Null,
+            None,
+            None,
+            Arc::clone(&state),
+        )
+        .unwrap();
+        let drawn = || {
+            let mut texts = Vec::new();
+            layout_texts(&draw.eval(&streams).unwrap().layout, &mut texts);
+            texts
+        };
+        let reconciled = || {
+            let batches = reconciler.eval_units(&streams).unwrap();
+            let values: Vec<&serde_json::Value> = batches
+                .iter()
+                .flat_map(|batch| batch.items.iter())
+                .collect();
+            serde_json::to_string(&values).unwrap()
+        };
+
+        let default = "a=7/2/default/items+n+note/true";
+        for _ in 0..2 {
+            assert_eq!(drawn(), [default]);
+            assert!(reconciled().contains(default), "{}", reconciled());
+        }
+        assert_eq!(state.lock().unwrap().len(), 0, "a default is never stored");
+
+        // The render runtime declares it, and a handler changes it.
+        let shown = render.eval(&streams).unwrap().layout;
+        assert_eq!(drawn(), [default]);
+        let id = shown["children"][0]["children"][0]["on_click"]["$handler"]
+            .as_i64()
+            .unwrap_or_else(|| panic!("no handler in {shown}"));
+        assert!(
+            render
+                .invoke_handler_outcome(id, &serde_json::Value::Null)
+                .state_changed
+        );
+        let changed = "a=8/3/none/items+n/false";
+        assert_eq!(drawn(), [changed]);
+        assert!(reconciled().contains(changed), "{}", reconciled());
+    }
+
+    /// A render that throws in a runtime that only reads leaves no default behind for
+    /// a local Store only that render declared: no later render would forget it. The
+    /// defaults of the renders that returned are kept.
+    #[test]
+    fn local_store_a_read_only_runtime_keeps_no_default_from_a_render_that_threw() {
+        let source = r#"import { store } from "tauler";
+let renders = 0;
+function Row() {
+    const s = store({ n: 7 });
+    return <div>{`${s.n}`}</div>;
+}
+function Late() {
+    const s = store({ n: 1 });
+    throw new Error(`late ${s.n}`);
+}
+export default function render() {
+    renders += 1;
+    return <root><Row key="kept" />{renders === 2 ? <Late key={`late`} /> : null}</root>;
+}"#;
+        let state = SharedState::default();
+        let streams = HashMap::new();
+        let reconciler = reconciler_on(&state, source);
+
+        reconciler.eval_units(&streams).unwrap();
+        let kept = reconciler.kept_defaults();
+        assert_eq!(kept.len(), 1, "{kept:?}");
+
+        let error = reconciler.eval_units(&streams).unwrap_err();
+        assert!(error.to_string().contains("late 1"), "{error}");
+        assert_eq!(reconciler.kept_defaults(), kept);
+
+        reconciler.eval_units(&streams).unwrap();
+        assert_eq!(reconciler.kept_defaults(), kept);
     }
 }

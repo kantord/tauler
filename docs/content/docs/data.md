@@ -314,8 +314,8 @@ export default () => (
 
 ### Declare it
 
-Call `store` with the default value, as the whole value of a `const` at the top level of
-a file:
+Call `store` with the default value, as the whole value of a `const`. At the top level
+of a file it is one Store, shared by every file that imports it:
 
 ```jsx
 const desk = store({ open: false, pinned: [] });
@@ -326,8 +326,11 @@ export const filters = store({ range: "1h" });
   `null`, arrays and objects.
 - A file can declare several Stores, and export them. Every file that imports a Store
   gets the same one.
-- `store(...)` anywhere else — inside a function, in a `let`, as an array element — fails
-  the load, with the file and the line. So does a second argument.
+- `store(...)` that is not the whole value of a `const` — in a `let`, as an array
+  element, returned from a function — fails the load, with the file and the line. So
+  does a second argument.
+- Inside a function, `const name = store({...})` declares a Store of another kind: see
+  [A Store of its own for each component](#a-store-of-its-own-for-each-component).
 - `store` is an import, not a global. A file that calls it without
   `import { store } from "tauler"` fails the load with a message that says so.
 
@@ -374,3 +377,99 @@ A [Unit](/docs/units/#driving-a-unit-from-your-layout)'s hooks and a
 read the same Stores your layout does. They cannot write them: an assignment there
 throws. A write does not run either of them sooner. A Unit sees the new value at its
 next Sweep, and a figure is drawn again when its `key` changes.
+
+### A Store of its own for each component
+
+Declare a Store inside a component, and every place the component is written gets its
+own. Everything else about it is the same: [read it, write it](#read-and-write-it), and
+a handler's write [causes one tick](#what-causes-a-tick).
+
+```jsx
+import { store } from "tauler";
+
+function Disclosure({ title, children }) {
+  const s = store({ open: false });
+  return (
+    <div>
+      <div on_click={() => { s.open = !s.open; }}>{title}</div>
+      {s.open && children}
+    </div>
+  );
+}
+
+<Disclosure key="mail" title="Mail">…</Disclosure>
+<Disclosure key="calendar" title="Calendar">…</Disclosure>
+```
+
+When one component writes another more than once, give each a `key`, as the two above
+have. Rows made with `.map()` need one for the same reason:
+
+```jsx
+{rows.map((row) => <Row key={row.id} row={row} />)}
+```
+
+A `key` is a string or a number. A row keeps its Store when the list is reordered or
+another row appears in front of it. The component also receives `key` as a prop.
+
+Any function can declare a Store, not only a component. Assign each call to its own
+`const`, and each call has its own Store:
+
+```jsx
+// lib/toggle.js
+import { store } from "tauler";
+
+export function toggle() {
+  const s = store({ open: false });
+  return { open: s.open, flip: () => { s.open = !s.open; } };
+}
+
+// components/Menu.jsx
+function Menu() {
+  const menu = toggle();
+  const help = toggle();
+  return <div on_click={menu.flip}>{menu.open ? "close" : "menu"}</div>;
+}
+```
+
+Called through a `const` at the top level of a file, the same function declares a
+shared Store instead: `const sidebar = toggle();` outside any function is one Store for
+everything that imports `sidebar`.
+
+The rules:
+
+- The declaration must be the whole value of a `const`. An `if` or a loop around it is
+  fine.
+- The function it is in must have a name, and so must every function around that one:
+  `function Row() {…}` or `const Row = () => {…}`. A handler or a `.map()` callback
+  written inline cannot declare a Store, and neither can an `async` function. These
+  fail the load with the file and the line.
+- A component with a Store in it, or beneath it, must be declared at the top level of
+  its file. One defined inside another function throws when it renders.
+- One Store is declared once per tick. If the same declaration is reached twice — two
+  of one component with no `key`, a function called twice without a `const` of its own,
+  a call in the body of a loop — the render throws and the message names the Store.
+  Make the repeated part a component with a `key`.
+- Do not destructure the call of a function that declares a Store.
+  `const { open, flip } = toggle();` throws, at the top level of a file too. Assign the
+  call to a plain `const` first, then destructure that:
+  `const menu = toggle(); const { open, flip } = menu;`. A function that declares no
+  Store can be destructured as usual.
+- Declare while a component renders. A function that declares a Store throws when a
+  handler calls it; declare the Store in the component and use it in the handler.
+- A Unit's hooks and a `<D3Figure>`'s `draw` can read a Store their component declared,
+  and cannot declare one.
+
+[What it survives](#what-it-survives) is narrower than for a shared Store:
+
+- A component that is not written on a tick loses its Stores at once. When a drawer
+  closes or a row leaves the list, what was kept beneath it is gone, and it starts from
+  its default when it comes back. Keep what must outlive that in a Store at the top
+  level of a file.
+- It keeps its value when the layout file is saved and reloaded, as long as the
+  component is written by the first render after the reload. A reload starts every
+  subprocess again, so that first render has no stream values yet: a component that is
+  only written once a stream has a value starts over.
+- Renaming the component, the function that declares the Store, the `const`, or the
+  file starts over what was named after it. So does writing the component inside a
+  different component: a Store belongs to the component whose code writes
+  `<Disclosure … />`, not to the element it ends up inside.

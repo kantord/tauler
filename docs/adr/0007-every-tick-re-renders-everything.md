@@ -4,6 +4,11 @@ A layout file borrows JSX syntax from React and almost nothing else. There is no
 DOM, no reconciliation, no diffing, and no component identity that survives a tick. When
 any stream value changes, the whole layout function runs again and returns a fresh tree.
 
+> Partly superseded by the amendment to
+> [ADR 0051](./0051-a-layout-file-keeps-state-in-stores-and-rust-owns-them.md): a
+> component instance now has an identity that survives a Tick, used only to find a local
+> Store again. There is still no virtual DOM, no reconciliation and no diffing.
+
 The closest accurate analogy is a server-side render: each tick is a pure function of the
 current data snapshot, and its output is a static tree rather than a live hierarchy.
 
