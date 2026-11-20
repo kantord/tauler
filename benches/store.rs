@@ -40,7 +40,7 @@ fn scalar(rng: &mut Lcg) -> Value {
     match rng.next() % 5 {
         0 => json!(rng.next() % 10_000),
         1 => json!(rng.next() as f64 / 7.0),
-        2 => json!(rng.next() % 2 == 0),
+        2 => json!(rng.next().is_multiple_of(2)),
         3 => Value::Null,
         _ => json!(format!("value-{}", rng.next() % 100_000)),
     }
@@ -52,7 +52,7 @@ fn tree(rng: &mut Lcg, depth: usize, fanout: usize) -> Value {
     if depth == 0 {
         return scalar(rng);
     }
-    if depth % 2 == 0 {
+    if depth.is_multiple_of(2) {
         Value::Object(
             (0..fanout)
                 .map(|i| (format!("k{i}"), tree(rng, depth - 1, fanout)))
@@ -106,7 +106,7 @@ fn realistic(rng: &mut Lcg) -> Map<String, Value> {
                         "id": i,
                         "app": format!("app-{}", rng.next() % 8),
                         "summary": "x".repeat(20 + (rng.next() % 60) as usize),
-                        "urgent": rng.next() % 4 == 0,
+                        "urgent": rng.next().is_multiple_of(4),
                         "actions": ["open", "dismiss"],
                     })
                 })

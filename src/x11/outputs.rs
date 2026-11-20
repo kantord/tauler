@@ -209,6 +209,52 @@ pub fn randr_event_mask() -> randr::NotifyMask {
     randr::NotifyMask::SCREEN_CHANGE | randr::NotifyMask::OUTPUT_CHANGE
 }
 
+pub fn outputs_thread(tx: mpsc::Sender<StreamItem>, key: String, stop: Arc<AtomicBool>) {
+    let (conn, screen_num) = match RustConnection::connect(None) {
+        Ok(c) => c,
+        Err(e) => {
+            tracing::error!(error = %e, "outputs_thread: X11 connect failed");
+            return;
+        }
+    };
+    let screen = conn.setup().roots[screen_num].clone();
+    let root = screen.root;
+
+    if let Err(e) = conn.randr_select_input(root, randr_event_mask()) {
+        tracing::error!(error = %e, "outputs_thread: randr_select_input failed");
+        return;
+    }
+    let _ = conn.flush();
+
+    emit_outputs(&conn, root, &key, &tx);
+
+    loop {
+        if stop.load(Ordering::Relaxed) {
+            break;
+        }
+        match conn.poll_for_event() {
+            Ok(Some(event)) => match event {
+                x11rb::protocol::Event::RandrScreenChangeNotify(_) => {
+                    emit_outputs(&conn, root, &key, &tx);
+                }
+                x11rb::protocol::Event::RandrNotify(e)
+                    if e.sub_code == randr::Notify::OUTPUT_CHANGE =>
+                {
+                    emit_outputs(&conn, root, &key, &tx);
+                }
+                _ => {}
+            },
+            Ok(None) => {
+                thread::sleep(Duration::from_millis(50));
+            }
+            Err(e) => {
+                tracing::error!(error = %e, "outputs_thread: X11 error");
+                break;
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -349,51 +395,5 @@ mod tests {
             0,
             "must include OUTPUT_CHANGE"
         );
-    }
-}
-
-pub fn outputs_thread(tx: mpsc::Sender<StreamItem>, key: String, stop: Arc<AtomicBool>) {
-    let (conn, screen_num) = match RustConnection::connect(None) {
-        Ok(c) => c,
-        Err(e) => {
-            tracing::error!(error = %e, "outputs_thread: X11 connect failed");
-            return;
-        }
-    };
-    let screen = conn.setup().roots[screen_num].clone();
-    let root = screen.root;
-
-    if let Err(e) = conn.randr_select_input(root, randr_event_mask()) {
-        tracing::error!(error = %e, "outputs_thread: randr_select_input failed");
-        return;
-    }
-    let _ = conn.flush();
-
-    emit_outputs(&conn, root, &key, &tx);
-
-    loop {
-        if stop.load(Ordering::Relaxed) {
-            break;
-        }
-        match conn.poll_for_event() {
-            Ok(Some(event)) => match event {
-                x11rb::protocol::Event::RandrScreenChangeNotify(_) => {
-                    emit_outputs(&conn, root, &key, &tx);
-                }
-                x11rb::protocol::Event::RandrNotify(e)
-                    if e.sub_code == randr::Notify::OUTPUT_CHANGE =>
-                {
-                    emit_outputs(&conn, root, &key, &tx);
-                }
-                _ => {}
-            },
-            Ok(None) => {
-                thread::sleep(Duration::from_millis(50));
-            }
-            Err(e) => {
-                tracing::error!(error = %e, "outputs_thread: X11 error");
-                break;
-            }
-        }
     }
 }

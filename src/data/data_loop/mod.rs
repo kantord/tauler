@@ -243,13 +243,6 @@ impl DataLoop {
         Arc::clone(&self.event_txs_snapshot)
     }
 
-    pub fn collect_event_txs(&self) -> HashMap<ProcessIdentity, mpsc::Sender<serde_json::Value>> {
-        self.process_supervisor
-            .iter()
-            .map(|(identity, state)| (identity.clone(), state.event_tx.clone()))
-            .collect()
-    }
-
     pub fn send_event(&mut self, identity: &ProcessIdentity, event: serde_json::Value) {
         while let Ok(sources) = self.desired_rx.try_recv() {
             self.set_desired(sources);

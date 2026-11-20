@@ -342,10 +342,10 @@ mod tests {
         let ctx = inter_ctx();
         let before = LAYOUTS.with(|n| n.get());
         for _ in 0..100 {
-            measure_text(&ctx, "Hello", &sans(11.0));
+            measure_text(&ctx, "Hello", &sans(11.0)).unwrap();
         }
         assert_eq!(LAYOUTS.with(|n| n.get()) - before, 1);
-        measure_text(&ctx, "Hello", &sans(11.01));
+        measure_text(&ctx, "Hello", &sans(11.01)).unwrap();
         assert_eq!(
             LAYOUTS.with(|n| n.get()) - before,
             2,

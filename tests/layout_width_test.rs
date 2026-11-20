@@ -82,7 +82,7 @@ fn rendered_child_width_matches_layout_at_dpr_1_46() {
     let row0 = &bgrx[..146 * 4];
     let mut first_blue = None;
     let mut last_blue = None;
-    for (i, px) in row0.chunks_exact(4).enumerate() {
+    for (i, px) in row0.as_chunks::<4>().0.iter().enumerate() {
         if px[0] > 200 && px[2] < 50 {
             if first_blue.is_none() {
                 first_blue = Some(i);

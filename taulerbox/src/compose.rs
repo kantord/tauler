@@ -209,8 +209,8 @@ mod tests {
 
         assert_eq!(placed.len(), 1);
         assert_eq!(placed[0].x, -500);
-        assert_eq!(
-            placed[0].visible, false,
+        assert!(
+            !placed[0].visible,
             "a panel entirely outside the window bounds must be reported as not visible"
         );
     }
@@ -289,8 +289,8 @@ mod tests {
             placed[0].width, 120,
             "width must be clamped to fit within the window's right edge"
         );
-        assert_eq!(
-            placed[0].visible, true,
+        assert!(
+            placed[0].visible,
             "panel extending past right edge but overlapping must still be visible"
         );
     }
@@ -333,8 +333,8 @@ mod tests {
             placed[0].width, 50,
             "width must be adjusted to fit the visible portion"
         );
-        assert_eq!(
-            placed[0].visible, true,
+        assert!(
+            placed[0].visible,
             "panel extending past left edge but overlapping must still be visible"
         );
     }

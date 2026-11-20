@@ -10,9 +10,6 @@ repository = "https://github.com/kantord/tauler"
 homepage = "https://kantord.github.io/tauler/"
 rust-version = "1.96"
 
-[workspace.dependencies]
-optative = "=0.1.4"
-
 [package]
 name = "tauler"
 description = "A JSX-based status bar for Linux: write your bar as a .jsx file, rendered natively on X11 and Wayland"
@@ -38,6 +35,11 @@ exclude = [
     "/renovate.json",
     "/.pre-commit-config.yaml",
 ]
+
+# These three are deliberately not used by `src/`; see the comments on each in
+# `[dependencies]` for why removing them breaks a lockfile-less resolve.
+[package.metadata.cargo-machete]
+ignored = ["takumi-raster", "takumi-svg", "tauler-ui-macro"]
 
 [package.metadata.binstall]
 pkg-url = "{ repo }/releases/download/{ name }-v{ version }/{ name }-{ target }{ archive-suffix }"
