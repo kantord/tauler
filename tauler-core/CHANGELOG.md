@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0](https://github.com/kantord/tauler/compare/tauler-core-v0.3.15...tauler-core-v0.4.0) - 2026-11-20
+
+### Added
+
+- support component-scoped state ([#854](https://github.com/kantord/tauler/pull/854))
+
+### Fixed
+
+- *(deps)* update oxc crates to v0.159.0 ([#852](https://github.com/kantord/tauler/pull/852))
+- *(deps)* update oxc crates to v0.158.0 ([#844](https://github.com/kantord/tauler/pull/844))
+
+### Other
+
+- remove dead code, lint all targets, check unused deps in CI ([#853](https://github.com/kantord/tauler/pull/853))
+
 ## [0.3.15](https://github.com/kantord/tauler/compare/tauler-core-v0.3.14...tauler-core-v0.3.15) - 2026-11-18
 
 ### Added
