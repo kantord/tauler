@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.13.0](https://github.com/kantord/tauler/compare/tauler-notify-v0.12.0...tauler-notify-v0.13.0) - 2026-11-20
+
+### Other
+
+- remove dead code, lint all targets, check unused deps in CI ([#853](https://github.com/kantord/tauler/pull/853))
+
 ## [0.12.0](https://github.com/kantord/tauler/compare/tauler-notify-v0.11.3...tauler-notify-v0.12.0) - 2026-11-18
 
 ### Fixed

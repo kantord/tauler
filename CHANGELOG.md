@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.13.0](https://github.com/kantord/tauler/compare/tauler-v0.12.0...tauler-v0.13.0) - 2026-11-20
+
+### Added
+
+- support component-scoped state ([#854](https://github.com/kantord/tauler/pull/854))
+
+### Other
+
+- *(state)* make the test-only StateStore::len crate-private ([#856](https://github.com/kantord/tauler/pull/856))
+- remove dead code, lint all targets, check unused deps in CI ([#853](https://github.com/kantord/tauler/pull/853))
+
 ## [0.12.0](https://github.com/kantord/tauler/compare/tauler-v0.11.3...tauler-v0.12.0) - 2026-11-18
 
 ### Added
