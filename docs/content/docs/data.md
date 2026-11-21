@@ -411,6 +411,11 @@ have. Rows made with `.map()` need one for the same reason:
 A `key` is a string or a number. A row keeps its Store when the list is reordered or
 another row appears in front of it. The component also receives `key` as a prop.
 
+A `key` says which thing this is. The same key keeps what was there; a new key is a new
+thing that starts over. So a row whose `key` changes loses its Store. A
+[`<D3Figure>`](/docs/components/#d3figure) follows the same rule: a new `key` is a new
+drawing.
+
 Any function can declare a Store, not only a component. Assign each call to its own
 `const`, and each call has its own Store:
 
