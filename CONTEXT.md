@@ -234,6 +234,14 @@ once per component instance. See ADR 0051.
 _Avoid_: instance alone (that is avoided for **Item**), fiber, node, mounted component
 _Elsewhere_: a component instance or fiber (React), which is a position in the output tree
 
+**Key**:
+What says which thing this is. The same key is the same thing as last time, and what is
+kept for it stays; a new key is a new thing, and what is kept for it starts over. A
+**component instance** keeps its **local Stores** under its `key` prop, a D3Figure keeps
+its **Picture**, and a Unit keeps its **Item**.
+_Avoid_: id (a `<Panel>`'s `id` names its surface, and is visible outside tauler)
+_Elsewhere_: `key` (React), where a new key also unmounts and mounts again; a cache key
+
 **State identity**:
 What finds the same Store again on the next Tick, after a layout reload, and from another
 runtime. For a shared Store it comes from the module that declares it and the name it is
