@@ -275,6 +275,12 @@ changed. Give the figure a new key when what it shows changes,
 and the simplest way to get one is to derive it from the data, as `LoadChart` does from its
 newest sample. A figure with no `key` fails with an error that names it.
 
+This is what `key` means everywhere in a layout file: the same key is the same thing, and
+a new key is a new thing that starts over. A component with a
+[Store of its own](/docs/data/#a-store-of-its-own-for-each-component) loses it when its
+`key` changes, in the same way. So keep what must outlast a redraw, such as a zoom level,
+in the component around the figure, not in anything the figure's key decides.
+
 A key must follow from what the render sees: the data, the streams and the
 [Stores](/docs/data/#store). A key built from `Math.random()`, `Date.now()`, state kept
 at module scope, or a Store value that the render itself changes on every tick is not
