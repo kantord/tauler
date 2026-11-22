@@ -136,3 +136,8 @@ install-fast:
     cargo install --path tauler-i3 --locked --debug
     cargo install --path tauler-notify --locked --debug
     cargo install --path tauler-accumulate --locked --debug
+
+# Instructions and allocations per pipeline stage: deterministic, unlike the timing
+# benches. Needs valgrind. See the module docs of benches/cost.rs.
+cost:
+    ./scripts/cost.sh

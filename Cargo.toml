@@ -57,6 +57,11 @@ codegen-units = 1
 panic = "abort"
 strip = true
 
+# Release code generation, but with the symbol table kept: `benches/cost.rs` tells
+# callgrind which function to collect inside by its symbol name.
+[profile.bench]
+strip = false
+
 [dependencies]
 tracing = "=0.1.44"
 tracing-subscriber = { version = "=0.3.23", features = ["env-filter"] }
@@ -141,4 +146,8 @@ harness = false
 
 [[bench]]
 name = "store"
+harness = false
+
+[[bench]]
+name = "cost"
 harness = false
