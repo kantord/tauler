@@ -14,7 +14,8 @@ can drive the bar. Both the layout and the config are hot-reloaded on save.
 
 - Linux, running X11 or Wayland (tauler picks the backend from `WAYLAND_DISPLAY`;
   override with `TAULER_BACKEND=x11` or `TAULER_BACKEND=wayland`)
-- Rust 1.100 or newer
+<!-- renovate: datasource=rust-version depName=rust -->
+- Rust 1.100.0 or newer
 - fontconfig at runtime — `fc-list` and `fc-match` are used to resolve font families
 
 Build dependencies on Debian/Ubuntu:

@@ -8,7 +8,10 @@ authors = ["Dániel Kántor <github@daniel-kantor.com>"]
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/kantord/tauler"
 homepage = "https://kantord.github.io/tauler/"
-rust-version = "1.100"
+# Managed by Renovate (renovate.json): it moves with the toolchain pinned in
+# .github/workflows and tauler-e2e/Dockerfile.
+# renovate: datasource=rust-version depName=rust
+rust-version = "1.100.0"
 
 [package]
 name = "tauler"

@@ -16,6 +16,22 @@
       "matchStrings": ["cargo install wasm-bindgen-cli --version (?<currentValue>\\S+)"],
       "depNameTemplate": "wasm-bindgen-cli",
       "datasourceTemplate": "crate"
+    },
+    {
+      "description": "The renovate-config job in ci.yml runs the validator from a pinned `renovate` release via npx, which no built-in manager reads. Without this the validator would silently stay on an old schema.",
+      "customType": "regex",
+      "managerFilePatterns": ["/^\\.github/workflows/ci\\.yml$/"],
+      "matchStrings": ["--package renovate@(?<currentValue>\\S+)"],
+      "depNameTemplate": "renovate",
+      "datasourceTemplate": "npm"
+    },
+    {
+      "description": "`rust-version` in Cargo.toml and the Rust version in README.md are two more copies of the toolchain version that the workflow pins and the Dockerfile carry; no built-in manager reads them, so they would drift. Each is annotated with a `renovate: datasource=... depName=...` comment, which names the same dependency (rust, rust-version datasource) as the workflow pins, so the rule below groups them into one PR.",
+      "customType": "regex",
+      "managerFilePatterns": ["/^Cargo\\.toml$/", "/^README\\.md$/"],
+      "matchStrings": [
+        "renovate: datasource=(?<datasource>\\S+) depName=(?<depName>\\S+)(?: -->)?\\n(?:rust-version = \"|- Rust )(?<currentValue>\\d+\\.\\d+\\.\\d+)"
+      ]
     }
   ],
   "packageRules": [
@@ -65,6 +81,11 @@
       "matchPackageNames": ["wasm-bindgen", "wasm-bindgen-cli"],
       "groupName": "wasm-bindgen (crate + CLI)",
       "rangeStrategy": "pin"
+    },
+    {
+      "description": "The Rust version is written in four kinds of place: `toolchain:` pins in the workflows, the Dockerfile's `FROM rust:` tag, `rust-version` in Cargo.toml and the README requirement. A bump that lands in only some of them leaves CI, the e2e image and the documented minimum disagreeing (tests/workspace_manifests_test.rs fails if they do). One PR moves them all. Listed before the generic github-actions group so this wins for the toolchain pins.",
+      "matchPackageNames": ["rust"],
+      "groupName": "rust toolchain"
     },
     {
       "description": "Action digest bumps are independent and noisy; one PR is enough.",
