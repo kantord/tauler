@@ -51,22 +51,20 @@ fn content_translate(clamped_scroll_top: f64) -> Option<Map<String, Value>> {
 /// thumb) receives where a drag has moved it and returns the intents to send.
 ///
 /// ```jsx
-/// <Module bin="~/.cargo/bin/tauler-logs">
-///   {(data, events) => (
-///     <ScrollArea
-///       scroll_top={data?.scroll_top ?? 0}
-///       content_height={data?.lines?.length * 18 ?? 0}
-///       viewport_height={120}
-///       on_change={top => events.setScrollTop({ top })}
-///       class="h-[120px] w-[240px]"
-///     >
-///       {(data?.lines ?? []).map(line => <span class="text-[11px]">{line}</span>)}
-///     </ScrollArea>
-///   )}
-/// </Module>
+/// const [logs, dispatch] = useService("~/.cargo/bin/tauler-logs");
+///
+/// <ScrollArea
+///   scroll_top={logs?.scroll_top ?? 0}
+///   content_height={logs?.lines?.length * 18 ?? 0}
+///   viewport_height={120}
+///   on_change={top => dispatch.setScrollTop({ top })}
+///   class="h-[120px] w-[240px]"
+/// >
+///   {(logs?.lines ?? []).map(line => <span class="text-[11px]">{line}</span>)}
+/// </ScrollArea>
 /// ```
 ///
-/// The drag sets nothing locally: it sends intents, the module changes `scroll_top`,
+/// The drag sets nothing locally: it sends intents, the Service changes `scroll_top`,
 /// and the next tick brings the new value back — the same round trip `<Slider>` and
 /// `<Knob>` make. Omit `on_change` and `<ScrollArea>` still renders, clipped and
 /// translated to `scroll_top`, just not draggable.

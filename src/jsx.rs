@@ -21,9 +21,11 @@
 //! representation.
 //!
 //! Everything a layout file can reach is registered here — in `JSX_GLOBALS_JS` and in the
-//! setup below: `useStringStream`, `useJSONStream`, `useEvents`, `Module`, `I3Layout`,
+//! setup below: `useStringStream`, `useJSONStream`, `useDispatch`, `useService`, `I3Layout`,
 //! `Panel`, `themeColor`, `measureText` and `ctx`, and `store` as the one export of the
-//! module `"tauler"`. rquickjs grants nothing by default, so that list is exhaustive by
+//! module `"tauler"`. `useEvents` and `Module` are the deprecated names of `useDispatch`
+//! and of `useService` as a render prop: the same implementation, kept for layout files
+//! not yet migrated. rquickjs grants nothing by default, so that list is exhaustive by
 //! construction rather than by audit (ADR 0008).
 //!
 //! Each module also gets its own `import.meta.dirname`, `.filename` and `.url`: the
@@ -1816,7 +1818,7 @@ impl JsxEvaluator {
                 // runtime the same way `ctx` already is. Lets `ConfigFile`
                 // (tauler-core/src/globals.rs) expand a leading `~/` in `path`
                 // the same way `crate::config::expand_tilde` already does for
-                // `theme.file`, `fonts.extra` and a Module's `bin` — a layout
+                // `theme.file`, `fonts.extra` and a Service's `bin` — a layout
                 // author writes a path the way they'd write it in a shell,
                 // never a hardcoded `/home/<user>/...`.
                 qjs_ctx
@@ -2761,6 +2763,161 @@ return <span class="text-white">hi</span>;
             ]),
             "expected Module's events proxy to yield the new intent shape, got: {:?}",
             result["on_click"]
+        );
+    }
+
+    /// `useDispatch(bin, props)` is the name for what `useEvents` did: its property
+    /// calls build the intent `dispatch_click` consumes.
+    #[test]
+    fn use_dispatch_property_call_produces_intent_with_merged_args() {
+        let result = eval(
+            r#"export default function render() {
+const notify = useDispatch("/usr/bin/notify");
+return <div class="flex" on_click={[notify.dismiss({ id: 42 }), notify.clear()]} />;
+}"#,
+        )
+        .layout;
+        assert_eq!(
+            result["on_click"],
+            serde_json::json!([
+                { "channel": "/usr/bin/notify", "event": { "type": "dismiss", "id": 42 } },
+                { "channel": "/usr/bin/notify", "event": { "type": "clear" } }
+            ]),
+        );
+    }
+
+    /// `useDispatch` starts the subprocess itself, and every call's props reach it.
+    #[test]
+    fn use_dispatch_registers_the_subprocess_with_merged_props() {
+        let module_calls = eval(
+            r#"export default function render() {
+useDispatch("/usr/bin/mod", { a: 1 });
+useDispatch("/usr/bin/mod", { b: 2 });
+return <span class="text-white">hi</span>;
+}"#,
+        )
+        .module_calls;
+        assert_eq!(
+            module_calls,
+            vec![(
+                "/usr/bin/mod".to_string(),
+                serde_json::json!({ "a": 1, "b": 2 })
+            )]
+        );
+    }
+
+    /// The deprecated names are the new ones, not copies of them.
+    #[test]
+    fn use_events_is_use_dispatch_under_its_old_name() {
+        let result = eval(
+            r#"export default function render() {
+return <span class="text-white">{String(useEvents === useDispatch)}</span>;
+}"#,
+        )
+        .layout;
+        assert_eq!(result["children"][0], "true");
+    }
+
+    const SERVICE_LAYOUT: &str = r#"export default function render() {
+const [state, dispatch] = useService("/usr/bin/svc", { limit: 5 });
+return <div class="flex" on_click={[dispatch.next({ step: 2 })]}>{state === null ? "null" : state.name}</div>;
+}"#;
+
+    fn eval_service(line: Option<&str>) -> EvalOutput {
+        let mut streams = std::collections::HashMap::new();
+        if let Some(line) = line {
+            streams.insert(("/usr/bin/svc".to_string(), None), line.to_string());
+        }
+        JsxEvaluator::new(SERVICE_LAYOUT, serde_json::Value::Null, None)
+            .unwrap()
+            .eval(&streams)
+            .unwrap()
+    }
+
+    /// A Service has said nothing yet: its state is `null`, as `useJSONStream`'s is.
+    #[test]
+    fn use_service_state_is_null_before_the_first_line() {
+        assert_eq!(eval_service(None).layout["children"][0], "null");
+    }
+
+    #[test]
+    fn use_service_state_is_the_parsed_latest_line() {
+        let layout = eval_service(Some(r#"{"name":"hello"}"#)).layout;
+        assert_eq!(layout["children"][0], "hello");
+    }
+
+    #[test]
+    fn use_service_dispatch_builds_intents_for_its_bin() {
+        assert_eq!(
+            eval_service(None).layout["on_click"],
+            serde_json::json!([
+                { "channel": "/usr/bin/svc", "event": { "type": "next", "step": 2 } }
+            ]),
+        );
+    }
+
+    #[test]
+    fn use_service_registers_the_subprocess_with_its_props() {
+        assert_eq!(
+            eval_service(None).module_calls,
+            vec![(
+                "/usr/bin/svc".to_string(),
+                serde_json::json!({ "limit": 5 })
+            )]
+        );
+    }
+
+    /// However a layout reaches a bin — `useService` twice, or beside
+    /// `useJSONStream` and `useDispatch` — it is one registration, and every read
+    /// is of the bin with no script, which `apply_eval_result` (`src/app.rs`) folds into it.
+    #[test]
+    fn a_service_reached_several_ways_is_still_one_subprocess() {
+        let out = eval(
+            r#"export default function render() {
+useService("/usr/bin/svc", { a: 1 });
+useService("/usr/bin/svc", { b: 2 });
+useJSONStream("/usr/bin/svc");
+useDispatch("/usr/bin/svc");
+return <span class="text-white">hi</span>;
+}"#,
+        );
+        assert_eq!(
+            out.module_calls,
+            vec![(
+                "/usr/bin/svc".to_string(),
+                serde_json::json!({ "a": 1, "b": 2 })
+            )]
+        );
+        assert!(
+            out.stream_calls
+                .iter()
+                .all(|call| call == &("/usr/bin/svc".to_string(), None)),
+            "got: {:?}",
+            out.stream_calls
+        );
+    }
+
+    /// `<Module>` is `useService` as a render prop: same state, same dispatch.
+    #[test]
+    fn module_render_prop_gets_what_use_service_returns() {
+        let mut streams = std::collections::HashMap::new();
+        streams.insert(
+            ("/usr/bin/svc".to_string(), None),
+            r#"{"name":"hello"}"#.to_string(),
+        );
+        let layout = JsxEvaluator::new(
+            r#"export default function render() { return <Module bin="/usr/bin/svc">{(data, events) => <div class="flex" on_click={[events.next()]}>{data.name}</div>}</Module>; }"#,
+            serde_json::Value::Null,
+            None,
+        )
+        .unwrap()
+        .eval(&streams)
+        .unwrap()
+        .layout;
+        assert_eq!(layout["children"][0], "hello");
+        assert_eq!(
+            layout["on_click"],
+            serde_json::json!([{ "channel": "/usr/bin/svc", "event": { "type": "next" } }]),
         );
     }
 

@@ -132,18 +132,15 @@ In React, sharing data between unrelated parts of the tree requires context prov
 prop drilling, or external state managers.
 
 In tauler, all stream values are computed at the top of the render function and are in
-scope everywhere — including inside Module render-prop callbacks:
+scope everywhere below:
 
 ```jsx
 const notifications = useJSONStream("...tauler-notify")?.notifications ?? [];
+const [i3, dispatch] = useService("...tauler-i3");
 
-<Module bin="...tauler-i3">
-  {(data, events) => {
-    // notifications is in scope here — no context, no prop drilling
-    const urgent = notifications.some(n => data.workspaces.find(...));
-    return <WorkspaceList urgent={urgent} />;
-  }}
-</Module>
+// notifications and i3 are both in scope here — no context, no prop drilling
+const urgent = notifications.some(n => i3?.workspaces.find(...));
+return <WorkspaceList urgent={urgent} />;
 ```
 
 ### When you would need explicit state

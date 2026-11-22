@@ -5,16 +5,13 @@
 // would assert only that the code equals itself.
 
 function Status() {
+  const [data] = useService("/usr/local/share/e2e/bin/e2e-module-status");
   return (
-    <Module bin="/usr/local/share/e2e/bin/e2e-module-status">
-      {(data) => (
-        <div class="flex flex-col gap-1 rounded-lg border px-3 py-2">
-          <span class="text-[10px] text-foreground opacity-60">STATUS</span>
-          <span class="text-[15px] text-foreground">{data?.time ?? "--:--"}</span>
-          <span class="text-[11px] text-foreground opacity-70">{data?.host ?? "no data"}</span>
-        </div>
-      )}
-    </Module>
+    <div class="flex flex-col gap-1 rounded-lg border px-3 py-2">
+      <span class="text-[10px] text-foreground opacity-60">STATUS</span>
+      <span class="text-[15px] text-foreground">{data?.time ?? "--:--"}</span>
+      <span class="text-[11px] text-foreground opacity-70">{data?.host ?? "no data"}</span>
+    </div>
   );
 }
 

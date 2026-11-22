@@ -1,33 +1,26 @@
 // Scenario: one panel with an activatable button, for the a11y e2e flow.
 //
-// The `<Module>` spawns the recorder module so its channel is registered; the
-// button's `on_click` dispatches an intent to that channel. The e2e test proves
-// an AT can see the button in the accessibility tree and that activating it
-// delivers `{type: "activated"}` to the module.
+// `useDispatch` starts the recorder subprocess, so its channel is registered; the
+// button's `on_click` dispatches an event to it. The e2e test proves an AT can
+// see the button in the accessibility tree and that activating it delivers
+// `{type: "activated"}` to the recorder.
 
 export default function render() {
+  const recorder = useDispatch("/usr/local/share/e2e/bin/e2e-a11y-module");
+
   return (
     <root>
       <I3Layout module="/usr/local/bin/tauler-i3">
         <Panel id="a11ybar" anchor="bottom" size={32}>
           <div class="flex flex-row h-full w-full items-center gap-3 px-3 bg-background">
-            <Module bin="/usr/local/share/e2e/bin/e2e-a11y-module">
-              {() => (
-                <div
-                  role="button"
-                  aria-label="Mute"
-                  on_click={[
-                    {
-                      channel: "/usr/local/share/e2e/bin/e2e-a11y-module",
-                      event: { type: "activated" },
-                    },
-                  ]}
-                  class="px-3 py-1 rounded bg-surface text-foreground"
-                >
-                  Mute
-                </div>
-              )}
-            </Module>
+            <div
+              role="button"
+              aria-label="Mute"
+              on_click={[recorder.activated()]}
+              class="px-3 py-1 rounded bg-surface text-foreground"
+            >
+              Mute
+            </div>
             <span class="text-[12px] text-foreground opacity-70">a11y</span>
           </div>
         </Panel>

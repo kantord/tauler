@@ -175,8 +175,8 @@ fetches, caches, and grants the same trust its own layout file has, shell exec i
 mapping `owner/repo` to a commit and whether it is in **Development mode**. Importing one
 tauler has never seen is what creates its Lockfile entry, pinned to whatever commit was
 current at that moment — there is no separate "install" step.
-_Avoid_: dependency, module, library (a **Module** already names a different
-relationship — a subprocess, not a git repository)
+_Avoid_: dependency, module, library (a module is one JavaScript file a layout file
+imports, not a git repository)
 _Elsewhere_: package (npm, pip), dependency (Cargo) — the closest analogue in every one
 of those ecosystems, but this project's own Cargo packages (`tauler-core`, `tauler-i3`,
 ...) are a separate, unrelated use of the same English word within this very repository;
@@ -404,7 +404,7 @@ _Avoid_: demo, mockup, theme, example
 
 **Data component**:
 A component that renders no pixels and instead hands data to its children through a render
-prop. Defined by shape, not by where the data comes from — a Module wrapper and a pure
+prop. Defined by shape, not by where the data comes from — a Service wrapper and a pure
 transform are both Data components.
 _Avoid_: provider, source, container
 _Elsewhere_: headless component, render-prop component (React)
@@ -426,7 +426,7 @@ _Elsewhere_: figure (Observable Plot), view (Vega), an `<svg>` ref handed to d3 
 
 **Control component**:
 A Display component that also emits intents. It never holds a value: it renders the value
-it is given and remembers nothing. What owns the value is a Module, a Stream or a **Store**.
+it is given and remembers nothing. What owns the value is a Service, a Stream or a **Store**.
 _Avoid_: input, interactive component, widget
 _Elsewhere_: controlled component (React). Observable's `viewof` is the opposite — see
 ADR 0012 and ADR 0051.
@@ -468,18 +468,36 @@ field (Grafana)
 
 ### Data
 
-**Module**:
-A Stream that tauler also sends to: a subprocess registered by `useEvents` or `<Module>`.
-Two-way, but lopsided — what it is sent is delivered latest-wins (see **Outbox**), and
-nothing correlates a reply with the Event that may have caused it. A Module owns a
-vocabulary; tauler does not interpret it.
-_Avoid_: plugin, provider, service, backend
+**Subprocess**:
+A program tauler runs for a layout file. The layout file reads it, dispatches to it, or
+both; which of those it does is what makes it a Stream or a Service.
+_Avoid_: child process, worker, daemon, command (a Subprocess keeps running; what is sent
+to it is an **Event**)
 
 **Stream**:
-A source tauler reads one value from, keeping only the latest: a subprocess's stdout, or
-a Built-in stream named `tauler:…`. Read-only — a subprocess that is also sent to is a
-Module.
+A source tauler reads one value from, keeping only the latest: a Subprocess's stdout, or
+a Built-in stream named `tauler:…`. Read-only — a Subprocess that is also dispatched to
+is a Service.
 _Avoid_: source, feed, watcher
+
+**Service**:
+A Subprocess that holds state outside tauler: the layout file reads that state and
+dispatches Events to it, as the pair `useService` returns. Two-way, but lopsided — a
+Dispatch gets no reply, what is dispatched is delivered latest-wins (see **Outbox**), and
+the state can change without the layout file having dispatched anything. A Service owns
+a vocabulary; tauler does not interpret it.
+_Avoid_: module (the earlier name, and already a JavaScript file), actor (an actor is
+handed every message in its mailbox; a Service gets only the newest Event), plugin,
+provider, backend
+_Elsewhere_: the `[state, dispatch]` pair of `useReducer` (React), except that the
+reducer is another program and nothing says a Dispatch changed the state
+
+**Dispatch**:
+Sending an Event to a Subprocess. The handle `useDispatch` returns, and the second half
+of what `useService` returns, builds the **Intent** that does it; nothing is sent until
+the pointer reaches a Handler holding that Intent.
+_Avoid_: send, emit, call, request (nothing is returned)
+_Elsewhere_: `dispatch` (React's `useReducer`, Redux), `send` (XState)
 
 **Accumulator**:
 A subprocess that buffers the stream piped into it and re-emits a window of the last N
@@ -495,7 +513,7 @@ _Avoid_: process key, instance id
 
 **Intent**:
 An Event with its Channel attached and not yet sent: `{channel, event}`. Built by calling
-a property on the proxy `useEvents` returns; it is data, never a callback. A Handler holds
+a property on the handle `useDispatch` returns; it is data, never a callback. A Handler holds
 Intents, and tauler sends them when the pointer reaches it.
 _Avoid_: action, event handler, callback, command
 
@@ -508,19 +526,19 @@ _Avoid_: message, notification, signal
 _Elsewhere_: `CustomEvent` (DOM), except that nothing here bubbles or is observed back
 
 **Outbox**:
-What holds a Module to one intent at a time: the intent in flight, and the newest one
-waiting behind it. A Module that has not answered is handed nothing, and what it gets next
+What holds a Service to one intent at a time: the intent in flight, and the newest one
+waiting behind it. A Service that has not answered is handed nothing, and what it gets next
 is the newest thing produced since — never a backlog. See ADR 0025.
 _Avoid_: queue, buffer, backpressure (it is the mechanism, not the effect)
 
 **Channel**:
 The address half of an Intent — the subprocess, by its bin, that the Event is for. A
-Module only ever sees Events addressed to its own Channel, and never learns what caused
+Service only ever sees Events addressed to its own Channel, and never learns what caused
 them.
 _Avoid_: topic, target, recipient
 
 **Transport**:
-Whatever carries a Stream's values in and a Module's intents out. Subprocesses are the
+Whatever carries a Stream's values in and a Service's intents out. Subprocesses are the
 one tauler ships; a JavaScript module inside a page is another. A layout file names the
 bin, never the transport that answers to it.
 _Avoid_: glue, backend, adapter, driver, bridge

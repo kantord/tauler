@@ -238,6 +238,9 @@ function Sig({ code, faded }) {
 }
 
 export default function render() {
+  const [i3] = useService(TAULER_I3);
+  const [signals] = useService(SIGNALS);
+
   return (
     <root>
       {/* Navy ground with a huge low-contrast hoist triangle and a dot field.
@@ -300,52 +303,44 @@ export default function render() {
               class="flex flex-row items-center w-full h-full pl-[18px] pr-[18px] gap-[14px] bg-card"
               style={{ position: "relative", borderBottom: "1px solid rgba(233,231,220,0.15)" }}
             >
-              <Module bin={TAULER_I3}>
-                {(data) => (
-                  <div class="flex flex-row items-end gap-[12px]">
-                    {(data?.workspaces ?? []).map((ws) => (
-                      <Hoisted ws={ws} />
-                    ))}
-                  </div>
-                )}
-              </Module>
+              <div class="flex flex-row items-end gap-[12px]">
+                {(i3?.workspaces ?? []).map((ws) => (
+                  <Hoisted ws={ws} />
+                ))}
+              </div>
 
               <div class="flex grow" />
 
-              <Module bin={SIGNALS}>
-                {(data) => (
-                  <div class="flex flex-row items-center gap-[18px]">
-                    {/* The hoist: the last three signals, struck but still
-                        flying. History is free here — it is a second array in
-                        the same JSON line. */}
-                    <div class="flex flex-col items-end gap-[3px]">
-                      <span class="text-[8px] text-muted-foreground" style={{ letterSpacing: "2px" }}>
-                        STRUCK
-                      </span>
-                      <div class="flex flex-row gap-[3px]">
-                        {(data?.history ?? []).map((code) => (
-                          <Sig code={code} faded={true} />
-                        ))}
-                      </div>
-                    </div>
-
-                    <div class="flex flex-row gap-[5px]">
-                      {(data?.flying ?? []).map((code) => (
-                        <Sig code={code} faded={false} />
-                      ))}
-                    </div>
-
-                    <div class="w-[1px] h-[34px] bg-border" />
-
-                    <div class="flex flex-col items-end">
-                      <span class="text-[20px] text-foreground">{data?.time ?? "--:--"}</span>
-                      <span class="text-[9px] text-muted-foreground" style={{ letterSpacing: "2px" }}>
-                        {data?.date ?? ""}
-                      </span>
-                    </div>
+              <div class="flex flex-row items-center gap-[18px]">
+                {/* The hoist: the last three signals, struck but still
+                    flying. History is free here — it is a second array in
+                    the same JSON line. */}
+                <div class="flex flex-col items-end gap-[3px]">
+                  <span class="text-[8px] text-muted-foreground" style={{ letterSpacing: "2px" }}>
+                    STRUCK
+                  </span>
+                  <div class="flex flex-row gap-[3px]">
+                    {(signals?.history ?? []).map((code) => (
+                      <Sig code={code} faded={true} />
+                    ))}
                   </div>
-                )}
-              </Module>
+                </div>
+
+                <div class="flex flex-row gap-[5px]">
+                  {(signals?.flying ?? []).map((code) => (
+                    <Sig code={code} faded={false} />
+                  ))}
+                </div>
+
+                <div class="w-[1px] h-[34px] bg-border" />
+
+                <div class="flex flex-col items-end">
+                  <span class="text-[20px] text-foreground">{signals?.time ?? "--:--"}</span>
+                  <span class="text-[9px] text-muted-foreground" style={{ letterSpacing: "2px" }}>
+                    {signals?.date ?? ""}
+                  </span>
+                </div>
+              </div>
             </div>
           </div>
         </Panel>

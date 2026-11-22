@@ -301,18 +301,16 @@ It never remembers anything. `value` is read every tick from whatever owns it, a
 array of them.
 
 ```jsx
-<Module bin="~/.cargo/bin/tauler-audio">
-  {(data, events) => (
-    <Knob
-      value={data?.balance ?? 0}
-      step={5}
-      on_change={deg => events.setBalance({ deg })}
-    />
-  )}
-</Module>
+const [audio, dispatch] = useService("~/.cargo/bin/tauler-audio");
+
+<Knob
+  value={audio?.balance ?? 0}
+  step={5}
+  on_change={deg => dispatch.setBalance({ deg })}
+/>
 ```
 
-The turn sets nothing locally: it sends intents, the module changes the angle, and
+The turn sets nothing locally: it sends intents, the Service changes the angle, and
 the next tick brings the new `value` back. Omit `on_change` and the knob still
 renders — it is simply not interactive.
 
@@ -329,7 +327,7 @@ ignored rather than allowed to leap. Turn it by the rim.
 `value` and the reported angle have deliberately different domains. `value` is drawn
 as given, so `450` and `-90` point where they say. What `on_change` reports is always
 wrapped into 0–360, so turning past the top comes round rather than running off and a
-module's stored number cannot drift out to thousands. What it cannot report is how
+Service's stored number cannot drift out to thousands. What it cannot report is how
 many whole turns you made — there is no scale for them to mean anything on.
 
 `step` defaults to 1 and rounds the *turn*, not the angle it lands on. Rounding the
@@ -374,22 +372,20 @@ whatever owns it, and `on_change` (wired through to the composed scrollbar's
 thumb) receives where a drag has moved it and returns the intents to send.
 
 ```jsx
-<Module bin="~/.cargo/bin/tauler-logs">
-  {(data, events) => (
-    <ScrollArea
-      scroll_top={data?.scroll_top ?? 0}
-      content_height={data?.lines?.length * 18 ?? 0}
-      viewport_height={120}
-      on_change={top => events.setScrollTop({ top })}
-      class="h-[120px] w-[240px]"
-    >
-      {(data?.lines ?? []).map(line => <span class="text-[11px]">{line}</span>)}
-    </ScrollArea>
-  )}
-</Module>
+const [logs, dispatch] = useService("~/.cargo/bin/tauler-logs");
+
+<ScrollArea
+  scroll_top={logs?.scroll_top ?? 0}
+  content_height={logs?.lines?.length * 18 ?? 0}
+  viewport_height={120}
+  on_change={top => dispatch.setScrollTop({ top })}
+  class="h-[120px] w-[240px]"
+>
+  {(logs?.lines ?? []).map(line => <span class="text-[11px]">{line}</span>)}
+</ScrollArea>
 ```
 
-The drag sets nothing locally: it sends intents, the module changes `scroll_top`,
+The drag sets nothing locally: it sends intents, the Service changes `scroll_top`,
 and the next tick brings the new value back — the same round trip `<Slider>` and
 `<Knob>` make. Omit `on_change` and `<ScrollArea>` still renders, clipped and
 translated to `scroll_top`, just not draggable.
@@ -476,18 +472,16 @@ send — one, or an array of them. Pressing counts as the first drag event, so a
 plain click sets the value too.
 
 ```jsx
-<Module bin="~/.cargo/bin/tauler-audio">
-  {(data, events) => (
-    <Slider
-      value={data?.volume ?? 0}
-      step={5}
-      on_change={v => events.setVolume({ volume: v })}
-    />
-  )}
-</Module>
+const [audio, dispatch] = useService("~/.cargo/bin/tauler-audio");
+
+<Slider
+  value={audio?.volume ?? 0}
+  step={5}
+  on_change={v => dispatch.setVolume({ volume: v })}
+/>
 ```
 
-The drag sets nothing locally: it sends intents, the module changes the volume,
+The drag sets nothing locally: it sends intents, the Service changes the volume,
 and the next tick brings the new `value` back. Omit `on_change` and the slider
 still renders — it is simply not interactive.
 
@@ -495,11 +489,11 @@ still renders — it is simply not interactive.
 value, which is also what keeps a drag from sending a message per pixel: a motion
 that produces the intents just sent is skipped.
 
-The example below names a module, `tauler-demo-volume`, that you will not have —
+The example below names a Service, `tauler-demo-volume`, that you will not have —
 pasted as it stands it renders a slider that does not move. It names one anyway,
 because a slider with a literal `value` and no source would show you a control
 holding its own state, which is the one thing this component does not do. On this
-page the module is a few lines of JavaScript in the browser rather than a
+page the Service is a few lines of JavaScript in the browser rather than a
 subprocess; the layout file cannot tell the difference, and that is the point.
 
 #### Usage
@@ -507,7 +501,7 @@ subprocess; the layout file cannot tell the difference, and that is the point.
 ```jsx
 import { Slider } from "@ui/slider";
 
-const events = useEvents("tauler-demo-volume");
+const dispatch = useDispatch("tauler-demo-volume");
 const volume = Number(useStringStream("tauler-demo-volume")) || 40;
 
 return (
@@ -516,7 +510,7 @@ return (
       <span class="text-muted-foreground text-[11px]">Volume</span>
       <span class="text-foreground text-[11px]">{volume}%</span>
     </div>
-    <Slider value={volume} step={5} on_change={(v) => events.set({ value: v })} />
+    <Slider value={volume} step={5} on_change={(v) => dispatch.set({ value: v })} />
   </div>
 );
 ```

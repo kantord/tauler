@@ -2,7 +2,7 @@
 //!
 //! One string, evaluated verbatim in whichever JavaScript realm is running the layout
 //! file — QuickJS on a desktop, the browser's own engine in a page. That is what ADR 0027
-//! means by two engines sharing source rather than sharing an implementation: `useEvents`,
+//! means by two engines sharing source rather than sharing an implementation: `useDispatch`,
 //! the handler registry, pointer capture and step rounding are written once here and are
 //! the same characters in both.
 //!
@@ -76,10 +76,14 @@ pub const JSX_GLOBALS_JS: &str = concat!(
         if (!str) return null;
         try { return JSON.parse(str); } catch { return null; }
     };
-    // `props` are merged into the module's init event (see merge_module_props in app.rs),
-    // so they are load-bearing. Registering the same bin more than once contributes
-    // every declaration's props (see registerModule): one subprocess, union of props.
-    globalThis.useEvents = (bin, props) => {
+    // A Dispatch handle for the subprocess `bin`: each property is a function that
+    // builds the intent carrying one event to it.
+    //
+    // `props` are merged into the subprocess's init event (see merge_module_props in
+    // app.rs), so they are load-bearing. Registering the same bin more than once
+    // contributes every declaration's props (see registerModule): one subprocess, union
+    // of props.
+    globalThis.useDispatch = (bin, props) => {
         registerModule(bin, props ?? {});
         return new Proxy({}, {
             get: (_, type) => (args) => ({
@@ -88,6 +92,13 @@ pub const JSX_GLOBALS_JS: &str = concat!(
             })
         });
     };
+    // A Service: a subprocess the layout both reads and dispatches to. The pair is
+    // `[state, dispatch]`, in the order of React's `useReducer`.
+    globalThis.useService = (bin, props) => [useJSONStream(bin), useDispatch(bin, props)];
+    // Deprecated: the name `useDispatch` had before a subprocess that is read and
+    // dispatched to was called a Service. The same function, kept until the layout files
+    // that say `useEvents` are migrated.
+    globalThis.useEvents = globalThis.useDispatch;
     // Declaration only: <I3Layout> reads these, positions them, and emits the
     // real <panel> nodes. Kept a marker rather than a panel because a panel's
     // position depends on every sibling declared before it.
@@ -143,7 +154,7 @@ pub const JSX_GLOBALS_JS: &str = concat!(
                 bottom: gaps.bottom + frame.gaps.bottom,
             };
         }
-        if (module) useEvents(module, { gaps });
+        if (module) useDispatch(module, { gaps });
         return panels;
     };
     // Declaration only, like <Panel>: <Workspaces> reads the render-prop's return
@@ -218,7 +229,7 @@ pub const JSX_GLOBALS_JS: &str = concat!(
     // `src/app.rs`).
     //
     // DECISION: the name is `store`, and a layout file gets it with
-    // `import { store } from "tauler"`, not as a global like `useEvents`. Reason: the
+    // `import { store } from "tauler"`, not as a global like `useDispatch`. Reason: the
     // import gives TypeScript a place to find the types. Exactness of the compile pass
     // does not argue either way: it tells tauler's `store` from a file's own by scope
     // analysis. Rejected: a global.
@@ -585,7 +596,7 @@ pub const JSX_GLOBALS_JS: &str = concat!(
     globalThis.ConfigFile = ({ path, render, apply, mode }) => {
         // A path is config, and config gets to be written the way a person
         // writes it in a shell — the same convention `expand_tilde` already
-        // gives `theme.file`, `fonts.extra` and a Module's `bin`
+        // gives `theme.file`, `fonts.extra` and a Service's `bin`
         // (`src/config.rs`). `HOME` is a captured constant, not a live read,
         // so this costs nothing beyond a string check.
         if (path.startsWith('~/')) path = HOME + path.slice(1);
@@ -692,9 +703,11 @@ pub const JSX_GLOBALS_JS: &str = concat!(
         registerFigure(name, width, height, draw);
         return { type: "img", src: "tauler:picture/" + name, style: { width, height } };
     };
+    // Deprecated: `useService` as a render prop, from when a Service was called a Module.
+    // Kept until the layout files that say `<Module>` are migrated.
     globalThis.Module = ({ bin, children, ...rest }) => {
         const child = Array.isArray(children) ? children[0] : children;
-        if (typeof child === 'function') return child(useJSONStream(bin), useEvents(bin, rest));
+        if (typeof child === 'function') return child(...useService(bin, rest));
         return { "bin@": bin, ...rest };
     };
 "#,

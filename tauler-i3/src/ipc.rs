@@ -150,7 +150,7 @@ pub fn focused_output(workspaces: &[Workspace]) -> Option<&str> {
         .map(|w| w.output.as_str())
 }
 
-/// Gap values declared in JSX via `<Module gaps={{...}}>`. `None` means take
+/// Gap values declared in the layout file as a prop (`useService(bin, { gaps })`). `None` means take
 /// the value derived from panel geometry.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct GapOverrides {

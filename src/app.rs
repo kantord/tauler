@@ -292,7 +292,7 @@ fn apply_eval_result(
     true
 }
 
-/// Merge a module's JSX-declared props (`<Module bin=".." gaps={{..}}>`) into
+/// Merge a module's JSX-declared props (`useService(bin, { gaps: {..} })`) into
 /// the derived init payload. Init keys win: that payload is the module
 /// protocol, not user-editable state.
 fn merge_module_props(
@@ -317,7 +317,7 @@ fn merge_module_props(
 /// i3 reserves nothing for override-redirect windows, and has no left/right
 /// dock concept at all (`W_DOCK_TOP`/`W_DOCK_BOTTOM` are its only variants), so
 /// what to reserve is a decision, not a consequence of geometry. The layout
-/// file now states it via `<Module gaps={{...}}>`, which passes through
+/// file now states it as a prop (`useService(bin, { gaps })`), which passes through
 /// untouched.
 fn make_mod_init_value(
     output_name: &str,
