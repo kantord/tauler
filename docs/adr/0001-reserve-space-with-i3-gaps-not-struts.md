@@ -1,5 +1,7 @@
 # Reserve space with i3 gaps, not EWMH struts
 
+_Vocabulary note: "output" in this record is what `CONTEXT.md` now calls a Screen._
+
 The obvious way for a bar to keep tiled windows out of its way is `_NET_WM_STRUT_PARTIAL`.
 tauler cannot use it, so it reserves space by telling i3 its gaps instead — an explicit
 declaration in the layout file rather than something inferred from a surface's geometry.

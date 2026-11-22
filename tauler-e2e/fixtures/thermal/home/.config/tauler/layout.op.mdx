@@ -205,6 +205,13 @@ function Measure({ geom }) {
 // ── Root ────────────────────────────────────────────────────────────────────
 
 export default function render() {
+  const [i3] = useService(TAULER_I3);
+  const wss = i3?.workspaces ?? [];
+  const focused = wss.filter((w) => w.focused)[0];
+  const title = (focused?.focused_windows ?? [])[0] ?? "—";
+  const [scene] = useService(SCENE);
+  const [geom] = useService(GEOMETRY);
+
   return (
     <root>
       <wallpaper id="desktop">
@@ -250,48 +257,35 @@ export default function render() {
 
               <Divider />
 
-              <Module bin={TAULER_I3}>
-                {(data) => {
-                  const wss = data?.workspaces ?? [];
-                  const focused = wss.filter((w) => w.focused)[0];
-                  const title = (focused?.focused_windows ?? [])[0] ?? "—";
-                  return (
-                    <div class="flex flex-row items-center gap-[10px]">
-                      <Reading label="SUBJECT" value={title} />
-                      <Reading label="WS" value={focused?.name ?? "—"} tone="#F4D660" />
-                    </div>
-                  );
-                }}
-              </Module>
+              <div class="flex flex-row items-center gap-[10px]">
+                <Reading label="SUBJECT" value={title} />
+                <Reading label="WS" value={focused?.name ?? "—"} tone="#F4D660" />
+              </div>
 
               <div class="flex grow" />
 
-              <Module bin={SCENE}>
-                {(scene) => (
-                  <div class="flex flex-row items-center gap-[16px]">
-                    <RampBar min={scene?.min ?? "--"} max={scene?.max ?? "--"} />
-                    <Divider />
-                    <Reading label="MIN" value={scene?.min ?? "--"} tone="#5C3076" />
-                    <Reading label="MAX" value={scene?.max ?? "--"} tone="#F4D660" />
-                    <Reading label="E" value={scene?.emissivity ?? "--"} />
-                    <Divider />
-                    <Reading label="TIME" value={scene?.time ?? "--:--"} />
-                  </div>
-                )}
-              </Module>
+              <div class="flex flex-row items-center gap-[16px]">
+                <RampBar min={scene?.min ?? "--"} max={scene?.max ?? "--"} />
+                <Divider />
+                <Reading label="MIN" value={scene?.min ?? "--"} tone="#5C3076" />
+                <Reading label="MAX" value={scene?.max ?? "--"} tone="#F4D660" />
+                <Reading label="E" value={scene?.emissivity ?? "--"} />
+                <Divider />
+                <Reading label="TIME" value={scene?.time ?? "--:--"} />
+              </div>
             </div>
           </div>
         </Panel>
 
         <Panel id="scale" anchor="right" size={76}>
-          <Module bin={SCENE}>{(scene) => <Scale scene={scene} />}</Module>
+          <Scale scene={scene} />
         </Panel>
       </I3Layout>
 
-      {/* A <panel> produced from inside a <Module> callback, at root level.
+      {/* A <panel> produced from a Service's state, at root level.
           Nothing else in the repo does this, and it is the whole reason the
           callout can track a window. */}
-      <Module bin={GEOMETRY}>{(geom) => <Measure geom={geom} />}</Module>
+      <Measure geom={geom} />
     </root>
   );
 }

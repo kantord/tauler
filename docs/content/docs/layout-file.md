@@ -107,7 +107,7 @@ lowercase tags that are not HTML:
 |---|---|
 | `root` | mandatory top-level node; contains `panel` and `wallpaper` nodes |
 | `panel` | one desktop surface — an X11 window or a Wayland layer surface |
-| `wallpaper` | paints its subtree into the desktop background of one output |
+| `wallpaper` | paints its subtree into the desktop background of one screen |
 
 Both surface kinds parse into the same shape; only the destination of the finished pixels
 differs. `<surface type="panel">` and `<surface type="wallpaper">` are accepted long-hand
@@ -123,7 +123,7 @@ spellings. A bare `<surface>` names no kind and is a parse error.
 | `x` | number | x position, ignored when `anchor` is set |
 | `y` | number | y position, ignored when `anchor` is set |
 | `above` | boolean | stack above other windows, for overlays like notifications |
-| `output` | string | X11: RandR output name, e.g. `"DP-2"`; omit for the primary output. Wayland: the compositor's output name; omit for the primary output, the leftmost one. macOS: Tauler sees only the primary display, and a name other than `ctx.output` removes the panel. See [Backends](/docs/backends/) |
+| `output` | string | X11: RandR output name, e.g. `"DP-2"`; omit for the primary screen. Wayland: the compositor's screen name; omit for the primary screen, the leftmost one. macOS: Tauler sees only the primary display, and a name other than `ctx.output` removes the panel. See [Backends](/docs/backends/) |
 
 `anchor` *places* a panel. Whether it also reserves space depends on the display server:
 
@@ -139,9 +139,9 @@ spellings. A bare `<surface>` names no kind and is a parse error.
 | prop | type | description |
 |---|---|---|
 | `id` | string | surface id; **required** — without it the whole root fails to parse |
-| `output` | string | X11: RandR output name, e.g. `"DP-2"`; omit for the primary output. Wayland: the compositor's output name; omit for the primary output, the leftmost one. macOS: only the primary display; any other name removes the wallpaper |
+| `output` | string | X11: RandR output name, e.g. `"DP-2"`; omit for the primary screen. Wayland: the compositor's screen name; omit for the primary screen, the leftmost one. macOS: only the primary display; any other name removes the wallpaper |
 
-A wallpaper has no geometry props. It always covers its output exactly, and its subtree is
+A wallpaper has no geometry props. It always covers its screen exactly, and its subtree is
 laid out against those dimensions. It reserves nothing and receives no clicks. On X11 it is
 pixels painted into the root background; on macOS it is a window pinned below all others.
 
@@ -167,7 +167,7 @@ empty with nothing in the log.
 
 Wallpapers work on X11, macOS and Wayland. On Wayland the wallpaper is a surface on the
 compositor's background layer, so the compositor must implement `wlr-layer-shell` (Sway,
-Hyprland and river do). It lands on the output its `output` prop names. A fractional pixel
+Hyprland and river do). It lands on the screen its `output` prop names. A fractional pixel
 scale is exact when the compositor has `wp_viewporter` (Sway, Hyprland and river do);
 otherwise it is rounded to a whole number. See [Backends](/docs/backends/).
 
@@ -177,7 +177,7 @@ Each panel is rasterized into its own buffer, so there is nothing behind it to s
 through — a translucent background paints onto nothing. To give it something, Tauler binds
 the slice of wallpaper that panel covers as an image named `tauler:root-bg`, for the
 duration of one render. The `tauler:` scheme marks it as a resource Tauler binds rather
-than a file to read, so no file on disk can shadow it:
+than a file to read, so no file on disk can shadow it (see [Built-in names](/docs/builtin-names/)):
 
 ```jsx
 <panel id="sidebar" anchor="left" width={272} height={ctx.screen_height}>
@@ -205,6 +205,6 @@ hoists that work and costs about 5ms.
 sibling still paints above the image and avoids a family of layout bugs that appear with
 several absolutely-positioned siblings.
 
-The pixels come from Tauler's own `<wallpaper>` node, matched by output. A wallpaper set
-by another program — `feh`, `xwallpaper` — is not visible here. A panel on an output with
+The pixels come from Tauler's own `<wallpaper>` node, matched by screen. A wallpaper set
+by another program — `feh`, `xwallpaper` — is not visible here. A panel on a screen with
 no `<wallpaper>` gets no wallpaper behind it at all, rather than borrowing its neighbour's.

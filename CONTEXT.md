@@ -18,8 +18,8 @@ A surface that owns a desktop window of its own.
 _Avoid_: bar, dock, widget, bar window
 
 **Wallpaper**:
-A surface painted into the desktop background of one output. It has no window, takes no
-clicks, and always covers its output exactly.
+A surface painted into the desktop background of one Screen. It has no window, takes no
+clicks, and always covers its Screen exactly.
 _Avoid_: background, backdrop, root image, desktop
 
 **Dom**:
@@ -32,12 +32,14 @@ The element in a web page a Dom surface's markup is written into. Everything ins
 tauler's; everything outside it is the page's.
 _Avoid_: host, container, target, portal
 
-**Output**:
-One connected monitor, named as RandR names it (`DP-2`).
-_Avoid_: screen, display, monitor
+**Screen**:
+One connected display, named as the display server names it (`DP-2`).
+_Elsewhere_: RandR output (the connector, not RandR 1.5 monitors, which are logical regions),
+Wayland `wl_output`, i3/sway output
+_Avoid_: output (generic), monitor (audio monitors), display
 
 **Anchor**:
-The screen edge a surface is pinned to. An anchor *places* a surface. On X11 and macOS it
+The edge of a Screen a surface is pinned to. An anchor *places* a surface. On X11 and macOS it
 never reserves space for it. On Wayland the backend also asks the compositor to keep other
 windows clear of an anchored surface (ADR 0001).
 _Avoid_: dock edge, side, alignment
@@ -53,6 +55,13 @@ concept, not the concept itself)
 The four per-edge distances that express a reservation to i3. The unit is the logical
 pixel — see **Logical pixel**.
 _Avoid_: margins, padding, insets
+
+**Built-in name**:
+A name starting `tauler:` that tauler answers itself instead of reading a file or running
+a program: a Built-in stream such as `tauler:outputs`, or an image such as `tauler:root-bg`.
+The prefix is what stops a file of the same name from shadowing it.
+_Avoid_: reserved name, magic name, builtin
+_Elsewhere_: the `node:` prefix for Node's own modules, `about:` URLs in browsers
 
 **tauler:root-bg**:
 The slice of Wallpaper sitting behind one Panel, bound as an image for the duration of a
@@ -166,8 +175,8 @@ fetches, caches, and grants the same trust its own layout file has, shell exec i
 mapping `owner/repo` to a commit and whether it is in **Development mode**. Importing one
 tauler has never seen is what creates its Lockfile entry, pinned to whatever commit was
 current at that moment — there is no separate "install" step.
-_Avoid_: dependency, module, library (a **Module** already names a different
-relationship — a subprocess, not a git repository)
+_Avoid_: dependency, module, library (a module is one JavaScript file a layout file
+imports, not a git repository)
 _Elsewhere_: package (npm, pip), dependency (Cargo) — the closest analogue in every one
 of those ecosystems, but this project's own Cargo packages (`tauler-core`, `tauler-i3`,
 ...) are a separate, unrelated use of the same English word within this very repository;
@@ -223,7 +232,7 @@ _Elsewhere_: a module-level store (zustand), a top-level atom (Jotai)
 A **Store** declared inside a function. Each **component instance** that reaches the
 declaration has its own value, and the value is dropped by the first Tick that does not
 reach the declaration.
-_Avoid_: hook, hook state, `useLocal`, component state
+_Avoid_: hook state, `useLocal`, component state (hook alone names a Unit's callback — see **Hook**)
 _Elsewhere_: `useState` (React), `$state` in a component (Svelte), except that neither is
 found again by name
 
@@ -395,7 +404,7 @@ _Avoid_: demo, mockup, theme, example
 
 **Data component**:
 A component that renders no pixels and instead hands data to its children through a render
-prop. Defined by shape, not by where the data comes from — a Module wrapper and a pure
+prop. Defined by shape, not by where the data comes from — a Service wrapper and a pure
 transform are both Data components.
 _Avoid_: provider, source, container
 _Elsewhere_: headless component, render-prop component (React)
@@ -417,7 +426,7 @@ _Elsewhere_: figure (Observable Plot), view (Vega), an `<svg>` ref handed to d3 
 
 **Control component**:
 A Display component that also emits intents. It never holds a value: it renders the value
-it is given and remembers nothing. What owns the value is a Module, a Stream or a **Store**.
+it is given and remembers nothing. What owns the value is a Service, a Stream or a **Store**.
 _Avoid_: input, interactive component, widget
 _Elsewhere_: controlled component (React). Observable's `viewof` is the opposite — see
 ADR 0012 and ADR 0051.
@@ -459,15 +468,36 @@ field (Grafana)
 
 ### Data
 
-**Module**:
-A subprocess tauler both reads JSON from and sends intents to. A Module owns a vocabulary;
-tauler does not interpret it.
-_Avoid_: plugin, provider, service, backend
+**Subprocess**:
+A program tauler runs for a layout file. The layout file reads it, dispatches to it, or
+both; which of those it does is what makes it a Stream or a Service.
+_Avoid_: child process, worker, daemon, command (a Subprocess keeps running; what is sent
+to it is an **Event**)
 
 **Stream**:
-A subprocess whose stdout tauler reads, one value per line. Read-only — a stream that is
-also written to is a Module.
+A source tauler reads one value from, keeping only the latest: a Subprocess's stdout, or
+a Built-in stream named `tauler:…`. Read-only — a Subprocess that is also dispatched to
+is a Service.
 _Avoid_: source, feed, watcher
+
+**Service**:
+A Subprocess that holds state outside tauler: the layout file reads that state and
+dispatches Events to it, as the pair `useService` returns. Two-way, but lopsided — a
+Dispatch gets no reply, what is dispatched is delivered latest-wins (see **Outbox**), and
+the state can change without the layout file having dispatched anything. A Service owns
+a vocabulary; tauler does not interpret it.
+_Avoid_: module (the earlier name, and already a JavaScript file), actor (an actor is
+handed every message in its mailbox; a Service gets only the newest Event), plugin,
+provider, backend
+_Elsewhere_: the `[state, dispatch]` pair of `useReducer` (React), except that the
+reducer is another program and nothing says a Dispatch changed the state
+
+**Dispatch**:
+Sending an Event to a Subprocess. The handle `useDispatch` returns, and the second half
+of what `useService` returns, builds the **Intent** that does it; nothing is sent until
+the pointer reaches a Handler holding that Intent.
+_Avoid_: send, emit, call, request (nothing is returned)
+_Elsewhere_: `dispatch` (React's `useReducer`, Redux), `send` (XState)
 
 **Accumulator**:
 A subprocess that buffers the stream piped into it and re-emits a window of the last N
@@ -482,23 +512,33 @@ Two declarations with the same identity are the same process.
 _Avoid_: process key, instance id
 
 **Intent**:
-A plain JSON object naming a channel and the message to deliver there. Produced by
-calling a property on an events proxy; it is data, never a callback.
+An Event with its Channel attached and not yet sent: `{channel, event}`. Built by calling
+a property on the handle `useDispatch` returns; it is data, never a callback. A Handler holds
+Intents, and tauler sends them when the pointer reaches it.
 _Avoid_: action, event handler, callback, command
 
+**Event**:
+The payload of an Intent — `{type, ...}` — delivered verbatim to a subprocess's stdin as
+one JSON line. A command sent out, not something that happened to the layout, and not a
+notification: nothing tells the author it was received. The word follows `dispatchEvent`
+and `CustomEvent` in the DOM: the author creates it, the subprocess receives it.
+_Avoid_: message, notification, signal
+_Elsewhere_: `CustomEvent` (DOM), except that nothing here bubbles or is observed back
+
 **Outbox**:
-What holds a Module to one intent at a time: the intent in flight, and the newest one
-waiting behind it. A Module that has not answered is handed nothing, and what it gets next
+What holds a Service to one intent at a time: the intent in flight, and the newest one
+waiting behind it. A Service that has not answered is handed nothing, and what it gets next
 is the newest thing produced since — never a backlog. See ADR 0025.
 _Avoid_: queue, buffer, backpressure (it is the mechanism, not the effect)
 
 **Channel**:
-The destination of an intent — the bin it is delivered to. A Module only ever sees
-messages addressed to its own channel, and never learns what caused them.
+The address half of an Intent — the subprocess, by its bin, that the Event is for. A
+Service only ever sees Events addressed to its own Channel, and never learns what caused
+them.
 _Avoid_: topic, target, recipient
 
 **Transport**:
-Whatever carries a Stream's values in and a Module's intents out. Subprocesses are the
+Whatever carries a Stream's values in and a Service's intents out. Subprocesses are the
 one tauler ships; a JavaScript module inside a page is another. A layout file names the
 bin, never the transport that answers to it.
 _Avoid_: glue, backend, adapter, driver, bridge
@@ -515,6 +555,14 @@ hooks are the layout file's own JavaScript, and so may take as long as they like
 _Avoid_: resource (that is a subprocess argument), target (that is a Render target), kind
 (that is a Component kind), type
 _Elsewhere_: custom resource definition (Kubernetes), provider resource (Terraform)
+
+**Hook**:
+A function a Unit's declaration supplies for one transition of an Item — `enter`, `update`,
+`exit` — run by the Sweep. Not React's hook, and not local state, which is a **Local
+Store**. The `use*` data functions are hook-like only in being called unconditionally
+(a subprocess's identity is its bin and script); they are not Hooks in this sense.
+_Avoid_: callback, lifecycle method, effect
+_Elsewhere_: lifecycle hook (Kubernetes operators, Terraform provisioners); not `useEffect` (React)
 
 **Item**:
 One instance of a Unit, identified by its key. What the layout tree yields, what an

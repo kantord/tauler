@@ -33,11 +33,11 @@ export function TaulerExamples() {
           await load('/tauler/runtime.js')
         await boot('/tauler/tauler_web_bg.wasm')
 
-        // A Module, implemented in the page instead of as a subprocess.
+        // A Service, implemented in the page instead of as a subprocess.
         //
         // It is what makes the Slider example on this page work, and it is
         // the whole demonstration: the layout file says
-        // `useEvents("tauler-demo-volume")` and
+        // `useDispatch("tauler-demo-volume")` and
         // `useStringStream("tauler-demo-volume")` and cannot tell whether the
         // other end is a process, a worker, an SSH connection or these four
         // lines. A Transport is whatever fills the map and takes the intents.

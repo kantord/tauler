@@ -526,7 +526,7 @@ mod tests {
         assert_eq!(removed, 0);
     }
 
-    /// A Package's `bin/*` scripts are spawned directly (`<Module bin=…>`), so a
+    /// A Package's `bin/*` scripts are spawned directly (`useService(bin)`), so a
     /// placed checkout must keep the executable bit git recorded.
     #[test]
     fn fetch_and_place_keeps_the_executable_bit() {

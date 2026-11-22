@@ -1,6 +1,6 @@
 //! One intent in flight per channel, and the newest of the rest.
 //!
-//! A Module is a subprocess reading its stdin one line at a time, and nothing
+//! A Service is a subprocess reading its stdin one line at a time, and nothing
 //! about that says how fast it reads. A volume module that forks `wpctl` per
 //! intent gets through a few dozen a second; the pipeline can produce one per
 //! Pass. Handing it every intent as fast as they are produced means an unbounded

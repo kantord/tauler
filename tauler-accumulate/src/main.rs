@@ -10,7 +10,7 @@
 //!
 //! It is a ring buffer and nothing else. Each input line is parsed as JSON if it
 //! parses and kept as a string if it does not, so the accumulator never interprets
-//! what it is holding — a Module's vocabulary stays the Module's business. Anything
+//! what it is holding — a Service's vocabulary stays the Service's business. Anything
 //! that looks like a query or a transform belongs on the other side of the boundary:
 //! in the pipe (`jq -c .MESSAGE | …`) or in the layout file, which is already
 //! JavaScript.

@@ -30,7 +30,7 @@ impl PanelAnchor {
 /// Both kinds are rendered identically — takumi rasterizes the subtree into a
 /// pixel buffer. They differ only in where that buffer is handed to: a `Panel`
 /// gets its own window (X11 override-redirect window / Wayland layer surface),
-/// a `Wallpaper` is painted straight into the desktop background of its output.
+/// a `Wallpaper` is painted straight into the desktop background of its Screen.
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Default)]
 pub enum SurfaceKind {
     #[default]
@@ -38,7 +38,7 @@ pub enum SurfaceKind {
     Wallpaper,
 }
 
-/// Per-monitor metadata, including physical pixel dimensions and device pixel ratio.
+/// Per-Screen metadata, including physical pixel dimensions and device pixel ratio.
 #[derive(Debug, Clone, PartialEq)]
 pub struct OutputInfo {
     pub name: String,
@@ -50,7 +50,7 @@ pub struct OutputInfo {
 }
 
 impl OutputInfo {
-    /// The area this output covers on the root screen.
+    /// The area this Screen covers on the X screen's root window.
     pub fn rect(&self) -> Rect {
         Rect {
             x: self.x,
@@ -87,7 +87,7 @@ pub struct SurfaceSpec {
     pub height: u32,
     pub x: i32,
     pub y: i32,
-    /// RandR output name to place this panel on (e.g. "DP-2"). None = primary output.
+    /// Name of the Screen to place this panel on (e.g. "DP-2"). None = primary Screen.
     pub output: Option<String>,
     /// When true the window is stacked above other windows (for floating overlays like
     /// notifications). When false (default) the window sits below tiled content.
@@ -106,7 +106,7 @@ impl std::fmt::Display for SurfaceSpec {
 
 /// Where a surface's top-left corner lands on the root screen, in physical pixels.
 ///
-/// Anchored surfaces sit flush against an edge of their output; unanchored ones
+/// Anchored surfaces sit flush against an edge of their Screen; unanchored ones
 /// are offset from its origin by their logical `x`/`y`. `phys` is passed in
 /// rather than derived from the spec because callers that already resized a
 /// window know its real dimensions, which can differ from the spec mid-reconcile.
@@ -204,7 +204,7 @@ fn first_child(node: &serde_json::Value) -> serde_json::Value {
 }
 
 /// A `<wallpaper>` node. It carries no geometry of its own: `width`/`height`/`x`/`y`
-/// are filled in from the target output before reconciliation, so the rendered
+/// are filled in from the target Screen before reconciliation, so the rendered
 /// buffer always matches the display exactly.
 fn parse_wallpaper(i: usize, node: &serde_json::Value) -> Result<SurfaceSpec, String> {
     let id = required_str(node, "id", &format!("wallpaper[{i}]"))?.to_string();

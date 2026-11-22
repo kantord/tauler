@@ -159,7 +159,7 @@ fn theme_file_watch_desired(path: Option<std::path::PathBuf>) -> Vec<WatchedPath
 fn make_builtin(key: &str) -> Option<BuiltInSource> {
     use tauler::x11::outputs::outputs_thread;
     match key {
-        "tauler:outputs" => Some(BuiltInSource {
+        tauler::scheme::OUTPUTS => Some(BuiltInSource {
             key: key.to_string(),
             func: outputs_thread,
         }),
@@ -213,8 +213,8 @@ fn apply_eval_result(
             return false;
         }
     };
-    // Panels whose output isn't in the map don't exist yet — skip them silently.
-    // "output not specified" means primary output; same rule applies.
+    // Panels whose Screen isn't in the map don't exist yet — skip them silently.
+    // "output not specified" means the primary Screen; same rule applies.
     specs.retain(|spec| {
         let name = spec.output.as_deref().unwrap_or(primary_output_name);
         output_map.contains_key(name)
@@ -226,10 +226,10 @@ fn apply_eval_result(
             .unwrap_or(primary_output_name)
             .to_string();
         let out = output_map.get(&name);
-        // An implicit output (no `output` prop) means the primary one, and the
+        // An implicit Screen (no `output` prop) means the primary one, and the
         // spec's declared size came from JS layout math run against
         // `ctx.screen_width` — which is `dpr`-based (Xft.dpi/96 on X11), not
-        // the primary output's own RandR-mm density. Using that RandR density
+        // the primary Screen's own RandR-mm density. Using that RandR density
         // here for an implicit panel is issue #525 bug #6: the panel's
         // declared and rendered sizes would then be computed against two
         // disagreeing formulas. An *explicit* `output` means real
@@ -240,7 +240,7 @@ fn apply_eval_result(
         } else {
             dpr
         };
-        // Resolve "unspecified" to the primary output's real name, so a panel
+        // Resolve "unspecified" to the primary Screen's real name, so a panel
         // and a wallpaper that mean the same monitor agree on one key — that is
         // how `backdrop` pairs them up.
         spec.output = Some(name.clone());
@@ -292,7 +292,7 @@ fn apply_eval_result(
     true
 }
 
-/// Merge a module's JSX-declared props (`<Module bin=".." gaps={{..}}>`) into
+/// Merge a module's JSX-declared props (`useService(bin, { gaps: {..} })`) into
 /// the derived init payload. Init keys win: that payload is the module
 /// protocol, not user-editable state.
 fn merge_module_props(
@@ -317,7 +317,7 @@ fn merge_module_props(
 /// i3 reserves nothing for override-redirect windows, and has no left/right
 /// dock concept at all (`W_DOCK_TOP`/`W_DOCK_BOTTOM` are its only variants), so
 /// what to reserve is a decision, not a consequence of geometry. The layout
-/// file now states it via `<Module gaps={{...}}>`, which passes through
+/// file now states it as a prop (`useService(bin, { gaps })`), which passes through
 /// untouched.
 fn make_mod_init_value(
     output_name: &str,
@@ -654,7 +654,7 @@ fn spawn_render_worker(command_tx: mpsc::Sender<SurfaceCommand>) -> SurfaceOutpu
 /// caller draws nothing rather than crash, same as a missing file always has.
 ///
 /// An unusable *config* (invalid frontmatter, or invalid `config.yaml` on the legacy
-/// path) is different: it ends the process, same reasoning `docs/adr/0033` gives for an
+/// path) is different: it ends the process, same reasoning `docs/adr/0052` gives for an
 /// unusable `theme.file`, extended in `docs/adr/0036` to the whole config. This is a
 /// startup-only policy — call it from a constructor or `initial_load`, never from a
 /// reload handler, which must never exit.
@@ -724,7 +724,7 @@ impl std::fmt::Display for ThemeLoadError {
 ///
 /// DECISION: two optional fields, not an enum, so that naming both is representable and fails
 /// at load ([`ThemeLoadError::Ambiguous`]) under the same startup/reload policy as every other
-/// unusable theme (`docs/adr/0033`). Rejected: an enum built by a fallible constructor — every
+/// unusable theme (`docs/adr/0052`). Rejected: an enum built by a fallible constructor — every
 /// caller would then need a second error path for "the config was already bad".
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 struct ThemeSource {
@@ -742,7 +742,7 @@ impl ThemeSource {
     /// A source that is named but unusable is an error rather than a fall back to the
     /// default — the default palette is chroma 0 on every token, so substituting it renders a
     /// bar that looks deliberate in the wrong colours. What to do about that error is the
-    /// caller's, and differs between startup and a reload (`docs/adr/0033`).
+    /// caller's, and differs between startup and a reload (`docs/adr/0052`).
     ///
     /// SPEC: every theme loaded here defines every core and ANSI token
     /// (`Theme::complete`). A *user's* file that falls below the contrast floor only warns —
@@ -825,7 +825,7 @@ fn theme_source_from(config: &TaulerConfig) -> ThemeSource {
     }
 }
 
-/// The theme to start with, or no tauler at all (`docs/adr/0033`).
+/// The theme to start with, or no tauler at all (`docs/adr/0052`).
 ///
 /// Startup has no palette on screen to keep, so an unusable theme (a bad `theme.file`, an unknown
 /// `theme.name`, both set, or one with missing or invalid colours) ends the process.
@@ -864,7 +864,7 @@ fn eval_with_reloaded_fonts(
 }
 
 /// The theme to render with after a config reload: the newly loaded one, or the one already on
-/// screen when the new one cannot be loaded (`docs/adr/0033`).
+/// screen when the new one cannot be loaded (`docs/adr/0052`).
 ///
 /// Unlike startup this never exits. A reload fires on every write to the file, so an editor
 /// saving it half-written is an ordinary event, and ending a running bar over one would be a
@@ -1879,10 +1879,10 @@ impl App {
                     // (issue #525 bug #3) rather than trusted from construction
                     // or picked via an unordered Vec — see `resolve_primary_output_name`.
                     self.output_name = primary_name;
-                    // `context_dpr` (not a specific output's own RandR-mm `dpr`)
+                    // `context_dpr` (not a specific Screen's own RandR-mm `dpr`)
                     // is what `ctx.screen_width` and an implicit-primary panel
                     // are computed against. Rederiving it from the primary
-                    // output's RandR density here was issue #525 bug #6's other
+                    // Screen's RandR density here was issue #525 bug #6's other
                     // half: it silently reintroduced the two-formula divergence
                     // on every hotplug/rotation, even with the panel-level split
                     // above fixed.
@@ -2783,7 +2783,7 @@ export default () => <Counter />;
 
     #[test]
     fn stream_calls_to_specs_routes_tauler_prefix_to_builtin() {
-        let calls = vec![("tauler:outputs".to_string(), None)];
+        let calls = vec![(tauler::scheme::OUTPUTS.to_string(), None)];
         let specs = stream_calls_to_specs(&calls);
         assert_eq!(specs.len(), 1);
         assert!(

@@ -99,3 +99,111 @@ fn path_dependencies_require_the_current_workspace_version() {
         stale.join("\n  ")
     );
 }
+
+// The Rust version is written in several files. Renovate moves them together (see the
+// "rust toolchain" rule in renovate.json); this test catches a hand edit or a partial
+// bump that leaves them disagreeing.
+
+/// Every `toolchain: "X.Y.Z"` pin under `.github/workflows`, as (file, version).
+fn workflow_toolchain_pins(root: &Path) -> Vec<(String, String)> {
+    let dir = root.join(".github/workflows");
+    let mut pins = Vec::new();
+    for entry in fs::read_dir(&dir)
+        .expect("workflows are readable")
+        .flatten()
+    {
+        let path = entry.path();
+        let name = format!(".github/workflows/{}", entry.file_name().to_string_lossy());
+        let Ok(text) = fs::read_to_string(&path) else {
+            continue;
+        };
+        for line in text.lines() {
+            if let Some(rest) = line.trim().strip_prefix("toolchain:") {
+                pins.push((name.clone(), rest.trim().trim_matches('"').to_string()));
+            }
+        }
+    }
+    pins
+}
+
+/// The X.Y.Z tag in `FROM rust:X.Y.Z-...`.
+fn dockerfile_rust_version(dockerfile: &str) -> String {
+    let line = dockerfile
+        .lines()
+        .find(|l| l.starts_with("FROM rust:"))
+        .expect("tauler-e2e/Dockerfile has a `FROM rust:` line");
+    line["FROM rust:".len()..]
+        .split(['-', '@', ' '])
+        .next()
+        .unwrap()
+        .to_string()
+}
+
+/// The `rust-version` under `[workspace.package]`.
+fn workspace_rust_version(root_manifest: &str) -> String {
+    let line = root_manifest
+        .lines()
+        .find(|l| l.starts_with("rust-version ="))
+        .expect("the root manifest declares rust-version");
+    line.split('"').nth(1).unwrap().to_string()
+}
+
+/// The version in the README's "Rust X.Y.Z or newer" requirement.
+fn readme_rust_version(readme: &str) -> String {
+    let line = readme
+        .lines()
+        .find(|l| l.starts_with("- Rust "))
+        .expect("README.md lists a `- Rust X.Y.Z or newer` requirement");
+    line["- Rust ".len()..]
+        .split_whitespace()
+        .next()
+        .unwrap()
+        .to_string()
+}
+
+fn version_tuple(v: &str) -> Vec<u64> {
+    v.split('.')
+        .map(|n| n.parse().expect("version parts are numbers"))
+        .collect()
+}
+
+#[test]
+fn rust_versions_agree_across_files() {
+    let root = repo_root();
+    let pins = workflow_toolchain_pins(&root);
+    assert!(
+        !pins.is_empty(),
+        "found no `toolchain:` pins in the workflows"
+    );
+    let toolchain = pins[0].1.clone();
+
+    let off: Vec<_> = pins.iter().filter(|(_, v)| *v != toolchain).collect();
+    assert!(
+        off.is_empty(),
+        "`toolchain:` pins in .github/workflows disagree (expected {toolchain}): {off:?}. \
+         Fix the odd ones out; Renovate normally bumps them all in one PR."
+    );
+
+    let docker =
+        dockerfile_rust_version(&fs::read_to_string(root.join("tauler-e2e/Dockerfile")).unwrap());
+    assert_eq!(
+        docker, toolchain,
+        "tauler-e2e/Dockerfile builds on rust:{docker} but the workflows pin {toolchain}; \
+         fix the Dockerfile `FROM rust:` tag (Renovate normally does this)"
+    );
+
+    let manifest = fs::read_to_string(root.join("Cargo.toml")).unwrap();
+    let msrv = workspace_rust_version(&manifest);
+    assert!(
+        version_tuple(&msrv) <= version_tuple(&toolchain),
+        "Cargo.toml rust-version {msrv} is newer than the pinned toolchain {toolchain}, so CI \
+         could not build it; fix rust-version in Cargo.toml (Renovate normally does this)"
+    );
+
+    let readme = readme_rust_version(&fs::read_to_string(root.join("README.md")).unwrap());
+    assert_eq!(
+        readme, msrv,
+        "README.md says Rust {readme} but Cargo.toml rust-version is {msrv}; fix the README \
+         requirement (Renovate normally does this)"
+    );
+}

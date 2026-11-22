@@ -44,7 +44,7 @@ pub enum SurfaceCommand {
         id: String,
         frame: SurfaceFrame,
     },
-    /// Paint a `<wallpaper>` into its output's slice of the desktop background.
+    /// Paint a `<wallpaper>` into its Screen's slice of the desktop background.
     ///
     /// Wallpapers get their own command because their whole lifecycle is one
     /// verb. They own no window, so there is nothing to move, resize or destroy,
@@ -126,16 +126,16 @@ pub struct PointerEvent {
 pub enum PresenterEvent {
     /// The pipeline should re-render all panels and flush.
     NeedsRender,
-    /// The set of connected outputs (and their DPRs) has changed.
+    /// The set of connected Screens (and their DPRs) has changed.
     OutputsChanged {
         outputs: Vec<OutputInfo>,
-        /// The output to treat as primary, re-resolved fresh (never trusted
+        /// The Screen to treat as primary, re-resolved fresh (never trusted
         /// from a prior run or an unordered iteration order — issue #525 bug #3).
         primary_name: String,
         /// The DPR an implicit-primary panel and `ctx.screen_width` should
-        /// agree on — re-derived fresh, never the primary output's own
+        /// agree on — re-derived fresh, never the primary Screen's own
         /// RandR-mm density (issue #525 bug #6's other half: overwriting this
-        /// with that value on every output event is what let the bug recur
+        /// with that value on every Screens-changed event is what let the bug recur
         /// after any hotplug even with a one-time panel-level fix).
         context_dpr: f32,
     },

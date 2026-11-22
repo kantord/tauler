@@ -17,7 +17,7 @@
 // the space between windows are the same distance. That is most of what makes
 // the arrangement look deliberate rather than assembled.
 
-// <root>, <Panel>, <I3Layout> and <Module> are globals; the component library
+// <root>, <Panel> and <I3Layout> are globals, as useService() is; the component library
 // is not — each component is an ES module, and <Icon> without this line is a
 // runtime "Icon is not defined", not a render with a missing glyph.
 import { Icon } from "@ui/icon";
@@ -66,6 +66,12 @@ function Divider() {
 }
 
 export default function render() {
+  const [i3] = useService(TAULER_I3);
+  const wss = i3?.workspaces ?? [];
+  const focused = wss.filter((w) => w.focused)[0];
+  const title = (focused?.focused_windows ?? [])[0];
+  const [status] = useService(STATUS);
+
   return (
     <root>
       {/* The image is authored at exactly 1920×1080, so it needs no fitting —
@@ -107,58 +113,45 @@ export default function render() {
                 {/* Left: real workspaces, and the real title of the focused
                     window. The same subprocess <I3Layout> registers above — one
                     bin, one process, union of props. */}
-                <Module bin={TAULER_I3}>
-                  {(data) => {
-                    const wss = data?.workspaces ?? [];
-                    const focused = wss.filter((w) => w.focused)[0];
-                    const title = (focused?.focused_windows ?? [])[0];
-                    return (
-                      <div class="flex flex-row items-center gap-[10px]">
-                        <Icon name="md-layers_triple" class="text-[15px] text-primary" />
-                        <Divider />
-                        <div class="flex flex-row items-center gap-[4px]">
-                          {wss.map((ws) => (
-                            <Workspace ws={ws} />
-                          ))}
-                        </div>
-                        {title ? (
-                          <span class="text-[12px] text-muted-foreground">{title}</span>
-                        ) : null}
-                      </div>
-                    );
-                  }}
-                </Module>
+                <div class="flex flex-row items-center gap-[10px]">
+                  <Icon name="md-layers_triple" class="text-[15px] text-primary" />
+                  <Divider />
+                  <div class="flex flex-row items-center gap-[4px]">
+                    {wss.map((ws) => (
+                      <Workspace ws={ws} />
+                    ))}
+                  </div>
+                  {title ? (
+                    <span class="text-[12px] text-muted-foreground">{title}</span>
+                  ) : null}
+                </div>
 
                 {/* Right: frozen numbers. Structure is real here, cosmetics are
                     not — a live clock would make every pull request's
                     screenshot differ for no reason.
                     The readout sits on its own inset surface so the bar reads as
                     two groups rather than one long row of loose text. */}
-                <Module bin={STATUS}>
-                  {(data) => (
-                    <div class="flex flex-row items-center gap-[10px]">
-                      <div class="flex flex-row items-center gap-[14px] rounded-2xl bg-secondary h-[26px] pl-[12px] pr-[12px]">
-                        {/* The glyph names are the wrong way round: md-memory
-                            draws a processor die and md-chip draws a RAM
-                            stick. Matched to what they look like, not to what
-                            they are called. */}
-                        <Stat icon="md-memory" value={data?.cpu ?? "--"} tone="text-[#c4a7e7]" />
-                        <Stat icon="md-chip" value={data?.mem ?? "--"} tone="text-[#9ccfd8]" />
-                        <Stat icon="md-volume_high" value={data?.vol ?? "--"} tone="text-[#f6c177]" />
-                        <Stat icon="md-battery_70" value={data?.bat ?? "--"} tone="text-[#ea9a97]" />
-                      </div>
-                      <div class="flex flex-row items-center gap-[6px]">
-                        <Icon name="md-clock_outline" class="text-[13px] text-primary" />
-                        {/* font-readout: theme.yaml's `fonts.readout` role,
-                            resolved through the theme like `bg-primary` above
-                            but for a font instead of a colour. Figures in a
-                            monospace face don't shift width as they change,
-                            which a live clock would actually need. */}
-                        <span class="text-[13px] text-foreground font-readout">{data?.time ?? "--:--"}</span>
-                      </div>
-                    </div>
-                  )}
-                </Module>
+                <div class="flex flex-row items-center gap-[10px]">
+                  <div class="flex flex-row items-center gap-[14px] rounded-2xl bg-secondary h-[26px] pl-[12px] pr-[12px]">
+                    {/* The glyph names are the wrong way round: md-memory
+                        draws a processor die and md-chip draws a RAM
+                        stick. Matched to what they look like, not to what
+                        they are called. */}
+                    <Stat icon="md-memory" value={status?.cpu ?? "--"} tone="text-[#c4a7e7]" />
+                    <Stat icon="md-chip" value={status?.mem ?? "--"} tone="text-[#9ccfd8]" />
+                    <Stat icon="md-volume_high" value={status?.vol ?? "--"} tone="text-[#f6c177]" />
+                    <Stat icon="md-battery_70" value={status?.bat ?? "--"} tone="text-[#ea9a97]" />
+                  </div>
+                  <div class="flex flex-row items-center gap-[6px]">
+                    <Icon name="md-clock_outline" class="text-[13px] text-primary" />
+                    {/* font-readout: theme.yaml's `fonts.readout` role,
+                        resolved through the theme like `bg-primary` above
+                        but for a font instead of a colour. Figures in a
+                        monospace face don't shift width as they change,
+                        which a live clock would actually need. */}
+                    <span class="text-[13px] text-foreground font-readout">{status?.time ?? "--:--"}</span>
+                  </div>
+                </div>
               </div>
             </div>
           </div>

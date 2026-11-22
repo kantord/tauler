@@ -1,5 +1,7 @@
 # Two RandR connections, one shared resolution
 
+_Vocabulary note: this record says "output" where `CONTEXT.md` now says Screen; RandR's own word is kept where the code uses it._
+
 Two threads poll RandR: the X11 presenter thread (`src/presenter/x11.rs`, on the
 `Arc<RustConnection>` shared app-wide since `src/main.rs`'s `init_x11()`) and
 `outputs_thread` (`src/x11/outputs.rs`), which opens its own separate

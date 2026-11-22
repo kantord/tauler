@@ -8,7 +8,10 @@ authors = ["Dániel Kántor <github@daniel-kantor.com>"]
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/kantord/tauler"
 homepage = "https://kantord.github.io/tauler/"
-rust-version = "1.96"
+# Managed by Renovate (renovate.json): it moves with the toolchain pinned in
+# .github/workflows and tauler-e2e/Dockerfile.
+# renovate: datasource=rust-version depName=rust
+rust-version = "1.100.0"
 
 [package]
 name = "tauler"
@@ -61,6 +64,17 @@ strip = true
 # callgrind which function to collect inside by its symbol name.
 [profile.bench]
 strip = false
+
+# Release code generation with line tables and symbols kept, for perf and flamegraphs.
+[profile.profiling]
+inherits = "release"
+strip = false
+debug = "line-tables-only"
+
+# Dependencies are optimized even in dev builds: rasterizing at opt-level 0 costs
+# about 12.7x the instructions of a release build, which makes the bar unusable.
+[profile.dev.package."*"]
+opt-level = 2
 
 [dependencies]
 tracing = "=0.1.44"

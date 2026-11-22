@@ -1,6 +1,6 @@
 ---
 title: Screen layout
-description: Placing panels on an output, and reserving the space they occupy.
+description: Placing panels on a screen, and reserving the space they occupy.
 ---
 
 A `<panel>` is a window at a position. On X11 and macOS, nothing about creating one tells
@@ -17,7 +17,7 @@ independent reasons.
 
 Panels are **override-redirect** windows. That tells X11 the window manager should not
 manage them at all — no moving, no decorating, no reading their properties. Tauler needs
-that, because it places panels itself, per-output and DPR-aware. But an unmanaged window's
+that, because it places panels itself, per-screen and DPR-aware. But an unmanaged window's
 struts are never read.
 
 And i3 would not honour them anyway. It recognises only `W_DOCK_TOP` and `W_DOCK_BOTTOM`
@@ -71,7 +71,7 @@ top panel rather than beside it.
 | `id` | surface id, as on `<panel>` |
 | `anchor` | `"left"`, `"right"`, `"top"` or `"bottom"`. Anything else reserves nothing |
 | `size` | thickness along the anchored axis, in logical pixels. The other axis fills what is left |
-| `output` | RandR output name, e.g. `"DP-2"`. Omit for the primary output |
+| `output` | RandR output name, e.g. `"DP-2"`. Omit for the primary screen |
 
 `<I3Layout>` itself takes one prop, `module`: the binary to send the computed gaps to,
 normally `tauler-i3`. Omit it and `<I3Layout>` becomes pure geometry, registering nothing —
@@ -131,9 +131,9 @@ correspond to any panel, say. An omitted side reserves nothing.
 
 ## Gaps only reach the focused workspace
 
-i3 has no "set this gap on every workspace on this output" command — only
+i3 has no "set this gap on every workspace on this screen" command — only
 `gaps <side> current set <px>`, which always targets whichever workspace is
-focused *right now*. So when the gaps change (an output is plugged in, a
+focused *right now*. So when the gaps change (a screen is plugged in, a
 layout reloads, Tauler restarts), only the currently-focused workspace is
 corrected immediately.
 

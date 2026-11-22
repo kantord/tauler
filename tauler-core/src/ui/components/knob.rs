@@ -58,18 +58,16 @@ fn needle(degrees: f64) -> Node {
 /// array of them.
 ///
 /// ```jsx
-/// <Module bin="~/.cargo/bin/tauler-audio">
-///   {(data, events) => (
-///     <Knob
-///       value={data?.balance ?? 0}
-///       step={5}
-///       on_change={deg => events.setBalance({ deg })}
-///     />
-///   )}
-/// </Module>
+/// const [audio, dispatch] = useService("~/.cargo/bin/tauler-audio");
+///
+/// <Knob
+///   value={audio?.balance ?? 0}
+///   step={5}
+///   on_change={deg => dispatch.setBalance({ deg })}
+/// />
 /// ```
 ///
-/// The turn sets nothing locally: it sends intents, the module changes the angle, and
+/// The turn sets nothing locally: it sends intents, the Service changes the angle, and
 /// the next tick brings the new `value` back. Omit `on_change` and the knob still
 /// renders — it is simply not interactive.
 ///
@@ -86,7 +84,7 @@ fn needle(degrees: f64) -> Node {
 /// `value` and the reported angle have deliberately different domains. `value` is drawn
 /// as given, so `450` and `-90` point where they say. What `on_change` reports is always
 /// wrapped into 0–360, so turning past the top comes round rather than running off and a
-/// module's stored number cannot drift out to thousands. What it cannot report is how
+/// Service's stored number cannot drift out to thousands. What it cannot report is how
 /// many whole turns you made — there is no scale for them to mean anything on.
 ///
 /// `step` defaults to 1 and rounds the *turn*, not the angle it lands on. Rounding the

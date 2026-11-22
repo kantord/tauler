@@ -294,6 +294,9 @@ function Launcher() {
 // ── Root ────────────────────────────────────────────────────────────────────
 
 export default function render() {
+  const [i3] = useService(TAULER_I3);
+  const [status] = useService(STATUS);
+
   return (
     <root>
       {/* The whole wallpaper is CSS. Base plate, a guilloché rosette off the
@@ -365,15 +368,7 @@ export default function render() {
 
       <I3Layout module={TAULER_I3}>
         <Panel id="rail" anchor="left" size={60}>
-          <Module bin={TAULER_I3}>
-            {(i3data) => (
-              <Module bin={STATUS}>
-                {(status) => (
-                  <Rail ws={i3data?.workspaces ?? []} status={status} />
-                )}
-              </Module>
-            )}
-          </Module>
+          <Rail ws={i3?.workspaces ?? []} status={status} />
         </Panel>
       </I3Layout>
 

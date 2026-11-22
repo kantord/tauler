@@ -78,18 +78,16 @@ fn thumb(done: f64) -> Node {
 /// plain click sets the value too.
 ///
 /// ```jsx
-/// <Module bin="~/.cargo/bin/tauler-audio">
-///   {(data, events) => (
-///     <Slider
-///       value={data?.volume ?? 0}
-///       step={5}
-///       on_change={v => events.setVolume({ volume: v })}
-///     />
-///   )}
-/// </Module>
+/// const [audio, dispatch] = useService("~/.cargo/bin/tauler-audio");
+///
+/// <Slider
+///   value={audio?.volume ?? 0}
+///   step={5}
+///   on_change={v => dispatch.setVolume({ volume: v })}
+/// />
 /// ```
 ///
-/// The drag sets nothing locally: it sends intents, the module changes the volume,
+/// The drag sets nothing locally: it sends intents, the Service changes the volume,
 /// and the next tick brings the new `value` back. Omit `on_change` and the slider
 /// still renders — it is simply not interactive.
 ///
@@ -97,16 +95,16 @@ fn thumb(done: f64) -> Node {
 /// value, which is also what keeps a drag from sending a message per pixel: a motion
 /// that produces the intents just sent is skipped.
 ///
-/// The example below names a module, `tauler-demo-volume`, that you will not have —
+/// The example below names a Service, `tauler-demo-volume`, that you will not have —
 /// pasted as it stands it renders a slider that does not move. It names one anyway,
 /// because a slider with a literal `value` and no source would show you a control
 /// holding its own state, which is the one thing this component does not do. On this
-/// page the module is a few lines of JavaScript in the browser rather than a
+/// page the Service is a few lines of JavaScript in the browser rather than a
 /// subprocess; the layout file cannot tell the difference, and that is the point.
 ///
 /// # JSX
 /// ```jsx
-/// const events = useEvents("tauler-demo-volume");
+/// const dispatch = useDispatch("tauler-demo-volume");
 /// const volume = Number(useStringStream("tauler-demo-volume")) || 40;
 ///
 /// return (
@@ -115,7 +113,7 @@ fn thumb(done: f64) -> Node {
 ///       <span class="text-muted-foreground text-[11px]">Volume</span>
 ///       <span class="text-foreground text-[11px]">{volume}%</span>
 ///     </div>
-///     <Slider value={volume} step={5} on_change={(v) => events.set({ value: v })} />
+///     <Slider value={volume} step={5} on_change={(v) => dispatch.set({ value: v })} />
 ///   </div>
 /// );
 /// ```

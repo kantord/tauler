@@ -142,7 +142,12 @@ function Clock() {
 }
 
 export default function render() {
-  const aero = useEvents(AEROSPACE);
+  const [state, aero] = useService(AEROSPACE);
+  // AeroSpace declares every workspace in the config, so the raw
+  // list is 30-odd mostly-empty entries. Showing the occupied ones
+  // plus wherever you are keeps the rail the length of the work.
+  const all = state?.workspaces ?? [];
+  const shown = all.filter((w) => w.focused || w.focused_windows.length);
 
   return (
     <root>
@@ -154,22 +159,11 @@ export default function render() {
         <div style={{ position: "relative", width: "100%", height: "100%" }}>
           <Backdrop x={0} y={MENU_BAR} />
           <div class="flex flex-col gap-[10px] w-full h-full px-[10px] py-[14px]">
-            <Module bin={AEROSPACE}>
-              {(data) => {
-                // AeroSpace declares every workspace in the config, so the raw
-                // list is 30-odd mostly-empty entries. Showing the occupied ones
-                // plus wherever you are keeps the rail the length of the work.
-                const all = data?.workspaces ?? [];
-                const shown = all.filter((w) => w.focused || w.focused_windows.length);
-                return (
-                  <div class="flex flex-col gap-[2px] w-full">
-                    {shown.map((ws) => (
-                      <Workspace ws={ws} aero={aero} />
-                    ))}
-                  </div>
-                );
-              }}
-            </Module>
+            <div class="flex flex-col gap-[2px] w-full">
+              {shown.map((ws) => (
+                <Workspace ws={ws} aero={aero} />
+              ))}
+            </div>
             <div class="flex flex-1 w-full" />
             <Clock />
           </div>

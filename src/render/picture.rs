@@ -64,7 +64,7 @@ use takumi::prelude::ImageSource;
 use takumi_core::resources::image_buffer::ImageBuffer;
 
 /// The `src` prefix an `<img>` names a Picture by.
-pub const PICTURE_SRC_PREFIX: &str = "tauler:picture/";
+pub const PICTURE_SRC_PREFIX: &str = crate::scheme::PICTURE_PREFIX;
 
 /// One stored Picture: its markup, and the generation it was stored with.
 /// The entry generation is what tells a replaced Picture from its predecessor

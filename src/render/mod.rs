@@ -522,7 +522,7 @@ fn preload_layout_images_impl(layout: &serde_json::Value, global: &mut RenderCon
         // `tauler:picture/<key>` are bound per render by `frame_options`. The
         // scheme is what makes it impossible for a file of that name to shadow
         // one (ADR 0016).
-        if src.starts_with("tauler:") {
+        if src.starts_with(crate::scheme::SCHEME) {
             continue;
         }
         // Called on every tick, so an already-loaded path must not be re-read

@@ -44,7 +44,7 @@ pub struct ThemeConfig {
     /// A built-in theme, by its own `name` (`tauler_core::theme::builtin`).
     ///
     /// DECISION: `name` and `file` are two keys, not one polymorphic `theme.use`. Naming both
-    /// is a load error (ADR 0033 policy), not "the file wins": the caller stated two
+    /// is a load error (ADR 0052 policy), not "the file wins": the caller stated two
     /// preferences, and picking one silently is the failure that ADR exists to prevent.
     #[serde(default)]
     pub name: Option<String>,

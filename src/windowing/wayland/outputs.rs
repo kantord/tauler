@@ -1,4 +1,5 @@
-//! What the Wayland backend knows about outputs, as plain data.
+//! What the Wayland backend knows about Screens, as plain data. Wayland calls a
+//! Screen an output (`wl_output`), and "output" below means that.
 //!
 //! sctk hands out one `OutputInfo` per `wl_output`; the pipeline wants
 //! `layout::OutputInfo` — a name, a rect in **physical** pixels, and a dpr — and

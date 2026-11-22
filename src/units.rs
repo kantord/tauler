@@ -1452,7 +1452,7 @@ mod tests {
 
     /// A `~/`-prefixed `path` must land under the real home directory, the
     /// same convention `expand_tilde` already gives `theme.file`, `fonts.extra`
-    /// and a Module's `bin` (`src/config.rs`) — a shared component (like
+    /// and a Service's `bin` (`src/config.rs`) — a shared component (like
     /// `dotfiles-tauler`'s `KittyConfig`) can write `path: "~/.config/..."`
     /// instead of hardcoding a specific user's home directory.
     #[test]

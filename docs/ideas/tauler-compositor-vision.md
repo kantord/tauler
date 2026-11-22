@@ -224,8 +224,8 @@ windows arrived from outside.
   (smithay's own reference), or a leaner community compositor closer to the
   thin-layer goal?
 - How should the reconciler handle multi-monitor setups where the same
-  environment spans multiple outputs? `ctx.outputs` from the multi-monitor
-  work is the natural per-output fan-out point.
+  environment spans multiple Screens? `ctx.outputs` from the multi-monitor
+  work is the natural per-Screen fan-out point.
 - The reducer function receives events and returns a desired set — but
   enwiro cookbook calls are async (network, filesystem). Does the reducer
   stay pure (caches pre-fetched desired state) or does it go async? The

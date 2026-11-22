@@ -2,10 +2,10 @@
 //! synthesized window.
 //!
 //! taulerbox has no real monitor: the whole window is treated as a single
-//! [`tauler::layout::OutputInfo`]-equivalent output sitting at `(0, 0)` with
+//! [`tauler::layout::OutputInfo`]-equivalent Screen sitting at `(0, 0)` with
 //! `dpr` 1.0. [`place`] reuses `tauler::layout::surface_origin` as the source
 //! of truth for anchor placement, so a panel anchored `Left` here lands
-//! exactly where it would on a real `Left`-edge output at the origin.
+//! exactly where it would on a real `Left`-edge Screen at the origin.
 
 use tauler::layout::{surface_origin, Rect, SurfaceKind, SurfaceSpec};
 
@@ -62,7 +62,7 @@ pub struct PlacedPanel {
     pub visible: bool,
 }
 
-/// Places each `Panel` spec within `window`, treating `window` as one output
+/// Places each `Panel` spec within `window`, treating `window` as one Screen
 /// at origin `(0, 0)` with `dpr` 1.0.
 pub fn place(specs: &[SurfaceSpec], window: (u32, u32)) -> Vec<PlacedPanel> {
     let output = Rect {
@@ -123,9 +123,9 @@ mod tests {
         // returns `(mon_x, mon_y)` unconditionally — see src/layout/mod.rs's
         // `surface_origin` match arm for `Some(PanelAnchor::Left) | Some(PanelAnchor::Top)`,
         // and its own test `left_and_top_sit_at_the_output_origin`, which asserts this
-        // returns exactly the output's origin regardless of the panel's phys size.
+        // returns exactly the Screen's origin regardless of the panel's phys size.
         //
-        // taulerbox treats the whole window as one output at (mon_x, mon_y) = (0, 0).
+        // taulerbox treats the whole window as one Screen at (mon_x, mon_y) = (0, 0).
         // So for a Left-anchored panel, surface_origin's ground truth says x = 0 + 0 = 0,
         // y = 0 + 0 = 0, independent of the panel's width/height/dpr.
         let spec = panel_spec(Some(PanelAnchor::Left), 272, 1080);
@@ -161,7 +161,7 @@ mod tests {
         // Ground truth: tauler::layout::surface_origin's `None` arm returns
         // `(mon_x + (spec.x as f32 * spec.dpr).round() as i16,
         //   mon_y + (spec.y as f32 * spec.dpr).round() as i16)`.
-        // taulerbox treats the window as one output at (mon_x, mon_y) = (0, 0),
+        // taulerbox treats the window as one Screen at (mon_x, mon_y) = (0, 0),
         // so an unanchored panel's placed origin is exactly (x * dpr, y * dpr).
         //
         // Panel A: x = 100, y = 50, dpr = 2.0
@@ -191,7 +191,7 @@ mod tests {
     fn panel_entirely_outside_the_window_is_not_visible() {
         // Ground truth: tauler::layout::surface_origin's `None` arm (unanchored) returns
         // `(mon_x + (spec.x as f32 * spec.dpr).round() as i16, ...)`. taulerbox treats
-        // the window as one output at (mon_x, mon_y) = (0, 0), so an unanchored panel's
+        // the window as one Screen at (mon_x, mon_y) = (0, 0), so an unanchored panel's
         // placed x is exactly x * dpr.
         //
         // Panel: x = -500, dpr = 1.0, width = 100 (from unanchored_panel_spec).

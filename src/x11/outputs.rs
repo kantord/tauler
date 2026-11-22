@@ -1,3 +1,10 @@
+//! Screens as RandR reports them.
+//!
+//! A Screen (see `CONTEXT.md`) is what RandR calls an output: one connected
+//! display, named as RandR names it (`DP-2`). RandR 1.5 monitors are logical
+//! regions and are not used here. "Output" below means the RandR output; "X
+//! screen" means the one whole canvas the root window covers.
+
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{mpsc, Arc};

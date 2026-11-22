@@ -16,6 +16,7 @@ pub mod pkg;
 pub mod pointer;
 pub mod presentation;
 pub mod render;
+pub mod scheme;
 pub mod state;
 pub mod surface;
 pub mod trace;
