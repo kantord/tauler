@@ -62,6 +62,17 @@ strip = true
 [profile.bench]
 strip = false
 
+# Release code generation with line tables and symbols kept, for perf and flamegraphs.
+[profile.profiling]
+inherits = "release"
+strip = false
+debug = "line-tables-only"
+
+# Dependencies are optimized even in dev builds: rasterizing at opt-level 0 costs
+# about 12.7x the instructions of a release build, which makes the bar unusable.
+[profile.dev.package."*"]
+opt-level = 2
+
 [dependencies]
 tracing = "=0.1.44"
 tracing-subscriber = { version = "=0.3.23", features = ["env-filter"] }
