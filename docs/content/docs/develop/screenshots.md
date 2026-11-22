@@ -65,7 +65,7 @@ on the picture.
 - **Padded.** The layout sits on a canvas with a 16 px margin on every side. `--width`
   includes both margins.
 - **Streams are empty.** Streams do not run. `useStringStream` and `useJSONStream` return
-  empty values, so a layout that reads [live data](/docs/data/) renders its empty state. A
+  empty values, so a layout that reads [live data](/docs/data/streams/) renders its empty state. A
   screenshot cannot show real data. To show populated values, render a layout that takes
   them as props or constants.
 

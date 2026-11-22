@@ -99,7 +99,7 @@ The rail cannot be drawn *over* a visible menu bar: winit maps its topmost level
 that strip on an unnotched display; on a notched one the safe area is reserved anyway, so
 it buys almost nothing.
 
-## What the module reports
+## What the program reports
 
 `tauler-aerospace` emits one JSON line per change:
 

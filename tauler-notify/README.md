@@ -13,7 +13,7 @@ cargo install tauler-notify
 
 ## Documentation
 
-https://kantord.github.io/tauler/docs/modules/tauler-notify/
+https://kantord.github.io/tauler/docs/data/tauler-notify/
 
 ## License
 

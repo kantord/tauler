@@ -12,7 +12,7 @@ cargo install tauler-i3
 
 ## Documentation
 
-<https://kantord.github.io/tauler/docs/modules/tauler-i3/>
+<https://kantord.github.io/tauler/docs/data/tauler-i3/>
 
 ## License
 

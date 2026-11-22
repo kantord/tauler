@@ -58,14 +58,15 @@ a generic container, even on an element that has a name or is an `<img>`.
 A node is activatable when it has `role="button"` **and** `on_click`, and it is not the
 Panel's outermost element. That element is always the window and cannot be activated, so
 put buttons inside a plain wrapper. Give the button a label when its text is not what a
-person should hear:
+person should hear. Here `audio` is what
+[`useDispatch`](/docs/data/dispatch/) returned for a program that mutes the sound:
 
 ```jsx
 <div class="flex">
   <div
     role="button"
     aria-label="Mute"
-    on_click={[{ channel: "~/.cargo/bin/my-audio", event: { type: "mute" } }]}
+    on_click={[audio.mute()]}
     class="px-3 py-1 rounded bg-surface text-foreground"
   >
     🔇
@@ -82,8 +83,8 @@ with `role="button"` and no `on_click` is a button node that does nothing when a
 
 ## Know what Activate does
 
-Activation is dispatched as a click, so [`on_click`](/docs/data/#event-handlers) rules apply
-unchanged: the same array of intents, or the same handler function, runs. A handler that
+Activation is dispatched as a click, so the [`on_click`](/docs/interaction/clicks/) rules
+apply unchanged: the same array of events, or the same handler function, runs. A handler that
 reads the pointer receives a press at the top-left corner of the element, with `x`, `y`,
 `press_x` and `press_y` of `0`, the element's real `width` and `height`, and `buttons` of
 `1`.

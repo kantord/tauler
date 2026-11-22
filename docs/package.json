@@ -19,8 +19,9 @@
     "check:colors": "node scripts/colors.mjs",
     "check:spacing": "node scripts/check-spacing.mjs",
     "check:ui-log": "node scripts/check-ui-log.mjs",
+    "check:pages": "node scripts/check-pages.mjs",
     "validate:html": "html-validate 'dist/**/*.html'",
-    "checks": "pnpm run format:check && pnpm run lint && pnpm run check && pnpm run check:colors && pnpm run check:spacing && pnpm run check:ui-log && pnpm run build && pnpm run validate:html && DOCS_PREBUILT=1 playwright test tests/console.spec.ts --project=desktop"
+    "checks": "pnpm run format:check && pnpm run lint && pnpm run check && pnpm run check:colors && pnpm run check:spacing && pnpm run check:ui-log && pnpm run check:pages && pnpm run build && pnpm run validate:html && DOCS_PREBUILT=1 playwright test tests/console.spec.ts --project=desktop"
   },
   "dependencies": {
     "@base-ui/react": "1.9.0",

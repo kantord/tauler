@@ -147,8 +147,9 @@ return <WorkspaceList urgent={urgent} />;
 
 The pure-function model cannot express state that persists *across ticks* — for example
 "this workspace received a notification since you last visited it." That kind of memory
-lives in the data sources themselves (a module process that tracks read/unread state),
-not in the render function.
+lives outside the render function: in a `store` the layout declares, or in a service, a
+program that holds the state and that the layout reads and dispatches to. See
+[Handling dynamic data](https://tauler.dev/docs/data/).
 
 ## License
 

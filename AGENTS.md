@@ -11,7 +11,8 @@
   `docs/content/devtools/` is maintainer-only tooling that reuses the same build (image
   galleries, routing) — it is its own unlisted collection, never in the sidebar or search,
   and documents build/test internals on purpose. The "nothing about how tauler is built"
-  rule applies to every page under `docs/content/docs/`.
+  rule applies to every page under `docs/content/docs/`. `docs/AUTHORING.md` has the page
+  templates and the vocabulary; `pnpm run check:pages` enforces them.
 - **Module-level `//!` docs** — how a given piece actually works. This is where
   implementation detail belongs: next to the code, where it goes stale loudly.
 

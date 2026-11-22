@@ -33,6 +33,9 @@ const ROUTES = [
   '/docs/layout-file/',
   '/docs/elements/',
   '/docs/data/',
+  '/docs/data/streams/',
+  '/docs/data/tauler-i3/',
+  '/docs/interaction/clicks/',
   '/docs/layout/',
   '/docs/components/',
   '/docs/macos/',
@@ -121,12 +124,33 @@ test('search finds a page', async ({ page }) => {
     await expect(dialog).toBeVisible({ timeout: 1000 })
   }).toPass()
   await dialog.locator('input').fill('subprocess')
-  await expect(dialog.getByText('Data and events').first()).toBeVisible()
+  await expect(dialog.getByText('Handling dynamic data').first()).toBeVisible()
 })
 
 test('an old root-level docs URL redirects to /docs/', async ({ page }) => {
   await page.goto('/layout-file/')
   await expect(page).toHaveURL(/\/docs\/layout-file\/$/)
+})
+
+test('a docs URL that moved sends the reader to the new page', async ({
+  page,
+}) => {
+  await page.goto('/docs/modules/tauler-i3/')
+  await expect(page).toHaveURL(/\/docs\/data\/tauler-i3\/$/)
+})
+
+test('a folder of pages is a group, and its separators are sub-groups', async ({
+  page,
+}) => {
+  await page.goto('/docs/data/streams/')
+  const contents = page.getByRole('navigation', { name: 'Docs' })
+  await expect(
+    contents.getByText('Dynamic data', { exact: true }),
+  ).toBeVisible()
+  await expect(contents.getByText('From other programs')).toBeVisible()
+  await expect(
+    page.getByRole('navigation', { name: 'Breadcrumb' }),
+  ).toContainText('Dynamic data / From other programs')
 })
 
 test('the header and the side tiles stay in view while the article scrolls', async ({
@@ -137,7 +161,7 @@ test('the header and the side tiles stay in view while the article scrolls', asy
     width < 768,
     'narrow screens stack the tiles; only the header sticks',
   )
-  await page.goto('/docs/data/')
+  await page.goto('/docs/data/streams/')
   await page.evaluate(() => window.scrollTo(0, 3000))
   await expect(page.getByRole('navigation', { name: 'Site' })).toBeInViewport()
   await expect(
