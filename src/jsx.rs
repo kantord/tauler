@@ -968,13 +968,13 @@ fn name_stores<'js>(
 
 /// The reserved module name the `"d3"` specifier resolves to. Not a path, so it
 /// can never collide with a file the layout imports.
-const D3_MODULE_NAME: &str = "tauler:d3";
+const D3_MODULE_NAME: &str = crate::scheme::D3_MODULE;
 
 /// The reserved module name (and specifier) for linkedom, imported only by the
 /// draw runtime's bootstrap ([`DRAW_BOOTSTRAP_JS`]). Resolved and loaded exactly
 /// like [`D3_MODULE_NAME`]; linkedom's file is already an ES module, so its
 /// source is used as-is.
-const LINKEDOM_MODULE_NAME: &str = "tauler:linkedom";
+const LINKEDOM_MODULE_NAME: &str = crate::scheme::LINKEDOM_MODULE;
 
 impl SchemaAwareLoader {
     fn new(
@@ -1588,7 +1588,7 @@ impl JsxEvaluator {
     /// [`DrawError::Threw`].
     fn load_draw_libraries(&self, attempt: u32) -> Result<(), DrawError> {
         self.context.with(|ctx| {
-            let name = format!("tauler:draw-bootstrap-{attempt}");
+            let name = crate::scheme::draw_bootstrap_module(attempt);
             rquickjs::Module::declare(ctx.clone(), name, DRAW_BOOTSTRAP_JS)
                 .and_then(|module| module.eval())
                 .and_then(|(_, promise)| promise.finish::<()>())

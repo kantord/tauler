@@ -53,6 +53,9 @@ The same, but each stdout line is parsed as JSON and returned as an object.
 const data = useJSONStream("/usr/bin/myscript");
 ```
 
+A name starting `tauler:`, such as `tauler:outputs`, is read the same way without a
+program. See [Built-in names](/docs/builtin-names/).
+
 ## History: `tauler-accumulate`
 
 Tauler keeps exactly one value per stream — the latest line. A layout that needs to show

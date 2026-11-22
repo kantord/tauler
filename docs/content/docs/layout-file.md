@@ -177,7 +177,7 @@ Each panel is rasterized into its own buffer, so there is nothing behind it to s
 through — a translucent background paints onto nothing. To give it something, Tauler binds
 the slice of wallpaper that panel covers as an image named `tauler:root-bg`, for the
 duration of one render. The `tauler:` scheme marks it as a resource Tauler binds rather
-than a file to read, so no file on disk can shadow it:
+than a file to read, so no file on disk can shadow it (see [Built-in names](/docs/builtin-names/)):
 
 ```jsx
 <panel id="sidebar" anchor="left" width={272} height={ctx.screen_height}>

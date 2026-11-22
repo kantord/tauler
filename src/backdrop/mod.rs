@@ -29,7 +29,7 @@ use takumi_core::resources::image_buffer::ImageBuffer;
 use crate::layout::{surface_origin, Rect, SurfaceKind, SurfaceSpec};
 
 /// The image key a layout uses to reach its backdrop: `<img src="tauler:root-bg">`.
-pub const ROOT_BG_KEY: &str = "tauler:root-bg";
+pub const ROOT_BG_KEY: &str = crate::scheme::ROOT_BG;
 
 const RGBA_BYTES: usize = 4;
 

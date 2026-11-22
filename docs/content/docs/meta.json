@@ -15,6 +15,7 @@
     "components",
     "component-reference",
     "packages",
+    "builtin-names",
     "---Platforms---",
     "backends",
     "macos",

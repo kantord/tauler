@@ -62,12 +62,15 @@ const NUMERIC_ATTRIBUTES: [&str; 2] = ["width", "height"];
 
 /// A resource tauler binds for one render. A page has no Wallpaper to slice, so such an
 /// `<img>` is written without its `src` rather than left to resolve to a broken image.
-const TAULER_SCHEME: &str = "tauler:";
+/// Kept here, not imported from the root crate's `scheme` module: this crate is compiled
+/// to wasm and cannot depend on it (ADR 0010). `tests/scheme_test.rs` holds both equal.
+pub const TAULER_SCHEME: &str = "tauler:";
 
 /// A D3Figure's Picture. A page does not get the desktop's pixels: the glue (`runtime.js`)
 /// swaps each such `<img>` for an `<svg>` drawn by the figure's own `draw` in the page's
 /// realm, and it finds them by this attribute, keyed like the desktop's Picture.
-const PICTURE_PREFIX: &str = "tauler:picture/";
+/// Duplicated for the same reason as [`TAULER_SCHEME`].
+pub const PICTURE_PREFIX: &str = "tauler:picture/";
 
 #[derive(Debug, thiserror::Error, PartialEq)]
 pub enum DomError {

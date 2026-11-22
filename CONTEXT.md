@@ -56,6 +56,13 @@ The four per-edge distances that express a reservation to i3. The unit is the lo
 pixel — see **Logical pixel**.
 _Avoid_: margins, padding, insets
 
+**Built-in name**:
+A name starting `tauler:` that tauler answers itself instead of reading a file or running
+a program: a Built-in stream such as `tauler:outputs`, or an image such as `tauler:root-bg`.
+The prefix is what stops a file of the same name from shadowing it.
+_Avoid_: reserved name, magic name, builtin
+_Elsewhere_: the `node:` prefix for Node's own modules, `about:` URLs in browsers
+
 **tauler:root-bg**:
 The slice of Wallpaper sitting behind one Panel, bound as an image for the duration of a
 single render. It is what makes a Panel look transparent; nothing is actually translucent.
@@ -469,8 +476,9 @@ vocabulary; tauler does not interpret it.
 _Avoid_: plugin, provider, service, backend
 
 **Stream**:
-A subprocess whose stdout tauler reads, keeping only the latest line. Read-only — a
-subprocess that is also sent to is a Module.
+A source tauler reads one value from, keeping only the latest: a subprocess's stdout, or
+a Built-in stream named `tauler:…`. Read-only — a subprocess that is also sent to is a
+Module.
 _Avoid_: source, feed, watcher
 
 **Accumulator**:

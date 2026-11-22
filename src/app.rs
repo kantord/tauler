@@ -159,7 +159,7 @@ fn theme_file_watch_desired(path: Option<std::path::PathBuf>) -> Vec<WatchedPath
 fn make_builtin(key: &str) -> Option<BuiltInSource> {
     use tauler::x11::outputs::outputs_thread;
     match key {
-        "tauler:outputs" => Some(BuiltInSource {
+        tauler::scheme::OUTPUTS => Some(BuiltInSource {
             key: key.to_string(),
             func: outputs_thread,
         }),
@@ -2783,7 +2783,7 @@ export default () => <Counter />;
 
     #[test]
     fn stream_calls_to_specs_routes_tauler_prefix_to_builtin() {
-        let calls = vec![("tauler:outputs".to_string(), None)];
+        let calls = vec![(tauler::scheme::OUTPUTS.to_string(), None)];
         let specs = stream_calls_to_specs(&calls);
         assert_eq!(specs.len(), 1);
         assert!(
