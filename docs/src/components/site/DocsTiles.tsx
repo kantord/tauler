@@ -6,9 +6,12 @@ import type * as PageTree from 'fumadocs-core/page-tree'
 import { findNeighbour } from 'fumadocs-core/page-tree'
 import type { TOCItemType } from 'fumadocs-core/toc'
 
-type Group = { label?: string; items: PageTree.Item[] }
+type Group = { label?: string; sub?: boolean; items: PageTree.Item[] }
 
-/** The flat sidebar tree as the design groups it: separators become labels. */
+/**
+ * The sidebar tree as the design groups it: separators become labels. A
+ * folder is a group, and a separator inside it starts a sub-group.
+ */
 function groupsOf(tree: PageTree.Root): Group[] {
   const groups: Group[] = [{ items: [] }]
   for (const node of tree.children) {
@@ -19,10 +22,21 @@ function groupsOf(tree: PageTree.Root): Group[] {
       groups.push({ label: String(node.name), items: [] })
       if (node.index) groups.at(-1)!.items.push(node.index)
       for (const child of node.children)
-        if (child.type === 'page') groups.at(-1)!.items.push(child)
+        if (child.type === 'separator')
+          groups.push({ label: String(child.name ?? ''), sub: true, items: [] })
+        else if (child.type === 'page') groups.at(-1)!.items.push(child)
     }
   }
   return groups.filter((g) => g.items.length > 0)
+}
+
+/** "Dynamic data / From other programs" for a page in a sub-group. */
+function groupPath(groups: Group[], url: string): string | undefined {
+  const at = groups.findIndex((g) => g.items.some((i) => i.url === url))
+  const group = groups[at]
+  if (!group?.sub) return group?.label
+  const parent = groups.slice(0, at).findLast((g) => !g.sub)
+  return [parent?.label, group.label].filter(Boolean).join(' / ')
 }
 
 /**
@@ -46,7 +60,7 @@ export function DocsTiles({
   children: ReactNode
 }) {
   const groups = groupsOf(tree)
-  const group = groups.find((g) => g.items.some((i) => i.url === url))?.label
+  const group = groupPath(groups, url)
   const { previous, next } = findNeighbour(tree, url)
   const headings = toc.filter((t) => t.depth <= 3)
 
@@ -75,12 +89,16 @@ export function DocsTiles({
           <nav aria-label="Docs" className="scroll px-2 pb-4">
             {groups.map((g, i) => (
               <div key={g.label ?? i}>
-                {g.label && <div className="grp">{g.label}</div>}
+                {g.label && (
+                  <div className={g.sub ? 'grp sub' : 'grp'}>{g.label}</div>
+                )}
                 {g.items.map((item) => (
                   <Link
                     key={item.url}
                     href={item.url}
-                    className={item.url === url ? 'nav on' : 'nav'}
+                    className={['nav', g.sub && 'sub', item.url === url && 'on']
+                      .filter(Boolean)
+                      .join(' ')}
                     aria-current={item.url === url ? 'page' : undefined}
                   >
                     {item.name}

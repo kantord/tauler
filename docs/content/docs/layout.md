@@ -119,11 +119,12 @@ is a constraint rather than a typo tolerance.
 
 ## Doing it by hand
 
-`<I3Layout>` is a convenience over `tauler-i3`'s `gaps` prop, which remains available:
+`<I3Layout>` is a convenience over `tauler-i3`'s `gaps` setting, which remains available:
 
 ```jsx
-<Module bin="~/.cargo/bin/tauler-i3"
-        gaps={{ left: 272, right: 60, top: 26, bottom: 26 }}>
+const [i3, dispatch] = useService("~/.cargo/bin/tauler-i3", {
+  gaps: { left: 272, right: 60, top: 26, bottom: 26 },
+});
 ```
 
 Reach for this when your arrangement is not a stack of edges — a gap that does not

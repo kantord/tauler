@@ -131,20 +131,21 @@ workspace, and still vanish when you leave it.
 ]}
 ```
 
-Field names match [`tauler-i3`](https://github.com/kantord/tauler/tree/main/tauler-i3)'s, so
+Field names match [`tauler-i3`](/docs/data/tauler-i3/)'s, so
 a workspace strip written for i3 renders unchanged. Two differences: `urgent` is always
 `false` (AeroSpace has no urgency hint), and `apps` is extra — the app names on that
 workspace, deduplicated, since per-workspace app icons are the usual AeroSpace bar idiom.
 
-Switching is an intent, delivered by clicking:
+Switching is an event, dispatched by a click:
 
 ```jsx
-const aero = useEvents("~/.cargo/bin/tauler-aerospace");
+const [state, aero] = useService("~/.cargo/bin/tauler-aerospace");
 
 <div on_click={[aero.switchWorkspace({ workspace: ws.name })]}>…</div>
 ```
 
-See [Data and events](/docs/data/) for how intents and modules work in general.
+See [Offload state to an external program](/docs/data/services/) for how a layout reads a
+program and dispatches to it.
 
 ## Making it look like one application
 

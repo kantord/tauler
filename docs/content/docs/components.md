@@ -24,9 +24,9 @@ kinds:
 
 | kind | draws | takes | ships as |
 |---|---|---|---|
-| **Data** | nothing | a function as its child, and calls it with data | `<Module>` |
+| **Data** | nothing | a function as its child, and calls it with data | none; you write them |
 | **Display** | its props, as pixels | props | `<Card>`, `<Badge>`, `<Progress>`, `<Table>`, `<Icon>`, `<D3Figure>` |
-| **Control** | a value, as pixels — and emits intents when you touch it | a `value` and an `on_change` | `<Slider>`, `<Knob>`, `<ScrollArea>` |
+| **Control** | a value, as pixels — and dispatches events when you touch it | a `value` and an `on_change` | `<Slider>`, `<Knob>`, `<ScrollArea>` |
 
 Exactly one applies to a component. Where two seem to, the earlier row wins: a component
 that hands data to a render prop is a Data component however much frame it draws around the
@@ -37,19 +37,8 @@ result, and a component with an `on_change` is a Control whatever else it displa
 A Data component renders no pixels. Its child is a function, and the component's whole job
 is to call that function with data and return whatever comes back.
 
-`<Module>` is the one that ships. It owns a subprocess, reads JSON from it, and hands the
-latest value — plus a proxy for talking back — to its child:
-
-```jsx
-<Module bin="~/.cargo/bin/tauler-i3">
-  {(data, events) => (
-    <WorkspaceList workspaces={data?.workspaces} events={events} />
-  )}
-</Module>
-```
-
-The kind is defined by the shape, not by the subprocess. A function that only reshapes what
-it is given is a Data component too:
+The kind is defined by the shape, not by where the data comes from. A function that only
+reshapes what it is given is a Data component:
 
 ```jsx
 function Peak({ samples, children }) {
@@ -62,9 +51,9 @@ function Peak({ samples, children }) {
 ```
 
 Because every stream value is computed at the top of the render function, a Data component
-is never the only way to reach a value — it is a way to scope one. The
-[data page](/docs/data/#module) covers `<Module>` and everything it does with the
-subprocess behind it.
+is never the only way to reach a value — it is a way to scope one. To read a value from
+another program, call [`useJSONStream`](/docs/data/streams/) or
+[`useService`](/docs/data/services/); neither needs a component.
 
 ## Display components
 
@@ -91,7 +80,7 @@ on an element inside it — or reach for a Control.
 ## Control components
 
 A Control — `<Slider>`, `<Knob>` and `<ScrollArea>` are the three that ship — is a Display
-component that also emits intents when you press or drag it. It does not remember what you
+component that also dispatches events when you press or drag it. It does not remember what you
 did. There is no `useState` behind it and no value store in the runtime: the value it shows
 is the value you pass in, read fresh from a stream on every tick, and a press only changes
 what you see once the process that owns the value has said so.
@@ -99,31 +88,30 @@ what you see once the process that owns the value has said so.
 ```jsx
 import { Slider } from "@ui/slider";
 
-<Module bin="~/.cargo/bin/tauler-audio">
-  {(data, events) => (
-    <Slider
-      value={data?.volume ?? 0}
-      step={5}
-      on_change={v => events.setVolume({ volume: v })}
-    />
-  )}
-</Module>
+const [audio, dispatch] = useService("~/.config/tauler/bin/volume");
+
+<Slider
+  value={audio?.volume ?? 0}
+  step={5}
+  on_change={v => dispatch.set({ value: v })}
+/>
 ```
 
-The round trip is the whole design. `on_change` builds an intent, the intent reaches
-`tauler-audio` over stdin, `tauler-audio` changes the volume and emits the new one, and the
-next tick renders it. Nothing is optimistic, and there is never a second answer to "what is
+The round trip is the whole design. `on_change` builds an event, the event reaches the
+`volume` program over stdin, the program changes the volume and prints the new one, and the
+next tick renders it. The program is the one written out in
+[Offload state to an external program](/docs/data/services/). Nothing is optimistic, and there is never a second answer to "what is
 the volume".
 
 That also means a control needs somebody to hold its value. A slider that only filters a
 chart on screen has no subprocess to talk to, so it keeps the number in a
-[Store](/docs/data/#store): `on_change` writes it, and the next tick renders it. A
+[Store](/docs/data/shared-stores/): `on_change` writes it, and the next tick renders it. A
 reusable control that holds its own value declares
-[a Store of its own](/docs/data/#a-store-of-its-own-for-each-component).
+[a Store of its own](/docs/data/local-stores/).
 
-`on_change` takes the value the pointer is over and returns intents — one, or an array of
-them, the same shape every [handler](/docs/data/#handlers) takes. `<Slider>`
-does the arithmetic from `min`, `max` and `step`, so a module receives a number in its own
+`on_change` takes the value the pointer is over and returns events — one, or an array of
+them, the same shape every [handler](/docs/interaction/clicks/) takes. `<Slider>`
+does the arithmetic from `min`, `max` and `step`, so a program receives a number in its own
 units and never sees a coordinate. Omit `on_change` and a Control still renders — it is
 simply not interactive.
 
@@ -143,15 +131,13 @@ anywhere turns it by nothing. It follows your hand instead of jumping to it.
 ```jsx
 import { Knob } from "@ui/knob";
 
-<Module bin="~/.cargo/bin/tauler-audio">
-  {(data, events) => (
-    <Knob
-      value={data?.balance ?? 0}
-      step={5}
-      on_change={deg => events.setBalance({ deg })}
-    />
-  )}
-</Module>
+const [audio, dispatch] = useService("~/.config/tauler/bin/volume");
+
+<Knob
+  value={audio?.balance ?? 0}
+  step={5}
+  on_change={deg => dispatch.setBalance({ deg })}
+/>
 ```
 
 `<Knob>` reports an angle in degrees — 0 points up, and it grows clockwise. The angle wraps
@@ -166,7 +152,7 @@ goes to that slider whatever you slide over, and dragging off the panel and back
 where the pointer is.
 
 Nothing else drags unless you ask. Any element can, with `on_drag` — which is how you write
-a Control of your own:
+a Control of your own (see [Build a control that drags](/docs/interaction/drags/)):
 
 ```jsx
 <div on_drag={p => [lights.setLevel({ level: Math.round(p.x / p.width * 100) })]} />
@@ -189,8 +175,8 @@ The handler receives the pointer's position **relative to the element**, in CSS 
 There is no speed and no per-event delta — those two points are the whole story, so the same
 gesture always gives the same result however fast you made it.
 
-Nothing is dispatched when a movement produces the intents that were just sent, so a drag
-costs one message per distinct value, not one per pixel. Giving a control a `step` is what
+Nothing is dispatched when a movement produces the events that were just sent, so a drag
+costs one event per distinct value, not one per pixel. Giving a control a `step` is what
 keeps that number small.
 
 Drag is X11-only for now. On Wayland and macOS no movement is reported, so a slider still
@@ -277,12 +263,12 @@ newest sample. A figure with no `key` fails with an error that names it.
 
 This is what `key` means everywhere in a layout file: the same key is the same thing, and
 a new key is a new thing that starts over. A component with a
-[Store of its own](/docs/data/#a-store-of-its-own-for-each-component) loses it when its
+[Store of its own](/docs/data/local-stores/) loses it when its
 `key` changes, in the same way. So keep what must outlast a redraw, such as a zoom level,
 in the component around the figure, not in anything the figure's key decides.
 
 A key must follow from what the render sees: the data, the streams and the
-[Stores](/docs/data/#store). A key built from `Math.random()`, `Date.now()`, state kept
+[Stores](/docs/data/shared-stores/). A key built from `Math.random()`, `Date.now()`, state kept
 at module scope, or a Store value that the render itself changes on every tick is not
 drawn on the desktop, and Tauler logs a warning.
 

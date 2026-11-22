@@ -83,14 +83,14 @@
       "rangeStrategy": "pin"
     },
     {
-      "description": "The Rust version is written in four kinds of place: `toolchain:` pins in the workflows, the Dockerfile's `FROM rust:` tag, `rust-version` in Cargo.toml and the README requirement. A bump that lands in only some of them leaves CI, the e2e image and the documented minimum disagreeing (tests/workspace_manifests_test.rs fails if they do). One PR moves them all. Listed before the generic github-actions group so this wins for the toolchain pins.",
-      "matchPackageNames": ["rust"],
-      "groupName": "rust toolchain"
-    },
-    {
       "description": "Action digest bumps are independent and noisy; one PR is enough.",
       "matchManagers": ["github-actions"],
       "groupName": "github actions"
+    },
+    {
+      "description": "The Rust version is written in four kinds of place: `toolchain:` pins in the workflows, the Dockerfile's `FROM rust:` tag, `rust-version` in Cargo.toml and the README requirement. A bump that lands in only some of them leaves CI, the e2e image and the documented minimum disagreeing (tests/workspace_manifests_test.rs fails if they do). One PR moves them all. Listed after the generic github-actions group: when two rules set `groupName`, the later one wins, and the toolchain pins match both.",
+      "matchPackageNames": ["rust"],
+      "groupName": "rust toolchain"
     },
     {
       "description": "fumadocs-core, fumadocs-ui and fumadocs-mdx are released in lockstep and peer-depend on each other.",

@@ -37,20 +37,18 @@ cleanup code to write.
 ### Joining streams is just closures
 
 Every stream value is computed at the top of the render function, which puts it
-in scope everywhere below — including inside a `Module` render prop.
+in scope everywhere below.
 Sharing data between unrelated parts of the tree needs no context provider and
 no prop drilling:
 
 ```jsx
 const notifications = useJSONStream("...tauler-notify")?.notifications ?? [];
 
-<Module bin="...tauler-i3">
-  {(data, events) => {
-    // notifications is in scope here
-    const urgent = notifications.some(n => data.workspaces.find(...));
-    return <WorkspaceList urgent={urgent} />;
-  }}
-</Module>
+const [i3, dispatch] = useService("...tauler-i3");
+
+// notifications and i3 are both in scope here
+const urgent = notifications.some(n => i3?.workspaces.find(...));
+return <WorkspaceList urgent={urgent} />;
 ```
 
 ### History comes from a pipe
@@ -66,15 +64,18 @@ const load = useJSONStream("/bin/sh", `
 ```
 
 `load` is the last 60 samples, oldest first. A naive shell loop gets history
-without becoming stateful — see [Data and events](/docs/data/).
+without becoming stateful — see
+[Read a value from an external program](/docs/data/streams/#keep-the-last-values).
 
 ### Where this model stops
 
 A pure function cannot express state that persists *across* ticks — "this
 workspace has had a notification since you last looked at it", for example.
 A window of recent values will not do it either, because the interesting part is
-what you have already seen. That kind of memory belongs in the data source
-itself, in a module process that tracks it, rather than in the render function.
+what you have already seen. That kind of memory lives outside the render
+function: in a [store](/docs/data/shared-stores/) the layout declares, or in a
+[service](/docs/data/services/), a program that holds the state.
+[Handling dynamic data](/docs/data/) says how to choose.
 
 ## Screen layout
 

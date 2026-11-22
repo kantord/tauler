@@ -24,7 +24,8 @@ A file that ends in a bare `<root>` expression instead of exporting a function w
 load — it fails with a type error about `undefined` not being a function.
 
 The file is watched and hot-reloaded. On reload every subprocess is restarted and all
-stream values are cleared, so a reload is a cold start, not a refresh.
+stream values are cleared, so a reload is a cold start, not a refresh. A
+[store](/docs/data/shared-stores/) keeps its value.
 
 Components are plain JS functions that take props and return a tree. There is nothing to
 register: JSX handles `<Card />` as a function call already.
@@ -84,6 +85,22 @@ Workspace list on top, status cards below.
 **Legacy path:** `~/.config/tauler/layout.jsx` plus a sibling `~/.config/tauler/config.yaml`
 still works, and is checked when `layout.op.mdx` doesn't exist. New setups should use
 `layout.op.mdx`.
+
+## `ctx`
+
+`ctx` is a global object Tauler sets before each run of the layout. It is read-only.
+
+| field | description |
+|---|---|
+| `ctx.screen_width` | primary screen width in logical pixels |
+| `ctx.screen_height` | primary screen height in logical pixels |
+| `ctx.output` | the name of the primary screen |
+| `ctx.dpi` | display DPI |
+| `ctx.theme` | the active theme: `{ name, mode, colors }` — see [Colours as values](/docs/themes/#colours-as-values), and `themeColor` for a colour at an alpha |
+
+For every connected screen, not only the primary one, read
+[`tauler:outputs`](/docs/data/built-in-streams/). [Backends](/docs/backends/) says where
+each display server takes these values from.
 
 ## Nodes
 
@@ -177,7 +194,8 @@ Each panel is rasterized into its own buffer, so there is nothing behind it to s
 through — a translucent background paints onto nothing. To give it something, Tauler binds
 the slice of wallpaper that panel covers as an image named `tauler:root-bg`, for the
 duration of one render. The `tauler:` scheme marks it as a resource Tauler binds rather
-than a file to read, so no file on disk can shadow it (see [Built-in names](/docs/builtin-names/)):
+than a file to read, so no file on disk can shadow it (see
+[Streams Tauler provides](/docs/data/built-in-streams/#names-that-start-with-tauler)):
 
 ```jsx
 <panel id="sidebar" anchor="left" width={272} height={ctx.screen_height}>

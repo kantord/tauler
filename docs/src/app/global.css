@@ -574,6 +574,11 @@ html > body[data-scroll-locked] {
     color: var(--ink-muted);
     padding: 16px 12px 8px;
   }
+  /* A sub-group inside a folder group: its label and links step in. */
+  .tu .grp.sub,
+  .tu .nav.sub {
+    padding-left: 24px;
+  }
   .tu .toc a {
     display: block;
     padding: 8px 16px;

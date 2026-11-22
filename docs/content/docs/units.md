@@ -337,7 +337,7 @@ Used:
 ```
 
 `render` runs again every Sweep, reading whatever it wants — a color out of a
-[Store](/docs/data/#store),
+[Store](/docs/data/shared-stores/),
 today's wallpaper, anything the rest of your layout already reaches. Change what it
 returns and the next Sweep rewrites `tauler.rasi` to match. Launch rofi with `rofi -theme
 ~/.config/rofi/tauler.rasi` and it picks up the new file the next time it opens — rofi
@@ -509,7 +509,7 @@ shared closure only removes the *redundant-signal* half of that problem, not the
 
 ## Driving a Unit from your layout
 
-A Unit reads the same [Stores](/docs/data/#store) your layout does, so a button can change
+A Unit reads the same [Stores](/docs/data/shared-stores/) your layout does, so a button can change
 what a Unit declares:
 
 ```jsx

@@ -483,11 +483,12 @@ _Avoid_: source, feed, watcher
 **Service**:
 A Subprocess that holds state outside tauler: the layout file reads that state and
 dispatches Events to it, as the pair `useService` returns. Two-way, but lopsided — a
-Dispatch gets no reply, what is dispatched is delivered latest-wins (see **Outbox**), and
-the state can change without the layout file having dispatched anything. A Service owns
+Dispatch gets no reply, a drag's Events replace each other while one is unanswered (a
+click's are always sent — see **Outbox**), and the state can change without the layout
+file having dispatched anything. A Service owns
 a vocabulary; tauler does not interpret it.
 _Avoid_: module (the earlier name, and already a JavaScript file), actor (an actor is
-handed every message in its mailbox; a Service gets only the newest Event), plugin,
+handed every message in its mailbox; a Service gets only the newest of a drag's Events), plugin,
 provider, backend
 _Elsewhere_: the `[state, dispatch]` pair of `useReducer` (React), except that the
 reducer is another program and nothing says a Dispatch changed the state
@@ -526,9 +527,11 @@ _Avoid_: message, notification, signal
 _Elsewhere_: `CustomEvent` (DOM), except that nothing here bubbles or is observed back
 
 **Outbox**:
-What holds a Service to one intent at a time: the intent in flight, and the newest one
-waiting behind it. A Service that has not answered is handed nothing, and what it gets next
-is the newest thing produced since — never a backlog. See ADR 0025.
+What holds a drag to one intent at a time per Service: the intent in flight, and the
+newest one waiting behind it. A Service that has not answered is handed no further drag
+intent, and what it gets next is the newest produced since — never a backlog. A click's
+intent is never held or replaced, and an intent left unanswered stops holding the Service
+after a short grace. See ADR 0025.
 _Avoid_: queue, buffer, backpressure (it is the mechanism, not the effect)
 
 **Channel**:
