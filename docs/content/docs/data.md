@@ -16,11 +16,11 @@ ones are spawned, and ones that vanished are killed.
 That has a consequence worth internalising before writing anything else:
 
 :::caution
-Call the hooks for a given bin **unconditionally**, at the same level of the same
+Call the `use` functions for a given bin **unconditionally**, at the same level of the same
 component. Never inside a branch that sometimes does not render.
 :::
 
-A hook that comes and goes restarts its subprocess on every transition. For a singleton
+A `use` call that comes and goes restarts its subprocess on every transition. For a singleton
 like `tauler-notify` that means dropped notifications and a momentarily released D-Bus
 name — which looks like a broken notification daemon, not like a conditional in a layout
 file.
@@ -191,7 +191,7 @@ has not answered, only the newest event produced since is kept, so a fast drag s
 latest position rather than every position in between. Replies are not matched to events:
 the next line the subprocess writes is simply its new value.
 
-## Event handlers
+## Handlers
 
 A handler is **an array of intents**, or **a function returning one**. Both forms work on
 `on_click` and on `on_drag`.
@@ -375,7 +375,7 @@ delete desk.note;
 
 ### What causes a tick
 
-- A write from an event handler causes one tick, so the screen shows the new value.
+- A write from a handler causes one tick, so the screen shows the new value.
   Several handlers that write at once still cause one tick, and a handler that leaves
   every value as it was causes none. A handler that only writes a Store does not have to
   return intents.

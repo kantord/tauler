@@ -1,5 +1,7 @@
 # A handler is intents, or a function returning them
 
+_Vocabulary note: "output" in this record is what `CONTEXT.md` now calls a Screen._
+
 `on_click` and `on_drag` each accept two shapes: an array of intents, or a function that
 takes the pointer and returns one. Functions are kept on the JavaScript side during
 evaluation, referenced from the layout tree by id, and called at input time.

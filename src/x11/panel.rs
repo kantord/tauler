@@ -143,9 +143,9 @@ pub fn i3_dpi(conn: &RustConnection, root: Window, screen: &Screen) -> f32 {
 /// each time.
 ///
 /// This is a deliberately different, deliberately separate number from
-/// [`crate::x11::outputs::build_output_map`]'s per-output RandR-mm density:
+/// [`crate::x11::outputs::build_output_map`]'s per-Screen RandR-mm density:
 /// that one is what an explicit `output="..."` panel wants (the *other*
-/// display's real physical pixels), this one is what the primary output and
+/// display's real physical pixels), this one is what the primary Screen and
 /// the layout file's own `ctx.screen_width` math agree on. Conflating them —
 /// or letting a caller re-derive either independently instead of calling
 /// this — is issue #525 bug #6.
@@ -253,9 +253,9 @@ pub struct X11PanelContext {
     pub screen_width_logical: u32,
     pub screen_height_logical: u32,
     /// Total root X11 screen dimensions (physical px, spanning all monitors) —
-    /// distinct from `screen_width_logical`, which is the *primary output's*
+    /// distinct from `screen_width_logical`, which is the *primary Screen's*
     /// logical size. Sizes the shared root background pixmap, which every
-    /// `<wallpaper>` blits its own output's rectangle into.
+    /// `<wallpaper>` blits its own Screen's rectangle into.
     pub root_screen_width: u32,
     pub root_screen_height: u32,
     /// Lazily created on the first `<wallpaper>` node; see `x11::wallpaper`.
@@ -489,8 +489,8 @@ mod tests {
     // ---------------------------------------------------------------------------
     // Issue #525 bug #6: a Panel must remember the dpr it was actually created
     // with (spec.dpr — the fully-resolved value apply_eval_result already
-    // computed, context dpr for implicit panels or the output's own dpr for
-    // explicit ones), not re-derive it later from the output's own RandR-mm
+    // computed, context dpr for implicit panels or the Screen's own dpr for
+    // explicit ones), not re-derive it later from the Screen's own RandR-mm
     // density. Here the spec's dpr (2.0) deliberately disagrees with
     // "test-output"'s own dpr (1.0, set by make_panel_ctx) to prove the two
     // are not conflated.

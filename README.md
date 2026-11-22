@@ -79,9 +79,13 @@ works, and is used when `layout.op.mdx` doesn't exist.
 | crate | what it does |
 |---|---|
 | [`tauler-i3`](https://crates.io/crates/tauler-i3) | i3/sway workspace state and click-to-switch |
+| [`tauler-aerospace`](https://crates.io/crates/tauler-aerospace) | AeroSpace workspace state and click-to-switch on macOS |
 | [`tauler-notify`](https://crates.io/crates/tauler-notify) | a freedesktop notification daemon that feeds the bar |
 | [`tauler-screenshot`](https://crates.io/crates/tauler-screenshot) | renders a layout to a vector SVG through the same pipeline as the bar |
+| [`tauler-accumulate`](https://crates.io/crates/tauler-accumulate) | buffers a line-oriented stream and re-emits the last N lines as a JSON array, for widgets that need history |
+| [`tauler-configgen`](https://crates.io/crates/tauler-configgen) | generates readable JSX components from a config-format schema, so a layout can write config files |
 | [`tauler-ui-macro`](https://crates.io/crates/tauler-ui-macro) | proc macro for writing built-in components in Rust |
+| [`taulerbox`](https://kantord.github.io/tauler/docs/develop/taulerbox/) | extremely early and not working yet: a window meant to show a layout's Panels next to a sandboxed desktop |
 
 ## The rendering model vs React
 

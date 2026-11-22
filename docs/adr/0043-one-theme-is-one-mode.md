@@ -18,5 +18,5 @@ is named and overrides the label of a named one — the colours do not move, so 
 which `dark:` / `light:` class variants apply. `auto` is gone; following the OS would need two
 theme names, not a mode.
 
-This supersedes the paragraph in ADR 0033 saying mode comes from `config.yaml` rather than the
+This supersedes the paragraph in ADR 0052 saying mode comes from `config.yaml` rather than the
 theme file. The reload policy there is unchanged.

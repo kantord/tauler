@@ -24,7 +24,7 @@ No layer triggers another layer directly.
 CostaeLoop
   └─ ReconcilePipe
        ├─ ReconcileJSX          (stream values → layout tree)
-       ├─ ReconcileOutputs      (display outputs → screen geometry)
+       ├─ ReconcileOutputs      (connected Screens → Screen geometry)
        ├─ ReconcilePanels       (layout tree → windows)  ← X11/Wayland split lives here only
        ├─ ReconcileTakumi       (layout tree → render nodes)
        └─ ReconcileContents     (render nodes → pixels in windows)
@@ -50,7 +50,7 @@ lifecycle (`Lifecycle` impl) and event source. Everything else lives once.
 
 - Does `DisplayBackend` need anything beyond `Lifecycle` + a way to push events into
   the top-level queue?
-- How does `ReconcileOutputs` interact with `ReconcilePanels` (output geometry feeds
+- How does `ReconcileOutputs` interact with `ReconcilePanels` (Screen geometry feeds
   into panel placement)?
 - `ManagedSet` ctx/output refactor: bind context at construction, `reconcile()` takes
   items only — unresolved, see `pipeline-vision.md`.

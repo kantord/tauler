@@ -188,7 +188,7 @@ impl Theme {
     /// lists above) so a message built from it does not shuffle between runs.
     ///
     /// DECISION: enforced everywhere a theme is loaded — a `theme.file`, a built-in, the
-    /// embedded default — through [`Theme::validated`], under the ADR 0033 policy (startup
+    /// embedded default — through [`Theme::validated`], under the ADR 0052 policy (startup
     /// exits, a reload keeps the theme on screen). Rejected: enforcing only on built-ins,
     /// which leaves the silent unstyled bar for every user-written theme.
     pub fn missing_tokens(&self) -> Vec<&'static str> {

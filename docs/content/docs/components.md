@@ -122,7 +122,7 @@ reusable control that holds its own value declares
 [a Store of its own](/docs/data/#a-store-of-its-own-for-each-component).
 
 `on_change` takes the value the pointer is over and returns intents — one, or an array of
-them, the same shape every [event handler](/docs/data/#event-handlers) takes. `<Slider>`
+them, the same shape every [handler](/docs/data/#handlers) takes. `<Slider>`
 does the arithmetic from `min`, `max` and `step`, so a module receives a number in its own
 units and never sees a coordinate. Omit `on_change` and a Control still renders — it is
 simply not interactive.

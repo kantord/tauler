@@ -166,7 +166,7 @@ impl Lifecycle for Surface {
     /// The pipeline tracks the last-reconciled spec so reconcile_self can diff
     /// and emit Move/Resize commands only when something actually changed.
     type State = SurfaceState;
-    /// The current output map, so `reconcile_self` can tell whether a panel's
+    /// The current Screen map, so `reconcile_self` can tell whether a panel's
     /// *resolved* position changed even when its declared spec didn't — the
     /// single place that decides "should this panel move" (issue #537).
     type Context = HashMap<String, OutputInfo>;
@@ -465,7 +465,7 @@ mod tests {
     }
 
     /// A tracked surface as it looks before any wallpaper exists behind it,
-    /// with no resolved output rect recorded yet.
+    /// with no resolved Screen rect recorded yet.
     fn make_state(spec: SurfaceSpec) -> SurfaceState {
         SurfaceState {
             pictures: crate::render::picture::frame_stamp(&spec.content),
@@ -476,7 +476,7 @@ mod tests {
     }
 
     /// A tracked surface as it would look right after `enter` resolved its
-    /// output rect against `ctx`.
+    /// Screen rect against `ctx`.
     fn make_state_with_ctx(
         spec: SurfaceSpec,
         ctx: &HashMap<String, crate::layout::OutputInfo>,
@@ -742,7 +742,7 @@ mod tests {
     }
 
     /// A wallpaper has no window to move or resize — the backend paints it into
-    /// the output's slice of the desktop background. So *any* change (geometry
+    /// the Screen's slice of the desktop background. So *any* change (geometry
     /// included) is just a repaint.
     #[test]
     fn wallpaper_spec_reconcile_self_emits_update_picture_when_geometry_changes() {
@@ -941,7 +941,7 @@ mod tests {
 
     /// The regression test for issue #537: an anchored panel's declared spec
     /// (`x`, `y`, `anchor`, `output` name) never encodes the
-    /// output's own absolute position, so a RandR correction arriving after
+    /// Screen's own absolute position, so a RandR correction arriving after
     /// the panel already exists has to be visible through `ctx`, not `new`.
     #[test]
     fn panel_spec_reconcile_self_emits_move_when_resolved_output_rect_changes_but_spec_is_unchanged(
@@ -957,7 +957,7 @@ mod tests {
             )]),
         );
 
-        // Same spec, but the output map now reports the corrected geometry —
+        // Same spec, but the Screen map now reports the corrected geometry —
         // e.g. a later, legitimate OutputsChanged event.
         let mut ctx = HashMap::from([("DP-2".to_string(), output_info("DP-2", 0, 0))]);
         <Surface as Lifecycle>::reconcile_self(Surface(next), &mut state, &mut ctx, &mut tx)
@@ -967,7 +967,7 @@ mod tests {
         assert!(
             cmds.iter()
                 .any(|c| matches!(c, SurfaceCommand::Move(s) if s.id == "p1")),
-            "reconcile_self must emit Move when the resolved output rect changes, \
+            "reconcile_self must emit Move when the resolved Screen rect changes, \
              even though the declared spec is byte-identical; got {} commands",
             cmds.len()
         );
@@ -988,7 +988,7 @@ mod tests {
         let cmds: Vec<SurfaceCommand> = rx.try_iter().collect();
         assert!(
             cmds.is_empty(),
-            "an unchanged spec AND an unchanged resolved output rect must emit nothing; got {} commands",
+            "an unchanged spec AND an unchanged resolved Screen rect must emit nothing; got {} commands",
             cmds.len()
         );
     }

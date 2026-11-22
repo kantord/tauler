@@ -83,7 +83,7 @@ as it is.
 ## Consequences
 
 An invalid config now fails the same way regardless of which format wrote it:
-[0033](0033-an-unusable-theme-file-stops-startup-not-a-reload.md)'s rule — exit at
+[0052](0052-an-unusable-theme-file-stops-startup-not-a-reload.md)'s rule — exit at
 startup, report-and-keep-last-good on reload — extends from `theme.file` to the whole
 config. This closes a standing bug where `config.yaml`'s own parse failure was swallowed
 silently (`load_font_config` in `main.rs`, via an `.ok()` chain) and fonts fell back to
