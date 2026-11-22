@@ -38,9 +38,12 @@ const time = useStringStream("/usr/bin/bash", `
 `);
 ```
 
-Despite the name, this is not a React hook. It is a Rust-registered global that reads the
-current value out of a map. There are no ordering rules, no dependency arrays and no
-cleanup functions. Calling it registers the subprocess for this tick.
+The `use` functions behave like hooks in two ways: call them unconditionally, in the same
+position on every tick, and a changed value re-runs the layout. They are not React's hooks.
+There are no per-component state slots, no effects and no dependency arrays. The
+unconditional-call rule exists because a subprocess is identified by its `(bin, script)`
+pair, not because of call order. Calling one registers the subprocess for this tick and
+returns its latest value. To keep a value between ticks, use a [`store`](#store).
 
 ## `useJSONStream(bin, script?)`
 
@@ -155,8 +158,8 @@ first line arrives.
 ## `useEvents(bin)`
 
 Registers the subprocess and returns a proxy for addressing it. Every property is a
-function, and calling one produces an **intent** — a plain JSON object naming a destination
-and the message to deliver there.
+function, and calling one produces an **intent**: a plain JSON object holding a channel (the
+subprocess it is for) and an event (what to send it).
 
 ```jsx
 const notify = useEvents("~/.cargo/bin/tauler-notify");
@@ -168,6 +171,25 @@ notify.dismiss({ id: 42 })
 
 The property name becomes `event.type`, and the argument's keys are merged alongside it.
 Calling with no argument yields just the type.
+
+Three words, each naming one thing:
+
+- A **channel** is the address: the subprocess, by its `bin`.
+- An **event** is the payload, `{ type, ... }`. Tauler writes it to the subprocess's stdin as
+  one JSON line. It is a command you send, not something that happened to your layout, and
+  nothing tells you it arrived.
+- An **intent** is the two together, built but not yet sent. Handlers hold intents; Tauler
+  sends them when the pointer reaches the element.
+
+`useEvents` only sends. It receives nothing and returns no data. To read what the
+subprocess writes back, call `useJSONStream` with the same `bin`. That pair is what
+[`<Module>`](#module) bundles. A subprocess you both read and send to is a *module*; one you
+only read is a *stream*.
+
+Delivery is latest-wins per channel. A subprocess is handed one event at a time; while it
+has not answered, only the newest event produced since is kept, so a fast drag sends the
+latest position rather than every position in between. Replies are not matched to events:
+the next line the subprocess writes is simply its new value.
 
 ## Event handlers
 
@@ -238,9 +260,9 @@ lets any element become one, is on the [components page](/docs/components/#contr
 
 ## `<Module>`
 
-Sugar over `useJSONStream` + `useEvents`, for the common case of a subprocess you both read
-from and talk to. It sends an init event on startup, reads JSON from stdout, and accepts
-intents on stdin.
+Sugar over `useJSONStream` + `useEvents` on one `bin`, for the common case of a subprocess
+you both read from and send to. It sends an init event on startup, reads JSON from stdout,
+and accepts events on stdin.
 
 ```jsx
 <Module bin="~/.cargo/bin/tauler-i3">
@@ -251,7 +273,8 @@ intents on stdin.
 ```
 
 The child function receives `data` — the latest parsed JSON — and `events`, the same proxy
-`useEvents` returns.
+`useEvents` returns. Calling a property on `events` yields an intent, as above; the render
+prop is named after the proxy, not after what it produces.
 
 ### Module props
 
@@ -263,7 +286,7 @@ Keys of the derived init payload (`type`, `config`, `output`, `dpi`, …) win ov
 props — that payload is the module protocol, not user-editable state.
 
 `tauler-i3` reads its `gaps` this way. Every side is declared rather than derived; an
-omitted side reserves nothing, and outputs with no panel are revoked to zero regardless.
+omitted side reserves nothing, and screens with no panel are revoked to zero regardless.
 The values are logical pixels and reach i3 untouched — see
 [Screen layout](/docs/layout/).
 
@@ -282,9 +305,9 @@ Injected by Rust before each evaluation. Read-only.
 
 | field | description |
 |---|---|
-| `ctx.screen_width` | primary output width in logical pixels |
-| `ctx.screen_height` | primary output height in logical pixels |
-| `ctx.outputs` | array of `{ name, screen_width, screen_height }` for every connected output |
+| `ctx.screen_width` | primary screen width in logical pixels |
+| `ctx.screen_height` | primary screen height in logical pixels |
+| `ctx.outputs` | array of `{ name, screen_width, screen_height }` for every connected screen |
 | `ctx.dpi` | display DPI |
 | `ctx.theme` | the active theme: `{ name, mode, colors }` — see [Colours as values](/docs/themes/#colours-as-values), and `themeColor` for a colour at an alpha |
 

@@ -55,11 +55,11 @@ One JSON object per line:
 | field | meaning |
 |---|---|
 | `name` | the workspace name |
-| `focused` | `true` for the one workspace that has focus. At most one workspace in the whole session is focused, so a workspace that is visible on another output reports `false`. |
+| `focused` | `true` for the one workspace that has focus. At most one workspace in the whole session is focused, so a workspace that is visible on another screen reports `false`. |
 | `urgent` | the workspace's urgency flag |
 | `focused_windows` | window titles on the workspace, most recently focused first |
 
-- The list holds the workspaces of the output named in the init event (see below). It follows the
+- The list holds the workspaces of the screen named in the init event (see below). It follows the
   order in the i3 tree. Workspaces whose name starts with `__` are left out.
 - A line is written when i3 reports a workspace or window event (changes within 50 ms are
   merged into one line), and at least once a second otherwise.
@@ -75,18 +75,18 @@ A layout sends an intent with `events.<type>({...})`. `tauler-i3` acts on one:
 
 `focusWindow` is not handled: `tauler-i3` ignores it.
 
-## The init event and outputs
+## The init event and screens
 
 Tauler sends an `init` event as the first line on the process's stdin. `tauler-i3` reads
-two things from it: `output`, the name of the output the process lists workspaces for, and
+two things from it: `output`, the name of the screen the process lists workspaces for, and
 `gaps`. It writes nothing until the event arrives.
 
 Tauler runs one `tauler-i3` process per `bin` path, however many panels or `<Module>`
-declarations name it, and the `output` in its init event is always the primary output.
-Moving the declaration into a panel on another output does not change that. So the
-workspace list is that of the primary output, and a layout cannot get a second output's
+declarations name it, and the `output` in its init event is always the primary screen.
+Moving the declaration into a panel on another screen does not change that. So the
+workspace list is that of the primary screen, and a layout cannot get a second screen's
 workspaces from this program. If the `output` in the event is empty, the process lists the
-workspaces of every output and writes no gaps.
+workspaces of every screen and writes no gaps.
 
 ## Gaps
 
@@ -101,7 +101,7 @@ values reach i3 unconverted, and it applies them again:
 - on every workspace event;
 - when the declared `gaps` change.
 
-When the focused workspace is on a different output than the process's own, it sets all
+When the focused workspace is on a different screen than the process's own, it sets all
 four sides to `0` instead.
 
 i3 can only set gaps on the workspace that has focus at that moment, so a workspace that was

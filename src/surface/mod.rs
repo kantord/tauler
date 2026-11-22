@@ -123,7 +123,7 @@ fn render_now(
 /// panel changes nothing in that panel's spec, so `backdrop` records which
 /// wallpaper frame the last emitted picture actually shows. Likewise, an
 /// anchored panel's spec carries no absolute position at all — `output_rect`
-/// records the resolved output geometry it was last placed against, so a
+/// records the resolved Screen geometry it was last placed against, so a
 /// correction arriving from RandR *after* the panel already exists is visible
 /// to the diff (issue #537). And a D3Figure's Picture arriving changes nothing
 /// in the spec either — the content names `tauler:picture/<key>` before and
@@ -137,8 +137,8 @@ pub struct SurfaceState {
     pictures: u64,
 }
 
-/// The rect of the output a spec resolves to, or `None` if that output isn't
-/// (or is no longer) in the map — e.g. a monitor unplugged since the last tick.
+/// The rect of the Screen a spec resolves to, or `None` if that Screen isn't
+/// (or is no longer) in the map — e.g. a display unplugged since the last tick.
 fn resolve_output_rect(spec: &SurfaceSpec, ctx: &HashMap<String, OutputInfo>) -> Option<Rect> {
     spec.output
         .as_deref()

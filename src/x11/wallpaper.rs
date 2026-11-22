@@ -5,10 +5,10 @@
 //! the destination: instead of an override-redirect window, the buffer is
 //! blitted into the root window's background pixmap.
 //!
-//! There is one such pixmap for the whole X screen (that is what X11 gives us),
-//! sized to the root screen and shared by every wallpaper node. Each node owns
-//! the rectangle of its own output, clipped so a node can never bleed onto a
-//! neighbouring monitor.
+//! There is one such pixmap per X screen — the single canvas the root window
+//! covers, not a connected display — sized to that canvas and shared by every
+//! wallpaper node. Each node owns the rectangle of its own Screen (a RandR
+//! output), clipped so a node can never bleed onto a neighbouring Screen.
 //!
 //! `_XROOTPMAP_ID` / `ESETROOT_PMAP_ID` are published the way `feh` and
 //! `hsetroot` do it, so pseudo-transparent clients (and tauler's own `root-bg`

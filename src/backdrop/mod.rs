@@ -3,7 +3,7 @@
 //! Each panel is rasterized into its own isolated buffer, so by default there is
 //! literally nothing behind it — `backdrop-blur` would blur transparent black.
 //! This module closes that gap: when a `<wallpaper>` is rendered, its pixels are
-//! published here; when a panel on the same output is rendered, the slice of
+//! published here; when a panel on the same Screen is rendered, the slice of
 //! wallpaper it covers is handed to that render as the `root-bg` image, which the
 //! layout references as `<img src="tauler:root-bg">`.
 //!
@@ -101,7 +101,7 @@ pub fn crop_bgrx_to_rgba(
     dst
 }
 
-/// Record a freshly rendered wallpaper so panels on its output can sample it.
+/// Record a freshly rendered wallpaper so panels on its Screen can sample it.
 ///
 /// Takes the frame's `Arc` rather than a slice: the buffer is shared with the
 /// `SurfaceFrame` on its way to the display, so publishing costs a refcount
@@ -148,9 +148,9 @@ pub fn generation_for(spec: &SurfaceSpec) -> u64 {
 /// The slice of wallpaper that `spec` covers.
 ///
 /// `None` means there is nothing behind this surface — a wallpaper (which
-/// samples nothing), a surface with no resolved output, or an output with no
+/// samples nothing), a surface with no resolved Screen, or a Screen with no
 /// `<wallpaper>` on it. Callers must treat `None` as "no `root-bg` at all"
-/// rather than "leave whatever was there", or a panel on a bare output shows
+/// rather than "leave whatever was there", or a panel on a bare Screen shows
 /// the previous panel's pixels.
 pub fn crop_for(spec: &SurfaceSpec, phys: (u32, u32)) -> Option<Backdrop> {
     if spec.kind == SurfaceKind::Wallpaper {
@@ -159,7 +159,7 @@ pub fn crop_for(spec: &SurfaceSpec, phys: (u32, u32)) -> Option<Backdrop> {
     let output = spec.output.as_deref()?;
     let guard = registry().read().unwrap();
     let wallpaper = guard.get(output)?;
-    // The wallpaper spans its whole output, so its rect *is* the output rect —
+    // The wallpaper spans its whole Screen, so its rect *is* the Screen's rect —
     // enough to place an anchored panel without consulting the output map.
     let wall = wallpaper.rect;
     let (px, py) = surface_origin(spec, phys, wall);

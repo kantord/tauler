@@ -18,8 +18,8 @@ A surface that owns a desktop window of its own.
 _Avoid_: bar, dock, widget, bar window
 
 **Wallpaper**:
-A surface painted into the desktop background of one output. It has no window, takes no
-clicks, and always covers its output exactly.
+A surface painted into the desktop background of one Screen. It has no window, takes no
+clicks, and always covers its Screen exactly.
 _Avoid_: background, backdrop, root image, desktop
 
 **Dom**:
@@ -32,12 +32,14 @@ The element in a web page a Dom surface's markup is written into. Everything ins
 tauler's; everything outside it is the page's.
 _Avoid_: host, container, target, portal
 
-**Output**:
-One connected monitor, named as RandR names it (`DP-2`).
-_Avoid_: screen, display, monitor
+**Screen**:
+One connected display, named as the display server names it (`DP-2`).
+_Elsewhere_: RandR output (the connector, not RandR 1.5 monitors, which are logical regions),
+Wayland `wl_output`, i3/sway output
+_Avoid_: output (generic), monitor (audio monitors), display
 
 **Anchor**:
-The screen edge a surface is pinned to. An anchor *places* a surface. On X11 and macOS it
+The edge of a Screen a surface is pinned to. An anchor *places* a surface. On X11 and macOS it
 never reserves space for it. On Wayland the backend also asks the compositor to keep other
 windows clear of an anchored surface (ADR 0001).
 _Avoid_: dock edge, side, alignment
@@ -223,7 +225,7 @@ _Elsewhere_: a module-level store (zustand), a top-level atom (Jotai)
 A **Store** declared inside a function. Each **component instance** that reaches the
 declaration has its own value, and the value is dropped by the first Tick that does not
 reach the declaration.
-_Avoid_: hook, hook state, `useLocal`, component state
+_Avoid_: hook state, `useLocal`, component state (hook alone names a Unit's callback — see **Hook**)
 _Elsewhere_: `useState` (React), `$state` in a component (Svelte), except that neither is
 found again by name
 
@@ -460,13 +462,15 @@ field (Grafana)
 ### Data
 
 **Module**:
-A subprocess tauler both reads JSON from and sends intents to. A Module owns a vocabulary;
-tauler does not interpret it.
+A Stream that tauler also sends to: a subprocess registered by `useEvents` or `<Module>`.
+Two-way, but lopsided — what it is sent is delivered latest-wins (see **Outbox**), and
+nothing correlates a reply with the Event that may have caused it. A Module owns a
+vocabulary; tauler does not interpret it.
 _Avoid_: plugin, provider, service, backend
 
 **Stream**:
-A subprocess whose stdout tauler reads, one value per line. Read-only — a stream that is
-also written to is a Module.
+A subprocess whose stdout tauler reads, keeping only the latest line. Read-only — a
+subprocess that is also sent to is a Module.
 _Avoid_: source, feed, watcher
 
 **Accumulator**:
@@ -482,9 +486,18 @@ Two declarations with the same identity are the same process.
 _Avoid_: process key, instance id
 
 **Intent**:
-A plain JSON object naming a channel and the message to deliver there. Produced by
-calling a property on an events proxy; it is data, never a callback.
+An Event with its Channel attached and not yet sent: `{channel, event}`. Built by calling
+a property on the proxy `useEvents` returns; it is data, never a callback. A Handler holds
+Intents, and tauler sends them when the pointer reaches it.
 _Avoid_: action, event handler, callback, command
+
+**Event**:
+The payload of an Intent — `{type, ...}` — delivered verbatim to a subprocess's stdin as
+one JSON line. A command sent out, not something that happened to the layout, and not a
+notification: nothing tells the author it was received. The word follows `dispatchEvent`
+and `CustomEvent` in the DOM: the author creates it, the subprocess receives it.
+_Avoid_: message, notification, signal
+_Elsewhere_: `CustomEvent` (DOM), except that nothing here bubbles or is observed back
 
 **Outbox**:
 What holds a Module to one intent at a time: the intent in flight, and the newest one
@@ -493,8 +506,9 @@ is the newest thing produced since — never a backlog. See ADR 0025.
 _Avoid_: queue, buffer, backpressure (it is the mechanism, not the effect)
 
 **Channel**:
-The destination of an intent — the bin it is delivered to. A Module only ever sees
-messages addressed to its own channel, and never learns what caused them.
+The address half of an Intent — the subprocess, by its bin, that the Event is for. A
+Module only ever sees Events addressed to its own Channel, and never learns what caused
+them.
 _Avoid_: topic, target, recipient
 
 **Transport**:
@@ -515,6 +529,14 @@ hooks are the layout file's own JavaScript, and so may take as long as they like
 _Avoid_: resource (that is a subprocess argument), target (that is a Render target), kind
 (that is a Component kind), type
 _Elsewhere_: custom resource definition (Kubernetes), provider resource (Terraform)
+
+**Hook**:
+A function a Unit's declaration supplies for one transition of an Item — `enter`, `update`,
+`exit` — run by the Sweep. Not React's hook, and not local state, which is a **Local
+Store**. The `use*` data functions are hook-like only in being called unconditionally
+(a subprocess's identity is its bin and script); they are not Hooks in this sense.
+_Avoid_: callback, lifecycle method, effect
+_Elsewhere_: lifecycle hook (Kubernetes operators, Terraform provisioners); not `useEffect` (React)
 
 **Item**:
 One instance of a Unit, identified by its key. What the layout tree yields, what an

@@ -22,9 +22,9 @@ pub trait DisplayManager {
     fn update_image(&mut self, panel: &mut Self::Panel, bgrx: &[u8]) -> anyhow::Result<()>;
     fn delete_window(&mut self, panel: Self::Panel) -> anyhow::Result<()>;
 
-    /// Paint `frame` into the desktop background of the spec's output.
+    /// Paint `frame` into the desktop background of the spec's Screen.
     ///
-    /// The frame is always exactly the output's physical size — there is no
+    /// The frame is always exactly the Screen's physical size — there is no
     /// scaling or fitting here. Anything of that sort (cover, contain, tiling,
     /// gradients, solid colours) is expressed in the layout subtree and comes
     /// out of takumi already rasterized, same as for a panel.

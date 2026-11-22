@@ -12,7 +12,7 @@ which `<wallpaper>` works, and whether anything keeps other windows out of a pan
 | Panel is | an unmanaged window | a layer-shell surface | a window |
 | `<wallpaper>` | painted into the root background | a background-layer surface | a window below all others |
 | Anchored panel reserves space | no | yes | no |
-| Scale comes from | `Xft.dpi`, or the output's physical size for a panel with `output` | the compositor | the primary display's scale factor |
+| Scale comes from | `Xft.dpi`, or the screen's physical size for a panel with `output` | the compositor | the primary display's scale factor |
 
 ## X11
 
@@ -23,27 +23,27 @@ so a panel sits exactly where the layout puts it. It also means a panel does not
 **`above` picks the stacking.** A panel with `above` is raised over other windows. Without
 it, the panel is lowered beneath them.
 
-**Outputs are RandR outputs.** The `output` prop takes the name RandR gives (`DP-2`). Omit it
-for the primary output. When RandR reports no primary, which is the case on a bare X server
-such as Xvfb, Tauler uses the output at the origin, or else the first name in alphabetical
-order. Tauler follows output changes while it runs.
+**Screens are RandR outputs.** The `output` prop takes the name RandR gives (`DP-2`). Omit it
+for the primary screen. When RandR reports no primary, which is the case on a bare X server
+such as Xvfb, Tauler uses the screen at the origin, or else the first name in alphabetical
+order. Tauler follows screen changes while it runs.
 
 **Scale has two sources.** A panel without an `output` prop, and `ctx.screen_width` and
 `ctx.screen_height`, use the context scale. Tauler reads `Xft.dpi` from the X resources;
 without it, it computes the DPI from the screen's physical height, and without that it uses
 96. The context scale is that DPI divided by 96, and `ctx.screen_width` and
 `ctx.screen_height` are in logical pixels at that scale. A panel with an `output` prop
-instead uses that output's own density, taken from the physical size RandR reports for it, so
+instead uses that screen's own density, taken from the physical size RandR reports for it, so
 `Xft.dpi` does not affect it. On a mixed-DPI setup, a panel with `output` therefore renders
 at that monitor's real density while the panel's declared size, if it comes from
-`ctx.screen_width` arithmetic, follows `Xft.dpi`. Tauler recomputes both when outputs change.
+`ctx.screen_width` arithmetic, follows `Xft.dpi`. Tauler recomputes both when screens change.
 
 **Reserving space is your decision.** An unmanaged window cannot ask the window manager to
 keep clear of it, so on X11 an `anchor` places a panel and never reserves anything. On i3,
 `<I3Layout>` tells i3 the gaps to leave. See [Screen layout](/docs/layout/).
 
 **The wallpaper is the root window's background.** A `<wallpaper>` is painted into the
-screen's root pixmap, each one inside the rectangle of its own output. Tauler publishes the
+root pixmap, each one inside the rectangle of its own screen. Tauler publishes the
 pixmap through `_XROOTPMAP_ID` and `ESETROOT_PMAP_ID`, the way `feh` does, so programs that
 read the root background can find it.
 
@@ -65,25 +65,25 @@ tile underneath, pushes windows aside on Wayland.
 `anchor`.
 
 **An anchored panel fills its edge.** A `left` or `right` panel spans the full height of the
-output, and a `top` or `bottom` panel spans the full width. The compositor decides that
+screen, and a `top` or `bottom` panel spans the full width. The compositor decides that
 length, so the length set in the layout does not apply.
 
-**`output` picks the output.** Give the name the compositor uses for it, such as `DP-1`
-(`swaymsg -t get_outputs` lists them on Sway). Omit it for the primary output, which on
-Wayland is the leftmost output, or the topmost of several at the same position. A name that
-matches no output puts the surface on the primary output and logs a warning.
+**`output` picks the screen.** Give the name the compositor uses for it, such as `DP-1`
+(`swaymsg -t get_outputs` lists them on Sway). Omit it for the primary screen, which on
+Wayland is the leftmost screen, or the topmost of several at the same position. A name that
+matches no screen puts the surface on the primary screen and logs a warning.
 
-**Tauler measures the primary output.** `ctx.screen_width`, `ctx.screen_height` and the
-implicit scale come from the primary output, whichever output shows the panel. A panel with
-an `output` of its own uses that output's scale.
+**Tauler measures the primary screen.** `ctx.screen_width`, `ctx.screen_height` and the
+implicit scale come from the primary screen, whichever screen shows the panel. A panel with
+an `output` of its own uses that screen's scale.
 
-**Scale comes from the compositor.** Tauler divides the output's physical width by its
-logical width. If the compositor gives no logical size, it uses the output's integer scale.
+**Scale comes from the compositor.** Tauler divides the screen's physical width by its
+logical width. If the compositor gives no logical size, it uses the screen's integer scale.
 `Xft.dpi` plays no part.
 
-**`<wallpaper>` is a background-layer surface.** It covers the whole output and never makes
-room for, or moves out of the way of, other surfaces. It appears on the output its `output`
-prop names, so with several outputs give each one its own `<wallpaper>`. A fractional output
+**`<wallpaper>` is a background-layer surface.** It covers the whole screen and never makes
+room for, or moves out of the way of, other surfaces. It appears on the screen its `output`
+prop names, so with several screens give each one its own `<wallpaper>`. A fractional screen
 scale is exact when the compositor implements `wp_viewporter` (Sway, Hyprland and river
 do). Without it, the wallpaper's pixel scale is rounded to a whole number.
 
