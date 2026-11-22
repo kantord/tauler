@@ -139,6 +139,8 @@
   --text-xl: 1.25rem; /* 20: lead */
   --text-display-lg: 1.5rem; /* 24 */
   --text-display-xl: clamp(2.5rem, 4.4vw, 4rem); /* 40 to 64 */
+  --tracking-label: 0.08em; /* header, footer and button labels */
+  --tracking-label-wide: 0.1em; /* breadcrumb */
   --width-page: 1320px;
   /* Border widths. The default is the heavy rule, so a shadcn `border` is heavy
      with no component edit; `border-thin` (and `border-t-thin` ...) is the
@@ -574,9 +576,10 @@ html > body[data-scroll-locked] {
     color: var(--ink-muted);
     padding: 16px 12px 8px;
   }
-  /* A sub-group inside a folder group: its label and links step in. */
-  .tu .grp.sub,
-  .tu .nav.sub {
+  /* A sub-group inside a folder group: its label and links step in. Not `.sub`,
+     which is the framed sub-panel of code blocks and callouts. */
+  .tu .grp.indent,
+  .tu .nav.indent {
     padding-left: 24px;
   }
   .tu .toc a {

@@ -48,6 +48,7 @@ Wire it in Tailwind v4 with the shadcn convention: declare base and semantic val
 
 ## Type
 
+- Letter-spacing has two tokens: `tracking-label` (0.08em: header, footer, buttons) and `tracking-label-wide` (0.1em: breadcrumb). No arbitrary `tracking-[…]`.
 - Three families only; there is no fourth (workspace numerals are mono). The `--font-tu-*` variables in `:root` hold the stacks; `@theme` maps them to `font-display`, `font-sans` and `font-mono`. `display` (Archivo Variable, weight 900, width 125%, uppercase) for headlines at `display-xl` / `display-lg`. `sans` (DM Sans) for body: `text-base`, `text-sm`, `text-caption`. `mono` (IBM Plex Mono) for labels, nav, keycaps and code: `label` is uppercase and letter-spaced.
 - Write the name lowercase, `tauler`; the capitals come from the display style.
 - The fonts are loaded from npm (`@fontsource`), not vendored.

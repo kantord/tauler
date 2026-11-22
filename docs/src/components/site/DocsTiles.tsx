@@ -68,7 +68,7 @@ export function DocsTiles({
     <div className="mx-auto w-full max-w-page px-6 pt-7 pb-16">
       <nav
         aria-label="Breadcrumb"
-        className="m mb-4 flex items-center gap-3 text-label tracking-[.1em] text-ink-muted uppercase"
+        className="m mb-4 flex items-center gap-3 text-label tracking-label-wide text-ink-muted uppercase"
       >
         <Link href="/docs/" className="font-semibold no-underline">
           docs
@@ -90,13 +90,17 @@ export function DocsTiles({
             {groups.map((g, i) => (
               <div key={g.label ?? i}>
                 {g.label && (
-                  <div className={g.sub ? 'grp sub' : 'grp'}>{g.label}</div>
+                  <div className={g.sub ? 'grp indent' : 'grp'}>{g.label}</div>
                 )}
                 {g.items.map((item) => (
                   <Link
                     key={item.url}
                     href={item.url}
-                    className={['nav', g.sub && 'sub', item.url === url && 'on']
+                    className={[
+                      'nav',
+                      g.sub && 'indent',
+                      item.url === url && 'on',
+                    ]
                       .filter(Boolean)
                       .join(' ')}
                     aria-current={item.url === url ? 'page' : undefined}

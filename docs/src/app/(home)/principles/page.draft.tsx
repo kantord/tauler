@@ -1,3 +1,7 @@
+// DRAFT: this page is not built and is not currently maintained at all. It may
+// not match the design system (see docs/DESIGN.md) or the current site; do not
+// copy from it without checking.
+
 import type { Metadata } from 'next'
 import type { ReactNode } from 'react'
 import { Desk, Window } from '@/components/site/desk/Desk'
