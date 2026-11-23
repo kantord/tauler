@@ -134,7 +134,7 @@ fn with_scene<R>(
         let context = TakumiRenderContext::builder()
             .fonts(global.fonts.snapshot_with_fallbacks(None))
             .images(Rc::new(global.images.clone()))
-            .resource_cache(Some(global.resource_cache.clone()))
+            .cache(global.cache.clone())
             .sizing(
                 SizingContext::builder()
                     .viewport(

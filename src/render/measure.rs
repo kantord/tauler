@@ -149,6 +149,7 @@ fn lay_out(ctx: &RenderContext, text: &str, font: &TextFont) -> Measured {
     let measured = takumi::measure(
         RenderOptions::builder()
             .fonts(&ctx.fonts)
+            .cache(ctx.cache.clone())
             .viewport(Viewport::new((
                 Some(PROBE_VIEWPORT.0),
                 Some(PROBE_VIEWPORT.1),

@@ -21,11 +21,10 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, OnceLock, RwLock};
 
 use takumi::prelude::{
-    FontResource, Fonts, GenericFamily, ImageSource, Node, RenderOptions, SvgOptions, Viewport,
+    Cache, CacheOptions, FontResource, Fonts, GenericFamily, ImageCacheMode, ImageSource, Node,
+    RenderOptions, SvgOptions, Viewport,
 };
 use takumi::{render, render_svg};
-use takumi_core::resources::glyph_cache::set_glyph_cache_max_bytes;
-use takumi_core::resources::image::{ImageCacheMode, ResourceCache};
 
 pub mod cache;
 pub mod measure;
@@ -41,15 +40,17 @@ use crate::layout::parse_layout;
 /// takumi has no global context of its own: fonts live in a [`Fonts`] handle and
 /// decoded images are handed to each render individually, so tauler owns both and
 /// passes them down per frame.
-#[derive(Default, Clone)]
+#[derive(Clone)]
 pub struct RenderContext {
     pub fonts: Fonts,
     /// Pre-decoded images keyed by the `src` a node references them by.
     pub images: HashMap<Arc<str>, ImageSource>,
-    /// Decoded `data:` images and SVG rasters, kept across renders so an image a
-    /// layout draws every tick is decoded once. Clones share one store, so the
-    /// copy-on-write of a reload keeps what was already decoded.
-    pub resource_cache: ResourceCache,
+    /// What takumi keeps across renders: decoded images and SVG rasters, glyphs and
+    /// masks, parsed stylesheets and classes, all in one pool of [`CACHE_MAX_BYTES`].
+    /// Clones share one store, so the copy-on-write of a reload keeps what was
+    /// already decoded. Every render is handed this one; a render without a cache
+    /// falls back to takumi's own process-wide pool, a second budget.
+    pub cache: Cache,
     /// What `measureText` has measured with these fonts ([`measure`]).
     pub text_metrics: measure::Cache,
 }
@@ -59,19 +60,66 @@ pub struct RenderContext {
 /// the length of a render would put one back in the other's way. Mutation is
 /// copy-on-write ([`Arc::make_mut`]), so a reload cannot pull the context out
 /// from under a render already using it.
-/// Caps a cached mask at 2 MiB: a frame about 680×2880 physical pixels.
-const GLYPH_CACHE_MAX_BYTES: usize = 64 << 20;
+/// The bytes the render cache may hold. A ceiling, not an allocation: the pool grows
+/// as entries are kept and evicts past this.
+///
+/// A layout with a live chart reaches it: every redraw of a D3Figure is a new SVG,
+/// which takumi keeps although nothing asks for it again. Measured on a layout
+/// with two charts redrawn every second, those grew by 6.6 MiB a minute and glyphs
+/// held 0.1 MiB, so the size bounds what the charts leave behind, not what a frame
+/// needs.
+///
+/// It does not decide which masks are kept. takumi reuses a rounded box's mask only
+/// when it is at most 256 KiB, whatever this is set to, so a box larger than that —
+/// a full-height workspace frame — is rasterized again on every render.
+const CACHE_MAX_BYTES: u64 = 64 << 20;
+
+impl Default for RenderContext {
+    fn default() -> Self {
+        Self {
+            fonts: Fonts::default(),
+            images: HashMap::new(),
+            cache: CacheOptions::builder().max_bytes(CACHE_MAX_BYTES).build(),
+            text_metrics: measure::Cache::default(),
+        }
+    }
+}
 
 static GLOBAL_CTX: OnceLock<RwLock<Arc<RenderContext>>> = OnceLock::new();
+
+/// Log what the render cache holds and how its lookups went since startup, at
+/// debug level: `RUST_LOG=tauler::render=debug` shows it.
+///
+/// Sizes are takumi's estimates of what it keeps, not process memory. `high`
+/// against `max` says whether [`CACHE_MAX_BYTES`] is anywhere near the right size,
+/// and evictions say whether it is too small.
+pub fn log_cache_stats() {
+    const MIB: f64 = (1 << 20) as f64;
+    let stats = with_global_ctx(|ctx| ctx.cache.stats());
+    let mib = |bytes: u64| format!("{:.1}", bytes as f64 / MIB);
+    let kind = |kind: takumi::prelude::CacheKindStats| {
+        format!(
+            "{} MiB, {} hits, {} misses, {} evictions",
+            mib(kind.current),
+            kind.hits,
+            kind.misses,
+            kind.evictions
+        )
+    };
+    tracing::debug!(
+        current_mib = mib(stats.memory.current),
+        high_mib = mib(stats.memory.high),
+        max_mib = mib(CACHE_MAX_BYTES),
+        images = kind(stats.images),
+        glyphs = kind(stats.glyphs),
+        fonts = kind(stats.fonts),
+        "render cache"
+    );
+}
 
 /// Initialize the global rendering context. Must be called once at startup.
 /// Loads fonts into the context before storing it.
 pub fn init_global_ctx(font_config: FontConfig) {
-    // takumi reuses a rounded box's mask only when it fits in a 32nd of this budget,
-    // and the 8 MiB default leaves that at 256 KiB — less than a full-height
-    // workspace frame, which would then be re-rasterized on every render. Read once,
-    // by the first render, so it has to be set before one.
-    set_glyph_cache_max_bytes(GLYPH_CACHE_MAX_BYTES);
     let mut ctx = RenderContext::default();
     rebuild_font_context(&mut ctx, &font_config);
     GLOBAL_CTX.set(RwLock::new(Arc::new(ctx))).ok();
@@ -82,26 +130,27 @@ pub fn init_global_ctx(font_config: FontConfig) {
 /// Registration order *is* priority order: [`Fonts::register`] appends to a
 /// generic family's list and nothing can replace or remove an entry afterwards.
 /// So the configured font is registered before the fontconfig defaults it is
-/// meant to override, not after. The symbol fallback is exempt — it registers as
-/// a last resort, which sorts behind every normal family however early it lands.
+/// meant to override, not after. The symbol fallback is exempt — it is installed
+/// as a system font ([`with_symbol_fallback`]), which fallback tries after every
+/// registered family.
 ///
 /// With [`FontConfig::files_only`] the middle step is skipped entirely: only the
 /// fonts the config names by path are registered, and the symbol fallback is
 /// added only when `symbol_path` names one — fontconfig and the system font
 /// directories are never consulted, so the font set is the same on every host.
 pub(crate) fn rebuild_font_context(ctx: &mut RenderContext, config: &FontConfig) -> FontLoad {
-    ctx.fonts = Fonts::default();
+    let symbol = match config.symbol_path.as_deref() {
+        Some(path) => Some(path.to_path_buf()),
+        None if config.files_only => None,
+        None => system_symbol_font(),
+    };
+    ctx.fonts = with_symbol_fallback(symbol.as_deref());
     ctx.text_metrics = measure::Cache::default();
     apply_font_config(&mut ctx.fonts, config);
     if config.files_only {
-        if let Some(symbol_path) = config.symbol_path.as_deref() {
-            append_symbol_fallback(&mut ctx.fonts, Some(symbol_path));
-        }
         return FontLoad::FilesOnly;
     }
-    let load = load_targeted_fonts(&mut ctx.fonts);
-    append_symbol_fallback(&mut ctx.fonts, config.symbol_path.as_deref());
-    load
+    load_targeted_fonts(&mut ctx.fonts)
 }
 
 fn ctx_lock() -> &'static RwLock<Arc<RenderContext>> {
@@ -245,7 +294,7 @@ fn frame_options<'a>(
     RenderOptions::builder()
         .fonts(&ctx.fonts)
         .images(images)
-        .resource_cache(ctx.resource_cache.clone())
+        .cache(ctx.cache.clone())
         .viewport(Viewport::new((Some(width), Some(height))).with_device_pixel_ratio(dpr))
         .node(node)
         .build()
@@ -307,12 +356,7 @@ fn generic_family(alias: &str) -> Option<String> {
 ///
 /// A file that cannot be read or decoded is skipped rather than fatal: font sets
 /// are discovered from the system, so one bad entry must not cost us the rest.
-fn register_files(
-    fonts: &mut Fonts,
-    files: &[PathBuf],
-    generic: Option<GenericFamily>,
-    last_resort: bool,
-) -> bool {
+fn register_files(fonts: &mut Fonts, files: &[PathBuf], generic: Option<GenericFamily>) -> bool {
     let mut registered = false;
     for path in files {
         let Ok(bytes) = std::fs::read(path) else {
@@ -321,9 +365,6 @@ fn register_files(
         let mut resource = FontResource::new(bytes);
         if let Some(generic) = generic {
             resource = resource.generic_family(generic);
-        }
-        if last_resort {
-            resource = resource.last_resort();
         }
         match fonts.register(resource) {
             Ok(families) => registered |= !families.is_empty(),
@@ -337,13 +378,13 @@ fn register_files(
 
 /// Register every face of `family` under `generic`.
 fn register_family(fonts: &mut Fonts, family: &str, generic: Option<GenericFamily>) -> bool {
-    register_files(fonts, &matching_files(family), generic, false)
+    register_files(fonts, &matching_files(family), generic)
 }
 
 /// Expand `~/` in `path` and register the one file it names.
 fn register_path_font(fonts: &mut Fonts, path: &str, generic: Option<GenericFamily>) -> bool {
     let path = crate::config::expand_tilde(path);
-    register_files(fonts, std::slice::from_ref(&path), generic, false)
+    register_files(fonts, std::slice::from_ref(&path), generic)
 }
 
 /// Register the configured fonts. Runs before [`load_targeted_fonts`] so that it
@@ -373,29 +414,39 @@ pub(crate) fn apply_font_config(fonts: &mut Fonts, config: &FontConfig) {
     }
 }
 
-/// Put a symbol font behind every other family. Parley picks a font per cluster
-/// by coverage, so this only catches codepoints no other font can render.
+/// A font set with the symbol font at `path` behind every other family. Parley
+/// picks a font per cluster by coverage, so this only catches codepoints no other
+/// font can render.
 ///
-/// `path` names the font file outright; fontconfig is then never consulted, so
-/// the result does not depend on what the host has installed. Without it the
-/// font is looked up through fontconfig — which is why [`rebuild_font_context`]
-/// does not call this at all under `files_only` without a `symbol_path`: no
-/// file, no symbol font.
-fn append_symbol_fallback(fonts: &mut Fonts, path: Option<&Path>) {
-    if let Some(path) = path {
-        register_files(fonts, std::slice::from_ref(&path.to_path_buf()), None, true);
-        return;
-    }
+/// The symbol font goes in as a system font, which takumi takes only when the set
+/// is created — hence a constructor, called before anything is registered. Fallback
+/// tries a system font after every registered family, however many are registered
+/// later. A file that cannot be read or decoded costs the symbols, not the set.
+fn with_symbol_fallback(path: Option<&Path>) -> Fonts {
+    let Some(path) = path else {
+        return Fonts::default();
+    };
+    let fonts = std::fs::read(path)
+        .map_err(|error| error.to_string())
+        .and_then(|bytes| {
+            Fonts::with_system_fonts([FontResource::new(bytes)])
+                .map_err(|error| format!("{error:?}"))
+        });
+    fonts.unwrap_or_else(|error| {
+        tracing::warn!(path = %path.display(), error, "could not load the symbol font");
+        Fonts::default()
+    })
+}
+
+/// The symbol font fontconfig knows of, for a config that names none by path.
+///
+/// Not consulted under `files_only`: no file, no symbol font, so the result does
+/// not depend on what the host has installed.
+fn system_symbol_font() -> Option<PathBuf> {
     // The symbols-only font carries icon ranges alone, so it can never shadow a
     // text glyph; failing that, take whatever covers the probe icon.
-    let file = first_matching_file("Symbols Nerd Font Mono")
-        .or_else(|| first_matching_file(&format!(":charset={SYMBOL_PROBE_CODEPOINT}")));
-    let Some(file) = file else {
-        return;
-    };
-    // Registered as a last resort, which sorts it behind every normal family in
-    // fallback selection regardless of when it was registered.
-    register_files(fonts, std::slice::from_ref(&file), None, true);
+    first_matching_file("Symbols Nerd Font Mono")
+        .or_else(|| first_matching_file(&format!(":charset={SYMBOL_PROBE_CODEPOINT}")))
 }
 
 /// Which font set [`rebuild_font_context`] ended up installing.
@@ -461,7 +512,7 @@ fn register_system_fonts(fonts: &mut Fonts) {
     for dir in &dirs {
         collect_font_files(dir, &mut files);
     }
-    register_files(fonts, &files, None, false);
+    register_files(fonts, &files, None);
 }
 
 /// Every font file at or below `dir`. A missing or unreadable directory yields
@@ -536,10 +587,7 @@ fn preload_layout_images_impl(layout: &serde_json::Value, global: &mut RenderCon
             // Through the cache rather than `ImageSource::from_bytes`: an SVG decoded
             // without one has nowhere to keep its rasters, so it re-rasterizes on
             // every render.
-            if let Ok(image) = global
-                .resource_cache
-                .get_or_decode(&bytes, ImageCacheMode::Auto)
-            {
+            if let Ok(image) = global.cache.decode_image(&bytes, ImageCacheMode::Auto) {
                 global.images.insert(src.into(), image);
             }
         }
@@ -565,6 +613,7 @@ pub fn render_svg_document(content: &serde_json::Value, width: u32) -> String {
         let options = SvgOptions::builder()
             .fonts(&global.fonts)
             .images(global.images.clone())
+            .cache(global.cache.clone())
             .viewport(Viewport::new((Some(width), None)))
             .node(node)
             .build();
@@ -1425,7 +1474,7 @@ mod tests {
         // --- candidate: minimal curated fonts ---
         let mut fonts_min = Fonts::default();
         for path in [&sans, &mono, &emoji] {
-            super::register_files(&mut fonts_min, std::slice::from_ref(path), None, false);
+            super::register_files(&mut fonts_min, std::slice::from_ref(path), None);
         }
         let _ = render_once(&fonts_min); // warm-up
         let mut times_min: Vec<u128> = (0..N).map(|_| render_once(&fonts_min)).collect();

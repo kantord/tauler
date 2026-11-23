@@ -146,3 +146,34 @@ fn nesting_past_the_depth_limit_is_an_error() {
         "the error should name the depth limit, got: {err}"
     );
 }
+
+/// A value takumi cannot parse is a typo in the layout file: the layout is refused
+/// and the error names the property and the value, rather than drawing without it.
+#[test]
+fn a_style_value_that_does_not_parse_is_refused_naming_it() {
+    let node = serde_json::json!({
+        "type": "div",
+        "style": {"color": "red", "width": "12 px"},
+    });
+
+    let error = parse_layout(&node)
+        .expect_err("an invalid width is an error")
+        .to_string();
+
+    assert!(error.contains(r#"property: "width""#), "got: {error}");
+    assert!(error.contains(r#"value: "12 px""#), "got: {error}");
+}
+
+/// A property takumi does not know is passed over, as an unknown CSS property is:
+/// the rest of the style still applies.
+#[test]
+fn a_style_property_takumi_does_not_know_is_passed_over() {
+    let node = serde_json::json!({
+        "type": "div",
+        "style": {"notAProperty": "x", "width": 40, "height": 10},
+    });
+
+    let measured = measure_node(&node);
+
+    assert_eq!(measured.width, 40.0);
+}
