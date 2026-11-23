@@ -1,4 +1,4 @@
-import { ArrowLeft, ArrowRight } from 'lucide-react'
+import { ArrowLeft, ArrowRight, ChevronRight } from 'lucide-react'
 import Link from 'next/link'
 import { Icon } from '@/components/ui/icon'
 import type { ReactNode } from 'react'
@@ -6,37 +6,22 @@ import type * as PageTree from 'fumadocs-core/page-tree'
 import { findNeighbour } from 'fumadocs-core/page-tree'
 import type { TOCItemType } from 'fumadocs-core/toc'
 
-type Group = { label?: string; sub?: boolean; items: PageTree.Item[] }
+type Group = { label?: string; items: PageTree.Item[] }
 
-/**
- * The sidebar tree as the design groups it: separators become labels. A
- * folder is a group, and a separator inside it starts a sub-group.
- */
+/** The sidebar tree as the design groups it: separators become labels. */
 function groupsOf(tree: PageTree.Root): Group[] {
   const groups: Group[] = [{ items: [] }]
   for (const node of tree.children) {
     if (node.type === 'separator')
       groups.push({ label: String(node.name ?? ''), items: [] })
     else if (node.type === 'page') groups.at(-1)!.items.push(node)
-    else if (node.type === 'folder') {
-      groups.push({ label: String(node.name), items: [] })
-      if (node.index) groups.at(-1)!.items.push(node.index)
-      for (const child of node.children)
-        if (child.type === 'separator')
-          groups.push({ label: String(child.name ?? ''), sub: true, items: [] })
-        else if (child.type === 'page') groups.at(-1)!.items.push(child)
-    }
   }
   return groups.filter((g) => g.items.length > 0)
 }
 
-/** "Dynamic data / From other programs" for a page in a sub-group. */
-function groupPath(groups: Group[], url: string): string | undefined {
-  const at = groups.findIndex((g) => g.items.some((i) => i.url === url))
-  const group = groups[at]
-  if (!group?.sub) return group?.label
-  const parent = groups.slice(0, at).findLast((g) => !g.sub)
-  return [parent?.label, group.label].filter(Boolean).join(' / ')
+/** The label of the group holding the page, for the breadcrumb. */
+function groupLabel(groups: Group[], url: string): string | undefined {
+  return groups.find((g) => g.items.some((i) => i.url === url))?.label
 }
 
 /**
@@ -60,24 +45,12 @@ export function DocsTiles({
   children: ReactNode
 }) {
   const groups = groupsOf(tree)
-  const group = groupPath(groups, url)
+  const group = groupLabel(groups, url)
   const { previous, next } = findNeighbour(tree, url)
   const headings = toc.filter((t) => t.depth <= 3)
 
   return (
     <div className="mx-auto w-full max-w-page px-6 pt-7 pb-16">
-      <nav
-        aria-label="Breadcrumb"
-        className="m mb-4 flex items-center gap-3 text-label tracking-[.1em] text-ink-muted uppercase"
-      >
-        <Link href="/docs/" className="font-semibold no-underline">
-          docs
-        </Link>
-        <span>
-          {group ? `/ ${group} ` : ''}/ {title}
-        </span>
-      </nav>
-
       <div className="flex flex-wrap items-start gap-3">
         <aside
           aria-label="Contents"
@@ -89,16 +62,12 @@ export function DocsTiles({
           <nav aria-label="Docs" className="scroll px-2 pb-4">
             {groups.map((g, i) => (
               <div key={g.label ?? i}>
-                {g.label && (
-                  <div className={g.sub ? 'grp sub' : 'grp'}>{g.label}</div>
-                )}
+                {g.label && <div className="grp">{g.label}</div>}
                 {g.items.map((item) => (
                   <Link
                     key={item.url}
                     href={item.url}
-                    className={['nav', g.sub && 'sub', item.url === url && 'on']
-                      .filter(Boolean)
-                      .join(' ')}
+                    className="nav"
                     aria-current={item.url === url ? 'page' : undefined}
                   >
                     {item.name}
@@ -113,6 +82,21 @@ export function DocsTiles({
           <div className="bar">
             <span className="tt">{title}</span>
           </div>
+          <nav aria-label="Breadcrumb" className="crumbs">
+            <Link href="/docs/" className="crumb">
+              docs
+            </Link>
+            {group && (
+              <>
+                <Icon icon={ChevronRight} className="sep" />
+                <span className="crumb">{group}</span>
+              </>
+            )}
+            <Icon icon={ChevronRight} className="sep" />
+            <span className="crumb cur" aria-current="page">
+              {title}
+            </span>
+          </nav>
           <article className="art">
             <h1 className="h">{title}</h1>
             {description && <p className="lead">{description}</p>}

@@ -140,6 +140,8 @@
   --text-display-lg: 1.5rem; /* 24 */
   --text-display-xl: clamp(2.5rem, 4.4vw, 4rem); /* 40 to 64 */
   --width-page: 1320px;
+  --tracking-label: 0.08em; /* header, footer, buttons */
+  --tracking-label-wide: 0.1em; /* breadcrumb */
   /* Border widths. The default is the heavy rule, so a shadcn `border` is heavy
      with no component edit; `border-thin` (and `border-t-thin` ...) is the
      nested 1px rule. These keys also generate `border-heavy` and the side
@@ -550,34 +552,81 @@ html > body[data-scroll-locked] {
     display: flex;
     align-items: center;
     width: 100%;
-    min-height: 40px;
-    padding: 4px 12px;
+    min-height: 36px;
+    padding: 2px 12px;
     color: var(--ink);
     font-family: var(--font-tu-text);
-    font-size: var(--text-sm);
+    font-size: var(--text-base);
     font-weight: 500;
     text-decoration: none;
   }
   .tu .nav:hover {
     color: var(--orange-ink);
   }
-  .tu .nav.on {
-    background: var(--orange);
-    color: var(--on-orange);
+  /* The current page: bold ink and an orange edge, no fill (dark text on
+     orange is low contrast at this size). */
+  .tu .nav[aria-current='page'] {
+    color: var(--ink);
     font-weight: 700;
+    border-left: var(--border-width-heavy) solid var(--orange);
+    padding-left: calc(var(--spacing) * 3 - var(--border-width-heavy));
   }
+  /* A group label is a row like any link, then a hairline to the edge. */
   .tu .grp {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    height: 64px;
+    padding: 28px 12px 0;
     font-family: var(--font-tu-mono);
     font-size: var(--text-caption);
     text-transform: uppercase;
     letter-spacing: 0.12em;
     color: var(--ink-muted);
-    padding: 16px 12px 8px;
   }
-  /* A sub-group inside a folder group: its label and links step in. */
-  .tu .grp.sub,
-  .tu .nav.sub {
-    padding-left: 24px;
+  .tu nav > div:first-child > .grp {
+    height: 44px;
+    padding-top: 8px;
+  }
+  .tu .grp::after {
+    content: '';
+    flex: 1;
+    height: var(--border-width-thin);
+    background: var(--line);
+  }
+  /* The breadcrumb strip under the article's title bar. */
+  .tu .crumbs {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px;
+    min-height: 40px;
+    padding: 4px 48px;
+    border-bottom: var(--border-width-thin) solid var(--line);
+    background: var(--card);
+    font-family: var(--font-tu-mono);
+    font-size: var(--text-label);
+    font-weight: 500;
+    letter-spacing: var(--tracking-label-wide);
+    text-transform: uppercase;
+  }
+  .tu .crumb {
+    display: inline-flex;
+    align-items: center;
+    min-height: 28px;
+    padding: 0 4px;
+    color: var(--ink-muted);
+    text-decoration: none;
+  }
+  .tu a.crumb:hover {
+    color: var(--orange-ink);
+  }
+  .tu .crumb.cur {
+    color: var(--ink);
+    font-weight: 600;
+  }
+  .tu .crumbs .sep {
+    color: var(--ink-muted);
   }
   .tu .toc a {
     display: block;

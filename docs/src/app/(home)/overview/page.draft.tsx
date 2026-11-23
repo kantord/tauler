@@ -1,3 +1,4 @@
+// DRAFT: not built and not maintained. May not match the design system (see DESIGN.md).
 import type { Metadata } from 'next'
 import { ArrowRight } from 'lucide-react'
 import Link from 'next/link'

@@ -50,6 +50,7 @@ Wire it in Tailwind v4 with the shadcn convention: declare base and semantic val
 
 - Three families only; there is no fourth (workspace numerals are mono). The `--font-tu-*` variables in `:root` hold the stacks; `@theme` maps them to `font-display`, `font-sans` and `font-mono`. `display` (Archivo Variable, weight 900, width 125%, uppercase) for headlines at `display-xl` / `display-lg`. `sans` (DM Sans) for body: `text-base`, `text-sm`, `text-caption`. `mono` (IBM Plex Mono) for labels, nav, keycaps and code: `label` is uppercase and letter-spaced.
 - Write the name lowercase, `tauler`; the capitals come from the display style.
+- Letter-spacing has two tokens, `tracking-label` (0.08em: header, footer, buttons) and `tracking-label-wide` (0.1em: breadcrumb). No arbitrary `tracking-[…]`. Sizing (`w-*`, `max-w-*`, flex bases) is exempt; font sizes and spacing are not.
 - The fonts are loaded from npm (`@fontsource`), not vendored.
 
 ### Type scale
@@ -72,6 +73,7 @@ Defined in `@theme` in `global.css`; use these utilities, never `text-[Npx]`. `t
 - Page width is one token, `--width-page` (1320px), used as `max-w-page`. Spacing is Tailwind's 4px scale (`space-1` … `space-12`); use Tailwind's `p-*`, `gap-*` utilities. No half-steps (`gap-3.5`) and no arbitrary px; 2px is allowed for hairline offsets only (inline code padding). **Exception:** the 88px workspace numerals on `principles/page.draft.tsx` have no scale step, because they exist only on a draft page. Add a step when that page ships.
 - `radius` is 0, so every shadcn `rounded-*` is square. The one exception is keycaps (`radius-key`, 4px).
 - Borders: heavy (2px) for top-level tiles, the header and footer rules, and controls; thin (1px) for anything nested inside a tile: sub-windows, mini windows, callouts such as alerts, and separators. Heavy is Tailwind's default width here (`--default-border-width` in `global.css`), so a plain `border`, `border-t` or `border-b` is heavy, in shadcn components too. Thin is `border-thin` (and `border-t-thin` and the like). Both widths are variables, `--border-width-heavy` and `--border-width-thin`. No other widths, except the keycap's 3px foot.
+- The framed `.sub` panel is for code blocks and callouts only; navigation never uses it. The sidebar is flat: mono group labels with a hairline, 36px rows, and the current page in bold ink with a 2px orange left edge instead of an orange fill.
 - No shadows or gradients, and that includes third-party components: the search dialog's shadow is removed in `global.css`. Depth is rules and the 4px checker hatch (`line` on `page`, or `orange-deep` on `orange` when focused); the hatch is 4px everywhere.
 - Tiles: a `card` panel with a heavy `rule` frame and a hatched title bar holding a `label-strong` mono title. The focused tile gets an orange frame and bar. **Exception:** the orange frame on the light page is 2.96:1, under the 3:1 border rule. The frame is not the only cue: the lit tile also has the orange title bar and its text, and the frame passes in dark, so it is exempt. Do not use `orange-ink` for it; that would turn a bright accent into a dull one.
 
