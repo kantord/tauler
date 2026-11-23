@@ -338,7 +338,8 @@ fn rasterize(svg: &str, css_w: f64, css_h: f64, pw: u32, ph: u32, dpr: f32) -> O
         "src": format!("data:image/svg+xml;utf8,{}", percent_encode(svg)),
         "style": { "width": css_w, "height": css_h }
     });
-    let rgba = super::raster(&content, pw, ph, dpr, None);
+    // Not the frames' cache: this SVG is drawn once, and the bitmap is kept here.
+    let rgba = super::raster_keeping(&content, pw, ph, dpr, None, |ctx| &ctx.picture_cache);
     // Only `None` if the buffer is not `pw × ph × 4`, which `raster` guarantees.
     ImageBuffer::from_rgba_bytes(rgba, pw, ph).map(ImageSource::from)
 }
