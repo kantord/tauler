@@ -6445,9 +6445,9 @@ dependencies = [
 
 [[package]]
 name = "takumi"
-version = "2.22.0"
+version = "2.22.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ca827b139e61739986ed79f5d7bfef2b87322fe31362732a279a06c88c251976"
+checksum = "821d5da6c3a11a1ecae346f9eb953e45b2bf48f5e368cb958f9bf016fdb6a9b8"
 dependencies = [
  "takumi-core",
  "takumi-raster",
@@ -6456,9 +6456,9 @@ dependencies = [
 
 [[package]]
 name = "takumi-core"
-version = "0.38.0"
+version = "0.39.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3a8bd0a22adfdcd27398c5aa8a292d74ffc542d2fdd3d2cd0fd16174769db5fa"
+checksum = "240f49bac476ec186636b1a0925d116eaff5a2c1a86cf690f3b2ffbc2284ab07"
 dependencies = [
  "bitflags 2.13.2",
  "bytemuck",
@@ -6501,9 +6501,9 @@ dependencies = [
 
 [[package]]
 name = "takumi-raster"
-version = "0.9.0"
+version = "0.9.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "86acca59dadca8b278638cf140cd8d0b6270a2dda3f150acc42f46ee0c771be9"
+checksum = "1d5de2cdc43e831f0c9d403eb4709194530cb22f28273f85ce748fa0cfcb157c"
 dependencies = [
  "bytemuck",
  "color",
@@ -6527,9 +6527,9 @@ dependencies = [
 
 [[package]]
 name = "takumi-svg"
-version = "0.4.1"
+version = "0.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6279e891f9067be3ad629536b03600ccb7f027447b5035e62c859af813ea37c4"
+checksum = "6c06269aa308f40856b6b91dc14c3cf4baaaaa427602b88fe4ca7646526776e3"
 dependencies = [
  "quick-xml 0.42.0",
  "rustc-hash",
