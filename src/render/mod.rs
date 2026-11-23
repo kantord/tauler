@@ -51,6 +51,12 @@ pub struct RenderContext {
     /// already decoded. Every render is handed this one; a render without a cache
     /// falls back to takumi's own process-wide pool, a second budget.
     pub cache: Cache,
+    /// The cache a Picture's SVG is drawn with ([`picture`]): glyphs and masks, no
+    /// images. Each redraw of a D3Figure is a different SVG that nothing asks for
+    /// again — the bitmap drawn from it is what [`picture`] keeps, until the
+    /// figure is replaced — so keeping the decoded SVG would only fill the cache
+    /// with what a live chart left behind.
+    pub picture_cache: Cache,
     /// What `measureText` has measured with these fonts ([`measure`]).
     pub text_metrics: measure::Cache,
 }
@@ -74,12 +80,19 @@ pub struct RenderContext {
 /// a full-height workspace frame — is rasterized again on every render.
 const CACHE_MAX_BYTES: u64 = 64 << 20;
 
+/// The bytes [`RenderContext::picture_cache`] may hold: the glyphs of chart labels.
+const PICTURE_CACHE_MAX_BYTES: u64 = 8 << 20;
+
 impl Default for RenderContext {
     fn default() -> Self {
         Self {
             fonts: Fonts::default(),
             images: HashMap::new(),
             cache: CacheOptions::builder().max_bytes(CACHE_MAX_BYTES).build(),
+            picture_cache: CacheOptions::builder()
+                .max_bytes(PICTURE_CACHE_MAX_BYTES)
+                .images(ImageCacheMode::None)
+                .build(),
             text_metrics: measure::Cache::default(),
         }
     }
@@ -253,12 +266,25 @@ fn raster(
     dpr: f32,
     backdrop: Option<&Backdrop>,
 ) -> Vec<u8> {
+    raster_keeping(content, width, height, dpr, backdrop, |ctx| &ctx.cache)
+}
+
+/// As [`raster`], keeping what the render reuses in the cache `kept_in` picks.
+fn raster_keeping(
+    content: &serde_json::Value,
+    width: u32,
+    height: u32,
+    dpr: f32,
+    backdrop: Option<&Backdrop>,
+    kept_in: fn(&RenderContext) -> &Cache,
+) -> Vec<u8> {
     let layout = parse_layout(content)
         .map_err(|e| tracing::error!(error = %e, "layout parse error"))
         .ok();
     let global = snapshot();
     let node = layout.unwrap_or_else(|| Node::container(vec![]));
-    let options = frame_options(&global, content, backdrop, node, width, height, dpr);
+    let cache = kept_in(&global);
+    let options = frame_options(&global, cache, content, backdrop, node, width, height, dpr);
     let t = std::time::Instant::now();
     let rgba = render(options).expect("render").into_raw();
     tracing::debug!(full_render_us = t.elapsed().as_micros(), "full render");
@@ -266,7 +292,7 @@ fn raster(
 }
 
 /// The options every frame is rendered or measured with: the shared fonts and
-/// decoded images, at `width × height` physical pixels with `dpr` scaling CSS `px`,
+/// decoded images, keeping what the render reuses in `cache`, at `width × height` physical pixels with `dpr` scaling CSS `px`,
 /// plus `backdrop` bound as `tauler:root-bg` for this render alone, and every
 /// Picture `content` names bound under its `tauler:picture/<key>` src
 /// ([`picture`]).
@@ -277,8 +303,10 @@ fn raster(
 /// the crop goes into this render's copy and never into the shared context. A
 /// surface with no wallpaper under it simply renders without the key — there is
 /// no shared slot for the previous surface's crop to linger in.
+#[allow(clippy::too_many_arguments)]
 fn frame_options<'a>(
     ctx: &'a RenderContext,
+    cache: &Cache,
     content: &serde_json::Value,
     backdrop: Option<&Backdrop>,
     node: Node,
@@ -294,7 +322,7 @@ fn frame_options<'a>(
     RenderOptions::builder()
         .fonts(&ctx.fonts)
         .images(images)
-        .cache(ctx.cache.clone())
+        .cache(cache.clone())
         .viewport(Viewport::new((Some(width), Some(height))).with_device_pixel_ratio(dpr))
         .node(node)
         .build()
