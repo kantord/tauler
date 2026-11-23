@@ -1,3 +1,4 @@
+// DRAFT: not built and not maintained. May not match the design system (see DESIGN.md).
 import type { Metadata } from 'next'
 import type { ReactNode } from 'react'
 import { Desk, Window } from '@/components/site/desk/Desk'

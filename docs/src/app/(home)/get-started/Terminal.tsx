@@ -1,3 +1,4 @@
+// DRAFT: not built and not maintained. May not match the design system (see DESIGN.md).
 'use client'
 import { useState } from 'react'
 import { Button } from '@/components/ui/button'
