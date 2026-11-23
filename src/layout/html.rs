@@ -69,6 +69,35 @@ pub enum LayoutError {
     Style(serde_json::Error),
 }
 
+/// A `style` object as a takumi style, refusing a value takumi cannot parse.
+///
+/// takumi itself drops such a declaration and draws the rest, as CSS does. A layout
+/// file is code, though, and `width: "12 px"` there is a typo: drawn without its
+/// width it looks like a layout bug, where an error names the property. A property
+/// takumi does not know is still passed over in silence, as it always was.
+///
+/// takumi keeps the list of what it dropped but does not expose it on a [`Style`];
+/// its `Debug` output is the one place the list shows, so that is what is read.
+/// About 1 μs a styled node. A public accessor upstream would replace this.
+fn parse_style(value: &Value) -> Result<Style, LayoutError> {
+    const DROPPED: &str = "IgnoredDeclaration { ";
+    const INVALID: &str = ", reason: InvalidValue";
+
+    let style: Style = serde_json::from_value(value.clone()).map_err(LayoutError::Style)?;
+    let debug = format!("{:?}", style.declarations);
+    let invalid = debug
+        .split(DROPPED)
+        .skip(1)
+        .find_map(|dropped| dropped.split_once(INVALID).map(|(named, _)| named));
+    match invalid {
+        // `named` reads `property: "width", value: "12 px"`.
+        Some(named) => Err(LayoutError::Style(serde::de::Error::custom(format!(
+            "not a valid value — {named}"
+        )))),
+        None => Ok(style),
+    }
+}
+
 /// One node's handlers, bound to the render path they were found at.
 ///
 /// Named for what it does rather than what it holds: `Handler` is the glossary's word
@@ -258,8 +287,7 @@ fn apply_metadata(mut node: Node, tag: &str, obj: &Value) -> Result<Node, Layout
     }
 
     if let Some(style) = obj.get("style") {
-        let style: Style = serde_json::from_value(style.clone()).map_err(LayoutError::Style)?;
-        node = node.with_style(style);
+        node = node.with_style(parse_style(style)?);
     }
 
     if let Some(id) = obj.get("id").and_then(Value::as_str) {

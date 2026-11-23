@@ -139,7 +139,12 @@ struct Worker {
     last_render: HashMap<String, Instant>,
     cache: FrameCache,
     commands: Sender<SurfaceCommand>,
+    /// When the render cache's stats were last logged.
+    stats_logged: Instant,
 }
+
+/// How often a rendering worker logs the render cache's stats.
+const CACHE_STATS_INTERVAL: Duration = Duration::from_secs(60);
 
 impl Worker {
     fn new(commands: Sender<SurfaceCommand>) -> Self {
@@ -148,6 +153,7 @@ impl Worker {
             last_render: HashMap::new(),
             cache: FrameCache::new(),
             commands,
+            stats_logged: Instant::now(),
         }
     }
 
@@ -162,6 +168,10 @@ impl Worker {
             t.mark("render", now);
         }
         self.last_render.insert(request.id.clone(), now);
+        if now.duration_since(self.stats_logged) >= CACHE_STATS_INTERVAL {
+            self.stats_logged = now;
+            super::log_cache_stats();
+        }
         SurfaceFrame {
             pixels,
             width: request.width,
