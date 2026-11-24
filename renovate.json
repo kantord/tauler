@@ -99,10 +99,10 @@
       "groupName": "fumadocs"
     },
     {
-      "description": "docs-ci.yaml pins its job container to the same mcr.microsoft.com/playwright image tag docs/scripts/update-snapshots.sh derives from @playwright/test — two copies of one version (ADR 0031). Overrides the generic github-actions grouping above so this doesn't drift out of sync inside a batch of unrelated action bumps.",
-      "matchManagers": ["npm", "github-actions"],
-      "matchPackageNames": ["@playwright/test", "mcr.microsoft.com/playwright"],
-      "groupName": "playwright (npm package + pinned docker image)"
+      "description": "docs-ci.yaml pins its job container to a playwright image for the OS base (fonts, libs — ADR 0031); the browser itself is installed from the @playwright/test package at test time (docs-ci.yaml, 'Install the Playwright browser the npm package pins'), so the image no longer needs to track the npm version. It was grouped with the npm package before that change; grouping could not enforce the pairing anyway — a Renovate run that resolved only one half opened a half-PR (#625, #828), and nothing back-fills the missing file. The image is grouped on its own: the bare groupName overrides the generic github-actions group, so an image digest refresh opens its own small PR instead of riding a batch of unrelated action bumps.",
+      "matchManagers": ["github-actions"],
+      "matchPackageNames": ["mcr.microsoft.com/playwright"],
+      "groupName": "playwright docker image"
     },
     {
       "description": "three is held at the revision the home page background was written for (r185): it runs erichlof/THREE.js-PathTracing-Renderer's GLSL chunks (docs/src/components/site/room/vendor/) and the room's own shaders (docs/src/components/site/room/shaders/) inside three's ShaderMaterial prefixes. A lone three bump can change those prefixes under them; bump it only after checking that the room still renders, taking the renderer's chunks for the new revision if it does not.",

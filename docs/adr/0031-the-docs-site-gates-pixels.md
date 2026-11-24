@@ -48,3 +48,22 @@ left is not zero: two runs of the same container image on different
 physical CPUs can still round floating-point rasterizer math a few pixels
 apart. `maxDiffPixels` stayed at 300 to absorb that, not the
 hundred-pixel class of drift the first two tries were fighting.
+
+**Amendment (the browser left the image).** The image's browser and the npm
+package's expected browser are two copies of one version, and keeping them in
+sync turned out to be impossible to enforce: Renovate's group rule only merges
+what each manager resolves in the same run, so it intermittently opened
+half-PRs that bump `@playwright/test` without the image (and never
+back-fills the missing file) — landing on `main` as a wave of
+"Executable doesn't exist" launch failures until a human hand-edited the
+workflow (the 1.64.1 cycle) or, worse, sat red for over a week with the fix
+out of Renovate's reach (1.65.1 / PR 828). The browser now comes from the
+installed package instead: `docs-ci.yaml` runs `pnpm exec playwright install
+chromium` before the suite, making the npm version the single source of truth
+for the browser — a bump can't help but bring its matching browser. The
+image stays pinned and Renovate bumpable, but only as the OS base. This keeps
+the determinism argument intact, because what pixels respond to is the
+browser build plus the OS font stack: local runs derive the image from the
+npm version, so the Chromium build is identical on both sides, and the
+noble base the image provides drifts only within a patch window. The
+renovate pair-group is retired; image digest refreshes move by themselves.

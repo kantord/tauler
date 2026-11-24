@@ -3,9 +3,19 @@ repos:
     rev: v6.0.0
     hooks:
       - id: trailing-whitespace
+        # Vendored room files' headers pin them to the upstream bytes ("The
+        # body is the upstream file as it is"): reformatting them would make
+        # every future diff against Erich Loftis's renderer noisy.
+        exclude: ^docs/src/components/site/room/(vendor|shaders)/
       - id: end-of-file-fixer
+        exclude: ^docs/src/components/site/room/(vendor|shaders)/
       - id: check-toml
       - id: check-yaml
+        # This hook handles single-document YAML only. pnpm >=9 emits the
+        # lockfile as two documents (settings + lockfile) and the configgen
+        # examples concatenate their schema onto a worked config on purpose;
+        # both are valid YAML the hook does not model.
+        exclude: ^(docs/pnpm-lock\.yaml|tauler-configgen/examples/.*\.schema\.yaml)$
       - id: check-merge-conflict
       - id: detect-private-key
       - id: check-added-large-files
@@ -23,4 +33,33 @@ repos:
         entry: cargo clippy --workspace -- -D warnings
         language: system
         types: [rust]
+        pass_filenames: false
+
+      # The docs build's fast gates (docs/package.json "checks"). Each runs the
+      # same check Docs CI runs, so a commit-time failure means the same code
+      # reaching CI red several minutes later. They run only for commits
+      # touching docs/ and need `pnpm install` in docs/ to have been run.
+      - id: docs-oxfmt
+        name: docs oxfmt
+        entry: bash -c 'cd docs && pnpm run format:check'
+        language: system
+        files: ^docs/
+        pass_filenames: false
+      - id: docs-oxlint
+        name: docs oxlint
+        entry: bash -c 'cd docs && pnpm run lint'
+        language: system
+        files: ^docs/
+        pass_filenames: false
+      - id: docs-tsc
+        name: docs typescript
+        entry: bash -c 'cd docs && pnpm run check'
+        language: system
+        files: ^docs/
+        pass_filenames: false
+      - id: docs-page-templates
+        name: docs page templates
+        entry: bash -c 'cd docs && node scripts/check-pages.mjs'
+        language: system
+        files: ^docs/content/
         pass_filenames: false

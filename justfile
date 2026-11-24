@@ -130,6 +130,12 @@ install:
     cargo install --path tauler-i3 --locked
     cargo install --path tauler-notify --locked
     cargo install --path tauler-accumulate --locked
+    # Git hooks cannot be committed to .git, so a fresh clone has none until this
+    # runs once per clone. Idempotent — safe to re-run. Skipped, with a note,
+    # when prek is not installed: hooks would then never run locally, so this
+    # points at installing it.
+    if command -v prek >/dev/null 2>&1; then prek install; else \
+        echo "prek not found — git hooks not installed (cargo install prek, https://github.com/j178/prek)"; fi
 
 install-fast:
     cargo install --path . --locked --debug
