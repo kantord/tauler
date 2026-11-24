@@ -139,7 +139,10 @@ test('a docs URL that moved sends the reader to the new page', async ({
   await expect(page).toHaveURL(/\/docs\/data\/tauler-i3\/$/)
 })
 
-test('a folder of pages is a group, and its separators are sub-groups', async ({
+// The sidebar is flat (see docs/DESIGN.md, "the sidebar is flat"): separator
+// entries in meta.json become group labels, pages list directly beneath them,
+// and the breadcrumb names the group followed by the page title.
+test('separator entries group the flat sidebar, no sub-groups', async ({
   page,
 }) => {
   await page.goto('/docs/data/streams/')
@@ -147,10 +150,12 @@ test('a folder of pages is a group, and its separators are sub-groups', async ({
   await expect(
     contents.getByText('Dynamic data', { exact: true }),
   ).toBeVisible()
-  await expect(contents.getByText('From other programs')).toBeVisible()
+  await expect(
+    contents.getByText('State management', { exact: true }),
+  ).toBeVisible()
   await expect(
     page.getByRole('navigation', { name: 'Breadcrumb' }),
-  ).toContainText('Dynamic data / From other programs')
+  ).toContainText('Dynamic data')
 })
 
 test('the header and the side tiles stay in view while the article scrolls', async ({
