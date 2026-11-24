@@ -45,7 +45,7 @@ RUN gcc -O2 -o /artifacts/a11y-probe tauler-e2e/a11y-probe.c \
         $(pkg-config --cflags atspi-2) \
         $(pkg-config --libs atspi-2 gobject-2.0)
 
-FROM debian:bookworm-slim@sha256:734a72b3d6142a71993b4bc580ca01d8ca687f77a2c422d96a961d3376b179bc AS base
+FROM debian:bookworm-slim@sha256:e67eeead736ff7bbe258ef088bff683635c561b1fcfefad0806c1df4ab49ce0e AS base
 
 # Everything both desktops need and nothing that only one of them does: the
 # tauler binary, its runtime libraries, and the fonts. A change to either
