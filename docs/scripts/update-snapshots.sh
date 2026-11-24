@@ -11,14 +11,18 @@
 # --update regenerates the committed baselines. No flag just verifies them
 # (what CI does). Further arguments go to Playwright, e.g. tests/docs.spec.ts.
 #
-# The image tag is derived from @playwright/test, so it can't drift from
-# the npm package on its own; renovate.json groups it with the tag
-# hardcoded in docs-ci.yaml's `container:` field so those two stay in sync.
+# The image tag is still derived from @playwright/test: the browser inside a
+# vX.Y.Z-noble image is the build that package version pins, so the derived
+# image supplies both the OS base and the exact browser in one go (ADR 0031).
+# CI no longer relies on that pairing — it installs the browser from the
+# npm package over whatever image renovate pins — so a not-yet-published
+# image (a noble release can trail npm) breaks only this script, and only
+# in that window; override it with e.g. PLAYWRIGHT_IMAGE=v1.65.0-noble.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
 PLAYWRIGHT_VERSION=$(node -e "console.log(require('@playwright/test/package.json').version)")
-IMAGE="mcr.microsoft.com/playwright:v${PLAYWRIGHT_VERSION}-noble"
+IMAGE="${PLAYWRIGHT_IMAGE:-mcr.microsoft.com/playwright:v${PLAYWRIGHT_VERSION}-noble}"
 
 UPDATE=''
 if [ "${1:-}" = '--update' ]; then
@@ -48,4 +52,3 @@ docker run --rm -e CI=true \
     rm -rf .next .source dist
     $TEST_CMD
   "
-

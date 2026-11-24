@@ -37,8 +37,11 @@ jobs:
     # can each render the same page a few hundred pixels apart (ADR 0031).
     # Pinning the job to this exact image — the same one
     # docs/scripts/update-snapshots.sh runs locally — makes CI and every
-    # contributor's machine the same environment instead of merely similar
-    # ones. Bump together with @playwright/test; renovate.json groups them.
+    # contributor's machine the same base OS and font stack. The image does
+    # not supply the browser: the "Install the Playwright browser" step
+    # below installs the build the installed @playwright/test package pins,
+    # so the container's browser version is irrelevant and Renovate bumps
+    # this image's digest independently of the npm package.
     container: mcr.microsoft.com/playwright:v1.65.0-noble@sha256:9beb546099e11f52d62e505537914870e01a67e0e6b00ae41da4775324e73dbe
     defaults:
       run:
@@ -99,6 +102,17 @@ jobs:
         run: just docs
 
       - run: pnpm install --frozen-lockfile
+
+      # The browser build is defined by the installed @playwright/test, not
+      # by the image: Playwright releases can pin a new Chromium build, and a
+      # mismatch fails every browser launch ("Executable doesn't exist at
+      # ../chromium_headless_shell-1255/..."). Installing here makes the npm
+      # package the single source of truth for the browser — no browser-free
+      # red renovate PRs when a release outruns the image — and verifies in
+      # a couple of seconds against the image when the two already match.
+      - name: Install the Playwright browser the npm package pins
+        run: pnpm exec playwright install chromium
+
       # The same gate as a local `pnpm run checks`: format, lint, types, the
       # static build, its HTML nesting check and the console-error sweep.
       - run: pnpm run checks

@@ -45,4 +45,3 @@ moves into `tauler-core`, which cannot reach x11rb, smithay, takumi or rquickjs 
 does not depend on `tauler` at all. Where the Wayland commit relied on discipline and lost
 531 lines of `main.rs` to the leak, a crate boundary fails at build time on the first
 stray `use`.
-
