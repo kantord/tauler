@@ -57,7 +57,7 @@
     "@types/three": "0.185.1",
     "apca-w3": "0.1.9",
     "culori": "4.0.2",
-    "html-validate": "11.21.1",
+    "html-validate": "11.22.1",
     "oxfmt": "0.80.0",
     "oxlint": "1.95.0",
     "postcss": "8.5.33",
