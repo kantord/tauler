@@ -17,8 +17,8 @@ function groupLabel(groups: NavGroup[], url: string): string | undefined {
  * A docs page laid out as three tiles — contents, the article, on this page.
  * From 1024px all three sit in a row; from 768px the contents and "on this
  * page" are two sticky tiles in one left column; below 768px the contents are
- * the header's drawer (DocsMenu), "on this page" is the heading bar, and the
- * article is frameless.
+ * the header's drawer (DocsMenu) and "on this page" is the heading bar under
+ * the page's lead. Below 640px the article is frameless.
  */
 export function DocsTiles({
   tree,
@@ -41,10 +41,10 @@ export function DocsTiles({
   const headings = toc.filter((t) => t.depth <= 3)
 
   return (
-    <div className="mx-auto w-full max-w-page pb-16 sm:px-6 md:pt-7">
+    <div className="mx-auto w-full max-w-page pb-16 sm:px-6 sm:pt-3">
       <div className="flex items-start gap-3">
-        <div className="sticky top-[calc(var(--tu-header-h)+12px)] flex max-h-[calc(100vh-var(--tu-header-h)-24px)] w-[clamp(204px,24vw,248px)] shrink-0 flex-col gap-3 max-md:hidden">
-          <aside aria-label="Contents" className="tile side min-h-0 shrink">
+        <div className="sticky top-[calc(var(--tu-header-h)+12px)] flex h-[calc(100vh-var(--tu-header-h)-24px)] w-[clamp(204px,24vw,248px)] shrink-0 flex-col gap-3 max-md:hidden">
+          <aside aria-label="Contents" className="tile side min-h-0 flex-auto">
             <div className="bar">
               <span className="tt">contents</span>
             </div>
@@ -53,7 +53,7 @@ export function DocsTiles({
           {headings.length > 0 && (
             <aside
               aria-label="On this page"
-              className="tile side min-h-0 shrink lg:hidden"
+              className="tile side max-h-1/2 shrink-0 lg:hidden"
             >
               <div className="bar">
                 <span className="tt">on this page</span>
@@ -63,8 +63,8 @@ export function DocsTiles({
           )}
         </div>
 
-        <main className="tile on min-w-0 flex-1 max-md:border-0 max-md:bg-transparent max-md:outline-0">
-          <div className="bar max-md:hidden">
+        <main className="tile on min-w-0 flex-1 max-sm:border-0 max-sm:bg-transparent max-sm:outline-0">
+          <div className="bar max-sm:hidden">
             <span className="tt">{title}</span>
           </div>
           <nav aria-label="Breadcrumb" className="crumbs max-md:hidden">
@@ -82,10 +82,10 @@ export function DocsTiles({
               {title}
             </span>
           </nav>
-          {headings.length > 0 && <HeadingBar headings={headings} />}
           <article className="art">
             <h1 className="h">{title}</h1>
             {description && <p className="lead">{description}</p>}
+            {headings.length > 0 && <HeadingBar headings={headings} />}
             {children}
             <div className="mt-12 grid grid-cols-[repeat(auto-fit,minmax(min(100%,220px),1fr))] gap-3">
               {previous ? (

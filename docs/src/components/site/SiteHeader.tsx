@@ -3,10 +3,11 @@ import type { ReactNode } from 'react'
 import { buttonVariants } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { SearchButton, ThemeToggle } from './controls'
+import { ScrollEdge } from './ScrollEdge'
 import { GitHubIcon } from './icons'
 import { Logo } from './Logo'
 
-const navLink = buttonVariants({ variant: 'nav', size: 'inline' })
+const navLink = buttonVariants({ variant: 'tab', size: 'tab' })
 
 /**
  * The top bar shared by every page: the logo (it stands in for the word
@@ -27,8 +28,8 @@ export function SiteHeader({
   menu?: ReactNode
 }) {
   return (
-    <header className="m sticky top-0 z-40 border-b border-rule bg-page text-label uppercase [html[data-bar-stuck]_&]:max-md:border-b-thin">
-      <div className="mx-auto flex max-w-page flex-wrap items-center justify-between gap-3 px-6 py-2">
+    <header className="tu-header m sticky top-0 z-40 border-b border-rule bg-page text-label uppercase [html[data-bar-stuck]_&]:max-md:border-b-thin">
+      <div className="mx-auto flex max-w-page flex-wrap items-center justify-between gap-3 px-4 py-2 sm:px-6">
         {lead}
         <nav aria-label="Site" className="flex items-center gap-4">
           <Link
@@ -57,19 +58,25 @@ export function SiteHeader({
             docs
           </Link>
         </nav>
-        <span className="flex flex-wrap items-center gap-3">
+        <div className="flex flex-1 justify-end lg:justify-center">
           <SearchButton />
+        </div>
+        <span className="flex items-center gap-3">
           <a
             href="https://github.com/kantord/tauler"
-            aria-label="tauler on GitHub"
-            className={buttonVariants({ variant: 'outline', size: 'icon' })}
+            className={cn(
+              buttonVariants({ variant: 'outline' }),
+              'max-md:size-10 max-md:p-0',
+            )}
           >
             <GitHubIcon />
+            <span className="sr-only md:not-sr-only">Star on GitHub</span>
           </a>
           <ThemeToggle className={cn(menu && 'max-md:hidden')} />
           {menu}
         </span>
       </div>
+      <ScrollEdge />
     </header>
   )
 }

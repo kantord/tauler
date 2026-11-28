@@ -51,8 +51,7 @@ export function Wallpaper({
       data-edge-to-edge={edgeToEdge || undefined}
       className={cn(
         'tauler-wallpaper pointer-events-none absolute inset-0 -z-10 overflow-hidden',
-        phoneBand &&
-          'max-md:bottom-auto max-md:h-[270px] max-md:[mask-image:linear-gradient(to_bottom,black,transparent)]',
+        phoneBand && 'tu-wall-band',
       )}
     />
   )

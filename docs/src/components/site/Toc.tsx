@@ -61,19 +61,22 @@ export function TocList({
   onNavigate?: () => void
 }) {
   return (
-    <ul className="m-0 list-none border-l border-line p-0">
+    <ul className="m-0 list-none p-0">
       {headings.map((h) => {
         const active = h.url.slice(1) === activeId
         return (
-          <li key={h.url}>
+          <li key={h.url} className="m-0">
             <a
               href={h.url}
               onClick={onNavigate}
               aria-current={active ? 'location' : undefined}
               className={cn(
-                '-ml-[var(--border-width-heavy)] flex items-center border-l border-transparent pr-3 text-ink-muted no-underline hover:text-orange-ink',
-                size === 'docked' ? 'min-h-8 text-sm' : 'min-h-10 text-base',
-                h.depth > 2 ? 'pl-6' : 'pl-3',
+                // The rows' left borders join into the rail. In the article (the
+                // dropdown) a heading's inline code stays plain text.
+                '[&_code]:border-0 [&_code]:bg-transparent [&_code]:p-0',
+                'block truncate border-l border-line pr-2 text-sm font-medium text-ink no-underline hover:border-orange hover:text-orange-ink',
+                size === 'docked' ? 'leading-8' : 'leading-10',
+                h.depth > 2 ? 'pl-7 font-normal text-ink-muted' : 'pl-3',
                 active && 'border-orange font-bold text-ink',
               )}
             >
@@ -90,17 +93,19 @@ export function TocList({
 export function DockedToc({ headings }: { headings: Heading[] }) {
   const { id } = useReading(headings)
   return (
-    <nav className="scroll px-2 py-3" aria-label="On this page contents">
+    <nav className="scroll px-3 pt-2 pb-3" aria-label="On this page contents">
       <TocList headings={headings} activeId={id} size="docked" />
     </nav>
   )
 }
 
 /**
- * Below 768px: before it sticks, a keycap button with a popover list over the
- * article, so opening it shifts nothing. Once stuck under the header it is a
- * full-width strip with a progress ring and the heading being read. The bar
- * keeps one fixed height in both states, so sticking moves no content.
+ * Below 768px, under the page's lead: before it sticks, a keycap button with
+ * a popover list over the article, so opening it shifts nothing. Once stuck
+ * under the header it is a full-width strip with a progress ring and the
+ * heading being read. The bar keeps one fixed height in both states, so
+ * sticking moves no content. The negative margins undo the article's padding,
+ * so the strip and the list run edge to edge.
  */
 export function HeadingBar({ headings }: { headings: Heading[] }) {
   const sentinel = useRef<HTMLDivElement>(null)
@@ -147,10 +152,9 @@ export function HeadingBar({ headings }: { headings: Heading[] }) {
       <div
         ref={wrap}
         className={cn(
-          'sticky top-[57px] z-30 h-12 md:hidden',
-          stuck
-            ? 'border-y-thin border-line border-b-rule bg-card'
-            : 'flex items-center px-4',
+          'sticky top-[57px] z-30 -mx-4 mb-5 h-[42px] sm:-mx-8 md:hidden',
+          stuck ? 'border-b border-rule bg-card' : 'px-4 sm:px-8',
+          stuck && open && 'border-b-thin border-line',
         )}
       >
         <button
@@ -158,17 +162,17 @@ export function HeadingBar({ headings }: { headings: Heading[] }) {
           aria-label="On this page"
           aria-expanded={open}
           onClick={() => setOpen((o) => !o)}
-          className={
+          className={cn(
             stuck
-              ? 'flex h-full w-full cursor-pointer items-center gap-3 px-4 text-left text-sm font-semibold text-ink'
-              : buttonVariants({ variant: 'keycap' })
-          }
+              ? 'flex h-10 w-full cursor-pointer items-center gap-2 px-4 font-mono text-xs font-medium text-ink sm:px-8'
+              : buttonVariants({ variant: 'keycap' }),
+          )}
         >
           {stuck ? (
             <>
               <svg
                 viewBox="0 0 20 20"
-                className="size-5 shrink-0 -rotate-90"
+                className="size-4 shrink-0 -rotate-90"
                 aria-hidden="true"
               >
                 <circle
@@ -190,8 +194,9 @@ export function HeadingBar({ headings }: { headings: Heading[] }) {
                   className="stroke-orange"
                 />
               </svg>
-              <span className="min-w-0 flex-1 truncate">{reading}</span>
-              <Icon icon={ChevronDown} />
+              <span className="min-w-0 flex-1 truncate text-left">
+                {reading}
+              </span>
             </>
           ) : (
             <>
@@ -199,9 +204,10 @@ export function HeadingBar({ headings }: { headings: Heading[] }) {
               On this page
             </>
           )}
+          <Icon icon={ChevronDown} />
         </button>
         {open && (
-          <div className="absolute inset-x-0 top-full max-h-[calc(100vh-57px-48px-16px)] overflow-y-auto border-b border-rule bg-card p-3 shadow-none">
+          <div className="absolute inset-x-0 top-full max-h-[calc(100vh-140px)] overflow-y-auto border-b border-rule bg-card px-4 pt-2 pb-3 sm:px-8">
             <TocList
               headings={headings}
               activeId={id}

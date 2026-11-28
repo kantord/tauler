@@ -186,4 +186,8 @@ drawer (Base UI's dialog, already a dependency) and the bar ourselves instead of
 adopting Fumadocs' sidebar and TOC primitives: the design's drawer, keycap bar and
 stuck strip share almost none of their markup, so adopting them would have meant
 overriding most of it, the cost this ADR chose to avoid by owning the chrome. The
-article is frameless below 768px.
+article is frameless below 640px.
+
+The search dialog stays Fumadocs', shaped by class names. Its result rows are ours
+(`src/lib/search-results.ts`): Fumadocs shows every matching block in full, the design
+one title, path and line of text per page or section.

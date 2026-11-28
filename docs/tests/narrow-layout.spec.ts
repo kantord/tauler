@@ -70,6 +70,72 @@ test.describe('390px', () => {
     expect(drawerBox.x).toBeGreaterThan(logo.x + logo.width)
   })
 
+  test('"on this page" starts below the title and lead', async ({ page }) => {
+    const lead = (await page.locator('article .lead').boundingBox())!
+    const bar = (await page
+      .getByRole('button', { name: 'On this page' })
+      .boundingBox())!
+    expect(bar.y).toBeGreaterThanOrEqual(lead.y + lead.height)
+  })
+
+  test('the search dialog sits 12px from the screen edges', async ({
+    page,
+  }) => {
+    await page.getByRole('button', { name: /search/i }).click()
+    const dialog = page.getByRole('dialog')
+    await expect(dialog.getByRole('button', { name: /close/i })).toBeVisible()
+    await expect
+      .poll(async () => {
+        const box = (await dialog.boundingBox())!
+        const width = (await page.locator('header').boundingBox())!.width
+        return [Math.round(box.x), Math.round(box.y), width - box.x - box.width]
+      })
+      .toEqual([12, 12, 12])
+  })
+
+  test('search results are a title, a path and a snippet', async ({ page }) => {
+    await page.getByRole('button', { name: /search/i }).click()
+    await page.getByRole('dialog').getByRole('combobox').fill('theme')
+    const options = page.getByRole('dialog').getByRole('option')
+    await expect(options.first()).toBeVisible()
+    await expect(options.locator('pre, table, code')).toHaveCount(0)
+    for (const option of (await options.all()).slice(0, 6))
+      expect((await option.boundingBox())!.height).toBeLessThanOrEqual(130)
+    await expect(
+      options.filter({ hasText: 'Guide / Themes' }).first(),
+    ).toBeAttached()
+    // The query is marked where it matched.
+    await expect(options.first().locator('mark').first()).toHaveText(/theme/i)
+  })
+
+  test('the page title scales with the screen', async ({ page }) => {
+    // 8vw: a long word in the title fits a phone's column.
+    await expect(page.locator('article h1')).toHaveCSS('font-size', '31.2px')
+  })
+
+  test('the heading list has no gaps between its rows', async ({ page }) => {
+    await page.getByRole('button', { name: 'On this page' }).click()
+    const rows = page.locator('article li a[href^="#"]')
+    const first = (await rows.nth(0).boundingBox())!
+    const second = (await rows.nth(1).boundingBox())!
+    expect(second.y).toBe(first.y + first.height)
+    expect(first.x).toBe(16)
+  })
+
+  test('the drawer has a contents title, site links and both themes', async ({
+    page,
+  }) => {
+    await page.getByRole('button', { name: 'Open menu' }).click()
+    const drawer = page.getByRole('dialog')
+    await expect(drawer.getByText('contents', { exact: true })).toBeVisible()
+    await expect(drawer.getByText('Site', { exact: true })).toBeVisible()
+    await expect(drawer.getByRole('link', { name: 'Home' })).toBeVisible()
+    await drawer.getByRole('button', { name: 'Dark mode' }).click()
+    await expect(page.locator('html')).toHaveClass(/dark/)
+    await drawer.getByRole('button', { name: 'Light mode' }).click()
+    await expect(page.locator('html')).toHaveClass(/light/)
+  })
+
   test('"on this page" sticks directly under the header once scrolled past the title', async ({
     page,
   }) => {
@@ -106,6 +172,45 @@ test.describe('768px', () => {
     // Same row: tops within a few pixels of each other, contents to the left.
     expect(Math.abs(contents.y - article.y)).toBeLessThan(8)
     expect(contents.x + contents.width).toBeLessThanOrEqual(article.x + 1)
+  })
+
+  test('the "on this page" window gets a usable share of the column', async ({
+    page,
+  }) => {
+    const window = (await page
+      .getByRole('complementary', { name: 'On this page' })
+      .boundingBox())!
+    expect(window.height).toBeGreaterThan(180)
+    expect(window.y + window.height).toBeLessThanOrEqual(1024)
+  })
+
+  test('the header offers "Star on GitHub" and gains an edge on scroll', async ({
+    page,
+  }) => {
+    const header = page.getByRole('banner')
+    await expect(
+      header.getByRole('link', { name: 'Star on GitHub' }),
+    ).toBeVisible()
+    const edge = () =>
+      page
+        .locator('header')
+        .evaluate((el) => getComputedStyle(el, '::after').height)
+    expect(await edge()).not.toBe('4px')
+    await page.evaluate(() => window.scrollTo(0, 600))
+    await expect.poll(edge).toBe('4px')
+  })
+
+  test('the search dialog is 600px wide, 80px from the top', async ({
+    page,
+  }) => {
+    await page.getByRole('button', { name: /search/i }).click()
+    const dialog = page.getByRole('dialog')
+    await expect
+      .poll(async () => {
+        const box = (await dialog.boundingBox())!
+        return [Math.round(box.width), Math.round(box.y)]
+      })
+      .toEqual([600, 80])
   })
 
   test('there is no menu button', async ({ page }) => {

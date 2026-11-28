@@ -27,6 +27,7 @@ from `@/lib/utils`, and the files are formatted with oxfmt (single quotes, trail
 | 2026-11-14 | `buttonVariants` is now a function that merges classes with `cn`; the variants object is private (`variants`). `className` is a string only, not Base UI's function form. | A link styled as a button takes `buttonVariants()`, and `size` and `className` must win over the base `border`. |
 | 2026-11-25 | The label type is the `text-label` utility alone; `font-mono`, `tracking-[.08em]` and the tracking token are gone from the base classes. | Letter-spacing is part of a text style (see DESIGN.md). |
 | 2026-11-25 | New `keycap` variant (4px corners via `rounded-key`, heavy border, card fill). | The "on this page" heading bar below 768px is a keycap; `--radius-key` is the design system's one rounded corner. |
+| 2026-11-28 | New `tab` and `segment` variants and sizes; `keycap` is normal case and medium weight. | The header's current link takes an orange edge, not a fill; the drawer's theme control is a two-way switch. |
 
 
 ## alert.tsx

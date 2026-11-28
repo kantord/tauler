@@ -16,9 +16,9 @@ export function SearchButton() {
       onClick={() => setOpenSearch(true)}
       className="bg-card px-3 font-normal max-md:size-10 max-md:p-0"
     >
-      <Icon icon={Search} className="md:hidden" />
-      <span className="sr-only text-ink-muted md:not-sr-only">search</span>
-      <span className="hidden w-[180px] text-left tracking-normal text-ink-muted normal-case md:inline">
+      <Icon icon={Search} />
+      <span className="sr-only">search</span>
+      <span className="hidden w-[150px] text-left tracking-normal text-ink-muted normal-case md:inline lg:w-[180px]">
         layouts, units, data…
       </span>
     </Button>
@@ -27,17 +27,22 @@ export function SearchButton() {
 
 const noopSubscribe = () => () => {}
 
-/** A square key showing the mode it switches to: a moon, or a sun. */
-export function ThemeToggle({ className }: { className?: string }) {
+/** The theme in use. It is only known in the browser, so the server render
+ * and the first client render have none. */
+function useMountedTheme() {
   const { resolvedTheme, setTheme } = useTheme()
-  // The theme is only known in the browser: the server render and the first
-  // client render both offer "dark", then the real mode takes over.
   const mounted = useSyncExternalStore(
     noopSubscribe,
     () => true,
     () => false,
   )
-  const next = mounted && resolvedTheme === 'dark' ? 'light' : 'dark'
+  return { theme: mounted ? resolvedTheme : undefined, setTheme }
+}
+
+/** A square key showing the mode it switches to: a moon, or a sun. */
+export function ThemeToggle({ className }: { className?: string }) {
+  const { theme, setTheme } = useMountedTheme()
+  const next = theme === 'dark' ? 'light' : 'dark'
   return (
     <Button
       variant="outline"
@@ -48,5 +53,27 @@ export function ThemeToggle({ className }: { className?: string }) {
     >
       <Icon icon={next === 'dark' ? Moon : Sun} />
     </Button>
+  )
+}
+
+/** Both modes side by side, the one in use marked: the drawer's theme
+ * control. */
+export function ThemeSegment() {
+  const { theme, setTheme } = useMountedTheme()
+  return (
+    <span className="inline-flex border border-input">
+      {(['light', 'dark'] as const).map((mode) => (
+        <Button
+          key={mode}
+          variant="segment"
+          size="segment"
+          aria-label={mode === 'light' ? 'Light mode' : 'Dark mode'}
+          aria-pressed={theme === mode}
+          onClick={() => setTheme(mode)}
+        >
+          <Icon icon={mode === 'light' ? Sun : Moon} />
+        </Button>
+      ))}
+    </span>
   )
 }

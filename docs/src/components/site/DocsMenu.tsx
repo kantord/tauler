@@ -1,14 +1,22 @@
 'use client'
 import { Dialog } from '@base-ui/react/dialog'
 import { Menu, X } from 'lucide-react'
-import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { useState } from 'react'
 import { Button, buttonVariants } from '@/components/ui/button'
 import { Icon } from '@/components/ui/icon'
-import { ThemeToggle } from './controls'
+import { ThemeSegment } from './controls'
 import { DocsNav, type NavGroup } from './DocsNav'
 import { GitHubIcon } from './icons'
+
+const SITE: NavGroup = {
+  label: 'Site',
+  plain: true,
+  items: [
+    { url: '/', name: 'Home' },
+    { url: '/docs/', name: 'Docs' },
+  ],
+}
 
 /**
  * Below 768px the contents live here: a menu button at the right end of the
@@ -34,10 +42,26 @@ export function DocsMenu({ groups }: { groups: NavGroup[] }) {
         <Icon icon={Menu} />
       </Dialog.Trigger>
       <Dialog.Portal>
-        <Dialog.Backdrop className="fixed inset-0 z-50 bg-ink/40 md:hidden" />
-        <Dialog.Popup className="fixed inset-y-0 right-0 z-50 flex w-[min(300px,80vw)] flex-col overflow-y-auto border-l border-rule bg-page outline-none md:hidden">
-          <Dialog.Title className="sr-only">Menu</Dialog.Title>
-          <div className="flex items-center gap-3 border-b-thin border-line p-3">
+        <Dialog.Backdrop className="fixed inset-0 z-50 bg-ink/45 md:hidden" />
+        <Dialog.Popup className="fixed inset-y-0 right-0 z-50 flex w-[min(320px,85%)] flex-col border-l border-rule bg-card outline-none md:hidden">
+          <div className="bar relative">
+            <Dialog.Title className="tt m-0 text-label font-semibold">
+              contents
+            </Dialog.Title>
+            <Dialog.Close
+              render={
+                <Button
+                  variant="outline"
+                  size="icon"
+                  aria-label="Close menu"
+                  className="absolute right-1 size-7 bg-card"
+                />
+              }
+            >
+              <Icon icon={X} />
+            </Dialog.Close>
+          </div>
+          <div className="flex items-center justify-between gap-3 border-b-thin border-line px-5 py-3">
             <a
               href="https://github.com/kantord/tauler"
               className={buttonVariants({ variant: 'outline' })}
@@ -45,37 +69,13 @@ export function DocsMenu({ groups }: { groups: NavGroup[] }) {
               <GitHubIcon />
               Star on GitHub
             </a>
-            <ThemeToggle />
-            <Dialog.Close
-              render={
-                <Button
-                  variant="outline"
-                  size="icon"
-                  aria-label="Close menu"
-                  className="ml-auto"
-                />
-              }
-            >
-              <Icon icon={X} />
-            </Dialog.Close>
+            <ThemeSegment />
           </div>
-          <nav
-            aria-label="Site links"
-            className="flex gap-3 border-b-thin border-line p-3"
-          >
-            <Link href="/" className={buttonVariants({ variant: 'nav' })}>
-              home
-            </Link>
-            <Link
-              href="/docs/"
-              aria-current={pathname.startsWith('/docs') ? 'page' : undefined}
-              className={buttonVariants({ variant: 'nav' })}
-              onClick={close}
-            >
-              docs
-            </Link>
-          </nav>
-          <DocsNav groups={groups} url={pathname} onNavigate={close} />
+          <DocsNav
+            groups={[SITE, ...groups]}
+            url={pathname}
+            onNavigate={close}
+          />
         </Dialog.Popup>
       </Dialog.Portal>
     </Dialog.Root>

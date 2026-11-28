@@ -3,6 +3,8 @@ import type * as PageTree from 'fumadocs-core/page-tree'
 
 export type NavGroup = {
   label?: string
+  /** Links that never show as current (the drawer's site links). */
+  plain?: boolean
   items: { url: string; name: string }[]
 }
 
@@ -21,7 +23,8 @@ export function groupsOf(tree: PageTree.Root): NavGroup[] {
 const bare = (url: string) => url.replace(/\/$/, '')
 
 /** The docs contents: group labels and page links. Shared by the docked
- * sidebar tile and the phone drawer. */
+ * sidebar tile and the phone drawer. A title too long for the row ends in an
+ * ellipsis. */
 export function DocsNav({
   groups,
   url,
@@ -41,10 +44,13 @@ export function DocsNav({
               key={item.url}
               href={item.url}
               className="nav"
-              aria-current={bare(item.url) === bare(url) ? 'page' : undefined}
+              title={item.name}
+              aria-current={
+                !g.plain && bare(item.url) === bare(url) ? 'page' : undefined
+              }
               onClick={onNavigate}
             >
-              {item.name}
+              <span className="truncate">{item.name}</span>
             </Link>
           ))}
         </div>

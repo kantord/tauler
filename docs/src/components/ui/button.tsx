@@ -21,7 +21,14 @@ const variants = cva(
         // A keycap: 4px corners, heavy border, card fill. The "on this page"
         // heading bar below 768px.
         keycap:
-          'rounded-key border-input bg-card text-foreground hover:text-orange-ink',
+          'rounded-key border-input bg-card font-medium tracking-normal text-foreground normal-case hover:text-orange-ink',
+        // A site link in the header: the current one has an orange edge under
+        // it and bold ink, no fill.
+        tab: 'border-0 border-b border-transparent bg-transparent px-1 font-medium text-foreground hover:text-orange-ink aria-[current=page]:border-primary aria-[current=page]:font-bold aria-[current=page]:text-foreground',
+        // One half of a two-way switch; the pressed one sits on the page
+        // colour with an orange edge under it.
+        segment:
+          'border-0 border-b border-transparent bg-transparent text-foreground aria-pressed:border-primary aria-pressed:bg-background',
         // Navigation: the current page (aria-current="page") is lit.
         nav: 'border-input bg-card text-foreground not-aria-[current=page]:hover:text-orange-ink aria-[current=page]:border-primary aria-[current=page]:bg-primary aria-[current=page]:text-primary-foreground',
       },
@@ -32,6 +39,8 @@ const variants = cva(
         // A bare word in a line of text; lit, it becomes a filled tag.
         inline:
           'border-0 bg-transparent p-0 font-normal aria-[current=page]:px-3 aria-[current=page]:py-1 aria-[current=page]:font-semibold',
+        segment: 'h-8 w-11 p-0',
+        tab: 'min-h-10 px-1',
         // A square key, like a workspace number in a bar.
         icon: 'size-10 font-mono text-base font-bold tracking-normal',
       },
