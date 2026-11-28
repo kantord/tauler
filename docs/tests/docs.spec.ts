@@ -70,9 +70,16 @@ for (const route of ROUTES) {
   })
 }
 
+/** The contents nav: docked from 768px, in the menu drawer below it. */
+async function contentsNav(page: Page) {
+  const menu = page.getByRole('button', { name: 'Open menu' })
+  if (await menu.isVisible()) await menu.click()
+  return page.getByRole('navigation', { name: 'Docs' })
+}
+
 test('the contents tile links every page', async ({ page }) => {
   await page.goto('/docs/layout-file/')
-  const contents = page.getByRole('navigation', { name: 'Docs' })
+  const contents = await contentsNav(page)
   await expect(
     contents.getByRole('link', { name: 'Elements and styling' }),
   ).toBeVisible()
@@ -83,6 +90,9 @@ test('the contents tile links every page', async ({ page }) => {
 
 test('the theme toggle switches between light and dark', async ({ page }) => {
   await page.goto('/docs/layout-file/')
+  // Below 768px the theme button lives in the menu drawer.
+  const menu = page.getByRole('button', { name: 'Open menu' })
+  if (await menu.isVisible()) await menu.click()
   const html = page.locator('html')
   const toggle = page.getByRole('button', {
     name: /switch to (light|dark) mode/i,
@@ -146,16 +156,19 @@ test('separator entries group the flat sidebar, no sub-groups', async ({
   page,
 }) => {
   await page.goto('/docs/data/streams/')
-  const contents = page.getByRole('navigation', { name: 'Docs' })
+  const contents = await contentsNav(page)
   await expect(
     contents.getByText('Dynamic data', { exact: true }),
   ).toBeVisible()
   await expect(
     contents.getByText('State management', { exact: true }),
   ).toBeVisible()
-  await expect(
-    page.getByRole('navigation', { name: 'Breadcrumb' }),
-  ).toContainText('Dynamic data')
+  // The breadcrumb strip belongs to the article's tile, which is frameless
+  // (no title bar, no breadcrumb) below 768px.
+  if ((page.viewportSize()?.width ?? 0) >= 768)
+    await expect(
+      page.getByRole('navigation', { name: 'Breadcrumb' }),
+    ).toContainText('Dynamic data')
 })
 
 test('the header and the side tiles stay in view while the article scrolls', async ({

@@ -25,6 +25,9 @@ from `@/lib/utils`, and the files are formatted with oxfmt (single quotes, trail
 | 2026-11-14 | Removed the `default` variant's hover fill, the `aria-invalid` styles, the dark-mode variants, `active` press, `transition-all` and `bg-clip-padding`; added `cursor-pointer`, `gap-2` and `no-underline` to the base. | Controls are flat and have no invalid state; the dark theme comes from the tokens. |
 | 2026-11-14 | The `lg` size is 52px high, sentence case; `inline` is a new borderless size. Sizes `xs`, `sm`, `icon-xs`, `icon-sm` and `icon-lg` removed. | A call to action and a bare word in a line of text. |
 | 2026-11-14 | `buttonVariants` is now a function that merges classes with `cn`; the variants object is private (`variants`). `className` is a string only, not Base UI's function form. | A link styled as a button takes `buttonVariants()`, and `size` and `className` must win over the base `border`. |
+| 2026-11-25 | The label type is the `text-label` utility alone; `font-mono`, `tracking-[.08em]` and the tracking token are gone from the base classes. | Letter-spacing is part of a text style (see DESIGN.md). |
+| 2026-11-25 | New `keycap` variant (4px corners via `rounded-key`, heavy border, card fill). | The "on this page" heading bar below 768px is a keycap; `--radius-key` is the design system's one rounded corner. |
+
 
 ## alert.tsx
 

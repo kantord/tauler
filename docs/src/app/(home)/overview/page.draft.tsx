@@ -18,7 +18,7 @@ export default function OverviewSlide() {
       <div className="flex flex-wrap gap-3">
         <Window title="about" style={{ flex: '3 1 520px' }}>
           <div className="tb justify-center">
-            <h2 className="h m-0 text-display-xl">
+            <h2 className="h m-0 text-display">
               Declare your <span className="text-orange">workspace.</span>
             </h2>
             <p className="m-0 max-w-[30em] text-xl leading-[1.55]">
@@ -53,7 +53,7 @@ export default function OverviewSlide() {
             <Row k="theme:" v="a shipped theme, in frontmatter" last />
             <Link
               href="/docs/layout-file/"
-              className="m flex items-center gap-2 border-t-thin border-line pt-4 pb-2 text-label-strong font-semibold underline decoration-orange decoration-[1.5px] underline-offset-3"
+              className="m flex items-center gap-2 border-t-thin border-line pt-4 pb-2 text-label font-semibold underline decoration-orange decoration-[1.5px] underline-offset-3"
             >
               the layout file
               <Icon icon={ArrowRight} />
@@ -71,7 +71,7 @@ function Row({ k, v, last }: { k: string; v: string; last?: boolean }) {
       className={`flex items-center justify-between gap-3 py-4 ${last ? '' : 'border-b-thin border-line'}`}
     >
       <code className="ic">{k}</code>
-      <span className="m text-right text-label-strong text-ink-muted">{v}</span>
+      <span className="m text-right text-label text-ink-muted">{v}</span>
     </div>
   )
 }

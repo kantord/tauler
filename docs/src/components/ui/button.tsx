@@ -9,7 +9,7 @@ import { cn } from '@/lib/utils'
 // as its className: Base UI's Button forces button semantics on whatever it
 // renders, so it must not render an <a>.
 const variants = cva(
-  "group/button inline-flex shrink-0 cursor-pointer items-center justify-center gap-2 border border-transparent font-mono text-label font-semibold tracking-label whitespace-nowrap uppercase no-underline outline-none select-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring focus-visible:outline-solid disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+  "group/button inline-flex shrink-0 cursor-pointer items-center justify-center gap-2 border border-transparent font-mono text-label font-semibold whitespace-nowrap uppercase no-underline outline-none select-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring focus-visible:outline-solid disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
   {
     variants: {
       variant: {
@@ -18,6 +18,10 @@ const variants = cva(
           'border-input bg-transparent text-foreground hover:text-orange-ink',
         'outline-primary':
           'border-primary bg-transparent text-orange-ink hover:bg-primary hover:text-primary-foreground',
+        // A keycap: 4px corners, heavy border, card fill. The "on this page"
+        // heading bar below 768px.
+        keycap:
+          'rounded-key border-input bg-card text-foreground hover:text-orange-ink',
         // Navigation: the current page (aria-current="page") is lit.
         nav: 'border-input bg-card text-foreground not-aria-[current=page]:hover:text-orange-ink aria-[current=page]:border-primary aria-[current=page]:bg-primary aria-[current=page]:text-primary-foreground',
       },

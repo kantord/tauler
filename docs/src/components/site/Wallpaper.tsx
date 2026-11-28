@@ -1,5 +1,6 @@
 'use client'
 import { useEffect, useRef } from 'react'
+import { cn } from '@/lib/utils'
 
 /**
  * The dithered wallpaper behind every page. It shows only where no window
@@ -22,9 +23,13 @@ import { useEffect, useRef } from 'react'
 export function Wallpaper({
   edgeToEdge = false,
   room = false,
+  phoneBand = false,
 }: {
   edgeToEdge?: boolean
   room?: boolean
+  /** Below 768px, paint only a short band at the top that fades out, and
+   * leave the page its flat colour below it. */
+  phoneBand?: boolean
 }) {
   const host = useRef<HTMLDivElement>(null)
   useEffect(() => {
@@ -44,7 +49,11 @@ export function Wallpaper({
       ref={host}
       aria-hidden="true"
       data-edge-to-edge={edgeToEdge || undefined}
-      className="tauler-wallpaper pointer-events-none absolute inset-0 -z-10 overflow-hidden"
+      className={cn(
+        'tauler-wallpaper pointer-events-none absolute inset-0 -z-10 overflow-hidden',
+        phoneBand &&
+          'max-md:bottom-auto max-md:h-[270px] max-md:[mask-image:linear-gradient(to_bottom,black,transparent)]',
+      )}
     />
   )
 }
