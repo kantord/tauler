@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0](https://github.com/kantord/tauler/compare/tauler-core-v0.3.15...tauler-core-v0.4.0) - 2026-11-28
+
+### Added
+
+- add useDispatch and useService, alias useEvents and Module ([#865](https://github.com/kantord/tauler/pull/865))
+- support component-scoped state ([#854](https://github.com/kantord/tauler/pull/854))
+
+### Fixed
+
+- *(deps)* update oxc crates to v0.160.0 ([#896](https://github.com/kantord/tauler/pull/896))
+- *(deps)* update oxc crates to v0.159.0 ([#852](https://github.com/kantord/tauler/pull/852))
+- *(deps)* update oxc crates to v0.158.0 ([#844](https://github.com/kantord/tauler/pull/844))
+
+### Other
+
+- *(deps)* update rust crate rstest to v0.29.0 ([#891](https://github.com/kantord/tauler/pull/891))
+- remove dead code, lint all targets, check unused deps in CI ([#853](https://github.com/kantord/tauler/pull/853))
+
 ## [0.3.15](https://github.com/kantord/tauler/compare/tauler-core-v0.3.14...tauler-core-v0.3.15) - 2026-11-18
 
 ### Added
