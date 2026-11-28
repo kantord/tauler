@@ -22,6 +22,9 @@
   /* Height of the sticky site header on a wide screen (one row: 40px
      controls, 8px padding top and bottom, 2px rule). */
   --tu-header-h: 58px;
+  /* Below 768px, while the heading bar is stuck under it, the header's rule
+     is 1px. */
+  --tu-header-stuck-h: 57px;
   --page: oklch(0.919 0.008 91.5);
   --raised: oklch(0.961 0.005 95.1);
   --ink: oklch(0.178 0 0);
@@ -136,6 +139,9 @@
   --text-base: 1rem; /* 16 */
   --text-xl: 1.25rem; /* 20: lead */
   --width-page: 1320px;
+  /* Behind a drawer or dialog. Black in both themes: `ink` is nearly white
+     in dark, and would lighten the page. */
+  --color-scrim: oklch(0 0 0 / 0.45);
   --radius-key: 4px; /* keycaps */
   /* Border widths. The default is the heavy rule, so a shadcn `border` is heavy
      with no component edit; `border-thin` (and `border-t-thin` ...) is the
@@ -287,8 +293,10 @@ html > body[data-scroll-locked] {
   [role='dialog'] * {
     border-radius: 0;
   }
-  .tu kbd {
-    border-radius: 4px;
+  /* Repeated here, after the rule above, which beats the utility. */
+  .tu kbd,
+  .tu .rounded-key {
+    border-radius: var(--radius-key);
   }
   /* No shadows. */
   [role='dialog'] {
@@ -643,21 +651,6 @@ html > body[data-scroll-locked] {
   }
   .tu .crumbs .sep {
     color: var(--ink-muted);
-  }
-  .tu .toc a {
-    display: block;
-    padding: 8px 16px;
-    @apply text-code;
-    text-decoration: none;
-    color: var(--ink-muted);
-    border-left: var(--border-width-heavy) solid transparent;
-  }
-  .tu .toc a.depth-3 {
-    padding-left: 24px;
-  }
-  .tu .toc a:hover {
-    color: var(--orange-ink);
-    border-left-color: var(--orange);
   }
   .tu .pn {
     display: flex;

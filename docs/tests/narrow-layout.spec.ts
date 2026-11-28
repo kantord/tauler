@@ -113,6 +113,50 @@ test.describe('390px', () => {
     await expect(page.locator('article h1')).toHaveCSS('font-size', '31.2px')
   })
 
+  test('the heading bar is a keycap, with rounded corners', async ({
+    page,
+  }) => {
+    await expect(page.getByRole('button', { name: 'On this page' })).toHaveCSS(
+      'border-top-left-radius',
+      '4px',
+    )
+  })
+
+  for (const [what, button] of [
+    ['drawer', 'Open menu'],
+    ['search dialog', /search/i],
+  ] as const) {
+    test(`the ${what}'s scrim darkens the page in dark mode too`, async ({
+      page,
+    }) => {
+      await page.emulateMedia({ colorScheme: 'dark' })
+      await expect(page.locator('html')).toHaveClass(/dark/)
+      await page.getByRole('button', { name: button }).click()
+      await expect(page.getByRole('dialog')).toBeVisible()
+      // The brightest channel of whatever fills the screen behind the dialog,
+      // painted on a canvas so any CSS colour format reads the same.
+      const brightest = await page.evaluate(() => {
+        const scrim = [...document.querySelectorAll('body *')].find((el) => {
+          const style = getComputedStyle(el)
+          const box = el.getBoundingClientRect()
+          return (
+            style.position === 'fixed' &&
+            box.height >= innerHeight &&
+            box.x === 0 &&
+            box.width > innerWidth / 2 &&
+            style.backgroundColor !== 'rgba(0, 0, 0, 0)'
+          )
+        })!
+        const canvas = document.createElement('canvas').getContext('2d')!
+        canvas.fillStyle = getComputedStyle(scrim).backgroundColor
+        canvas.fillRect(0, 0, 1, 1)
+        const [r, g, b] = canvas.getImageData(0, 0, 1, 1).data
+        return Math.max(r, g, b)
+      })
+      expect(brightest).toBeLessThan(40)
+    })
+  }
+
   test('the heading list has no gaps between its rows', async ({ page }) => {
     await page.getByRole('button', { name: 'On this page' }).click()
     const rows = page.locator('article li a[href^="#"]')

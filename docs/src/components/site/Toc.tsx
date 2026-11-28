@@ -7,6 +7,11 @@ import { cn } from '@/lib/utils'
 
 export type Heading = { url: string; title: ReactNode; depth: number }
 
+// The solid focus ring, drawn inside the control: the bar and the list rows
+// run to the edges of the screen.
+const FOCUS =
+  'focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring focus-visible:outline-solid'
+
 // Where a heading counts as "being read": just under the header and the
 // stuck heading bar.
 const READING_LINE = 140
@@ -74,6 +79,7 @@ export function TocList({
                 // The rows' left borders join into the rail. In the article (the
                 // dropdown) a heading's inline code stays plain text.
                 '[&_code]:border-0 [&_code]:bg-transparent [&_code]:p-0',
+                FOCUS,
                 'block truncate border-l border-line pr-2 text-sm font-medium text-ink no-underline hover:border-orange hover:text-orange-ink',
                 size === 'docked' ? 'leading-8' : 'leading-10',
                 h.depth > 2 ? 'pl-7 font-normal text-ink-muted' : 'pl-3',
@@ -122,7 +128,9 @@ export function HeadingBar({ headings }: { headings: Heading[] }) {
         // The header drops to a 1px line while the bar is stuck.
         document.documentElement.toggleAttribute('data-bar-stuck', s)
       },
-      { rootMargin: '-57px 0px 0px 0px' },
+      {
+        rootMargin: `-${getComputedStyle(document.documentElement).getPropertyValue('--tu-header-stuck-h')} 0px 0px 0px`,
+      },
     )
     io.observe(sentinel.current!)
     return () => {
@@ -152,7 +160,7 @@ export function HeadingBar({ headings }: { headings: Heading[] }) {
       <div
         ref={wrap}
         className={cn(
-          'sticky top-[57px] z-30 -mx-4 mb-5 h-[42px] sm:-mx-8 md:hidden',
+          'sticky top-[var(--tu-header-stuck-h)] z-30 -mx-4 mb-5 h-[42px] sm:-mx-8 md:hidden',
           stuck ? 'border-b border-rule bg-card' : 'px-4 sm:px-8',
           stuck && open && 'border-b-thin border-line',
         )}
@@ -164,7 +172,10 @@ export function HeadingBar({ headings }: { headings: Heading[] }) {
           onClick={() => setOpen((o) => !o)}
           className={cn(
             stuck
-              ? 'flex h-10 w-full cursor-pointer items-center gap-2 px-4 font-mono text-xs font-medium text-ink sm:px-8'
+              ? cn(
+                  FOCUS,
+                  'flex h-10 w-full cursor-pointer items-center gap-2 px-4 font-mono text-xs font-medium text-ink sm:px-8',
+                )
               : buttonVariants({ variant: 'keycap' }),
           )}
         >

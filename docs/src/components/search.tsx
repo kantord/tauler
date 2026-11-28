@@ -29,7 +29,7 @@ export default function DefaultSearchDialog(props: SharedProps) {
   )
   return (
     <SearchDialog {...search} {...props}>
-      <SearchDialogOverlay className="bg-ink/45 backdrop-blur-none" />
+      <SearchDialogOverlay className="bg-scrim backdrop-blur-none" />
       <SearchDialogContent className="top-3 w-[calc(100%-24px)] max-w-none border-rule bg-card md:top-20 md:w-[600px]">
         <SearchDialogHeader className="gap-3 py-2 pr-2 pl-4">
           <SearchDialogIcon className="size-4" />

@@ -48,7 +48,7 @@ Wire it in Tailwind v4 with the shadcn convention: declare base and semantic val
 
 ## Type
 
-- Three families only; there is no fourth (workspace numerals are mono). The `--font-tu-*` variables in `:root` hold the stacks; `@theme` maps them to `font-display`, `font-sans` and `font-mono`. `display` (Archivo Variable, weight 900, width 125%, uppercase) for headlines at `display-xl` / `display-lg`. `sans` (DM Sans) for body: `text-base`, `text-sm`, `text-caption`. `mono` (IBM Plex Mono) for labels, nav, keycaps and code: `label` is uppercase and letter-spaced.
+- Three families only; there is no fourth (workspace numerals are mono). The `--font-tu-*` variables in `:root` hold the stacks; `@theme` maps them to `font-display`, `font-sans` and `font-mono`. `display` (Archivo Variable) is for headlines, `sans` (DM Sans) for body text, `mono` (IBM Plex Mono) for labels, nav, keycaps and code. The text styles below bundle them.
 - Write the name lowercase, `tauler`; the capitals come from the display style.
 - Letter-spacing is part of a text style, never a separate token or an arbitrary `tracking-[…]`. Sizing (`w-*`, `max-w-*`, flex bases) is exempt; font sizes and spacing are not.
 - The fonts are loaded from npm (`@fontsource`), not vendored.
@@ -63,7 +63,7 @@ Five custom utilities in `global.css` (`@utility`), each bundling family, size, 
 | `text-heading` | Archivo 900, width 125%, uppercase, 24px | Section headings |
 | `text-body` | DM Sans 400, 16px | Body text |
 | `text-label` | IBM Plex Mono 500, uppercase, 12px, 0.1em tracking | Header, footer, buttons, breadcrumb, title bars, group labels, table heads |
-| `text-code` | IBM Plex Mono 400, 14px | Code, table of contents |
+| `text-code` | IBM Plex Mono 400, 14px | Code |
 
 `text-sm` (14px), `text-xl` (20px, page lead) and `text-caption` (11px, fine print that is not a label) stay as plain sizes. `text-xs` is deliberately not redefined: it stays Tailwind's 12px, because Fumadocs' search dialog uses it and 11px muted DM Sans is too small to read there.
 
@@ -73,7 +73,7 @@ Five custom utilities in `global.css` (`@utility`), each bundling family, size, 
 - `radius` is 0, so every shadcn `rounded-*` is square. The one exception is keycaps (`radius-key`, 4px).
 - Borders: heavy (2px) for top-level tiles, the header and footer rules, and controls; thin (1px) for anything nested inside a tile: sub-windows, mini windows, callouts such as alerts, and separators. Heavy is Tailwind's default width here (`--default-border-width` in `global.css`), so a plain `border`, `border-t` or `border-b` is heavy, in shadcn components too. Thin is `border-thin` (and `border-t-thin` and the like). Both widths are variables, `--border-width-heavy` and `--border-width-thin`. No other widths, except the keycap's 3px foot.
 - The framed `.sub` panel is for code blocks and callouts only; navigation never uses it. The sidebar is flat: mono group labels with a hairline, 36px rows, and the current page in bold ink with a 2px orange left edge instead of an orange fill.
-- No shadows or gradients, and that includes third-party components: the search dialog's shadow is removed in `global.css`. Depth is rules and the 4px checker hatch (`line` on `page`, or `orange-deep` on `orange` when focused); the hatch is 4px everywhere.
+- No shadows or gradients, and that includes third-party components: the search dialog's shadow is removed in `global.css`. Depth is rules and the 4px checker hatch (`line` on `page`, or `orange-deep` on `orange` when focused); the hatch is 4px everywhere. One exception: below 768px a gradient mask fades the wallpaper band and a `page`-coloured halo surrounds the title and lead, both only to keep text legible (see Narrow screens).
 - Tiles: a `card` panel with a heavy `rule` frame and a hatched title bar holding a `text-label` title. The focused tile gets an orange frame and bar. **Exception:** the orange frame on the light page is 2.96:1, under the 3:1 border rule. The frame is not the only cue: the lit tile also has the orange title bar and its text, and the frame passes in dark, so it is exempt. Do not use `orange-ink` for it; that would turn a bright accent into a dull one.
 
 ## Logo

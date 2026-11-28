@@ -42,7 +42,7 @@ export function DocsMenu({ groups }: { groups: NavGroup[] }) {
         <Icon icon={Menu} />
       </Dialog.Trigger>
       <Dialog.Portal>
-        <Dialog.Backdrop className="fixed inset-0 z-50 bg-ink/45 md:hidden" />
+        <Dialog.Backdrop className="fixed inset-0 z-50 bg-scrim md:hidden" />
         <Dialog.Popup className="fixed inset-y-0 right-0 z-50 flex w-[min(320px,85%)] flex-col border-l border-rule bg-card outline-none md:hidden">
           <div className="bar relative">
             <Dialog.Title className="tt m-0 text-label font-semibold">
