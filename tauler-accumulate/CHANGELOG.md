@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.13.0](https://github.com/kantord/tauler/compare/tauler-accumulate-v0.12.0...tauler-accumulate-v0.13.0) - 2026-11-28
+
+### Added
+
+- add useDispatch and useService, alias useEvents and Module ([#865](https://github.com/kantord/tauler/pull/865))
+
+### Fixed
+
+- *(deps)* update rust crate clap to v4.6.10 ([#902](https://github.com/kantord/tauler/pull/902))
+- *(deps)* update rust crate clap to v4.6.9 ([#869](https://github.com/kantord/tauler/pull/869))
+- *(deps)* update rust crate clap to v4.6.8 ([#847](https://github.com/kantord/tauler/pull/847))
+
 ## [0.11.3](https://github.com/kantord/tauler/compare/tauler-accumulate-v0.11.2...tauler-accumulate-v0.11.3) - 2026-11-15
 
 ### Other

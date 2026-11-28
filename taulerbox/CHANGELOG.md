@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.13.0](https://github.com/kantord/tauler/compare/taulerbox-v0.12.0...taulerbox-v0.13.0) - 2026-11-28
+
+### Added
+
+- add useDispatch and useService, alias useEvents and Module ([#865](https://github.com/kantord/tauler/pull/865))
+
+### Fixed
+
+- *(deps)* update rust crate clap to v4.6.10 ([#902](https://github.com/kantord/tauler/pull/902))
+- *(deps)* update patch updates ([#893](https://github.com/kantord/tauler/pull/893))
+- *(deps)* update rust crate clap to v4.6.9 ([#869](https://github.com/kantord/tauler/pull/869))
+- *(deps)* update rust crate clap to v4.6.8 ([#847](https://github.com/kantord/tauler/pull/847))
+
+### Other
+
+- *(deps)* update debian:trixie docker digest to 3cda3ca ([#879](https://github.com/kantord/tauler/pull/879))
+- remove dead code, lint all targets, check unused deps in CI ([#853](https://github.com/kantord/tauler/pull/853))
+- *(deps)* update docker/dockerfile:1 docker digest to 572cebb ([#850](https://github.com/kantord/tauler/pull/850))
+
 ## [0.12.0](https://github.com/kantord/tauler/compare/taulerbox-v0.11.3...taulerbox-v0.12.0) - 2026-11-18
 
 ### Added

@@ -7,6 +7,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.13.0](https://github.com/kantord/tauler/compare/tauler-v0.12.0...tauler-v0.13.0) - 2026-11-28
+
+### Added
+
+- add useDispatch and useService, alias useEvents and Module ([#865](https://github.com/kantord/tauler/pull/865))
+- support component-scoped state ([#854](https://github.com/kantord/tauler/pull/854))
+
+### Fixed
+
+- *(deps)* update rust crate clap to v4.6.10 ([#902](https://github.com/kantord/tauler/pull/902))
+- *(deps)* update rust crate jsonschema to v0.63.1 ([#892](https://github.com/kantord/tauler/pull/892))
+- *(deps)* update oxc crates to v0.160.0 ([#896](https://github.com/kantord/tauler/pull/896))
+- *(deps)* update patch updates ([#893](https://github.com/kantord/tauler/pull/893))
+- *(deps)* update rust crate jsonschema to v0.62.0 ([#881](https://github.com/kantord/tauler/pull/881))
+- *(deps)* update rust crate notify to v9 ([#883](https://github.com/kantord/tauler/pull/883))
+- *(deps)* update takumi crates ([#871](https://github.com/kantord/tauler/pull/871))
+- *(deps)* update rust crate zbus to v6.5.0 ([#876](https://github.com/kantord/tauler/pull/876))
+- *(deps)* update takumi crates ([#874](https://github.com/kantord/tauler/pull/874))
+- *(deps)* update rust crate clap to v4.6.9 ([#869](https://github.com/kantord/tauler/pull/869))
+- *(deps)* update rust crate zbus to v6.4.0 ([#870](https://github.com/kantord/tauler/pull/870))
+- *(deps)* bump url to 2.5.9 for RUSTSEC-2026-0592 ([#863](https://github.com/kantord/tauler/pull/863))
+
+### Other
+
+- *(deps)* update rust crate rstest to v0.29.0 ([#891](https://github.com/kantord/tauler/pull/891))
+- avoid double-caching charts ([#875](https://github.com/kantord/tauler/pull/875))
+- restructure the data docs around who holds the state ([#866](https://github.com/kantord/tauler/pull/866))
+- *(bench)* count instructions and allocations per stage ([#864](https://github.com/kantord/tauler/pull/864))
+- *(deps)* update rust crate regex to v1.13.2 ([#858](https://github.com/kantord/tauler/pull/858))
+- say what a key means, once, for every place that takes one ([#857](https://github.com/kantord/tauler/pull/857))
+- *(state)* make the test-only StateStore::len crate-private ([#856](https://github.com/kantord/tauler/pull/856))
+- remove dead code, lint all targets, check unused deps in CI ([#853](https://github.com/kantord/tauler/pull/853))
+
 ## [0.12.0](https://github.com/kantord/tauler/compare/tauler-v0.11.3...tauler-v0.12.0) - 2026-11-18
 
 ### Added
