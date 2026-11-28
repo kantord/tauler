@@ -236,8 +236,13 @@ fn stylesheet_input(font_url: &str) -> String {
    asks the browser for, and the table takumi vendors a copy of. */
 @import "tailwindcss/theme.css" layer(tauler.theme);
 /* `source(none)`: only the classes the components render, not every class name in the
-   site's source tree. */
-@import "tailwindcss/utilities.css" layer(tauler.utilities) source(none);
+   site's source tree. Scoped to the previews: these layers outrank the site's own, so
+   an unscoped `.flex` would beat the site's responsive `max-md:hidden`. */
+@layer tauler.utilities {{
+  .tauler-mount {{
+    @tailwind utilities source(none);
+  }}
+}}
 @source "./classes.txt";
 
 /* The embed sits inside the site's article (`.tu .art`), whose descendant rules would
@@ -444,11 +449,7 @@ mod tests {
             .expect("layer order");
         let reset = css.find("@layer tauler.reset {").expect("reset block");
         assert!(order < reset);
-        assert!(
-            css.find("@import \"tailwindcss/utilities.css\"")
-                .expect("import")
-                < reset
-        );
+        assert!(css.find("@tailwind utilities").expect("utilities") < reset);
     }
 
     /// Without `source(none)` Tailwind also scans the docs tree, and the preview stylesheet
@@ -457,10 +458,21 @@ mod tests {
     fn the_utilities_come_from_the_harvested_classes_only() {
         let css = stylesheet_input("/f.ttf");
         assert!(
-            css.contains("layer(tauler.utilities) source(none);"),
+            css.contains("@tailwind utilities source(none);"),
             "got {css}"
         );
         assert!(css.contains("@source \"./classes.txt\";"), "got {css}");
+    }
+
+    /// The stylesheet is linked into the whole page, in layers above the site's own. An
+    /// unscoped `.flex` would beat the site's responsive `max-md:hidden`.
+    #[test]
+    fn the_utilities_reach_only_inside_a_preview() {
+        let css = stylesheet_input("/f.ttf");
+        assert!(
+            css.contains(".tauler-mount {\n    @tailwind utilities source(none);"),
+            "got {css}"
+        );
     }
 
     /// Preflight resets the whole document, and this stylesheet is linked site-wide — it
