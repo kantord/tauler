@@ -14,7 +14,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Validate renovate.json
-        run: npx --yes --package renovate@44.257.9 renovate-config-validator --strict renovate.json
+        run: npx --yes --package renovate@44.262.2 renovate-config-validator --strict renovate.json
 
   lint:
     runs-on: ubuntu-latest
