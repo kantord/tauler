@@ -48,25 +48,24 @@ Wire it in Tailwind v4 with the shadcn convention: declare base and semantic val
 
 ## Type
 
-- Three families only; there is no fourth (workspace numerals are mono). The `--font-tu-*` variables in `:root` hold the stacks; `@theme` maps them to `font-display`, `font-sans` and `font-mono`. `display` (Archivo Variable, weight 900, width 125%, uppercase) for headlines at `display-xl` / `display-lg`. `sans` (DM Sans) for body: `text-base`, `text-sm`, `text-caption`. `mono` (IBM Plex Mono) for labels, nav, keycaps and code: `label` is uppercase and letter-spaced.
+- Three families only; there is no fourth (workspace numerals are mono). The `--font-tu-*` variables in `:root` hold the stacks; `@theme` maps them to `font-display`, `font-sans` and `font-mono`. `display` (Archivo Variable) is for headlines, `sans` (DM Sans) for body text, `mono` (IBM Plex Mono) for labels, nav, keycaps and code. The text styles below bundle them.
 - Write the name lowercase, `tauler`; the capitals come from the display style.
-- Letter-spacing has two tokens, `tracking-label` (0.08em: header, footer, buttons) and `tracking-label-wide` (0.1em: breadcrumb). No arbitrary `tracking-[…]`. Sizing (`w-*`, `max-w-*`, flex bases) is exempt; font sizes and spacing are not.
+- Letter-spacing is part of a text style, never a separate token or an arbitrary `tracking-[…]`. Sizing (`w-*`, `max-w-*`, flex bases) is exempt; font sizes and spacing are not.
 - The fonts are loaded from npm (`@fontsource`), not vendored.
 
-### Type scale
+### Text styles
 
-Defined in `@theme` in `global.css`; use these utilities, never `text-[Npx]`. `text-xs` is deliberately not redefined: it stays Tailwind's 12px, because Fumadocs' search dialog uses it (result breadcrumbs, group headers, filter chips) and 11px muted DM Sans is too small to read there. Our own 11px step has its own name, `text-caption`.
+Five custom utilities in `global.css` (`@utility`), each bundling family, size, weight, case and letter-spacing. Colour and line-height stay with the element. Use these; never `text-[Npx]` or `tracking-*`. `cn()` (`src/lib/utils.ts`) registers them as font styles so tailwind-merge does not read them as colours.
 
-| Style | Size | Utility | Use |
-| --- | --- | --- | --- |
-| `caption` | 11px | `text-caption` | Group labels, table heads, fine print |
-| `label` | 12px | `text-label` | Mono labels, buttons, header and footer |
-| `label-strong` | 13px | `text-label-strong` | Title bars, table of contents |
-| `text-sm` | 14px | `text-sm` | Navigation, code, tables, inline code, callouts |
-| `text-base` | 16px | `text-base` | Body text |
-| lead | 20px | `text-xl` | Page lead |
-| `display-lg` | 24px | `text-display-lg` | Section headings |
-| `display-xl` | 40 to 64px (`clamp`) | `text-display-xl` | Page title |
+| Utility | Style | Use |
+| --- | --- | --- |
+| `text-display` | Archivo 900, width 125%, uppercase, 40 to 64px (`clamp`) | Page title |
+| `text-heading` | Archivo 900, width 125%, uppercase, 24px | Section headings |
+| `text-body` | DM Sans 400, 16px | Body text |
+| `text-label` | IBM Plex Mono 500, uppercase, 12px, 0.1em tracking | Header, footer, buttons, breadcrumb, title bars, group labels, table heads |
+| `text-code` | IBM Plex Mono 400, 14px | Code |
+
+`text-sm` (14px), `text-xl` (20px, page lead) and `text-caption` (11px, fine print that is not a label) stay as plain sizes. `text-xs` is deliberately not redefined: it stays Tailwind's 12px, because Fumadocs' search dialog uses it and 11px muted DM Sans is too small to read there.
 
 ## Shape and spacing
 
@@ -74,8 +73,8 @@ Defined in `@theme` in `global.css`; use these utilities, never `text-[Npx]`. `t
 - `radius` is 0, so every shadcn `rounded-*` is square. The one exception is keycaps (`radius-key`, 4px).
 - Borders: heavy (2px) for top-level tiles, the header and footer rules, and controls; thin (1px) for anything nested inside a tile: sub-windows, mini windows, callouts such as alerts, and separators. Heavy is Tailwind's default width here (`--default-border-width` in `global.css`), so a plain `border`, `border-t` or `border-b` is heavy, in shadcn components too. Thin is `border-thin` (and `border-t-thin` and the like). Both widths are variables, `--border-width-heavy` and `--border-width-thin`. No other widths, except the keycap's 3px foot.
 - The framed `.sub` panel is for code blocks and callouts only; navigation never uses it. The sidebar is flat: mono group labels with a hairline, 36px rows, and the current page in bold ink with a 2px orange left edge instead of an orange fill.
-- No shadows or gradients, and that includes third-party components: the search dialog's shadow is removed in `global.css`. Depth is rules and the 4px checker hatch (`line` on `page`, or `orange-deep` on `orange` when focused); the hatch is 4px everywhere.
-- Tiles: a `card` panel with a heavy `rule` frame and a hatched title bar holding a `label-strong` mono title. The focused tile gets an orange frame and bar. **Exception:** the orange frame on the light page is 2.96:1, under the 3:1 border rule. The frame is not the only cue: the lit tile also has the orange title bar and its text, and the frame passes in dark, so it is exempt. Do not use `orange-ink` for it; that would turn a bright accent into a dull one.
+- No shadows or gradients, and that includes third-party components: the search dialog's shadow is removed in `global.css`. Depth is rules and the 4px checker hatch (`line` on `page`, or `orange-deep` on `orange` when focused); the hatch is 4px everywhere. One exception: below 768px a gradient mask fades the wallpaper band and a `page`-coloured halo surrounds the title and lead, both only to keep text legible (see Narrow screens).
+- Tiles: a `card` panel with a heavy `rule` frame and a hatched title bar holding a `text-label` title. The focused tile gets an orange frame and bar. **Exception:** the orange frame on the light page is 2.96:1, under the 3:1 border rule. The frame is not the only cue: the lit tile also has the orange title bar and its text, and the frame passes in dark, so it is exempt. Do not use `orange-ink` for it; that would turn a bright accent into a dull one.
 
 ## Logo
 
@@ -140,3 +139,14 @@ A bright brand colour is a fill. Text, link hovers and focus rings use its text-
    lightness.
 3. Check every text pair on `page` and `raised` in both themes: `ink` 7:1, `ink-muted`, `red` and
    `orange-ink` 4.5:1, `rule` 3:1.
+
+## Narrow screens
+
+- Below 768px the header keeps the logo, a search icon button, a GitHub icon button and the menu button (right end), each a 40px square. From 768px it has the site links (the current one with an orange edge under it, never a fill), the search field (centred from 1024px), "Star on GitHub" and the theme button; once content scrolls beneath it a faint 4px checker hatch hangs under its rule.
+- The menu opens a drawer from the right: a "contents" title bar with a close button, "Star on GitHub" beside a two-way sun and moon switch, then the site links and the contents. The header stays visible beside it.
+- "On this page" is a heading bar under the page's lead: a left-aligned keycap button until it sticks, then a full-width strip with a progress ring and the heading being read. It sticks at `top: 57px`, because the header drops from a 2px to a 1px bottom rule while the bar is stuck (58px to 57px). The bar keeps one height in both states so sticking moves no content.
+- Below 640px the article is frameless with 16px side padding. From 640px it is a tile with 32px padding; from 768px (with the sidebar docked) 24px, and 32px again from 1024px.
+- Below 768px the wallpaper is only a band about 270px tall behind the title, faded from the top right, and the title and lead carry a page-coloured halo. Both exist only for legibility over the wallpaper.
+- From 768px the contents and "on this page" are two sticky tiles in one column (204 to 248px wide, `clamp(204px, 24vw, 248px)`): the contents take the height that is left, "on this page" at most half. From 1024px "on this page" is a right-hand tile of up to 300px. A contents title too long for its row ends in an ellipsis.
+- The "on this page" list, docked or dropdown, is a 2px `line` rail with link rows (32px docked, 40px dropdown); sub-headings are stepped in and muted; the heading being read is bold and its rail orange.
+- The search dialog is 600px wide and 80px from the top from 768px, and 12px from the edges on a phone. A result is a title, its path and one line of text.

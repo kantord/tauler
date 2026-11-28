@@ -22,6 +22,9 @@
   /* Height of the sticky site header on a wide screen (one row: 40px
      controls, 8px padding top and bottom, 2px rule). */
   --tu-header-h: 58px;
+  /* Below 768px, while the heading bar is stuck under it, the header's rule
+     is 1px. */
+  --tu-header-stuck-h: 57px;
   --page: oklch(0.919 0.008 91.5);
   --raised: oklch(0.961 0.005 95.1);
   --ink: oklch(0.178 0 0);
@@ -132,16 +135,14 @@
    variables the rules below read. */
 @theme {
   --text-caption: 0.6875rem; /* 11: our own fine print; text-xs stays Tailwind's 12 for Fumadocs */
-  --text-label: 0.75rem; /* 12: mono labels, buttons */
-  --text-label-strong: 0.8125rem; /* 13: title bars */
   --text-sm: 0.875rem; /* 14 */
   --text-base: 1rem; /* 16 */
   --text-xl: 1.25rem; /* 20: lead */
-  --text-display-lg: 1.5rem; /* 24 */
-  --text-display-xl: clamp(2.5rem, 4.4vw, 4rem); /* 40 to 64 */
   --width-page: 1320px;
-  --tracking-label: 0.08em; /* header, footer, buttons */
-  --tracking-label-wide: 0.1em; /* breadcrumb */
+  /* Behind a drawer or dialog. Black in both themes: `ink` is nearly white
+     in dark, and would lighten the page. */
+  --color-scrim: oklch(0 0 0 / 0.45);
+  --radius-key: 4px; /* keycaps */
   /* Border widths. The default is the heavy rule, so a shadcn `border` is heavy
      with no component edit; `border-thin` (and `border-t-thin` ...) is the
      nested 1px rule. These keys also generate `border-heavy` and the side
@@ -153,6 +154,45 @@
 
 @utility max-w-page {
   max-width: var(--width-page);
+}
+
+/* The five text styles. Each bundles family, size, weight, case and letter-
+   spacing; colour and line-height stay with the element. Letter-spacing lives
+   here and nowhere else: there are no tracking tokens. */
+@utility text-display {
+  font-family: var(--font-tu-display);
+  font-size: clamp(2.5rem, 4.4vw, 4rem); /* 40 to 64 */
+  font-weight: 900;
+  font-stretch: 125%;
+  text-transform: uppercase;
+  letter-spacing: -0.01em;
+}
+@utility text-heading {
+  font-family: var(--font-tu-display);
+  font-size: 1.5rem; /* 24 */
+  font-weight: 900;
+  font-stretch: 125%;
+  text-transform: uppercase;
+  letter-spacing: 0;
+}
+@utility text-body {
+  font-family: var(--font-tu-text);
+  font-size: 1rem; /* 16 */
+  font-weight: 400;
+  letter-spacing: 0;
+}
+@utility text-label {
+  font-family: var(--font-tu-mono);
+  font-size: 0.75rem; /* 12 */
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+}
+@utility text-code {
+  font-family: var(--font-tu-mono);
+  font-size: 0.875rem; /* 14 */
+  font-weight: 400;
+  letter-spacing: 0;
 }
 
 @theme inline {
@@ -253,8 +293,10 @@ html > body[data-scroll-locked] {
   [role='dialog'] * {
     border-radius: 0;
   }
-  .tu kbd {
-    border-radius: 4px;
+  /* Repeated here, after the rule above, which beats the utility. */
+  .tu kbd,
+  .tu .rounded-key {
+    border-radius: var(--radius-key);
   }
   /* No shadows. */
   [role='dialog'] {
@@ -294,7 +336,7 @@ html > body[data-scroll-locked] {
   }
   .tu kbd {
     font-family: var(--font-tu-mono);
-    font-size: var(--text-label);
+    font-size: var(--text-xs);
     font-weight: 600;
     display: inline-block;
     padding: 4px 8px;
@@ -349,11 +391,8 @@ html > body[data-scroll-locked] {
       repeating-conic-gradient(var(--line) 0 25%, transparent 0 50%) 0 0/4px 4px,
       var(--page);
     color: var(--ink-muted);
-    font-family: var(--font-tu-mono);
-    font-size: var(--text-label-strong);
+    @apply text-label;
     font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.12em;
     flex: none;
   }
   .tu .tt {
@@ -437,7 +476,7 @@ html > body[data-scroll-locked] {
       var(--raised);
     color: var(--ink-muted);
     font-family: var(--font-tu-mono);
-    font-size: var(--text-label);
+    font-size: var(--text-xs);
     font-weight: 500;
     text-align: center;
   }
@@ -447,10 +486,7 @@ html > body[data-scroll-locked] {
     display: flex;
     align-items: center;
     gap: 12px;
-    font-family: var(--font-tu-mono);
-    font-size: var(--text-label);
-    text-transform: uppercase;
-    letter-spacing: 0.1em;
+    @apply text-label;
     color: var(--ink-muted);
     margin: 48px 0 12px;
     scroll-margin-top: calc(var(--tu-header-h) + 12px);
@@ -507,15 +543,9 @@ html > body[data-scroll-locked] {
     overflow-x: auto;
   }
 
-  /* Wide screens: the side tiles stay in view while the article scrolls, and
-     scroll on their own when they are taller than the window. Narrow screens
-     stack the tiles, so there they scroll with the page. */
+  /* From 768px the side tiles sit in sticky columns (DocsTiles) and scroll on
+     their own when they are taller than the window. */
   @media (min-width: 768px) {
-    .tu .tile.side {
-      position: sticky;
-      top: calc(var(--tu-header-h) + 12px);
-      max-height: calc(100vh - var(--tu-header-h) - 24px);
-    }
     .tu .tile.side > .scroll {
       min-height: 0;
       overflow-y: auto;
@@ -541,7 +571,7 @@ html > body[data-scroll-locked] {
       var(--raised);
     color: var(--ink-muted);
     font-family: var(--font-tu-mono);
-    font-size: var(--text-label);
+    font-size: var(--text-xs);
     font-weight: 500;
     text-align: center;
   }
@@ -552,7 +582,8 @@ html > body[data-scroll-locked] {
     display: flex;
     align-items: center;
     width: 100%;
-    min-height: 36px;
+    height: 36px;
+    white-space: nowrap;
     padding: 2px 12px;
     color: var(--ink);
     font-family: var(--font-tu-text);
@@ -578,10 +609,7 @@ html > body[data-scroll-locked] {
     gap: 12px;
     height: 64px;
     padding: 28px 12px 0;
-    font-family: var(--font-tu-mono);
-    font-size: var(--text-caption);
-    text-transform: uppercase;
-    letter-spacing: 0.12em;
+    @apply text-label;
     color: var(--ink-muted);
   }
   .tu nav > div:first-child > .grp {
@@ -601,14 +629,10 @@ html > body[data-scroll-locked] {
     align-items: center;
     gap: 4px;
     min-height: 40px;
-    padding: 4px 48px;
+    padding: 4px 24px;
     border-bottom: var(--border-width-thin) solid var(--line);
     background: var(--card);
-    font-family: var(--font-tu-mono);
-    font-size: var(--text-label);
-    font-weight: 500;
-    letter-spacing: var(--tracking-label-wide);
-    text-transform: uppercase;
+    @apply text-label;
   }
   .tu .crumb {
     display: inline-flex;
@@ -627,22 +651,6 @@ html > body[data-scroll-locked] {
   }
   .tu .crumbs .sep {
     color: var(--ink-muted);
-  }
-  .tu .toc a {
-    display: block;
-    padding: 8px 16px;
-    font-family: var(--font-tu-mono);
-    font-size: var(--text-label-strong);
-    text-decoration: none;
-    color: var(--ink-muted);
-    border-left: var(--border-width-heavy) solid transparent;
-  }
-  .tu .toc a.depth-3 {
-    padding-left: 24px;
-  }
-  .tu .toc a:hover {
-    color: var(--orange-ink);
-    border-left-color: var(--orange);
   }
   .tu .pn {
     display: flex;
@@ -669,30 +677,54 @@ html > body[data-scroll-locked] {
     display: inline-flex;
     align-items: center;
     gap: 4px;
-    font-family: var(--font-tu-mono);
-    font-size: var(--text-caption);
-    font-weight: 500;
-    text-transform: uppercase;
-    letter-spacing: 0.1em;
+    @apply text-label;
     color: var(--ink-muted);
   }
 
   /* ── Article ───────────────────────────────────────────────────────────── */
 
   .tu .art {
-    padding: 48px;
+    padding: 16px;
     max-width: 780px;
   }
+  @media (max-width: 639px) {
+    .tu .art {
+      padding: 28px 16px 32px;
+    }
+    .tu .art h1,
+    .tu .art h2 {
+      overflow-wrap: anywhere;
+    }
+  }
+  @media (min-width: 640px) {
+    .tu .art {
+      padding: 32px;
+    }
+  }
+  @media (min-width: 768px) {
+    .tu .art {
+      padding: 24px;
+    }
+  }
+  @media (min-width: 1024px) {
+    .tu .art {
+      padding: 32px;
+    }
+  }
   .tu .art h1 {
+    @apply text-display;
     margin: 0 0 16px;
-    font-size: var(--text-display-xl);
+  }
+  /* After the rule above, which it overrides. Archivo at 125% width runs wide:
+     a single word like "COMPONENTS" at the design's 40px floor is wider than a
+     phone's column. */
+  @media (max-width: 639px) {
+    .tu .art h1 {
+      font-size: 8vw;
+    }
   }
   .tu .art h2 {
-    font-family: var(--font-tu-display);
-    font-weight: 900;
-    font-stretch: 125%;
-    text-transform: uppercase;
-    font-size: var(--text-display-lg);
+    @apply text-heading;
     line-height: 1.1;
     margin: 48px 0 16px;
     scroll-margin-top: calc(var(--tu-header-h) + 24px);
@@ -704,6 +736,53 @@ html > body[data-scroll-locked] {
     font-weight: 600;
     margin: 28px 0 8px;
     scroll-margin-top: calc(var(--tu-header-h) + 24px);
+  }
+  @media (max-width: 767px) {
+    .tu .art h2,
+    .tu .art h3,
+    .tu .art h4 {
+      scroll-margin-top: calc(var(--tu-header-h) + 64px);
+    }
+    /* On a phone the wallpaper is only a band behind the title, thickest at
+       the top right and gone before the body text. The title and lead carry a
+       page-coloured halo so the dither never fights the letters. Both are for
+       legibility only (see DESIGN.md). */
+    .tu .tu-wall-band {
+      bottom: auto;
+      height: 270px;
+      opacity: 0.75;
+      filter: saturate(1.5) contrast(1.1);
+      mask-image:
+        radial-gradient(150% 140% at 100% 0%, black 20%, transparent 100%),
+        linear-gradient(black 20%, transparent);
+      mask-composite: intersect;
+    }
+    .tu .art h1 {
+      margin-bottom: 32px;
+    }
+    .tu .art h1,
+    .tu .art .lead {
+      /* A filter, not text-shadow: a line's text-shadow paints over the
+         line above it in a title that wraps. */
+      filter: drop-shadow(0 0 6px var(--page)) drop-shadow(0 0 14px var(--page))
+        drop-shadow(0 0 20px var(--page));
+    }
+  }
+  /* From 768px there is no heading bar, so once content scrolls beneath the
+     header a 4px checker hatch hangs under its rule, the system's stand-in
+     for a shadow. */
+  @media (min-width: 768px) {
+    html[data-scrolled] .tu-header::after {
+      content: '';
+      position: absolute;
+      left: 0;
+      right: 0;
+      top: 100%;
+      height: 4px;
+      background: repeating-conic-gradient(var(--ink) 0 25%, transparent 0 50%)
+        0 0/4px 4px;
+      opacity: 0.35;
+    }
   }
   .tu .art p {
     font-size: var(--text-base);
@@ -809,11 +888,8 @@ html > body[data-scroll-locked] {
     background: var(--raised);
   }
   .tu th {
-    font-family: var(--font-tu-mono);
-    font-size: var(--text-caption);
+    @apply text-label;
     font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.1em;
     color: var(--ink-muted);
     text-align: left;
     padding: 8px 16px;
@@ -828,20 +904,6 @@ html > body[data-scroll-locked] {
   }
   .tu tr:last-child td {
     border-bottom: 0;
-  }
-
-  @media (max-width: 640px) {
-    .tu .art {
-      padding: 28px 20px 32px;
-    }
-    /* Archivo at 125% width runs wide: a single word like "COMPONENTS" at the
-       design's 40px floor is wider than a phone's column. */
-    .tu .art h1 {
-      font-size: 8vw;
-    }
-    .tu .art :is(h1, h2) {
-      overflow-wrap: anywhere;
-    }
   }
 
   /* Temporary: the home page's path-traced background (room/) is

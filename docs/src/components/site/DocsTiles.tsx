@@ -3,31 +3,22 @@ import Link from 'next/link'
 import { Icon } from '@/components/ui/icon'
 import type { ReactNode } from 'react'
 import type * as PageTree from 'fumadocs-core/page-tree'
+import { DocsNav, groupsOf, type NavGroup } from './DocsNav'
+import { DockedToc, HeadingBar } from './Toc'
 import { findNeighbour } from 'fumadocs-core/page-tree'
 import type { TOCItemType } from 'fumadocs-core/toc'
 
-type Group = { label?: string; items: PageTree.Item[] }
-
-/** The sidebar tree as the design groups it: separators become labels. */
-function groupsOf(tree: PageTree.Root): Group[] {
-  const groups: Group[] = [{ items: [] }]
-  for (const node of tree.children) {
-    if (node.type === 'separator')
-      groups.push({ label: String(node.name ?? ''), items: [] })
-    else if (node.type === 'page') groups.at(-1)!.items.push(node)
-  }
-  return groups.filter((g) => g.items.length > 0)
-}
-
 /** The label of the group holding the page, for the breadcrumb. */
-function groupLabel(groups: Group[], url: string): string | undefined {
+function groupLabel(groups: NavGroup[], url: string): string | undefined {
   return groups.find((g) => g.items.some((i) => i.url === url))?.label
 }
 
 /**
- * A docs page laid out as three tiles — contents, the article, on this page —
- * under a breadcrumb. The design's flex-wrap is its responsive behaviour:
- * the side tiles drop below or above the article as the viewport narrows.
+ * A docs page laid out as three tiles — contents, the article, on this page.
+ * From 1024px all three sit in a row; from 768px the contents and "on this
+ * page" are two sticky tiles in one left column; below 768px the contents are
+ * the header's drawer (DocsMenu) and "on this page" is the heading bar under
+ * the page's lead. Below 640px the article is frameless.
  */
 export function DocsTiles({
   tree,
@@ -50,39 +41,33 @@ export function DocsTiles({
   const headings = toc.filter((t) => t.depth <= 3)
 
   return (
-    <div className="mx-auto w-full max-w-page px-6 pt-7 pb-16">
-      <div className="flex flex-wrap items-start gap-3">
-        <aside
-          aria-label="Contents"
-          className="tile side max-w-[280px] flex-[1_1_230px] max-md:max-w-none"
-        >
-          <div className="bar">
-            <span className="tt">contents</span>
-          </div>
-          <nav aria-label="Docs" className="scroll px-2 pb-4">
-            {groups.map((g, i) => (
-              <div key={g.label ?? i}>
-                {g.label && <div className="grp">{g.label}</div>}
-                {g.items.map((item) => (
-                  <Link
-                    key={item.url}
-                    href={item.url}
-                    className="nav"
-                    aria-current={item.url === url ? 'page' : undefined}
-                  >
-                    {item.name}
-                  </Link>
-                ))}
+    <div className="mx-auto w-full max-w-page pb-16 sm:px-6 sm:pt-3">
+      <div className="flex items-start gap-3">
+        <div className="sticky top-[calc(var(--tu-header-h)+12px)] flex h-[calc(100vh-var(--tu-header-h)-24px)] w-[clamp(204px,24vw,248px)] shrink-0 flex-col gap-3 max-md:hidden">
+          <aside aria-label="Contents" className="tile side min-h-0 flex-auto">
+            <div className="bar">
+              <span className="tt">contents</span>
+            </div>
+            <DocsNav groups={groups} url={url} />
+          </aside>
+          {headings.length > 0 && (
+            <aside
+              aria-label="On this page"
+              className="tile side max-h-1/2 shrink-0 lg:hidden"
+            >
+              <div className="bar">
+                <span className="tt">on this page</span>
               </div>
-            ))}
-          </nav>
-        </aside>
+              <DockedToc headings={headings} />
+            </aside>
+          )}
+        </div>
 
-        <main className="tile on flex-[999_1_560px]">
-          <div className="bar">
+        <main className="tile on min-w-0 flex-1 max-sm:border-0 max-sm:bg-transparent max-sm:outline-0">
+          <div className="bar max-sm:hidden">
             <span className="tt">{title}</span>
           </div>
-          <nav aria-label="Breadcrumb" className="crumbs">
+          <nav aria-label="Breadcrumb" className="crumbs max-md:hidden">
             <Link href="/docs/" className="crumb">
               docs
             </Link>
@@ -100,6 +85,7 @@ export function DocsTiles({
           <article className="art">
             <h1 className="h">{title}</h1>
             {description && <p className="lead">{description}</p>}
+            {headings.length > 0 && <HeadingBar headings={headings} />}
             {children}
             <div className="mt-12 grid grid-cols-[repeat(auto-fit,minmax(min(100%,220px),1fr))] gap-3">
               {previous ? (
@@ -129,18 +115,12 @@ export function DocsTiles({
         {headings.length > 0 && (
           <aside
             aria-label="On this page"
-            className="tile side max-w-[240px] flex-[1_1_200px] max-md:max-w-none"
+            className="tile side sticky top-[calc(var(--tu-header-h)+12px)] max-h-[calc(100vh-var(--tu-header-h)-24px)] w-[clamp(200px,20vw,300px)] shrink-0 max-lg:hidden"
           >
             <div className="bar">
               <span className="tt">on this page</span>
             </div>
-            <nav className="toc scroll py-2 pb-4" aria-label="On this page">
-              {headings.map((h) => (
-                <a key={h.url} href={h.url} className={`depth-${h.depth}`}>
-                  {h.title}
-                </a>
-              ))}
-            </nav>
+            <DockedToc headings={headings} />
           </aside>
         )}
       </div>

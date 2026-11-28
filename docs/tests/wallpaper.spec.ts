@@ -249,12 +249,14 @@ const CASES = [
     scroll: ['deep'],
   },
   {
-    path: '/docs/layout-file/',
+    // The docs pages paint only a faded band below 768px, so the phone-sized
+    // full-wallpaper case is the home page.
+    path: '/',
     width: 390,
     height: 844,
     dpr: 2,
     theme: 'dark',
-    scroll: [0, 2345.6],
+    scroll: [0],
   },
 ] as const
 

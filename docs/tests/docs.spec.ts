@@ -70,9 +70,16 @@ for (const route of ROUTES) {
   })
 }
 
+/** The contents nav: docked from 768px, in the menu drawer below it. */
+async function contentsNav(page: Page) {
+  const menu = page.getByRole('button', { name: 'Open menu' })
+  if (await menu.isVisible()) await menu.click()
+  return page.getByRole('navigation', { name: 'Docs' })
+}
+
 test('the contents tile links every page', async ({ page }) => {
   await page.goto('/docs/layout-file/')
-  const contents = page.getByRole('navigation', { name: 'Docs' })
+  const contents = await contentsNav(page)
   await expect(
     contents.getByRole('link', { name: 'Elements and styling' }),
   ).toBeVisible()
@@ -81,9 +88,19 @@ test('the contents tile links every page', async ({ page }) => {
   ).toHaveAttribute('aria-current', 'page')
 })
 
-test('the theme toggle switches between light and dark', async ({ page }) => {
+test('the theme control switches between light and dark', async ({ page }) => {
   await page.goto('/docs/layout-file/')
   const html = page.locator('html')
+  const menu = page.getByRole('button', { name: 'Open menu' })
+  if (await menu.isVisible()) {
+    // Below 768px: the drawer's two-way switch, covered in narrow-layout.
+    await menu.click()
+    await page.getByRole('button', { name: 'Dark mode' }).click()
+    await expect(html).toHaveClass(/dark/)
+    await page.getByRole('button', { name: 'Light mode' }).click()
+    await expect(html).toHaveClass(/light/)
+    return
+  }
   const toggle = page.getByRole('button', {
     name: /switch to (light|dark) mode/i,
   })
@@ -106,7 +123,7 @@ for (const path of ['/', '/docs/']) {
     await page.goto(path)
     const header = page.getByRole('banner')
     await expect(
-      header.getByRole('link', { name: 'tauler on GitHub' }),
+      header.getByRole('link', { name: 'Star on GitHub' }),
     ).toHaveAttribute('href', 'https://github.com/kantord/tauler')
     await expect(header.getByText(/focus:/i)).toHaveCount(0)
   })
@@ -146,16 +163,19 @@ test('separator entries group the flat sidebar, no sub-groups', async ({
   page,
 }) => {
   await page.goto('/docs/data/streams/')
-  const contents = page.getByRole('navigation', { name: 'Docs' })
+  const contents = await contentsNav(page)
   await expect(
     contents.getByText('Dynamic data', { exact: true }),
   ).toBeVisible()
   await expect(
     contents.getByText('State management', { exact: true }),
   ).toBeVisible()
-  await expect(
-    page.getByRole('navigation', { name: 'Breadcrumb' }),
-  ).toContainText('Dynamic data')
+  // The breadcrumb strip belongs to the article's tile, which is frameless
+  // (no title bar, no breadcrumb) below 768px.
+  if ((page.viewportSize()?.width ?? 0) >= 768)
+    await expect(
+      page.getByRole('navigation', { name: 'Breadcrumb' }),
+    ).toContainText('Dynamic data')
 })
 
 test('the header and the side tiles stay in view while the article scrolls', async ({

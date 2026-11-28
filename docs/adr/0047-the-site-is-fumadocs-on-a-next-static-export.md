@@ -175,3 +175,19 @@ rule lit every bar in the callout, the nested panel's too.
 
 The docs chrome (sidebar, table of contents, search dialog) and the tiles' title
 bars stay hand-built CSS: they are window chrome, not controls.
+
+## Amendment: narrow screens
+
+The chrome has three layouts by width (`DocsTiles.tsx`): below 768px the contents are a
+drawer opened from a header menu button and "on this page" is a heading bar that sticks
+under the header; from 768px the contents and "on this page" are two sticky tiles in one
+left column; from 1024px "on this page" moves to its own right-hand column. We built the
+drawer (Base UI's dialog, already a dependency) and the bar ourselves instead of
+adopting Fumadocs' sidebar and TOC primitives: the design's drawer, keycap bar and
+stuck strip share almost none of their markup, so adopting them would have meant
+overriding most of it, the cost this ADR chose to avoid by owning the chrome. The
+article is frameless below 640px.
+
+The search dialog stays Fumadocs', shaped by class names. Its result rows are ours
+(`src/lib/search-results.ts`): Fumadocs shows every matching block in full, the design
+one title, path and line of text per page or section.

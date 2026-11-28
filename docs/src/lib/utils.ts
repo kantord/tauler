@@ -13,13 +13,7 @@ export const cn = createCn({
     classGroups: {
       'font-size': [
         {
-          text: [
-            'caption',
-            'label',
-            'label-strong',
-            'display-lg',
-            'display-xl',
-          ],
+          text: ['caption', 'display', 'heading', 'body', 'label', 'code'],
         },
       ],
       'border-w': [{ border: ['heavy', 'thin'] }],
